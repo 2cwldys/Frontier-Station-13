@@ -1,0 +1,31 @@
+.theme-zenghu {
+  --color-base: #1f1527;
+  --color-primary: #272727;
+  --color-red: #991100;
+  --color-bad: #991100;
+  --base-gradient-spread: 6;
+
+  --button-background-default: #47354f;
+  --button-background-disabled: #363636;
+  --button-background-selected: #bb44cc;
+  --button-background-caution: #be6209;
+  --button-background-danger: #ad2727;
+
+  --input-border-color: #ffffff;
+  --input-border-color-focus: #ffffff;
+  --number-input-border-color: #ffffff;
+  --number-input-border-color-active: #ffffff;
+
+  --notice-box-background: #a681c1;
+  --notice-box-color: var(--color-text-fixed-white);
+  --progress-bar-background: rgba(0, 0, 0, 0.5);
+  --progress-bar-fill: #47354f;
+  --section-background: rgba(0, 0, 0, 0.33);
+  --section-separator-color: #272727;
+  --tooltip-background: #a681c1;
+  --titlebar-background: #121014;
+
+  .Layout__content {
+    background-image: url('../../assets/bg-zenghu.svg');
+  }
+}

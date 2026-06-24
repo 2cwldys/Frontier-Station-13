@@ -1,0 +1,64 @@
+/obj/effect/decal
+	layer = DECAL_LAYER
+
+/obj/effect/decal/tesla_act()
+	return
+
+/obj/effect/decal/point
+	name = "arrow"
+	desc = "It's an arrow hanging in mid-air. There may be a wizard about."
+	icon = 'icons/hud/mob/generic.dmi'
+	icon_state = "arrow"
+	layer = POINTER_LAYER
+	anchored = 1
+	mouse_opacity = MOUSE_OPACITY_TRANSPARENT
+
+// Used for spray that you spray at walls, tables, hydrovats etc
+/obj/effect/decal/spraystill
+	density = 0
+	anchored = 1
+	layer = PROJECTILE_LAYER
+
+//Used for imitating an object's sprite for decorative purposes.
+/obj/effect/decal/fake_object
+	name = "object"
+	icon = 'icons/obj/structures.dmi'
+	icon_state = "ladder11"
+	density = 0
+	anchored = 1
+	layer = OBJ_LAYER
+	mouse_opacity = MOUSE_OPACITY_ICON
+
+/obj/effect/decal/fake_object/assunzione_flag
+	name = "\improper Assunzione flag"
+	desc = "The flag of the Republic of Assunzione."
+	icon = 'icons/obj/structure/flags.dmi'
+	icon_state = "assunzione"
+
+// Fancy animated effect used for the holodecks.
+/obj/effect/decal/rolling_fog
+	name = "rolling fog"
+	icon = 'icons/effects/props/holodeck/biesel/32x32.dmi'
+	icon_state = "fog_roll"
+	anchored = 1
+	layer = ABOVE_PROJECTILE_LAYER
+
+/obj/effect/decal/fake_object/Initialize(mapload)
+	.=..()
+	appearance_flags &= ~TILE_BOUND
+
+/obj/effect/decal/fake_object/light_source
+	name = "light source"
+	icon = 'icons/obj/lighting.dmi'
+	icon_state = "glowstick-on"
+	light_power = 1
+	light_range = 5
+	light_color = LIGHT_COLOR_HALOGEN
+
+/obj/effect/decal/fake_object/light_source/Initialize()
+	.=..()
+	set_light(light_range, light_power, light_color)
+
+/obj/effect/decal/fake_object/light_source/invisible
+	simulated = FALSE
+	invisibility = INVISIBILITY_ABSTRACT

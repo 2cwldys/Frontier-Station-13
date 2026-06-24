@@ -1,0 +1,34 @@
+/datum/map_template/ruin/away_site/wrecked_nt_ship
+	name = "wrecked NT ship"
+	description = "A wrecked ship once owned by NanoTrasen."
+
+	prefix = "away_site/wrecked_nt_ship/"
+	suffix = "wrecked_nt_ship.dmm"
+
+	sectors = list(ALL_TAU_CETI_SECTORS, SECTOR_VALLEY_HALE, SECTOR_BADLANDS, ALL_COALITION_SECTORS, SECTOR_SRANDMARR)
+	sectors_blacklist = list(SECTOR_BURZSIA, SECTOR_HANEUNIM) //NT has pretty much no presence in either of these, why would there be a wrecked ship
+	spawn_weight = 1
+	spawn_cost = 2
+	id = "wrecked_nt_ship"
+
+	unit_test_groups = list(1)
+
+/singleton/submap_archetype/wrecked_nt_ship
+	map = "wrecked_nt_ship"
+	descriptor = "A wrecked ship once owned by NanoTrasen."
+
+/obj/effect/overmap/visitable/wrecked_nt_ship
+	name = "wrecked NT ship"
+	desc = "A wrecked ship once owned by NanoTrasen, embedded within an asteroid. The ship is cold, with a faint possible lifesign detected within. Sensors have picked up exotic particles on site."
+
+/area/wrecked_nt_ship
+	name = "wrecked NT ship"
+	icon_state = "wrecked_nt_ship"
+	requires_power = FALSE
+	base_turf = /turf/space
+	no_light_control = TRUE
+	area_flags = AREA_FLAG_HIDE_FROM_HOLOMAP
+
+/area/wrecked_nt_ship/exterior
+	name = "wrecked NT ship exterior"
+	icon_state = "exterior"

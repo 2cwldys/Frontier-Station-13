@@ -1,0 +1,61 @@
+#define NEST_RESIST_TIME 1200
+
+/obj/structure/bed/nest
+	name = "gore nest"
+	desc = "It's a gruesome pile of thick, sticky flesh shaped like a nest."
+	icon = 'icons/obj/gore_structures.dmi'
+	icon_state = "nest"
+	maxhealth = OBJECT_HEALTH_LOW
+	var/destroy_message = "THE STRUCTURE collapses in on itself!"
+
+/obj/structure/bed/nest/get_examine_text(mob/user, distance, is_adjacent, infix, suffix)
+	. = ..()
+	if(distance <= 2)
+		var/health_div = health / maxhealth
+		if(health_div >= 0.9)
+			. += SPAN_NOTICE("\The [src] appears completely intact.")
+		else if(health_div >= 0.7)
+			. += SPAN_NOTICE("\The [src] is starting to tear somewhat.")
+		else if(health_div >= 0.4)
+			. += SPAN_WARNING("\The [src] is starting to fall apart.")
+		else
+			. += SPAN_WARNING("\The [src] is barely holding itself together!")
+
+/obj/structure/bed/nest/update_icon()
+	return
+
+/obj/structure/bed/nest/user_unbuckle(mob/user)
+	if(buckled?.buckled_to == src)
+		add_fingerprint(user)
+		if(buckled != user)
+			buckled.visible_message("<b>[user]</b> pulls [buckled] free from the sticky flesh!", SPAN_NOTICE("[user] pulls you free from the gelatinous flesh."), SPAN_WARNING("You hear squelching..."))
+			unbuckle_buckled_mob(buckled)
+		else if(istype(buckled, /mob/living))
+			var/mob/living/M = buckled
+			if(world.time <= M.last_special + NEST_RESIST_TIME)
+				return
+			M.last_special = world.time
+			M.visible_message(SPAN_WARNING("[M] starts struggling to break free of the sticky flesh..."), SPAN_WARNING("You struggle to break free from the gelatinous flesh..."), SPAN_WARNING("You hear squelching..."))
+			if(do_after(M, NEST_RESIST_TIME))
+				unbuckle_buckled_mob(M)
+
+/obj/structure/bed/nest/proc/unbuckle_buckled_mob(var/mob/buck)
+	if(buckled == buck && buck.buckled_to == src)
+		buck.pixel_y = 0
+		buck.old_y = 0
+		unbuckle()
+
+/obj/structure/bed/nest/attackby(obj/item/attacking_item, mob/user)
+	var/damage = attacking_item.force
+	if(attacking_item.damtype == DAMAGE_BURN)
+		damage *= 1.25
+	. = ..()
+	add_damage(damage)
+	playsound(loc, 'sound/effects/attackblob.ogg', 80, TRUE)
+
+/obj/structure/bed/nest/on_death(damage, damage_flags, damage_type, armor_penetration, obj/weapon)
+	var/final_message = replacetext(destroy_message, "THE STRUCTURE", "\The [src]")
+	visible_message(SPAN_WARNING(final_message))
+	qdel(src)
+
+#undef NEST_RESIST_TIME

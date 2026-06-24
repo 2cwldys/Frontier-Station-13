@@ -1,0 +1,34 @@
+/obj/item/psychic_power/tinker
+	name = "psychokinetic crowbar"
+	icon_state = "crowbar"
+	force = 11
+	tool_behaviour = TOOL_CROWBAR
+	var/list/tools = list(TOOL_CROWBAR, TOOL_WRENCH, TOOL_SCREWDRIVER, TOOL_WIRECUTTER)
+
+/obj/item/psychic_power/tinker/Initialize(mapload, ...)
+	. = ..()
+	var/list/new_tools = list()
+	for(var/tool_name in tools)
+		var/image/radial_image = image('icons/obj/psychic_powers.dmi', tool_name)
+		new_tools[capitalize_first_letters(tool_name)] = radial_image
+	tools = new_tools
+
+/obj/item/psychic_power/tinker/attack_self(mob/user)
+	if(!owner || loc != owner)
+		return
+
+	var/choice = show_radial_menu(user, user, tools, radius = 42, tooltips = TRUE)
+	if(!choice)
+		playsound(get_turf(src), 'sound/effects/psi/power_fail.ogg', 40, TRUE)
+		owner.drop_from_inventory(src)
+		return
+
+	if(!owner || loc != owner)
+		return
+
+	tool_behaviour = choice
+	LOAD_TOOL_QUALITIES(src, alist(choice = owner.check_psi_sensitivity()), toolComp)
+	name = "psychokinetic [tool_behaviour]"
+	icon_state = tool_behaviour
+	to_chat(owner, SPAN_NOTICE("You begin emulating \a [tool_behaviour]."))
+	playsound(get_turf(src), 'sound/effects/psi/power_fabrication.ogg', 40, TRUE)

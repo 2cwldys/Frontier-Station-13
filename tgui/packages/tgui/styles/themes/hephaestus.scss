@@ -1,0 +1,31 @@
+.theme-hephaestus {
+  --color-base: #192616;
+  --color-primary: #db6700;
+  --color-red: #991100;
+  --color-bad: #991100;
+  --base-gradient-spread: 6;
+
+  --button-background-default: #db6700;
+  --button-background-disabled: #a54a00;
+  --button-background-selected: #77aa00;
+  --button-background-caution: #be6209;
+  --button-background-danger: #991100;
+
+  --input-border-color: #db6700;
+  --input-border-color-focus: #db6700;
+  --number-input-border-color: #c09524;
+  --number-input-border-color-active: #c09524;
+
+  --notice-box-background: #8c470d;
+  --notice-box-color: var(--color-text-fixed-white);
+  --progress-bar-background: rgba(0, 0, 0, 0.5);
+  --progress-bar-fill: #db6700;
+  --section-background: rgba(0, 0, 0, 0.33);
+  --section-separator-color: #db6700;
+  --tooltip-background: #c09524;
+  --titlebar-background: #263e23;
+
+  .Layout__content {
+    background-image: url('../../assets/bg-heph.svg');
+  }
+}

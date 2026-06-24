@@ -1,0 +1,46 @@
+import { Button, LabeledList, Section } from 'tgui-core/components';
+import { useBackend } from '../backend';
+import { Window } from '../layouts';
+
+export type JammerData = {
+  active: number;
+};
+
+export const Jammer = (props) => {
+  const { act, data } = useBackend<JammerData>();
+
+  return (
+    <Window>
+      <Window.Content scrollable>
+        <Section title="Jammer Level">
+          <LabeledList>
+            <LabeledList.Item label="Block Nothing">
+              <Button
+                content={data.active === -1 ? 'On' : 'Off'}
+                icon="power-off"
+                onClick={() => act('set_active', { set_active: -1 })}
+                color={data.active === -1 ? 'bad' : ''}
+              />
+            </LabeledList.Item>
+            <LabeledList.Item label="Block Synthetics">
+              <Button
+                content={data.active === 2 ? 'On' : 'Off'}
+                icon="power-off"
+                onClick={() => act('set_active', { set_active: 2 })}
+                color={data.active === 2 ? 'good' : ''}
+              />
+            </LabeledList.Item>
+            <LabeledList.Item label="Block All">
+              <Button
+                content={data.active === 1 ? 'On' : 'Off'}
+                icon="power-off"
+                onClick={() => act('set_active', { set_active: 1 })}
+                color={data.active === 1 ? 'good' : ''}
+              />
+            </LabeledList.Item>
+          </LabeledList>
+        </Section>
+      </Window.Content>
+    </Window>
+  );
+};

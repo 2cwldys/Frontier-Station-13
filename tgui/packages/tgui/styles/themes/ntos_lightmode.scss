@@ -1,0 +1,37 @@
+/**
+ * Copyright (c) 2020 Aleksej Komarov
+ * SPDX-License-Identifier: MIT
+ */
+
+$nanotrasen: #ffffff;
+
+.theme-ntos_lightmode {
+  --button-background-default: #{$nanotrasen};
+  --progress-bar-background: rgba(0, 0, 0, 0.5);
+  --progress-bar-fill: #{$nanotrasen};
+  --section-background: rgba(119, 119, 119, 0.4);
+  --tooltip-background: white;
+  --titlebar-background: gray;
+  --color-base: white;
+  --color-primary: #000000;
+  --color-label: #000000;
+
+  .Button {
+    color: #161613;
+  }
+  .Button:hover {
+    background-color: #777777;
+    transition: 0.1s;
+  }
+
+  .Section {
+    color: black;
+  }
+  .Tab {
+    color: black;
+  }
+  .Tab--selected {
+    color: white;
+    background-color: darkgray;
+  }
+}

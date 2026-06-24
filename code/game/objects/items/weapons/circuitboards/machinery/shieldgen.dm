@@ -1,0 +1,43 @@
+/obj/item/circuitboard/shield_gen_ex
+	name = T_BOARD("hull shield generator")
+	board_type = BOARD_MACHINE
+	build_path = /obj/structure/machinery/shield_gen/external
+	origin_tech = list(TECH_BLUESPACE = 4, TECH_PHORON = 3)
+	req_components = list(
+							"/obj/item/stock_parts/manipulator" = 2,
+							"/obj/item/stock_parts/micro_laser" = 2,
+							"/obj/item/stock_parts/capacitor" = 2,
+							"/obj/item/stock_parts/subspace/transmitter" = 1,
+							"/obj/item/stock_parts/subspace/crystal" = 1,
+							"/obj/item/stock_parts/subspace/amplifier" = 1,
+							"/obj/item/stock_parts/console_screen" = 1,
+							"/obj/item/stack/cable_coil" = 5)
+
+/obj/item/circuitboard/shield_gen
+	name = T_BOARD("bubble shield generator")
+	board_type = BOARD_MACHINE
+	build_path = /obj/structure/machinery/shield_gen
+	origin_tech = list(TECH_BLUESPACE = 4, TECH_PHORON = 3)
+	req_components = list(
+							"/obj/item/stock_parts/manipulator" = 2,
+							"/obj/item/stock_parts/micro_laser" = 2,
+							"/obj/item/stock_parts/capacitor" = 2,
+							"/obj/item/stock_parts/subspace/transmitter" = 1,
+							"/obj/item/stock_parts/subspace/crystal" = 1,
+							"/obj/item/stock_parts/subspace/amplifier" = 1,
+							"/obj/item/stock_parts/console_screen" = 1,
+							"/obj/item/stack/cable_coil" = 5)
+
+/obj/item/circuitboard/shield_cap
+	name = T_BOARD("shield capacitor")
+	board_type = BOARD_MACHINE
+	build_path = /obj/structure/machinery/shield_capacitor
+	origin_tech = list(TECH_MAGNET = 3, TECH_POWER = 4)
+	req_components = list(
+							"/obj/item/stock_parts/capacitor" = 4,
+							"/obj/item/stock_parts/micro_laser" = 1,
+							"/obj/item/stock_parts/subspace/filter" = 1,
+							"/obj/item/stock_parts/subspace/treatment" = 1,
+							"/obj/item/stock_parts/subspace/analyzer" = 1,
+							"/obj/item/stock_parts/console_screen" = 1,
+							"/obj/item/stack/cable_coil" = 5)

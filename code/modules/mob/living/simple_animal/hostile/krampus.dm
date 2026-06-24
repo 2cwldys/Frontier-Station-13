@@ -1,0 +1,203 @@
+/mob/living/simple_animal/hostile/krampus
+	name = "Krampus"
+	desc = "An evil spirit of Christmas, it is known for punishing misbehaving children."
+	speak_emote = list("gibbers")
+	icon = 'icons/mob/krampus.dmi'
+	icon_state = "krampus"
+	icon_living = "krampus"
+	icon_dead = "krampus_dead"
+	stop_automated_movement = 1
+	universal_speak = 1
+	universal_understand = 1
+
+	mob_swap_flags = HUMAN|SIMPLE_ANIMAL|SLIME|MONKEY
+	mob_push_flags = ALLMOBS
+
+	tameable = FALSE
+
+	organ_names = list("chest", "lower body", "left arm", "right arm", "left leg", "right leg", "head")
+	response_help  = "pets"
+	response_disarm = "shoves"
+	response_harm   = "harmlessly punches"
+	maxhealth = 1000
+	health = 1000
+	harm_intent_damage = 0
+	melee_damage_lower = 30
+	melee_damage_upper = 30
+	resist_mod = 15
+	mob_size = 25
+	environment_smash = 2
+	attacktext = "punishes"
+	attack_sound = 'sound/weapons/bladeslice.ogg'
+
+	lighting_alpha = LIGHTING_PLANE_ALPHA_SOMEWHAT_INVISIBLE
+
+	minbodytemp = 0
+	maxbodytemp = 350
+	min_oxy = 0
+	max_co2 = 0
+	max_tox = 0
+
+	faction = "Krampus"
+
+	var/is_punishing = FALSE
+
+	psi_pingable = FALSE
+	sample_data = null
+
+/mob/living/simple_animal/hostile/krampus/death(gibbed)
+	..()
+	if(!gibbed)
+		for (var/mob/living/A in contents)
+			A.forceMove(get_turf(src))
+		visible_message(SPAN_WARNING("\The [src] vanishes!"))
+		dust()
+		return TRUE
+
+/mob/living/simple_animal/hostile/krampus/verb/punish(mob/living/target as mob in oview())
+	set name = "Punish"
+	set desc = "Punish some naughty mortal by dragging them to the depths of hell."
+	set category = "Krampus"
+
+	if(!Adjacent(target))
+		return
+
+	if(src.is_punishing)
+		return
+
+	if(!health)
+		return
+
+	if(last_special > world.time)
+		to_chat(src, SPAN_WARNING("You must wait a little while before you can use this ability again!"))
+		return
+
+	src.visible_message(SPAN_DANGER("\The [src] starts stuffing \the [target] inside his bag!"), \
+						SPAN_DANGER("You begin to drag \the [target] to the depths of hell!"))
+	src.is_punishing = TRUE
+
+	if(!do_mob(src, target, 60))
+		to_chat(src, SPAN_DANGER("\The [target] has managed to escape!"))
+		src.is_punishing = FALSE
+		return
+
+	src.visible_message(SPAN_DANGER("\The [target] vanishes into \the [src]'s bag!"))
+	target.forceMove(src)
+	to_chat(target, SPAN_DANGER("You have been captured by \the [src], you will soon be punished due to your misdeeds!"))
+	addtimer(CALLBACK(src, PROC_REF(send_to_hell), target), 5 MINUTES)
+	last_special = world.time + 100
+	src.is_punishing = FALSE
+	return
+
+/mob/living/simple_animal/hostile/krampus/verb/mischief()
+	set name = "Spread Mischief"
+	set desc = "Summon several malicious gifts to cause mischief among the mortals."
+	set category = "Krampus"
+
+	if(!health)
+		return
+
+	if(last_special > world.time)
+		return
+
+	last_special = world.time + 30
+
+	visible_message(SPAN_DANGER("\The [src] vomits a cloud of rancid smoke and neatly wrapped gifts!"))
+
+	var/datum/effect/effect/system/smoke_spread/bad/smoke = new /datum/effect/effect/system/smoke_spread/bad
+	smoke.attach(src)
+	smoke.set_up(10, 0, get_turf(src), 10)
+	smoke.start()
+
+	for(var/i in 1 to 5)
+		var/mob/living/simple_animal/hostile/gift/T = new /mob/living/simple_animal/hostile/gift(get_turf(src))
+		var/turf/landing = get_step(src, pick(GLOB.alldirs))
+		INVOKE_ASYNC(T, TYPE_PROC_REF(/atom/movable, throw_at), landing, 30, 5)
+
+/mob/living/simple_animal/hostile/krampus/proc/send_to_hell(mob/living/M)
+	if(!M)
+		return
+	to_chat(M, SPAN_DANGER("You are dragged to the depths of hell to be eternally punished for your misdeeds!"))
+	qdel(M)
+	rejuvenate()
+	updatehealth()
+
+/mob/living/simple_animal/hostile/gift
+	name = "christmas gift"
+	desc = "PRESENTS!!!!...OH SHIT!"
+	icon = 'icons/holidays/christmas/presents.dmi'
+	icon_state = "gift1_evil"
+	icon_living = "gift1_evil"
+	icon_dead = "gift1"
+
+	response_help = "touches"
+	response_disarm = "pushes"
+	response_harm = "hits"
+	speed = 4
+	maxhealth = 50
+	health = 50
+
+	harm_intent_damage = 5
+	melee_damage_lower = 5
+	melee_damage_upper = 5
+	attacktext = "nibbles"
+	attack_sound = 'sound/weapons/bite.ogg'
+
+	min_oxy = 0
+	max_oxy = 0
+	min_tox = 0
+	max_tox = 0
+	min_co2 = 0
+	max_co2 = 0
+	min_n2 = 0
+	max_n2 = 0
+	minbodytemp = 0
+
+	faction = "Krampus"
+	speed = 4
+
+	tameable = FALSE
+
+	var/size = "small"
+
+/mob/living/simple_animal/hostile/gift/Initialize()
+	. = ..()
+	size = pick ("small", "medium", "big")
+
+	switch(size)
+
+		if("medium")
+			icon_state = "gift2_evil"
+			icon_living = "gift2_evil"
+			icon_dead = "gift2"
+			maxhealth = 100
+			health = 100
+			melee_damage_lower = 10
+			melee_damage_upper = 10
+
+		if("big")
+			icon_state = "gift3_evil"
+			icon_living = "gift3_evil"
+			icon_dead = "gift3"
+			maxhealth = 150
+			health = 150
+			melee_damage_lower = 15
+			melee_damage_upper = 15
+
+	updatehealth()
+
+
+/mob/living/simple_animal/hostile/gift/death()
+	..()
+	switch(size)
+
+		if("medium")
+			new /obj/item/xmasgift/medium(get_turf(src))
+
+		if("big")
+			new /obj/item/xmasgift/large(get_turf(src))
+
+		else
+			new /obj/item/xmasgift(get_turf(src))
+
+	qdel(src)

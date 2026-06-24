@@ -1,0 +1,25 @@
+
+.theme-spookyconsole {
+  --button-background-default: #7e0322;
+  --button-background-disabled: #363636;
+  --button-background-selected: #610a0a;
+  --button-background-caution: #1416a3;
+  --button-background-danger: #5c1e80;
+  --input-border-color: #473a37;
+  --input-border-color-focus: #473a37;
+  --notice-box-background: #740707;
+  --notice-box-color: var(--color-text-fixed-white);
+  --tooltip-background: #000000;
+  --dimmer-background: rgba(0, 0, 0, 0.45);
+  --titlebar-background: #6b0808;
+  --color-base: #240101;
+  --color-primary: #3f021a;
+  --color-good: #010005;
+  --color-bad: #970934;
+  --base-gradient-spread: 12;
+  --section-background: rgba(0, 0, 0, 0.33);
+
+  .Layout__content {
+    background-image: url('../../assets/bg-spookycomp-compressed.svg');
+  }
+}

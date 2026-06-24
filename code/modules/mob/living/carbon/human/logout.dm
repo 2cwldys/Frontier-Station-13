@@ -1,0 +1,6 @@
+/mob/living/carbon/human/Logout()
+	..()
+	if(species)
+		species.handle_logout_special(src)
+	if(mind && mind.active && stat != DEAD)
+		AddOverlays(image('icons/effects/effects.dmi', icon_state = "zzz_glow"))

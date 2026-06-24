@@ -1,0 +1,287 @@
+//
+// Holsters
+//
+/obj/item/clothing/accessory/holster
+	name = "shoulder holster"
+	desc = "A handgun holster."
+	icon = 'icons/obj/item/clothing/accessory/holster.dmi'
+	icon_state = "holster"
+	item_state = "holster"
+	contained_sprite = TRUE
+	slot = ACCESSORY_SLOT_UTILITY
+	slot_flags = SLOT_BELT | SLOT_TIE
+	var/obj/item/holstered = null
+	var/sound_in = 'sound/weapons/holster/holsterin.ogg'
+	var/sound_out = 'sound/weapons/holster/holsterout.ogg'
+	flippable = 1
+	w_class = WEIGHT_CLASS_NORMAL
+	var/holster_message = "holster"
+	var/draw_peace = "pointing it at the ground."
+	var/draw_hostile = "ready to shoot!"
+	var/filled_sprite = FALSE
+
+/obj/item/clothing/accessory/holster/Initialize()
+	. = ..()
+	AddComponent(/datum/component/base_name, name)
+
+/obj/item/clothing/accessory/holster/proc/update_name(var/base_name = initial(name))
+	SEND_SIGNAL(src, COMSIG_BASENAME_SETNAME, args)
+	if(holstered)
+		name = "occupied [base_name]"
+	else
+		name = "[base_name]"
+
+/obj/item/clothing/accessory/holster/proc/holster(var/obj/item/I, var/mob/living/user)
+	if(holstered && istype(user))
+		to_chat(user, SPAN_WARNING("There is already \a [holstered] holstered here!"))
+		return
+
+	if (!(I.slot_flags & SLOT_HOLSTER))
+		to_chat(user, SPAN_WARNING("[I] won't fit in [src]!"))
+		return
+
+	if(sound_in)
+		playsound(get_turf(src), sound_in, 50)
+
+	if(istype(user))
+		user.stop_aiming(no_message = TRUE)
+	holstered = I
+	user.drop_from_inventory(holstered, src)
+	holstered.add_fingerprint(user)
+	w_class = max(w_class, holstered.w_class)
+	user.visible_message(SPAN_NOTICE("[user] [holster_message] \the [holstered]."),
+							SPAN_NOTICE("You [holster_message] \the [holstered]."))
+	update_name()
+	update_icon()
+
+/obj/item/clothing/accessory/holster/proc/clear_holster()
+	holstered = null
+	update_name()
+
+/obj/item/clothing/accessory/holster/proc/unholster(mob/user)
+	if(!holstered)
+		return
+
+	if(istype(user.get_active_hand(), /obj) && istype(user.get_inactive_hand(), /obj))
+		to_chat(user, SPAN_WARNING("You need an empty hand to draw \the [holstered]!"))
+	else if (use_check(user))
+		to_chat(user, SPAN_WARNING("You can't draw \the [holstered] in your current state!"))
+	else
+		var/sound_vol = 25
+		if(user.a_intent == I_HURT)
+			sound_vol = 50
+			user.visible_message(
+				SPAN_DANGER("[user] draws \the [holstered], [draw_hostile]"),
+				SPAN_WARNING("You draw \the [holstered], [draw_hostile]")
+			)
+		else
+			user.visible_message(
+				SPAN_NOTICE("[user] draws \the [holstered], [draw_peace]"),
+				SPAN_NOTICE("You draw \the [holstered], [draw_peace]")
+			)
+
+		if(sound_out)
+			playsound(get_turf(src), sound_out, sound_vol)
+
+		user.put_in_hands(holstered)
+		holstered.add_fingerprint(user)
+		w_class = initial(w_class)
+		clear_holster()
+		update_icon()
+
+/obj/item/clothing/accessory/holster/flip_sprite()
+	. = ..()
+	if(filled_sprite && holstered)
+		icon_state = "[icon_state]_filled"
+		item_state = "[item_state]_filled"
+	else
+		icon_state = "[icon_state]"
+		item_state = "[item_state]"
+
+/obj/item/clothing/accessory/holster/attack_hand(mob/user)
+	if (!ishuman(user))
+		return ..()
+
+	var/mob/living/carbon/human/human = user
+	if (has_suit || human.belt == src) // If we are part of a suit.
+		if (holstered)
+			unholster(human)
+		return
+
+	return ..(human)
+
+/obj/item/clothing/accessory/holster/attackby(obj/item/attacking_item, mob/user)
+	holster(attacking_item, user)
+
+/obj/item/clothing/accessory/holster/emp_act(severity)
+	. = ..()
+
+	if (holstered)
+		holstered.emp_act(severity)
+
+/obj/item/clothing/accessory/holster/get_examine_text(mob/user, distance, is_adjacent, infix, suffix)
+	. = ..()
+	if (holstered)
+		. += "A [holstered] is holstered here."
+	else
+		. += "It is empty."
+
+/obj/item/clothing/accessory/holster/on_attached(obj/item/clothing/under/S, mob/user)
+	..()
+	has_suit.verbs += /obj/item/clothing/accessory/holster/verb/holster_verb
+
+/obj/item/clothing/accessory/holster/on_removed(mob/user)
+	if(has_suit)
+		has_suit.verbs -= /obj/item/clothing/accessory/holster/verb/holster_verb
+	..()
+
+/obj/item/clothing/accessory/holster/verb/holster_verb() //For the holster hotkey.
+	set name = "Holster"
+	set category = "Object.Held"
+	set src in usr
+
+	if(!istype(usr, /mob/living))
+		return
+
+	if(usr.stat)
+		return
+
+	// Can't we just use src here?
+	var/obj/item/clothing/accessory/holster/H = get_accessory(/obj/item/clothing/accessory/holster)
+	if(!H && istype(src, /obj/item/clothing/suit/armor/tactical)) // This armor is a snowflake and has an integrated holster.
+		var/obj/item/clothing/suit/armor/tactical/tacticool = src
+		H = tacticool.holster
+
+	if (!H)
+		to_chat(usr, SPAN_WARNING("Something is very wrong."))
+
+	if(!H.holstered)
+		var/obj/item/W = usr.get_active_hand()
+		if(!istype(W, /obj/item))
+			to_chat(usr, SPAN_WARNING("You need your gun equipped to holster it."))
+			return
+		H.holster(W, usr)
+	else
+		H.unholster(usr)
+
+/*###################
+	Holster Subtypes
+###################*/
+
+/obj/item/clothing/accessory/holster/armpit
+	name = "black armpit holster"
+	desc = "A worn-out handgun holster. Mostly seen in cheesy cop flicks, used to keep the actor's face in the shot."
+	icon_state = "holster"
+	item_state = "holster"
+
+/obj/item/clothing/accessory/holster/waist
+	name = "black waist holster"
+	desc = "A handgun holster, made of expensive leather. Can possibly be concealed under a shirt, albeit a little archaic."
+	icon_state = "holster_low"
+	item_state = "holster_low"
+
+/obj/item/clothing/accessory/holster/hip
+	name = "black hip holster"
+	desc = "A black firearm hip holster."
+	icon_state = "holster_hip"
+	item_state = "holster_hip"
+
+
+/obj/item/clothing/accessory/holster/thigh
+	name = "black thigh holster"
+	desc = "A drop leg holster made of a durable synthetic fiber."
+	icon_state = "holster_thigh"
+	item_state = "holster_thigh"
+	sound_in = 'sound/weapons/holster/tactiholsterin.ogg'
+	sound_out = 'sound/weapons/holster/tactiholsterout.ogg'
+
+/obj/item/clothing/accessory/holster/armpit/brown
+	name = "brown armpit holster"
+	icon_state = "holster_brown"
+	item_state = "holster_brown"
+
+/obj/item/clothing/accessory/holster/waist/brown
+	name = "brown waist holster"
+	icon_state = "holster_brown_low"
+	item_state = "holster_brown_low"
+
+/obj/item/clothing/accessory/holster/hip/brown
+	name = "brown hip holster"
+	icon_state = "holster_brown_hip"
+	item_state = "holster_brown_hip"
+
+/obj/item/clothing/accessory/holster/thigh/brown
+	name = "brown thigh holster"
+	icon_state = "holster_brown_thigh"
+	item_state = "holster_brown_thigh"
+
+/obj/item/clothing/accessory/holster/modular
+	name = "plate carrier holster"
+	desc = "A special holster with rigging able to attach to modern modular plate carriers."
+	icon = 'icons/obj/item/clothing/suit/armor/modular_armor/modular_armor_attachments.dmi'
+	icon_state = "modular_holster"
+	item_state = "modular_holster"
+	contained_sprite = TRUE
+	slot = ACCESSORY_SLOT_ARMOR_POCKETS
+	flippable = FALSE
+
+/*##### Utility Holsters Start #####*/
+// Utility Holster
+/obj/item/clothing/accessory/holster/utility
+	name = "utility holster"
+	desc = "A utility holster."
+	icon_state = "holster"
+	item_state = "holster"
+	var/list/allowed_items = list() // A list of allowed items.
+
+/obj/item/clothing/accessory/holster/utility/holster(var/obj/item/I, var/mob/living/user)
+	if(!is_type_in_list(I, allowed_items))
+		to_chat(user, SPAN_NOTICE("\The [I] won't fit in \the [src]."))
+		return
+	..()
+
+// Custodial Holster
+/obj/item/clothing/accessory/holster/utility/custodial
+	name = "custodial holster"
+	desc = "A custodial holster."
+	desc_extended = "In a universe where various utility firearms and tools have become more common for diverse applications, it is important that there are ways to store them where \
+		they are kept safe from wear and tear as well as from misuse. Thus as an alternative to regular firearm holsters, specialized utility firearm and tool holsters exist, which \
+		allow non-standard firearms to be stored inside, whilst at the same time keeping individuals from storing actual firearms in one."
+	allowed_items = list(
+		/obj/item/gun/energy/mousegun,
+		/obj/item/gun/energy/mousegun/xenofauna,
+		/obj/item/gun/projectile/revolver/capgun,
+		/obj/item/toy/crossbow,
+		/obj/item/reagent_containers/food/snacks/grown/banana
+	)
+
+// Brown Custodial Armpit Holster
+/obj/item/clothing/accessory/holster/utility/custodial/armpit
+	name = "brown custodial armpit holster"
+	desc = "A brown utility holster which can't hold actual firearms. This particular one is designed for custodial personnel."
+	icon_state = "holster_brown"
+	item_state = "holster_brown"
+
+// Brown Custodial Hip Holster
+/obj/item/clothing/accessory/holster/utility/custodial/hip
+	name = "brown custodial hip holster"
+	desc = "A brown utility holster which can't hold actual firearms. This particular one is designed for custodial personnel."
+	icon_state = "holster_brown_hip"
+	item_state = "holster_brown_hip"
+
+/obj/item/clothing/accessory/holster/utility/machete
+	name = "machete sheath"
+	desc = "A handsome synthetic leather sheath with matching belt."
+	icon_state = "holster_machete"
+	item_state = "holster_machete"
+	icon = 'icons/obj/item/clothing/accessory/holster.dmi'
+	holster_message = "sheath"
+	draw_peace = "holding it low."
+	draw_hostile = "ready to fight!"
+	allowed_items = list(
+		/obj/item/material/hatchet/machete,
+		/obj/item/material/hatchet/machete/deluxe,
+		/obj/item/material/hatchet/machete/unbreakable,
+		/obj/item/material/hatchet/machete/steel
+	)
+/********** Utility Holsters End **********/

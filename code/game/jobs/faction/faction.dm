@@ -1,0 +1,131 @@
+/datum/faction
+	var/name
+	var/description
+	var/title_suffix
+	var/list/departments
+	var/wiki_page
+
+	/// Number indicating the list index of this faction in the 'faction select' interface.
+	var/ui_priority
+
+	var/list/allowed_role_types
+	var/list/allowed_species_types
+	//will override the normal job species list for a member of this faction
+	var/list/job_species_blacklist
+	/// The nation types not allowed to be a faction. To be set as nation datums.
+	var/list/blacklisted_citizenship_types
+
+	var/is_default = FALSE
+
+	var/list/titles_to_loadout = list()
+
+/datum/faction/New()
+	var/list/l = list()
+
+	for (var/path in allowed_species_types)
+		if (allowed_species_types[path] != TRUE)
+			l |= typecacheof(path, FALSE)
+		else
+			l[path] = TRUE
+
+	allowed_species_types = l
+
+	var/list/b = list()
+
+	for(var/path in blacklisted_citizenship_types)
+		if(blacklisted_citizenship_types[path] != TRUE)
+			b |= typecacheof(path, FALSE)
+		else
+			b[path] = TRUE
+
+	blacklisted_citizenship_types = b
+
+/datum/faction/proc/get_occupations()
+	. = list()
+
+	for (var/path in allowed_role_types)
+		if(islist(path))
+			for(var/role_path in path)
+				var/datum/job/role = SSjobs.type_occupations[role_path]
+				if(!istype(role))
+					continue
+				if(LAZYACCESS(job_species_blacklist, role.title))
+					role.blacklisted_species = job_species_blacklist[role.title]
+				else
+					var/datum/job/J = new role.type
+					role.blacklisted_species = J.blacklisted_species
+				. += role
+		else
+			var/datum/job/role = SSjobs.type_occupations[path]
+			if(!role)
+				continue
+			if(LAZYACCESS(job_species_blacklist, role.title))
+				role.blacklisted_species = job_species_blacklist[role.title]
+			else
+				var/datum/job/J = new role.type
+				role.blacklisted_species = J.blacklisted_species
+			. += role
+
+/datum/faction/proc/get_selection_error(datum/preferences/prefs, mob/user)
+	var/result
+
+	result = check_citizenship(prefs, user)
+	if(result)
+		return result
+
+	result = check_species(prefs, user)
+	if(result)
+		return result
+
+	if(!is_visible(user))
+		return "This faction is not available to you"
+
+	return null
+
+/datum/faction/proc/check_species(datum/preferences/prefs, mob/user)
+	if(length(allowed_species_types))
+		var/datum/species/S = prefs.get_species_datum()
+
+		if(!S)
+			return "No valid species"
+
+		if(!is_type_in_typecache(S, allowed_species_types))
+			return "Invalid species"
+
+	return null
+
+/datum/faction/proc/check_citizenship(datum/preferences/prefs, mob/user)
+	if(length(blacklisted_citizenship_types))
+		var/datum/citizenship/C = SSrecords.citizenships[prefs.citizenship]
+
+		if(!C)
+			return "No valid nation"
+
+		if(is_type_in_typecache(C, blacklisted_citizenship_types))
+			return "Invalid nation"
+
+	return null
+
+/datum/faction/proc/can_select(datum/preferences/prefs, mob/user)
+	return !get_selection_error(prefs, user)
+
+/datum/faction/proc/get_logo_name()
+	return "faction_[title_suffix].png"
+
+/datum/faction/proc/get_corporate_objectives(var/mission_level)
+	var/objective
+	switch(mission_level)
+		if(REPRESENTATIVE_MISSION_HIGH)
+			objective = pick("Assist your contractor in smuggling [rand(1,4)] items of value",
+							"Collect evidence of [SSatlas.current_map.company_short] being unfair or oppressive against your contractors to be used as leverage in future talks")
+		if(REPRESENTATIVE_MISSION_MEDIUM)
+			objective = pick("Convince [rand(1,3)] non-[name] employees to join [name] instead",
+							"Have [rand(1,3)] of your contractors write down their grievances with the company, and present the report to [SSatlas.current_map.station_name] command.")
+		else
+			objective = pick("Collect [rand(3,7)] pictures of secure areas",
+							"Make sure that [rand(2,4)] complaints related to contractors are solved on the [SSatlas.current_map.station_name]")
+
+	return objective
+
+/datum/faction/proc/is_visible(var/mob/user)
+	return TRUE

@@ -1,0 +1,371 @@
+//CCIAA's tape recorder
+/obj/item/taperecorder/cciaa
+	name = "Human Resources Recorder"
+	desc = "A modified recorder used for interviews by human resources personnel around the galaxy."
+	desc_extended = "This recorder is a modified version of a standard universal recorder. It features additional audit-proof records keeping, access controls and is tied to a central management system."
+	w_class = WEIGHT_CLASS_TINY
+	timestamp = list()	//This actually turns timestamp into a string later on
+
+	//Redundent
+	matter = list()
+	recording = FALSE
+	playing = FALSE
+	emagged = FALSE
+	time_recorded = FALSE
+	play_sleep_seconds = FALSE
+	stored_info = list()
+	can_print = TRUE
+
+	//Specific for Duty Officers
+	var/paused = FALSE
+	var/sLogFile = null
+	var/last_file_loc = null
+
+	var/antag_involvement = FALSE
+	var/antag_involvement_text = null
+
+	var/datum/ccia_report/selected_report = null
+	var/interviewer_id = null
+	var/interviewee_id = null
+	var/interviewee_name = null
+	var/date_string = null
+
+/obj/item/taperecorder/cciaa/mechanics_hints(mob/user, distance, is_adjacent)
+	. += ..()
+	. += "This recorder records the fingerprints of the interviewee, to do so, interact with this recorder when asked."
+
+/obj/item/taperecorder/cciaa/hear_talk(mob/living/M as mob, msg, var/verb="says")
+	if(recording && !paused)
+		timestamp = "[get_time()]"
+		var/fmsg = "\[[timestamp]\] [M.name] [verb], \"[msg]\""
+		sLogFile << fmsg
+	return
+
+/obj/item/taperecorder/cciaa/proc/get_time()
+	return "[round(world.time / 36000)+12]:[(world.time / 600 % 60) < 10 ? add_zero(world.time / 600 % 60, 1) : world.time / 600 % 60]:[(world.time / 60 % 60) < 10 ? add_zero(world.time / 60 % 60, 1) : world.time / 60 % 60]"
+
+/obj/item/taperecorder/cciaa/record()
+	set name = "Start Recording"
+	set category = "Object.Tape Recorder"
+
+	if(!check_rights(R_CCIAA,FALSE))
+		to_chat(usr, SPAN_NOTICE("The device beeps and flashes \"Unauthorised user.\"."))
+		return
+	if(use_check_and_message(usr))
+		return
+	if(recording)
+		to_chat(usr, SPAN_NOTICE("The device beeps and flashes \"Already recording, Aborting\"."))
+		return
+
+	//If nothing has been done with the device yet
+	if(!selected_report && !interviewee_id)
+		if(GLOB.config.sql_ccia_logs && SSdbcore.Connect())
+			//Get the active cases from the database and display them
+			var/list/reports = list()
+			var/datum/db_query/report_query = SSdbcore.NewQuery("SELECT id, report_date, title, public_topic, internal_topic, game_id, status FROM ss13_ccia_reports WHERE status IN ('in progress', 'approved') AND deleted_at IS NULL")
+			report_query.Execute()
+			while(report_query.NextRow())
+				CHECK_TICK
+				var/datum/ccia_report/R = new(report_query.item[1], report_query.item[2], report_query.item[3], report_query.item[4], report_query.item[5], report_query.item[6], report_query.item[7])
+				reports["[report_query.item[1]] - [report_query.item[2]] - [report_query.item[3]]"] = R
+			qdel(report_query)
+
+			var/selection = input(usr, "Select Report","Report Name") as null|anything in reports
+			if(!selection)
+				to_chat(usr, SPAN_NOTICE("The device beeps and flashes \"No data entered, Aborting\"."))
+				return
+			selected_report = reports[selection]
+			to_chat(usr,SPAN_NOTICE("The device flashes \"Report [selected_report.title] selected, fingerprint of interviewee required\""))
+			if(selected_report.internal_topic)
+				send_link(usr, selected_report.internal_topic)
+		else
+			var/report_name = input(usr, "Select Report Name","Report Name") as null|text
+			if(!report_name || report_name == "")
+				to_chat(usr, SPAN_NOTICE("The device beeps and flashes \"No data entered, Aborting\"."))
+				return
+			var/report_id = input(usr, "Select Report ID","Report ID") as null|text
+			if(!report_id || report_id == "")
+				to_chat(usr, SPAN_NOTICE("The device beeps and flashes \"No data entered, Aborting\"."))
+				return
+			selected_report = new(report_id, time2text(world.realtime, "YYYY_MM_DD"), report_name)
+		var/mob/living/carbon/human/H = usr
+		if(istype(H))
+			interviewer_id = H.character_id
+		return
+	//If we are ready to record, but no interviewee is selected
+	else if(selected_report && !interviewee_id)
+		to_chat(usr,SPAN_NOTICE("The device beeps and flashes \"Fingerprint of interviewee required\""))
+		return
+	//If the report has been selected and the person scanned their frinterprint
+	else if(selected_report && interviewee_id)
+		date_string = time2text(world.realtime, "YYYY_MM_DD")
+		var/fileLoc = "data/dutylogs/[usr.ckey]/[date_string]-[selected_report.id]-[interviewee_id].log"
+		var/fileName = "[date_string]-[selected_report.id]-[interviewee_id].log"
+		if(fexists(fileLoc))
+			var/safe = 0
+			var/i = 1
+			while(!safe)
+				fileLoc = "data/dutylogs/[usr.ckey]/[date_string]-[selected_report.id]-[interviewee_id]-[i].log"
+				if(!fexists(fileLoc))
+					fileName = "[date_string]-[selected_report.id]-[interviewee_id]-[i].log"
+					safe = 1
+					break
+				i++
+		last_file_loc = fileLoc
+		sLogFile = file(fileLoc)
+		sLogFile << "[selected_report.id]-[interviewee_id]"
+		sLogFile << "Case file: [selected_report.title]"
+		sLogFile << "--------------------------------"
+		sLogFile << "Date: [date_string]"
+		sLogFile << "--------------------------------"
+		sLogFile << "Interviewer: [usr.name]"
+		sLogFile << "Interviewee: [interviewee_name]"
+		sLogFile << "Antag involvement: [antag_involvement]"
+		sLogFile << "Recorder started: [get_time()]"
+		sLogFile << "--------------------------------"
+
+		recording = 1
+		icon_state = "taperecorder_recording"
+		to_chat(usr, SPAN_NOTICE("The device beeps and flashes \"Writing to [fileName]\"."))
+
+		return
+
+/obj/item/taperecorder/cciaa/stop()
+	set name = "Stop Recording"
+	set category = "Object.Tape Recorder"
+
+	if(use_check_and_message(usr))
+		return
+	if(!check_rights(R_CCIAA,FALSE))
+		to_chat(usr, SPAN_NOTICE("The device beeps and flashes \"Unauthorised user.\"."))
+		return
+	if(!recording)
+		to_chat(usr, SPAN_NOTICE("The device beeps and flashes \"Not recording, Aborting\"."))
+		return
+
+	recording = FALSE
+	paused = FALSE
+	sLogFile << "--------------------------------"
+	sLogFile << "Recorder stopped: [get_time()]"
+	sLogFile << "--------------------------------"
+
+	var/obj/item/paper/P = get_last_transcript()
+	P.forceMove(get_turf(src.loc))
+
+	//If we have sql ccia logs enabled, then persist it here
+	if(GLOB.config.sql_ccia_logs && SSdbcore.Connect())
+		//This query is split up into multiple parts due to the length limitations of byond.
+		//To avoid this the text and the antag_involvement_text are saved separately
+		var/datum/db_query/save_log = SSdbcore.NewQuery("INSERT INTO ss13_ccia_reports_transcripts (id, report_id, character_id, interviewer, antag_involvement, text) VALUES (NULL, :report_id, :character_id, :interviewer, :antag_involvement, :text)",list("report_id" = selected_report.id, "character_id" = interviewee_id, "interviewer" = usr.name, "antag_involvement" = antag_involvement, "text" = P.info),TRUE)
+		save_log.warn_execute()
+
+		//Run the query to get the inserted id
+		var/transcript_id = save_log.last_insert_id
+
+		if(transcript_id)
+			var/datum/db_query/add_text = SSdbcore.NewQuery("UPDATE ss13_ccia_reports_transcripts SET text = :text WHERE id = :id",list("id" = transcript_id, "text" = P.info),TRUE)
+			add_text.warn_execute()
+			qdel(add_text)
+			var/datum/db_query/add_antag_involvement_text = SSdbcore.NewQuery("UPDATE ss13_ccia_reports_transcripts SET antag_involvement_text = :antag_involvement_text WHERE id = :id",list("id" = transcript_id, "antag_involvement_text" = antag_involvement_text),TRUE)
+			add_antag_involvement_text.warn_execute()
+			qdel(add_antag_involvement_text)
+		else
+			message_cciaa("Transcript could not be saved correctly. TiD Missing")
+
+		//Check if we need to update the status to review required
+		if(antag_involvement && selected_report.status == "in progress")
+			to_chat(usr, SPAN_NOTICE("The device beeps and flashes \"Liaison Review Required. Interviewee claimed antag involvement.\"."))
+			var/datum/db_query/update_db = SSdbcore.NewQuery("UPDATE ss13_ccia_reports SET status = 'review required' WHERE id = :id",list("id" = selected_report.id),TRUE)
+			update_db.warn_execute()
+			qdel(update_db)
+
+		qdel(save_log)
+
+	sLogFile = null
+	selected_report = null
+	interviewee_id = null
+	interviewee_name = null
+	date_string = null
+	antag_involvement = null
+	to_chat(usr, SPAN_NOTICE("The device beeps and flashes \"Recording stopped log saved.\"."))
+	icon_state = "taperecorder_idle"
+
+	return
+
+/obj/item/taperecorder/cciaa/verb/reset_recorder()
+	set name = "Reset Recorder"
+	set category = "Object.Tape Recorder"
+
+	if(!check_rights(R_CCIAA,FALSE))
+		to_chat(usr, SPAN_NOTICE("The device beeps and flashes \"Unauthorised user.\"."))
+		return
+
+	var/confirmation = alert("Do you want to reset the recorder without saving?", "Reset Recorder", "Yes", "No")
+	if(confirmation != "Yes")
+		return
+
+	sLogFile = null
+	selected_report = null
+	interviewee_id = null
+	interviewee_name = null
+	date_string = null
+	antag_involvement = null
+	to_chat(usr, SPAN_NOTICE("The device beeps and flashes \"Recorder Reset.\"."))
+	icon_state = "taperecorder_idle"
+
+/obj/item/taperecorder/cciaa/proc/get_last_transcript()
+	var/list/lFile = file2list(last_file_loc)
+	var/dat = ""
+	var/firstLine = null
+	for(var/line in lFile)
+		if(!line)
+			continue
+		if(!firstLine)
+			firstLine = "[line]"
+			continue
+
+		dat += "[line]<br>\n"
+
+	var/obj/item/paper/P = new /obj/item/paper(src)
+	var/pname = "[firstLine]"
+	var/info = "[dat]"
+	P.set_content_unsafe(pname, info)
+	return P
+
+/obj/item/taperecorder/cciaa/print_transcript()
+	set name = "Print Transcript"
+	set category = "Object.Tape Recorder"
+
+	if(use_check_and_message(usr))
+		return
+	if(!check_rights(R_CCIAA,FALSE))
+		to_chat(usr, SPAN_NOTICE("The device beeps and flashes \"Unauthorised user\"."))
+		return
+	if(recording)
+		to_chat(usr, SPAN_NOTICE("The device beeps and flashes \"Device recording, Aborting\"."))
+		return
+
+	message_admins("[key_name_admin(usr)] accessed file: [last_file_loc]")
+	var/obj/item/paper/P = get_last_transcript()
+	P.forceMove(get_turf(src.loc))
+	return
+
+/obj/item/taperecorder/cciaa/verb/pause_recording()
+	set name = "Pause Recording"
+	set category = "Object.Tape Recorder"
+
+	if(use_check_and_message(usr))
+		return
+	if(!check_rights(R_CCIAA,FALSE))
+		to_chat(usr, SPAN_NOTICE("The device beeps and flashes \"Unauthorised user\"."))
+		return
+	if(!recording)
+		to_chat(usr, SPAN_NOTICE("The device beeps and flashes \"Not recording, Aborting\"."))
+		return
+
+	if(!paused)
+		sLogFile << "--------------------------------"
+		sLogFile << "Recorder paused at: [get_time()]"
+		to_chat(usr, SPAN_NOTICE("The device beeps and flashes \"Recording paused\"."))
+		paused = TRUE
+		icon_state = "taperecorder_idle"
+	else
+		sLogFile << "Recorder resumed at: [get_time()]"
+		sLogFile << "--------------------------------"
+		to_chat(usr, SPAN_NOTICE("The device beeps and flashes \"Recording resumed\"."))
+		paused = FALSE
+		icon_state = "taperecorder_recording"
+	return
+
+/obj/item/taperecorder/cciaa/attack_self(mob/user)
+	//If we are a ccia agent, then always go to the record function (to prompt for the report or start the recording)
+	if(check_rights(R_CCIAA,FALSE) && !selected_report)
+		record()
+		return
+
+	//Otherwise check if we already registered a interviewee
+	if(interviewee_id)
+		to_chat(user,SPAN_NOTICE("The device beeps and flashes \"A interviewee has already been associated with this interview\"."))
+		return
+
+	if(ishuman(user))
+		var/mob/living/carbon/human/H = user
+		if(!H.character_id)
+			to_chat(user,SPAN_NOTICE("The device beeps and flashes \"Fingerprint is not recognized\"."))
+			return
+
+		if(H.character_id == interviewer_id)
+			to_chat(user,SPAN_NOTICE("You need to pass the recorder to the interviewee to scan their fingerprint."))
+			return
+
+		//Sync the intervieweee_id and interviewee_name
+		interviewee_id = H.character_id
+		interviewee_name = H.name
+
+		//Show them the report they are interviewed about
+		if(selected_report.public_topic)
+			send_link(usr, selected_report.public_topic)
+
+		//Ask them if there was antag involvement
+		var/a = input(user, "Were your actions influenced by antagonists or OOC issues/concerns ?", "Antagonist involvement / OOC Issue") in list("yes","no")
+		if(a == "yes")
+			antag_involvement = TRUE
+			antag_involvement_text = sanitizeSafe(input("Describe how your actions were influenced by the antagonists or OOC issues/concerns.", "Antag involvement / OOC Issue") as message|null)
+			message_cciaa("CCIA Interview: [user] claimed their actions were influenced by antagonists or OOC issues.", R_CCIAA)
+			message_cciaa("CCIA Interview: [antag_involvement_text]")
+		else
+			antag_involvement = FALSE
+
+		to_chat(user,SPAN_NOTICE("The device beeps and flashes \"Fingerprint recognized, Employee: [interviewee_name], ID: [interviewee_id]\"."))
+		playsound(src.loc, 'sound/machines/ping.ogg', 50, 0)
+
+
+	else
+		to_chat(user,SPAN_NOTICE("The device beeps and flashes \"Unrecognized entity - Aborting\"."))
+		return
+
+//redundent for now
+/obj/item/taperecorder/cciaa/clear_memory()
+	set name = "Clear Memory"
+	set category = null
+
+	return
+
+/obj/item/taperecorder/cciaa/playback_memory()
+	set name = "Playback Memory"
+	set category = null
+
+	return
+
+/obj/item/taperecorder/cciaa/explode()
+	return
+
+//ccia headset, only command and ert channel are on by default
+
+/obj/item/radio/headset/ert/ccia
+	name = "central command internal affairs radio headset"
+	ks2type = /obj/item/encryptionkey/ccia
+
+/obj/item/radio/headset/ert/ccia/alt
+	name = "central command internal affairs bowman headset"
+	icon = 'icons/obj/item/radio/headset_alt.dmi'
+	icon_state = "com_headset_alt"
+	item_state = "headset_alt"
+
+/obj/item/encryptionkey/ccia
+	name = "\improper CCIA radio encryption key"
+	channels = list("Response Team" = 1, "Science" = 0, "Command" = 1, "Medical" = 0, "Engineering" = 0, "Security" = 0, "Operations" = 0, "Service" = 0)
+
+/obj/item/clothing/suit/storage/toggle/internalaffairs/cciaa
+	name = "central command internal affairs jacket"
+
+/obj/item/storage/lockbox/cciaa
+	req_access = list(ACCESS_CENT_CCIA)
+	name = "CCIA agent briefcase"
+	desc = "A smart looking briefcase with an SCC logo on the side."
+	storage_slots = 8
+	max_storage_space = DEFAULT_LARGEBOX_STORAGE
+
+/obj/item/storage/lockbox/cciaa/bssb
+	name = "BSSB agent briefcase"
+	desc = "A smart looking ID locked briefcase."

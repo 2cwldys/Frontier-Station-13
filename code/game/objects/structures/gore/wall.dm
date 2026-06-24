@@ -1,0 +1,39 @@
+/obj/structure/gore/floor
+	name = "flesh floor"
+	desc = "Looks like the floor was covered by some fleshlike growth."
+	icon_state = "flesh_floor"
+	maxhealth = OBJECT_HEALTH_LOW
+
+/obj/structure/gore/wall
+	name = "flesh wall"
+	desc = "Chunks of flesh sculpted to form an impassable wall."
+	icon_state = "flesh_wall"
+	opacity = TRUE
+	maxhealth = OBJECT_HEALTH_HIGH
+
+/obj/structure/gore/wall/membrane
+	name = "flesh membrane"
+	desc = "Skin and muscle stretched just thin enough to let light pass through."
+	icon_state = "flesh_membrane"
+	opacity = FALSE
+	maxhealth = 120
+
+/obj/structure/gore/wall/Initialize()
+	. = ..()
+	var/turf/T = get_turf(src)
+	T.thermal_conductivity = WALL_HEAT_TRANSFER_COEFFICIENT
+
+/obj/structure/gore/wall/Destroy()
+	var/turf/T = get_turf(src)
+	T.thermal_conductivity = initial(T.thermal_conductivity)
+	return ..()
+
+/obj/structure/gore/resin/attack_hand(var/mob/user)
+	user.setClickCooldown(DEFAULT_ATTACK_COOLDOWN)
+	user.do_attack_animation(src)
+	if((user.mutations & HULK))
+		visible_message(SPAN_DANGER("\The [user] destroys \the [src]!"))
+		add_damage(maxhealth)
+	else
+		visible_message(SPAN_DANGER("\The [user] claws at \the [src]!"))
+		add_damage(rand(5, 10))

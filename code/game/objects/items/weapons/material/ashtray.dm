@@ -1,0 +1,148 @@
+/obj/item/material/ashtray
+	name = "ashtray"
+	icon = 'icons/obj/ashtray.dmi'
+	icon_state = "ashtray"
+	randpixel = 5
+	force_divisor = 0.1
+	thrown_force_divisor = 0.1
+	var/image/base_image
+	var/max_butts = 10
+	w_class = WEIGHT_CLASS_TINY
+
+/obj/item/material/ashtray/Initialize(newloc, material_key)
+	. = ..()
+	persistant_objects_expiration_time_days = rand(7, 180) // Imagine they get stolen, lost or break...
+	max_butts = round(material.hardness/10) //This is arbitrary but whatever.
+	randpixel_xy()
+	update_icon()
+	SSpersistence.objectsRegisterTrack(src, null)
+
+/obj/item/material/ashtray/persistent_objects_get_content()
+	var/list/content = list()
+	content["fill_count"] = length(contents)
+	content["material"] = material.name
+	return content
+
+/obj/item/material/ashtray/persistent_objects_apply_content(content, x, y, z)
+	src.x = x
+	src.y = y
+	src.z = z
+	if(content["material"])
+		set_material(content["material"])
+		max_butts = round(material.hardness/10)
+	var/fill_count = content["fill_count"]
+	if(fill_count)
+		if(fill_count > max_butts)
+			fill_count = max_butts
+		for(var/i = 1; i <= fill_count; i++)
+			var/obj/item/trash/cigbutt/cigarbutt/cigbutt = new /obj/item/trash/cigbutt(src)
+			cigbutt.forceMove(src)
+
+/obj/item/material/ashtray/shatter()
+	..()
+	if(emptyout(get_turf(src)))
+		visible_message(SPAN_DANGER("The contents of [src] spill everywhere!"))
+
+/obj/item/material/ashtray/proc/emptyout(atom/dest)
+	if(!contents.len)
+		return FALSE
+	for (var/obj/O in contents)
+		O.forceMove(dest)
+	update_icon()
+	return TRUE
+
+/obj/item/material/ashtray/attack_self(mob/user)
+	var/turf/dest = get_turf(src)
+	if(emptyout(dest))
+		user.visible_message("<b>[user]</b> pours [src] out onto [dest].", SPAN_NOTICE("You pour [src] out onto [dest]."))
+		return
+	to_chat(user, SPAN_WARNING("[src] is empty, there's nothing to pour out!"))
+
+/obj/item/material/ashtray/update_icon()
+	color = null
+	ClearOverlays()
+	var/list/ashtray_cache = SSicon_cache.ashtray_cache
+	var/cache_key = "base-[material.name]"
+	if(!ashtray_cache[cache_key])
+		var/image/I = image('icons/obj/ashtray.dmi',"ashtray")
+		I.color = material.icon_colour
+		ashtray_cache[cache_key] = I
+	AddOverlays(ashtray_cache[cache_key])
+
+	if (contents.len == max_butts)
+		AddOverlays("ashtray_full")
+		desc = "It's stuffed full."
+	else if (contents.len > max_butts/2)
+		AddOverlays("ashtray_half")
+		desc = "It's half-filled."
+	else
+		desc = "An ashtray made of [material.display_name]."
+
+/obj/item/material/ashtray/attackby(obj/item/attacking_item, mob/user)
+	if (health <= 0)
+		return
+	if (istype(attacking_item, /obj/item/trash/cigbutt) || istype(attacking_item, /obj/item/clothing/mask/smokable/cigarette) || istype(attacking_item, /obj/item/flame/match))
+		if (contents.len >= max_butts)
+			to_chat(user, "\The [src] is full.")
+			return
+		user.remove_from_mob(attacking_item)
+		attacking_item.forceMove(src)
+
+		if(istype(attacking_item, /obj/item/trash/cigbutt))
+			SSpersistence.objectsDeregisterTrack(attacking_item) // Ashtray will handle the persistent contents in it itself
+
+		if (istype(attacking_item,/obj/item/clothing/mask/smokable/cigarette))
+			var/obj/item/clothing/mask/smokable/cigarette/cig = attacking_item
+			if (cig.lit == TRUE)
+				user.visible_message("<b>[user]</b> crushes [cig] in [src], putting it out.", SPAN_NOTICE("You crush [cig] in [src], putting it out."))
+				playsound(src.loc, 'sound/items/cigs_lighters/cig_snuff.ogg', 50, 1)
+				STOP_PROCESSING(SSprocessing, cig)
+				var/obj/item/butt = new cig.type_butt(src)
+				cig.transfer_fingerprints_to(butt)
+				qdel(cig)
+				attacking_item = butt
+				//spawn(1)
+				//	TemperatureAct(150)
+			else if (cig.lit == FALSE)
+				user.visible_message(
+					"<b>[user]</b> places [cig] in [src] without even smoking it.",
+					SPAN_NOTICE("You place [cig] in [src] without even smoking it. Why would you do that?")
+				)
+		else
+			user.visible_message("<b>[user]</b> places [attacking_item] in [src].", SPAN_NOTICE("You place [attacking_item] in [src]."))
+
+		user.update_inv_l_hand()
+		user.update_inv_r_hand()
+		add_fingerprint(user)
+		update_icon()
+	else
+		health = max(0,health - attacking_item.force)
+		user.visible_message(user, SPAN_DANGER("[user] hits [src] with [attacking_item]!"), SPAN_DANGER("You hit [src] with [attacking_item]."))
+		playsound(get_turf(src), material.hitsound, 25)
+		if (health < 1)
+			shatter()
+	return
+
+/obj/item/material/ashtray/throw_impact(atom/hit_atom)
+	if (health > 0)
+		health = max(0,health - 3)
+		if(emptyout(get_turf(src)))
+			visible_message(SPAN_DANGER("[src] slams into [hit_atom], spilling its contents everywhere!"))
+		if (health < 1)
+			shatter()
+			return
+		update_icon()
+	return ..()
+
+/obj/item/material/ashtray/mechanics_hints(mob/user, distance, is_adjacent)
+	. += ..()
+	. += "Use help intent to empty into a disposal. Use harm intent to put into a disposal."
+
+/obj/item/material/ashtray/plastic/Initialize(newloc, material_key)
+	. = ..(newloc, MATERIAL_PLASTIC)
+
+/obj/item/material/ashtray/bronze/Initialize(newloc, material_key)
+	. = ..(newloc, MATERIAL_BRONZE)
+
+/obj/item/material/ashtray/glass/Initialize(newloc, material_key)
+	. = ..(newloc, MATERIAL_GLASS)

@@ -1,0 +1,334 @@
+================================================================================
+  PERSISTENT WORLD — FACTION & MEDICAL SETUP GUIDE
+  Aurora Persistence System
+================================================================================
+
+This guide covers setting up factions, neural lace consciousness preservation,
+cryopod spawn networks, lace storage pods, cloning, and resleeving.
+
+================================================================================
+  PART 1 — FACTIONS
+================================================================================
+
+--------------------------------------------------------------------------------
+  STEP 1 — CREATE THE FACTION IN THE DATABASE
+--------------------------------------------------------------------------------
+
+  1. Server tab → "Manage Faction Account" → "Create New Faction"
+  2. Enter:
+       Faction UID:      zavodskoi        (lowercase, no spaces, unique)
+       Full Name:        Zavodskoi Interstellar
+       Abbreviation:     ZI
+       Starting Balance: 1000000
+  3. Confirm — faction is live immediately.
+
+  Remove factions via "Remove Faction" — also deletes their jobs and account.
+
+--------------------------------------------------------------------------------
+  STEP 2 — DEFINE FACTION JOBS
+--------------------------------------------------------------------------------
+
+  Server tab → "Manage Faction Jobs" → select faction → "Add Job"
+       Title:     Director
+       Pay Rate:  2000  (credits per pay cycle)
+       Rank:      2     (0=crew, 1=officer, 2=command)
+
+  Repeat for each tier. Jobs survive server restarts.
+
+--------------------------------------------------------------------------------
+  STEP 3 — PLACE THE FACTION BEACON
+--------------------------------------------------------------------------------
+
+  The beacon auto-configures everything in its radius to the faction network.
+
+  1. Admin spawn: /obj/structure/machinery/faction_beacon
+  2. Right-click → "Configure Faction Beacon"
+       Faction UID:  zavodskoi
+       Radius:       30 tiles
+  3. The beacon scans and configures all nearby:
+       - Cryopods       (spawn points)
+       - Cargo telepads (delivery points)
+       - card_mod programs (HoP consoles)
+       - cargocontrol programs (supply consoles)
+       - Lace storage pods (consciousness recovery)
+
+  Re-scan: if you add objects AFTER placing the beacon, right-click and
+  reconfigure to pick them up.
+
+--------------------------------------------------------------------------------
+  STEP 4 — CRYOPODS (FACTION SPAWN POINTS)
+--------------------------------------------------------------------------------
+
+  Any cryopod in the beacon's radius is auto-configured. To set manually:
+
+    Right-click cryopod → "Configure Cryopod Network"
+      Network ID: zavodskoi
+      Spawn: Yes
+
+  SPAWN PRIORITY:
+    1. Player's faction cryopod (if available)
+    2. Public cryopod (network = "public", spawn = true)
+    3. Any start landmark
+
+  PUBLIC PODS: Set network to "public", spawn = Yes.
+  Required as universal fallback. Place at least one on the main station.
+
+--------------------------------------------------------------------------------
+  STEP 5 — CARGO TELEPADS (FACTION SUPPLY)
+--------------------------------------------------------------------------------
+
+  TELEPAD:
+    Admin spawn: /obj/structure/machinery/telepad_cargo
+    Right-click → "Configure Supply Network"
+      Network ID: zavodskoi
+      Accept deliveries: Yes
+
+  SUPPLY CONSOLE (cargocontrol program):
+    Beacon auto-sets it if in range. To set manually:
+    Debug tab → View Variables → persistent_network = "zavodskoi"
+
+  HOW ORDERS WORK:
+    1. Staff submit/approve orders on the networked console
+    2. Shuttle departs → faction-tagged orders teleport to the faction telepad
+    3. Cost is debited from the faction's account
+    4. Insufficient funds → order rejected automatically
+    5. Non-networked consoles use the supply ship normally (unchanged)
+
+--------------------------------------------------------------------------------
+  STEP 6 — FACTION HoP CONSOLE (ID CARDS)
+--------------------------------------------------------------------------------
+
+  Faction-networked card_mod terminals show faction jobs in the assignment list.
+
+  SETUP:
+    Beacon auto-configures if in range. To set manually:
+    Debug → View Variables → persistent_network = "zavodskoi"
+
+  ISSUING IDs (TGUI):
+    Insert player's ID card → faction jobs appear at top of assignment list
+    (light blue section) → click to assign job + access
+
+  GIVE FACTION ID (admin):
+    Server tab → "Give Faction ID"
+    Pick player, faction, job → card issued directly to their hands
+
+  REPLACEMENT IDs:
+    Right-click card_mod console → "Print Replacement ID"
+    No blank card needed. Old cards are revoked automatically.
+
+--------------------------------------------------------------------------------
+  STEP 7 — FACTION ACCOUNT MANAGEMENT
+--------------------------------------------------------------------------------
+
+  Server tab → "Manage Faction Account" → "Modify Faction Balance"
+
+  ATM DEPOSITS/WITHDRAWALS:
+    Players with a faction ID card can use any ATM to:
+    - View their faction's account balance (shown after authenticating)
+    - Deposit personal credits into the faction account
+    - Withdraw from faction account (officer rank required)
+
+================================================================================
+  PART 2 — NEURAL LACE (CONSCIOUSNESS PRESERVATION)
+================================================================================
+
+  Neural laces preserve a player's consciousness when they die. A medic can
+  extract the lace, resleeve the player into a new or original body, or store
+  the lace in a storage pod until medical staff are available.
+
+--------------------------------------------------------------------------------
+  NEURAL LACE — OVERVIEW
+--------------------------------------------------------------------------------
+
+  ALL PLAYERS get a neural lace installed automatically on first spawn.
+  The lace is a tiny augment in the head. Players can also disable it
+  in character preferences (toggle off = no lace installed).
+
+  WHAT HAPPENS ON DEATH:
+    1. Player dies → consciousness transfers into the neural lace
+    2. Player is dormant inside the lace (can hear nearby voices, can whisper)
+    3. 4-hour countdown begins
+    4. If a medic extracts the lace (head surgery) within 4 hours:
+         → Lace becomes a holdable item containing the player
+         → Take it to a resleever or reimplant into the original body
+    5. If NOT extracted in 4 hours:
+         → Lace auto-teleports to nearest faction/public lace storage pod
+         → Player waits in the pod (dormant, can still hear/whisper)
+
+  WHILE DORMANT IN THE LACE:
+    - Player hears all speech within ~3 tiles
+    - Player can whisper to nearby people ("...a disembodied voice whispers...")
+    - Player cannot move or interact otherwise
+
+  LACE DAMAGE (when extracted):
+    Once a lace is removed from the body it can be damaged. Installed laces
+    are protected by the skull and cannot be damaged through normal means.
+
+    Damage sources (extracted lace only):
+      - Physical impacts (weapons, dropping, thrown objects)
+      - Fire / heat exposure
+      - EMP blasts (most damaging — lace is electronic)
+
+    Damage thresholds:
+      0–25:   No effect — lace is fine
+      26–50:  Minor — player feels a tremor, warning message
+      51–75:  Moderate — player hears interference, repair needed before resleeve
+      76–99:  Severe — consciousness degrading rapidly, emergency repair required
+      100:    Destroyed — consciousness is lost permanently, player ghostizes
+
+    REPAIR (when extracted, before reaching Destroyed):
+      Use a welding tool on the lace → steps down one full damage tier per weld:
+        Severe → Moderate → Minor → None
+      Destroyed laces CANNOT be repaired. The consciousness is permanently lost.
+
+    Examine the lace to see its current condition.
+
+  WHILE IN A STORAGE POD:
+    - Same hear/whisper capability
+    - Medical staff can retrieve the lace by clicking the pod
+
+--------------------------------------------------------------------------------
+  NEURAL LACE — SETUP
+--------------------------------------------------------------------------------
+
+  INSTALLING ON A PLAYER WHO NEVER HAD ONE:
+
+    METHOD 1 — Admin verb:
+      Server tab → "Install Neural Lace" → select target player
+      Lace is installed instantly. Player receives a tingling sensation message.
+
+    METHOD 2 — Surgery:
+      Medical staff perform head augmentation surgery on the patient.
+      Select the neural lace augment to install it.
+      Lace binds to the patient's biometrics on installation.
+
+--------------------------------------------------------------------------------
+  LACE STORAGE PODS
+--------------------------------------------------------------------------------
+
+  Storage pods hold laces that were not recovered by medics in time.
+  Place them in medical bays and faction territories.
+
+  SETUP:
+    Admin spawn: /obj/structure/machinery/lace_storage
+    Right-click → "Configure Lace Storage Network"
+      Network ID: zavodskoi   (or "public" for all players)
+
+  ROUTING PRIORITY (when 10-min timer expires):
+    1. Faction pod matching player's employer_faction on their ID
+    2. Public pod (network = "public")
+    3. Lace stays where it is if no pod found
+
+  PUBLIC PODS: Set network to "public". Required as universal fallback.
+  Place at least one in the main medical bay.
+
+  RETRIEVING A LACE FROM A POD:
+    Click the pod → lace item transfers to your hands
+    Take it to a resleever
+
+--------------------------------------------------------------------------------
+  RESLEEVING (RETURNING TO A BODY)
+--------------------------------------------------------------------------------
+
+  RESLEEVER MACHINE:
+    Admin spawn: /obj/structure/machinery/resleever
+    Used to transfer a consciousness from a lace into a new or original body.
+
+  HOW TO RESLEEVE:
+
+    METHOD 1 — New vat body:
+      1. Use a body vat to grow a blank body (see CLONING section below)
+      2. Click the resleever → "Set Target Body" → select the vat body nearby
+      3. Insert the extracted lace into the resleever (click with lace in hand)
+      4. Click resleever → "Resleeve" → confirm
+      5. Player transfers into the new body
+
+    METHOD 2 — Original body:
+      1. Stabilize and heal the original body (medical treatment)
+      2. Surgically reimplant the lace back into the original head
+      3. Player's consciousness transfers back when lace is installed
+      No resleever needed for this method.
+
+--------------------------------------------------------------------------------
+  CLONING (BODY VAT)
+--------------------------------------------------------------------------------
+
+  The body vat grows a blank human body from DNA for use in resleeving.
+  Useful when the original body is destroyed or irreparably damaged.
+
+  SETUP:
+    Admin spawn: /obj/structure/machinery/body_vat
+
+  GROWING A BODY:
+    1. Extract the player's neural lace
+    2. Click the body vat with the lace in hand → starts a 10-minute grow cycle
+       (The lace is returned to you — the vat only reads the DNA)
+    3. Wait 10 minutes → body is ready
+    4. Click the vat → "Extract Body" → blank body appears nearby
+    5. Take the blank body to the resleever along with the lace
+
+  ADMIN INSTANT-GROW (for testing):
+    Right-click body vat → "Instant Grow Body (Admin)"
+    Requires a grow cycle to be started first.
+
+================================================================================
+  PART 3 — QUICK REFERENCE
+================================================================================
+
+--------------------------------------------------------------------------------
+  SETUP CHECKLIST (for a new faction territory)
+--------------------------------------------------------------------------------
+
+  DATABASE:
+    [ ] Create faction via "Manage Faction Account"
+    [ ] Define jobs via "Manage Faction Jobs"
+
+  IN-WORLD OBJECTS (place, then activate beacon last):
+    [ ] Cryopods (spawn points)
+    [ ] Cargo telepad (supply delivery)
+    [ ] card_mod laptop/console (HoP terminal)
+    [ ] cargocontrol laptop/console (supply ordering)
+    [ ] Lace storage pod (consciousness recovery)
+    [ ] Lace storage pod — public (fallback, main medical area)
+    [ ] Resleever machine (medical bay)
+    [ ] Body vat (medical bay)
+    [ ] Faction beacon (place last, auto-configures everything above)
+
+  BEACON:
+    [ ] Right-click → Configure with faction UID + radius
+
+--------------------------------------------------------------------------------
+  PLAYER FLOW
+--------------------------------------------------------------------------------
+
+  NORMAL SESSION:
+    Connect → spawn at faction cryopod → play → enter cryosleep verb to log off
+    → reconnect → wake at available faction/public cryopod
+
+  ON DEATH (with neural lace):
+    Die → consciousness dormant in lace → medic extracts lace via surgery
+    → resleeve into vat body OR reimplant into original body → continue playing
+
+  ON DEATH (lace not extracted in time):
+    Die → 4-hour timer → lace auto-routes to faction/public lace storage pod
+    → medic retrieves lace from pod → resleeve → continue playing
+
+  ON SERVER RESTART WHILE DEAD:
+    Player reconnects → if lace is in a storage pod, they reconnect dormant
+    in the pod → wait for medical staff to resleeve them
+
+--------------------------------------------------------------------------------
+  ADMIN VERBS REFERENCE
+--------------------------------------------------------------------------------
+
+  "Manage Faction Account"  — create/modify/remove factions + balance
+  "Manage Faction Jobs"     — add/edit/remove faction-specific job definitions
+  "Give Faction ID"         — issue a faction ID card directly to a player
+  "Install Neural Lace"     — install a lace in any player instantly
+  "Configure Cryopod Network" (right-click cryopod)
+  "Configure Supply Network"  (right-click cargo telepad)
+  "Configure Lace Storage Network" (right-click lace storage pod)
+  "Configure Faction Beacon"  (right-click faction beacon)
+  "Instant Grow Body (Admin)" (right-click body vat)
+
+================================================================================

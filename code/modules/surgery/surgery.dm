@@ -1,0 +1,197 @@
+/* SURGERY STEPS */
+
+/singleton/surgery_step
+	var/name
+	var/priority = 0	//steps with higher priority would be attempted first
+
+	/// type path referencing tools that can be used for this step, and how well are they suited for it
+	var/list/allowed_tools = null
+	/// type paths referencing races that this step applies to.
+	var/list/allowed_species = null
+	var/list/disallowed_species = list("Nymph")
+
+	/// duration of the step
+	var/min_duration = 0
+	var/max_duration = 0
+
+	/// evil infection stuff that will make everyone hate me
+	var/can_infect = FALSE
+	/// How much blood this step can get on surgeon. 1 - hands, 2 - full body.
+	var/blood_level = 0
+
+	var/requires_surgery_compatibility = TRUE
+
+	/**
+	 * The associative list of skills and their paired requirement levels to be able to perform a given surgery.
+	 * These are considered soft requirements, so if a surgery requires skill level 3 in something, and you're at level 1
+	 * Then the surgery will take a penalty of twice the skill_diff_fail_modifier (30% by default).
+	 * Exceeding the skill requirement can also offset having lower success rates from things like tools.
+	 */
+	var/alist/skill_requirements
+
+	/// The bonus (or penalty) fail rate to a surgery per point of skill diff. As a percent chance.
+	var/skill_diff_fail_modifier = SURGERY_DIFFICULTY_EASY
+
+/// Returns how well tool is suited for this step.
+/singleton/surgery_step/proc/tool_quality(obj/item/tool)
+	for(var/T in allowed_tools)
+		var/return_value = check_tool_quality(tool, T, allowed_tools[T], requires_surgery_compatibility)
+		if(return_value)
+			return return_value
+		if(istype(tool,T))
+			return allowed_tools[T]
+	return FALSE
+
+/// Checks if this step applies to the user mob at all
+/singleton/surgery_step/proc/is_valid_target(mob/living/carbon/human/target)
+	if(!ishuman(target))
+		return FALSE
+
+	if(allowed_species)
+		for(var/species in allowed_species)
+			if(target.species.get_bodytype() == species)
+				return TRUE
+
+	if(disallowed_species)
+		for(var/species in disallowed_species)
+			if(target.species.get_bodytype() == species)
+				return FALSE
+
+	return TRUE
+
+
+/// Checks whether this step can be applied with the given user and target
+/singleton/surgery_step/proc/can_use(mob/living/user, mob/living/carbon/human/target, target_zone, obj/item/tool)
+	if(!ishuman(target))
+		return FALSE
+
+	var/obj/item/organ/external/affected = target.get_organ(target_zone)
+	var/canceled = FALSE
+	SEND_SIGNAL(target, COMSIG_BEGIN_SURGERY, &canceled, affected, user, src)
+	if(canceled)
+		return FALSE
+
+	return TRUE
+
+/// Does stuff to begin the step, usually just printing messages. Moved germs transfering and bloodying here too
+/singleton/surgery_step/proc/begin_step(mob/living/user, mob/living/carbon/human/target, target_zone, obj/item/tool)
+	var/obj/item/organ/external/affected = target.get_organ(target_zone)
+	if(can_infect && affected)
+		spread_germs_to_organ(affected, user)
+	if(ishuman(user) && prob(60))
+		var/mob/living/carbon/human/H = user
+		if(blood_level)
+			H.bloody_hands(target,0)
+		if(blood_level > 1)
+			H.bloody_body(target,0)
+	playsound(target.loc, tool.surgerysound, 50, TRUE)
+	return TRUE
+
+/// Does stuff to end the step, which is normally print a message + do whatever this step changes
+/singleton/surgery_step/proc/end_step(mob/living/user, mob/living/carbon/human/target, target_zone, obj/item/tool)
+	return FALSE
+
+/// Stuff that happens when the step fails
+/singleton/surgery_step/proc/fail_step(mob/living/user, mob/living/carbon/human/target, target_zone, obj/item/tool)
+	return null
+
+/proc/spread_germs_to_organ(var/obj/item/organ/external/E, var/mob/living/carbon/human/user)
+	if(!istype(user) || !istype(E))
+		return FALSE
+
+	var/germ_level = user.germ_level
+	if(user.gloves)
+		germ_level = user.gloves.germ_level
+
+	E.germ_level = max(germ_level,E.germ_level) //as funny as scrubbing microbes out with clean gloves is - no.
+
+/proc/do_surgery(mob/living/carbon/M, mob/living/user, obj/item/tool, var/autofail = FALSE)
+	// Check for the Hippocratic oath.
+	if(!istype(M) || user.a_intent == I_HURT)
+		return FALSE
+
+	// Check for multi-surgery drifting.
+	var/zone = user.zone_sel.selecting
+	if(zone in M.op_stage.in_progress)
+		to_chat(user, SPAN_WARNING("You can't operate on this area while surgery is already in progress."))
+		return TRUE
+
+	//Check that one surgeon is not doing multiple surgeries at once
+	for(var/surg in M.op_stage.in_progress)
+		var/current_surgeon = M.op_stage.in_progress[surg]
+		if(user == current_surgeon)
+			to_chat(user, SPAN_WARNING("You can only focus on one surgery at a time!"))
+			return TRUE
+
+	// What surgeries does our tool/target enable?
+	var/list/possible_surgeries
+	var/list/all_surgeries = GET_SINGLETON_SUBTYPE_MAP(/singleton/surgery_step)
+	for(var/decl in all_surgeries)
+		var/singleton/surgery_step/S = all_surgeries[decl]
+		if(S.tool_quality(tool) && S.can_use(user, M, zone, tool))
+			LAZYSET(possible_surgeries, S, TRUE)
+
+	// Which surgery, if any, do we actually want to do?
+	var/singleton/surgery_step/S
+	if(LAZYLEN(possible_surgeries) == 1)
+		S = possible_surgeries[1]
+	else if(LAZYLEN(possible_surgeries) >= 1)
+		if(user.client) // In case of future autodocs.
+			S = tgui_input_list(user, "Which surgery would you like to perform?", "Surgery", possible_surgeries)
+
+	// We didn't find a surgery, or decided not to perform one.
+	if(!istype(S))
+		if(tool.item_flags & ITEM_FLAG_SURGERY) //Is this supposed to be used for surgery?
+			to_chat(user, SPAN_WARNING("You aren't sure what you could do to \the [M] with \the [tool]."))
+			return TRUE
+		return FALSE //Just do the normal use for the tool instead
+
+	// Otherwise we can make a start on surgery!
+	else if(istype(M) && !QDELETED(M) && tool)
+		// Double-check this in case it changed between initial check and now.
+		if(zone in M.op_stage.in_progress)
+			to_chat(user, SPAN_WARNING("You can't operate on this area while surgery is already in progress."))
+		else if(S.is_valid_target(M))
+			M.op_stage.in_progress += list(zone = user)
+			S.begin_step(user, M, zone, tool)
+			var/duration = rand(S.min_duration, S.max_duration)
+
+			// Get the base surgery success rate based on tools.
+			// This should eventually be reworked to use ToolQualityComponents when we add that.
+			var/success_rate = S.tool_quality(tool)
+
+			// Query the surgeon if they have any components that would like to modify the success chance.
+			SEND_SIGNAL(user, COMSIG_GET_SURGERY_SUCCESS_MODIFIERS, &success_rate)
+
+			// Skill modifier checks
+			for (var/skill_comp, required_level in S.skill_requirements)
+				var/skill_level = GET_SKILL_LEVEL(user, skill_comp)
+				// Null condition handles NPCs and Antags that won't have the skill setup.
+				if (!isnull(skill_level))
+					success_rate += (skill_level - required_level) * S.skill_diff_fail_modifier
+			// End of skill modifier checks
+
+			if(prob(success_rate) && do_mob(user, M, duration) && !autofail)
+				S.end_step(user, M, zone, tool)
+			else if ((tool in user.contents) && user.Adjacent(M))
+				S.fail_step(user, M, zone, tool)
+			else
+				to_chat(user, SPAN_WARNING("You must remain close to your patient to conduct surgery."))
+			if(!QDELETED(M))
+				M.op_stage.in_progress -= list(zone = user)
+				if(ishuman(M))
+					var/mob/living/carbon/human/H = M
+					H.update_surgery()
+		return TRUE
+	return TRUE
+
+/datum/surgery_status
+	var/eyes = 0
+	var/face = 0
+	var/head_reattach = 0
+	var/current_organ = "organ"
+	var/list/in_progress = list()
+
+/datum/surgery_status/Destroy(force)
+	in_progress?.Cut()
+	return ..()

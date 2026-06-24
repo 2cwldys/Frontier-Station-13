@@ -1,0 +1,240 @@
+/obj/item/ammo_pile
+	name = "ammo pile"
+	desc = "A handful of some kind of ammunition."
+	w_class = WEIGHT_CLASS_SMALL
+
+	var/list/ammo = list()
+	var/list/image/ammo_overlays = list()
+	var/ammo_type // the type of ammo this ammo pile accepts
+	var/max_ammo = 5
+	var/spent_ammo = FALSE
+
+/obj/item/ammo_pile/Destroy()
+	QDEL_LIST(ammo)
+	ammo_overlays.Cut()
+	. = ..()
+
+/obj/item/ammo_pile/feedback_hints(mob/user, distance, is_adjacent)
+	. += ..()
+	if(is_adjacent)
+		. += SPAN_NOTICE("It contains [length(ammo)] rounds.")
+
+/obj/item/ammo_pile/Initialize(mapload, var/list/provided_ammo)
+	. = ..()
+	if(islist(provided_ammo))
+		if(!istype(provided_ammo[1], /obj/item/ammo_casing))
+			return
+		var/obj/item/ammo_casing/first_round = provided_ammo[1]
+		add_ammo(first_round)
+		check_name_and_ammo()
+		if(!first_round.BB)
+			spent_ammo = TRUE
+		provided_ammo -= first_round
+		for(var/obj/item/ammo_casing/rounds in provided_ammo)
+			add_ammo(rounds)
+	else if(ammo_type)
+		var/obj/item/ammo_casing/first_round = new ammo_type()
+		add_ammo(first_round)
+		check_name_and_ammo()
+		if(!first_round.BB)
+			spent_ammo = TRUE
+		for(var/i = 1, i <= max_ammo - 1, i++)
+			var/obj/item/ammo_casing/C = new ammo_type()
+			add_ammo(C)
+	check_ammo()
+
+/obj/item/ammo_pile/attack(mob/living/target_mob, mob/living/user, target_zone)
+	return
+
+/obj/item/ammo_pile/afterattack(atom/A, mob/living/user, proximity_flag)
+	if(!proximity_flag)
+		return
+	if(!length(ammo))
+		check_ammo()
+
+	if(A.type == ammo_type)
+		if(length(ammo) >= max_ammo)
+			to_chat(user, SPAN_WARNING("\The [src] is already fully stacked."))
+			return
+		var/obj/item/ammo_casing/B = A
+		if(!B.BB && !spent_ammo)
+			to_chat(user, SPAN_WARNING("\The [B] is spent!"))
+			return
+		if(B.BB && spent_ammo)
+			to_chat(user, SPAN_WARNING("\The [src] is spent!"))
+			return
+		to_chat(user, SPAN_NOTICE("You add \the [A] to \the [src]."))
+		add_ammo(A)
+		return
+	else if(istype(A, /obj/item/ammo_casing))
+		to_chat(user, SPAN_WARNING("\The [A] has a different type of ammunition!"))
+		return
+	else if(istype(A, /obj/item/ammo_pile))
+		if(length(ammo) >= max_ammo)
+			to_chat(user, SPAN_WARNING("\The [src] is already fully stacked."))
+			return
+		var/obj/item/ammo_pile/target_pile = A
+		if(target_pile.ammo_type != src.ammo_type)
+			to_chat(user, SPAN_WARNING("\The [target_pile] has a different type of ammunition!"))
+			return
+		if(target_pile.spent_ammo && !spent_ammo)
+			to_chat(user, SPAN_WARNING("\The [target_pile] is spent!"))
+			return
+		if(!target_pile.spent_ammo && spent_ammo)
+			to_chat(user, SPAN_WARNING("\The [src] is spent!"))
+			return
+		var/amount_taken = 0
+		for(var/obj/bullet in target_pile.ammo)
+			if(length(src.ammo) >= src.max_ammo)
+				break
+			src.add_ammo(bullet)
+			target_pile.remove_ammo()
+			amount_taken++
+		to_chat(user, SPAN_NOTICE("You take [amount_taken] rounds from the other pile and add it to yours."))
+		return
+	else if(istype(A, /obj/item/gun) || istype(A, /obj/item/ammo_magazine))
+		var/obj/bullet = get_next_ammo()
+		A.attackby(bullet, user)
+		// if the gun / mag accepted the bullet, it will no longer be in our pile
+		if(!(bullet in src))
+			remove_ammo()
+		return
+
+/obj/item/ammo_pile/attackby(obj/item/attacking_item, mob/user)
+	if(istype(attacking_item, /obj/item/ammo_casing))
+		if(attacking_item.type != ammo_type)
+			to_chat(user, SPAN_WARNING("\The [attacking_item] has a different type of ammunition!"))
+			return TRUE
+		if(length(ammo) >= max_ammo)
+			to_chat(user, SPAN_WARNING("\The [src] is already fully stacked."))
+			return TRUE
+		var/obj/item/ammo_casing/B = attacking_item
+		if(!B.BB && !spent_ammo)
+			to_chat(user, SPAN_WARNING("Your round is spent!"))
+			return TRUE
+		else if(B.BB && spent_ammo)
+			to_chat(user, SPAN_WARNING("\The [src] is spent!"))
+			return TRUE
+		to_chat(user, SPAN_NOTICE("You add \the [attacking_item] to \the [src]."))
+		add_ammo(attacking_item)
+		return TRUE
+	return ..()
+
+/obj/item/ammo_pile/attack_hand(mob/user)
+	if(user.get_inactive_hand() == src)
+		var/obj/item/ammo_casing/C = get_next_ammo()
+		user.put_in_hands(C)
+		remove_ammo()
+	else
+		..()
+
+/obj/item/ammo_pile/proc/check_name_and_ammo()
+	if(length(ammo))
+		var/obj/item/ammo_casing/first_round = ammo[1]
+		name = "[first_round.caliber] pile"
+		desc = "A pile of [first_round.caliber] rounds."
+		ammo_type = first_round.type
+		max_ammo = first_round.max_stack
+
+/// Returns the next shell to be used.
+/obj/item/ammo_pile/proc/get_next_ammo()
+	if(!length(ammo))
+		qdel(src)
+		return null
+	var/obj/item/ammo_casing/to_load = ammo[1]
+	return to_load
+
+/obj/item/ammo_pile/proc/check_ammo()
+	var/ammo_amount = length(ammo)
+	if(ammo_amount > 1)
+		var/obj/first_round = ammo[1]
+		if(ammo_amount >= 6)
+			// too many to fit in your pockets, generally
+			w_class = first_round.w_class + 2
+		else
+			w_class = first_round.w_class + 1
+		return
+
+	switch(ammo_amount)
+		if(0)
+			qdel(src)
+		if(1)
+			var/obj/bullet = ammo[1]
+			ammo -= bullet
+			bullet.forceMove(get_turf(src))
+			var/mob/gunman = ismob(loc) ? loc : null
+			qdel(src)
+			if(gunman)
+				// Do this after qdeleting the pile so that they have a free hand.
+				gunman.put_in_hands(bullet)
+
+/obj/item/ammo_pile/proc/add_ammo(var/obj/item/ammo_casing/bullet)
+	if((!bullet.BB && !spent_ammo) && (bullet.BB && spent_ammo))
+		return
+	RegisterSignal(bullet, COMSIG_QDELETING, PROC_REF(clear_ammo))
+	if(ismob(bullet.loc))
+		var/mob/gunman = bullet.loc
+		gunman.drop_from_inventory(bullet, src)
+	if(istype(bullet.loc, /obj/item/storage))
+		var/obj/item/storage/S = bullet.loc
+		S.remove_from_storage(bullet, src)
+	bullet.forceMove(src)
+	ammo += bullet
+	var/image/ammo_picture = image(bullet.icon, bullet.icon_state, dir = pick(GLOB.alldirs))
+	ammo_picture.pixel_x = rand(-6, 6)
+	ammo_picture.pixel_y = rand(-6, 6)
+	ammo_overlays[bullet] = ammo_picture
+	AddOverlays(ammo_overlays[bullet])
+	if(length(ammo) >= 2)
+		check_ammo()
+
+/// Called when one of our contained bullets is qdel'd -- why does this happen? it is a mystery
+/obj/item/ammo_pile/proc/clear_ammo(datum/source)
+	SIGNAL_HANDLER
+	CutOverlays(ammo_overlays[source])
+	ammo -= source
+	UnregisterSignal(source, COMSIG_QDELETING)
+
+/obj/item/ammo_pile/proc/remove_ammo(var/atom/target)
+	var/obj/bullet = ammo[1]
+	if(target)
+		bullet.forceMove(target)
+	CutOverlays(ammo_overlays[bullet])
+	ammo -= bullet
+	UnregisterSignal(bullet, COMSIG_QDELETING)
+	check_ammo()
+
+/obj/item/ammo_pile/proc/scatter()
+	for(var/thing in ammo)
+		var/obj/bullet = thing
+		bullet.forceMove(get_turf(src))
+		bullet.throw_at_random(FALSE, 2, 7)
+		remove_ammo(bullet)
+
+/obj/item/ammo_pile/throw_at()
+	..()
+	scatter()
+
+/obj/item/ammo_pile/slug
+	ammo_type = /obj/item/ammo_casing/shotgun
+
+/obj/item/ammo_pile/shotgun_blanks
+	ammo_type = /obj/item/ammo_casing/shotgun/blank
+
+/obj/item/ammo_pile/shotgun_beanbag
+	ammo_type = /obj/item/ammo_casing/shotgun/beanbag
+
+/obj/item/ammo_pile/shotgun_flash
+	ammo_type = /obj/item/ammo_casing/shotgun/flash
+
+/obj/item/ammo_pile/shotgun_pellet
+	ammo_type = /obj/item/ammo_casing/shotgun/pellet
+
+/obj/item/ammo_pile/shotgun_stunshell
+	ammo_type = /obj/item/ammo_casing/shotgun/stunshell
+
+/obj/item/ammo_pile/shotgun_practice
+	ammo_type = /obj/item/ammo_casing/shotgun/practice
+
+/obj/item/ammo_pile/fourty_five
+	ammo_type = /obj/item/ammo_casing/c45

@@ -1,0 +1,3378 @@
+//MAP CONVERTED BY dmm2tgm.py THIS HEADER COMMENT PREVENTS RECONVERSION, DO NOT REMOVE
+"ab" = (
+/obj/structure/machinery/atmospherics/unary/vent_pump/on,
+/turf/simulated/floor/tiled/freezer,
+/area/burzsia_mining)
+"aB" = (
+/obj/structure/toilet{
+	dir = 1
+	},
+/obj/structure/machinery/light,
+/turf/simulated/floor/tiled/freezer,
+/area/burzsia_mining)
+"bk" = (
+/obj/structure/table/steel,
+/obj/item/flashlight/lamp/lava/yellow,
+/obj/effect/floor_decal/corner/orange/diagonal,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/foreman)
+"bx" = (
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/obj/structure/machinery/alarm/south{
+	req_one_access = list(202)
+	},
+/turf/simulated/floor/tiled/freezer,
+/area/burzsia_mining)
+"bB" = (
+/obj/structure/machinery/atmospherics/portables_connector{
+	dir = 4
+	},
+/obj/structure/machinery/portable_atmospherics/canister/air,
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"bH" = (
+/obj/structure/closet/secure_closet/personal,
+/obj/item/clothing/suit/storage/hooded/wintercoat/heph,
+/obj/item/clothing/under/rank/miner/heph,
+/obj/effect/floor_decal/corner/dark_green/full{
+	dir = 4
+	},
+/obj/structure/extinguisher_cabinet/east,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/dormitories)
+"bL" = (
+/obj/structure/bed/stool/padded/brown,
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 9
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"cw" = (
+/obj/effect/floor_decal/corner/dark_green{
+	dir = 9
+	},
+/obj/structure/cable/green{
+	d2 = 2;
+	icon_state = "0-2"
+	},
+/obj/structure/machinery/power/apc/west{
+	req_access = list(202)
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/foreman)
+"cE" = (
+/obj/structure/machinery/door/airlock/freezer{
+	name = "Restroom";
+	dir = 1
+	},
+/turf/simulated/floor/tiled/freezer,
+/area/burzsia_mining)
+"de" = (
+/obj/structure/machinery/cryopod,
+/obj/effect/floor_decal/corner/dark_green/full{
+	dir = 1
+	},
+/obj/random/poster/pinup{
+	pixel_y = 32
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/dormitories)
+"dp" = (
+/obj/structure/machinery/meter,
+/obj/structure/cable/green{
+	d1 = 2;
+	d2 = 4;
+	icon_state = "2-4"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 6
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"dK" = (
+/obj/structure/machinery/atmospherics/unary/vent_pump/on{
+	dir = 8
+	},
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"dS" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 9
+	},
+/obj/structure/cable/green{
+	d1 = 2;
+	d2 = 8;
+	icon_state = "2-8"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 4
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"eg" = (
+/obj/random/dirt_75,
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"ev" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 9
+	},
+/obj/structure/machinery/atmospherics/unary/vent_pump/on{
+	dir = 4
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"eP" = (
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 2;
+	icon_state = "1-2"
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"eQ" = (
+/obj/effect/floor_decal/industrial/outline/yellow,
+/obj/structure/machinery/recharge_station,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"eU" = (
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 4;
+	icon_state = "1-4"
+	},
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 2;
+	icon_state = "1-2"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply,
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"fp" = (
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/red{
+	dir = 9
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/plating,
+/area/burzsia_mining/engineering)
+"fy" = (
+/obj/structure/closet/toolcloset/empty,
+/obj/item/pickaxe/drill,
+/obj/item/gun/energy/plasmacutter,
+/obj/effect/floor_decal/industrial/outline/yellow,
+/obj/item/storage/belt/mining,
+/obj/item/plastique/seismic,
+/obj/item/plastique/seismic,
+/obj/item/gun/custom_ka/frame01/prebuilt,
+/obj/item/ore_detector,
+/obj/item/flashlight/lantern,
+/obj/item/radio,
+/obj/item/stack/flag/yellow,
+/obj/item/stack/flag/yellow,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"fM" = (
+/obj/structure/table/steel,
+/obj/item/reagent_containers/food/drinks/drinkingglass/newglass/coffeecup/metal/hepht,
+/obj/effect/floor_decal/corner/orange/diagonal,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"ga" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 9
+	},
+/obj/structure/machinery/light{
+	dir = 8
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"gs" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 9
+	},
+/obj/random/dirt_75,
+/obj/random/poster/civilian{
+	pixel_x = -32
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"gz" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 6
+	},
+/obj/structure/cable/green{
+	d1 = 4;
+	d2 = 8;
+	icon_state = "4-8"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 4
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"hi" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 6
+	},
+/obj/structure/machinery/power/apc/east{
+	req_access = list(202)
+	},
+/obj/structure/cable/green{
+	d2 = 8;
+	icon_state = "0-8"
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"hj" = (
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 2;
+	icon_state = "1-2"
+	},
+/obj/structure/machinery/atmospherics/pipe/manifold/hidden/supply{
+	dir = 4
+	},
+/obj/structure/machinery/atmospherics/pipe/manifold/hidden/scrubbers{
+	dir = 8
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"hs" = (
+/obj/effect/map_effect/marker/airlock/burzsia_mining,
+/obj/effect/map_effect/marker/airlock/burzsia_mining,
+/obj/effect/map_effect/marker_helper/airlock/exterior,
+/obj/structure/machinery/door/airlock/external,
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/aux,
+/obj/structure/machinery/access_button{
+	pixel_x = -27;
+	pixel_y = -9
+	},
+/turf/simulated/floor/plating,
+/area/burzsia_mining/mining)
+"ht" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 10
+	},
+/obj/structure/machinery/light,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"hJ" = (
+/obj/structure/cable/green{
+	d1 = 2;
+	d2 = 4;
+	icon_state = "2-4"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/dormitories)
+"is" = (
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/red{
+	dir = 9
+	},
+/obj/effect/decal/cleanable/dirt,
+/turf/simulated/floor/plating,
+/area/burzsia_mining/engineering)
+"iN" = (
+/obj/structure/machinery/mineral/unloading_machine{
+	dir = 1
+	},
+/obj/effect/floor_decal/industrial/warning/cee,
+/turf/simulated/floor/airless,
+/area/burzsia_mining/mining)
+"jg" = (
+/obj/structure/machinery/door/airlock/mining{
+	req_access = list(202);
+	name = "Foreman Office";
+	dir = 1
+	},
+/obj/structure/machinery/door/firedoor{
+	req_one_access = list(202)
+	},
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 2;
+	icon_state = "1-2"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply,
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers,
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/foreman)
+"jk" = (
+/obj/effect/floor_decal/corner/orange/diagonal,
+/obj/structure/bed/stool/chair/plastic{
+	dir = 1
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/foreman)
+"jr" = (
+/obj/structure/railing/mapped{
+	dir = 8
+	},
+/obj/structure/machinery/conveyor{
+	dir = 1;
+	id = "burzsia_mining"
+	},
+/turf/simulated/floor/plating,
+/area/burzsia_mining/mining)
+"ju" = (
+/obj/random/dirt_75,
+/turf/simulated/floor/plating,
+/area/burzsia_mining/engineering)
+"jA" = (
+/obj/effect/map_effect/marker/airlock/burzsia_mining,
+/obj/effect/map_effect/marker_helper/airlock/exterior,
+/obj/structure/machinery/atmospherics/unary/vent_pump/high_volume/aux{
+	dir = 4
+	},
+/turf/simulated/floor/airless,
+/area/burzsia_mining/mining)
+"jP" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 6
+	},
+/obj/structure/machinery/atmospherics/unary/vent_scrubber/on{
+	dir = 8
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"jV" = (
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 2;
+	icon_state = "1-2"
+	},
+/obj/structure/cable/green{
+	d1 = 2;
+	d2 = 8;
+	icon_state = "2-8"
+	},
+/obj/effect/decal/cleanable/dirt,
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"jX" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 6
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"jY" = (
+/obj/structure/machinery/shower{
+	dir = 8
+	},
+/obj/structure/window/reinforced{
+	dir = 1
+	},
+/obj/structure/window/reinforced,
+/obj/structure/machinery/door/window{
+	dir = 8;
+	req_access = list(209)
+	},
+/obj/structure/curtain/open/shower,
+/turf/simulated/floor/tiled/freezer,
+/area/burzsia_mining)
+"kd" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 6
+	},
+/obj/structure/machinery/light{
+	dir = 4
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"kJ" = (
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 2;
+	icon_state = "1-2"
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/dormitories)
+"kS" = (
+/obj/effect/floor_decal/corner/dark_green{
+	dir = 10
+	},
+/obj/structure/cable/green,
+/obj/structure/machinery/power/apc/south{
+	is_critical = 1;
+	req_access = list(202)
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/dormitories)
+"lm" = (
+/obj/structure/bed/padded,
+/obj/structure/curtain/open/bed,
+/obj/effect/floor_decal/corner/dark_green/full{
+	dir = 8
+	},
+/obj/effect/ghostspawpoint{
+	identifier = "burzsia_miner";
+	name = "igs - burzsia_miner"
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/dormitories)
+"lr" = (
+/obj/structure/machinery/door/airlock/mining{
+	req_access = list(202);
+	name = "Engine";
+	dir = 1
+	},
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 2;
+	icon_state = "1-2"
+	},
+/obj/structure/machinery/door/firedoor{
+	req_one_access = list(202)
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"lO" = (
+/obj/effect/landmark/clear,
+/turf/simulated/floor/exoplanet/barren{
+	color = "#b7410e"
+	},
+/area/exoplanet/barren/burzsia)
+"lR" = (
+/obj/structure/machinery/shower{
+	dir = 8
+	},
+/obj/structure/window/reinforced{
+	dir = 1
+	},
+/obj/structure/window/reinforced,
+/obj/structure/machinery/door/window{
+	dir = 8;
+	req_access = list(209)
+	},
+/obj/structure/curtain/open/shower,
+/obj/item/soap/brown_soap,
+/turf/simulated/floor/tiled/freezer,
+/area/burzsia_mining)
+"mc" = (
+/turf/simulated/wall/r_wall,
+/area/burzsia_mining/mining)
+"md" = (
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 8;
+	icon_state = "1-8"
+	},
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 2;
+	icon_state = "1-2"
+	},
+/obj/structure/machinery/atmospherics/pipe/manifold4w/hidden/supply,
+/obj/structure/machinery/atmospherics/pipe/manifold4w/hidden/scrubbers,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"mf" = (
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 8;
+	icon_state = "1-8"
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"mk" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 10
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 4
+	},
+/obj/structure/extinguisher_cabinet/south,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/foreman)
+"ms" = (
+/obj/structure/machinery/atmospherics/binary/pump{
+	dir = 8;
+	name = "pump to waste"
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/plating,
+/area/burzsia_mining/engineering)
+"mF" = (
+/obj/structure/table/steel,
+/obj/effect/floor_decal/corner/lime/diagonal,
+/obj/item/paper_bin{
+	pixel_x = 10
+	},
+/obj/item/pen/fountain/head,
+/obj/item/stamp/hephaestus{
+	pixel_x = -8
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/foreman)
+"mL" = (
+/obj/structure/cable/green{
+	d1 = 4;
+	d2 = 8;
+	icon_state = "4-8"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 4
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"mS" = (
+/obj/structure/machinery/mineral/processing_unit_console{
+	pixel_y = 28
+	},
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"nP" = (
+/turf/simulated/wall/r_wall,
+/area/burzsia_mining/mess_hall)
+"nR" = (
+/obj/structure/machinery/conveyor_switch/oneway{
+	id = "burzsia_mining"
+	},
+/obj/effect/floor_decal/industrial/outline/yellow,
+/obj/structure/machinery/light/small{
+	brightness_color = "#FA8282";
+	dir = 1
+	},
+/obj/structure/sign/flag/heph/unmovable{
+	pixel_y = 32
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/plating,
+/area/burzsia_mining/mining)
+"ov" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 10
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"oL" = (
+/obj/structure/table/rack,
+/obj/structure/window/reinforced,
+/obj/structure/window/reinforced{
+	dir = 8
+	},
+/obj/structure/window/reinforced{
+	dir = 4
+	},
+/obj/structure/machinery/door/window{
+	dir = 1;
+	req_access = list(202)
+	},
+/obj/item/clothing/shoes/magboots,
+/obj/item/clothing/suit/space/void/mining,
+/obj/item/clothing/head/helmet/space/void/mining,
+/obj/item/suit_cooling_unit,
+/obj/item/gps/mining,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"oN" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 9
+	},
+/obj/structure/machinery/light{
+	dir = 8
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"po" = (
+/obj/structure/closet/toolcloset/empty,
+/obj/item/pickaxe/drill,
+/obj/item/gun/energy/plasmacutter,
+/obj/effect/floor_decal/industrial/outline/yellow,
+/obj/item/storage/belt/mining,
+/obj/item/plastique/seismic,
+/obj/item/plastique/seismic,
+/obj/item/gun/custom_ka/frame01/prebuilt,
+/obj/item/ore_detector,
+/obj/item/flashlight/lantern,
+/obj/structure/machinery/alarm/west{
+	req_one_access = list(202)
+	},
+/obj/item/radio,
+/obj/item/stack/flag/yellow,
+/obj/item/stack/flag/yellow,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"pD" = (
+/obj/structure/table/steel,
+/obj/effect/floor_decal/corner/orange/diagonal,
+/obj/item/material/ashtray,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"pH" = (
+/obj/structure/bed/stool/padded/brown,
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply,
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"pK" = (
+/obj/effect/map_effect/marker/airlock/burzsia_mining,
+/obj/structure/machinery/atmospherics/pipe/manifold/hidden/aux{
+	dir = 8
+	},
+/obj/structure/machinery/atmospherics/pipe/manifold/hidden{
+	dir = 4
+	},
+/turf/simulated/floor/plating,
+/area/burzsia_mining/mining)
+"pL" = (
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/universal{
+	dir = 4
+	},
+/turf/simulated/floor/plating,
+/area/burzsia_mining/engineering)
+"pP" = (
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 2;
+	icon_state = "1-2"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply,
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"pT" = (
+/obj/structure/machinery/door/airlock/mining{
+	req_access = list(202);
+	name = "Atmospherics";
+	dir = 4
+	},
+/obj/structure/cable/green{
+	d1 = 4;
+	d2 = 8;
+	icon_state = "4-8"
+	},
+/obj/structure/machinery/door/firedoor{
+	req_one_access = list(202);
+	dir = 4
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 4
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/plating,
+/area/burzsia_mining/engineering)
+"pY" = (
+/obj/effect/floor_decal/corner/dark_green{
+	dir = 9
+	},
+/obj/structure/machinery/light{
+	dir = 8
+	},
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 2;
+	icon_state = "1-2"
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/foreman)
+"qg" = (
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"qm" = (
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"qn" = (
+/obj/structure/machinery/mineral/equipment_vendor,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"qr" = (
+/obj/effect/floor_decal/corner/orange/full{
+	dir = 1
+	},
+/obj/structure/sign/flag/burzsia,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"qY" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 10
+	},
+/obj/structure/machinery/light,
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"rf" = (
+/obj/structure/machinery/power/portgen/basic/fusion,
+/obj/effect/floor_decal/industrial/warning{
+	dir = 4
+	},
+/obj/structure/cable/green{
+	d2 = 4;
+	icon_state = "0-4"
+	},
+/turf/simulated/floor/plating{
+	temperature = 278.15
+	},
+/area/burzsia_mining/engineering)
+"rH" = (
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"rX" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 9
+	},
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 2;
+	icon_state = "1-2"
+	},
+/obj/structure/machinery/light{
+	dir = 8
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"sd" = (
+/obj/structure/cable/green{
+	d1 = 2;
+	d2 = 8;
+	icon_state = "2-8"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 9
+	},
+/obj/structure/machinery/atmospherics/pipe/manifold/hidden/scrubbers,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"so" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 5
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/foreman)
+"sI" = (
+/obj/structure/machinery/vending/tool,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"sS" = (
+/obj/structure/machinery/power/smes/buildable/third_party_shuttle,
+/obj/structure/cable/green,
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"tF" = (
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 2;
+	icon_state = "1-2"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 9
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"tP" = (
+/obj/structure/table/steel,
+/obj/item/flashlight/lamp,
+/obj/effect/floor_decal/corner/dark_green{
+	dir = 9
+	},
+/obj/structure/machinery/alarm/west{
+	req_one_access = list(202)
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/dormitories)
+"uc" = (
+/obj/structure/machinery/mineral/processing_unit{
+	dir = 1
+	},
+/obj/structure/railing/mapped{
+	dir = 8
+	},
+/obj/structure/machinery/conveyor{
+	dir = 1;
+	id = "burzsia_mining"
+	},
+/turf/simulated/floor/plating,
+/area/burzsia_mining/mining)
+"uN" = (
+/obj/structure/machinery/atmospherics/pipe/tank/air{
+	dir = 4
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"uT" = (
+/obj/structure/cable/green{
+	d1 = 2;
+	d2 = 4;
+	icon_state = "2-4"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 4
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"uU" = (
+/obj/structure/machinery/door/airlock/glass_mining{
+	req_access = list(202);
+	name = "Mess Room";
+	dir = 4
+	},
+/obj/structure/machinery/door/firedoor{
+	req_one_access = list(202);
+	dir = 4
+	},
+/obj/structure/cable/green{
+	d1 = 4;
+	d2 = 8;
+	icon_state = "4-8"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 4
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"vh" = (
+/obj/structure/machinery/atmospherics/binary/pump/on{
+	dir = 8
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/plating,
+/area/burzsia_mining/engineering)
+"vp" = (
+/obj/structure/machinery/shower{
+	dir = 4
+	},
+/obj/structure/window/reinforced,
+/obj/structure/window/reinforced{
+	dir = 1
+	},
+/obj/structure/machinery/door/window{
+	dir = 4;
+	req_access = list(209)
+	},
+/obj/structure/curtain/open/shower,
+/turf/simulated/floor/tiled/freezer,
+/area/burzsia_mining)
+"vt" = (
+/obj/effect/map_effect/marker/airlock/burzsia_mining,
+/obj/effect/map_effect/marker_helper/airlock/exterior,
+/obj/structure/machinery/atmospherics/pipe/manifold/hidden/aux,
+/obj/structure/machinery/airlock_sensor{
+	pixel_y = 22;
+	pixel_x = 28
+	},
+/turf/simulated/floor/airless,
+/area/burzsia_mining/mining)
+"vD" = (
+/obj/structure/machinery/atmospherics/portables_connector,
+/obj/random/dirt_75,
+/turf/simulated/floor/plating,
+/area/burzsia_mining/engineering)
+"vU" = (
+/obj/structure/reagent_dispensers/coolanttank,
+/obj/effect/floor_decal/industrial/warning{
+	dir = 4
+	},
+/turf/simulated/floor/plating{
+	temperature = 278.15
+	},
+/area/burzsia_mining/engineering)
+"wk" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 6
+	},
+/obj/structure/machinery/light{
+	dir = 4
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/foreman)
+"wx" = (
+/obj/structure/bed/padded,
+/obj/structure/curtain/open/bed,
+/obj/effect/floor_decal/corner/dark_green{
+	dir = 9
+	},
+/obj/structure/machinery/light{
+	dir = 8
+	},
+/obj/effect/ghostspawpoint{
+	identifier = "burzsia_miner";
+	name = "igs - burzsia_miner"
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/dormitories)
+"xc" = (
+/obj/effect/floor_decal/corner/orange/full{
+	dir = 4
+	},
+/obj/random/dirt_75,
+/obj/random/poster/civilian{
+	pixel_y = -32
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"xY" = (
+/obj/structure/table/standard,
+/obj/item/reagent_containers/toothbrush{
+	pixel_y = -2
+	},
+/obj/item/reagent_containers/toothbrush/green{
+	pixel_y = 1
+	},
+/obj/item/reagent_containers/toothbrush/red{
+	pixel_y = 4
+	},
+/obj/item/reagent_containers/toothpaste{
+	pixel_y = 10
+	},
+/obj/item/reagent_containers/toothbrush/red{
+	pixel_y = -6
+	},
+/obj/structure/machinery/light{
+	dir = 1
+	},
+/turf/simulated/floor/tiled/freezer,
+/area/burzsia_mining)
+"yB" = (
+/obj/structure/machinery/atmospherics/pipe/tank{
+	dir = 4
+	},
+/turf/simulated/floor/plating,
+/area/burzsia_mining/engineering)
+"yP" = (
+/obj/structure/machinery/atmospherics/pipe/manifold/hidden/red{
+	dir = 1
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/plating,
+/area/burzsia_mining/engineering)
+"yV" = (
+/turf/simulated/wall/r_wall,
+/area/burzsia_mining/foreman)
+"zh" = (
+/obj/structure/machinery/door/airlock/freezer{
+	name = "Restroom";
+	dir = 4
+	},
+/obj/structure/machinery/door/firedoor{
+	req_one_access = list(202);
+	dir = 4
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 4
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/turf/simulated/floor/tiled/freezer,
+/area/burzsia_mining)
+"zj" = (
+/obj/structure/closet/secure_closet/personal,
+/obj/item/clothing/suit/storage/hooded/wintercoat/heph,
+/obj/item/clothing/under/rank/miner/heph,
+/obj/effect/floor_decal/corner/dark_green{
+	dir = 6
+	},
+/obj/structure/sign/flag/heph/large/east{
+	dir = 1;
+	pixel_x = 32
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/dormitories)
+"zn" = (
+/obj/effect/floor_decal/industrial/loading/yellow{
+	dir = 8
+	},
+/obj/structure/closet/crate,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"zt" = (
+/obj/structure/closet/toolcloset/empty,
+/obj/item/pickaxe/drill,
+/obj/item/gun/energy/plasmacutter,
+/obj/effect/floor_decal/industrial/outline/yellow,
+/obj/item/storage/belt/mining,
+/obj/item/plastique/seismic,
+/obj/item/plastique/seismic,
+/obj/item/gun/custom_ka/frame01/prebuilt,
+/obj/item/ore_detector,
+/obj/item/flashlight/lantern,
+/obj/structure/machinery/light{
+	dir = 8
+	},
+/obj/item/radio,
+/obj/item/stack/flag/yellow,
+/obj/item/stack/flag/yellow,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"zA" = (
+/obj/structure/machinery/conveyor{
+	dir = 9;
+	id = "burzsia_mining";
+	reversed = 1
+	},
+/turf/simulated/floor/plating,
+/area/burzsia_mining/mining)
+"zB" = (
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 6
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 6
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"zG" = (
+/obj/structure/machinery/conveyor_switch/oneway{
+	id = "burzsia_mining"
+	},
+/obj/effect/floor_decal/industrial/outline/yellow,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"zJ" = (
+/obj/effect/floor_decal/industrial/outline/yellow,
+/obj/structure/ore_box,
+/obj/structure/extinguisher_cabinet/south,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"zM" = (
+/obj/structure/bed/padded,
+/obj/structure/curtain/open/bed,
+/obj/effect/floor_decal/corner/dark_green/full,
+/obj/effect/ghostspawpoint{
+	identifier = "burzsia_miner";
+	name = "igs - burzsia_miner"
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/dormitories)
+"zT" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 9
+	},
+/obj/structure/cable/green{
+	d1 = 4;
+	d2 = 8;
+	icon_state = "4-8"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 4
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"Ac" = (
+/obj/structure/machinery/atmospherics/portables_connector{
+	dir = 4
+	},
+/obj/structure/machinery/portable_atmospherics/canister/air/airlock,
+/obj/structure/machinery/door/window{
+	dir = 4
+	},
+/obj/structure/window/reinforced,
+/obj/structure/window/reinforced{
+	dir = 8
+	},
+/obj/structure/window/reinforced{
+	dir = 1
+	},
+/turf/simulated/floor/tiled/dark{
+	temperature = 278.15
+	},
+/area/burzsia_mining/mining)
+"Ag" = (
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/red{
+	dir = 5
+	},
+/obj/structure/machinery/meter,
+/obj/random/dirt_75,
+/turf/simulated/floor/plating,
+/area/burzsia_mining/engineering)
+"Aq" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 5
+	},
+/obj/random/poster/civilian{
+	pixel_y = 32
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"As" = (
+/obj/random/dirt_75,
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"Av" = (
+/obj/structure/machinery/atmospherics/unary/vent_scrubber/on,
+/turf/simulated/floor/tiled/freezer,
+/area/burzsia_mining)
+"AH" = (
+/obj/structure/bed/stool/padded/brown,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"AI" = (
+/turf/simulated/floor/exoplanet/barren{
+	color = "#b7410e"
+	},
+/area/exoplanet/barren/burzsia)
+"AK" = (
+/obj/effect/floor_decal/industrial/outline/yellow,
+/obj/structure/machinery/mining/brace{
+	dir = 8
+	},
+/turf/simulated/floor/airless,
+/area/burzsia_mining/mining)
+"AS" = (
+/obj/effect/floor_decal/corner/orange,
+/obj/effect/floor_decal/corner/dark_green{
+	dir = 8
+	},
+/obj/structure/cable/green{
+	d1 = 2;
+	d2 = 8;
+	icon_state = "2-8"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 6
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 10
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/foreman)
+"Bn" = (
+/obj/effect/map_effect/marker/airlock/burzsia_mining,
+/obj/structure/machinery/atmospherics/unary/vent_pump/high_volume{
+	dir = 4
+	},
+/turf/simulated/floor/plating,
+/area/burzsia_mining/mining)
+"Bo" = (
+/obj/effect/map_effect/marker/airlock/burzsia_mining,
+/obj/effect/map_effect/marker_helper/airlock/interior,
+/obj/structure/machinery/door/airlock/external,
+/obj/structure/machinery/atmospherics/pipe/simple/hidden,
+/turf/simulated/floor/plating,
+/area/burzsia_mining/mining)
+"Bp" = (
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 4
+	},
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"BQ" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 5
+	},
+/obj/structure/machinery/alarm/north{
+	req_one_access = list(202)
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"Ch" = (
+/obj/structure/closet/secure_closet/personal,
+/obj/item/clothing/suit/storage/hooded/wintercoat/heph,
+/obj/item/clothing/under/rank/miner/heph,
+/obj/effect/floor_decal/corner/dark_green{
+	dir = 6
+	},
+/obj/structure/machinery/atmospherics/unary/vent_pump/on{
+	dir = 1
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/dormitories)
+"Co" = (
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/turf/simulated/floor/tiled/freezer,
+/area/burzsia_mining)
+"Cp" = (
+/obj/structure/cable/green{
+	d1 = 2;
+	d2 = 8;
+	icon_state = "2-8"
+	},
+/obj/effect/decal/cleanable/dirt,
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"CW" = (
+/obj/structure/machinery/computer/cryopod{
+	pixel_y = 32
+	},
+/obj/effect/floor_decal/corner/dark_green{
+	dir = 5
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/dormitories)
+"De" = (
+/obj/effect/floor_decal/industrial/outline/yellow,
+/obj/structure/machinery/mech_recharger/hephaestus,
+/mob/living/heavy_vehicle/premade/miner,
+/obj/structure/machinery/mech_recharger,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"Dm" = (
+/obj/structure/machinery/vending/snack,
+/obj/effect/floor_decal/corner/orange/full{
+	dir = 4
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"Du" = (
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"Dy" = (
+/obj/effect/floor_decal/corner/dark_green/full{
+	dir = 8
+	},
+/obj/structure/filingcabinet,
+/obj/structure/sign/flag/heph/unmovable{
+	pixel_y = 32
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/foreman)
+"DG" = (
+/obj/effect/map_effect/marker/airlock/burzsia_mining,
+/obj/effect/map_effect/marker/airlock/burzsia_mining,
+/obj/structure/machinery/atmospherics/pipe/manifold/hidden/aux{
+	dir = 8
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden{
+	dir = 9
+	},
+/turf/simulated/floor/plating,
+/area/burzsia_mining/mining)
+"DP" = (
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/cyan{
+	dir = 9
+	},
+/obj/structure/cable/green{
+	d1 = 2;
+	d2 = 4;
+	icon_state = "2-4"
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"DS" = (
+/obj/structure/machinery/light,
+/turf/simulated/floor/tiled/freezer,
+/area/burzsia_mining)
+"Ea" = (
+/obj/structure/cable/green{
+	d1 = 4;
+	d2 = 8;
+	icon_state = "4-8"
+	},
+/obj/structure/machinery/light,
+/obj/random/dirt_75,
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"Ef" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 4
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"Ew" = (
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 4
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"EF" = (
+/obj/structure/table/steel,
+/obj/item/flashlight/lamp,
+/obj/effect/floor_decal/corner/dark_green{
+	dir = 9
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/dormitories)
+"EL" = (
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"EM" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 6
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"FM" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 6
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 4
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"Gh" = (
+/obj/effect/floor_decal/industrial/outline/yellow,
+/obj/structure/ore_box,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"Gn" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 9
+	},
+/obj/structure/cable/green{
+	d1 = 4;
+	d2 = 8;
+	icon_state = "4-8"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 4
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"Gu" = (
+/obj/structure/machinery/vending/coffee,
+/obj/effect/floor_decal/corner/orange{
+	dir = 5
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"GR" = (
+/obj/structure/machinery/vending/cola,
+/obj/effect/floor_decal/corner/orange{
+	dir = 10
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"GW" = (
+/obj/structure/machinery/door/airlock/glass_mining{
+	req_access = list(202);
+	name = "Mining Bay";
+	dir = 4
+	},
+/obj/structure/machinery/door/firedoor{
+	req_one_access = list(202);
+	dir = 4
+	},
+/obj/structure/cable/green{
+	d1 = 4;
+	d2 = 8;
+	icon_state = "4-8"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 4
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"Ht" = (
+/obj/structure/machinery/door/airlock/mining{
+	req_access = list(202);
+	name = "Dormitories";
+	dir = 4
+	},
+/obj/structure/machinery/door/firedoor{
+	req_one_access = list(202);
+	dir = 4
+	},
+/obj/structure/cable/green{
+	d1 = 4;
+	d2 = 8;
+	icon_state = "4-8"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 4
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/dormitories)
+"Hv" = (
+/obj/structure/closet/crate/secure/large,
+/obj/item/stack/material/tritium/full,
+/obj/item/stack/material/tritium/full,
+/obj/item/stack/material/tritium/full,
+/obj/effect/floor_decal/industrial/warning{
+	dir = 4
+	},
+/obj/structure/machinery/light{
+	dir = 8
+	},
+/turf/simulated/floor/plating{
+	temperature = 278.15
+	},
+/area/burzsia_mining/engineering)
+"HB" = (
+/obj/effect/floor_decal/industrial/outline/yellow,
+/obj/structure/machinery/portable_atmospherics/canister/oxygen,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"HJ" = (
+/obj/structure/cable/green{
+	d2 = 4;
+	icon_state = "0-4"
+	},
+/obj/structure/machinery/power/apc/north{
+	is_critical = 1;
+	req_access = list(202)
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"IM" = (
+/obj/effect/floor_decal/industrial/outline/yellow,
+/obj/structure/machinery/mining/drill,
+/obj/structure/machinery/light/small{
+	brightness_color = "#FA8282";
+	dir = 1
+	},
+/obj/structure/sign/flag/heph/unmovable{
+	pixel_y = 32
+	},
+/turf/simulated/floor/airless,
+/area/burzsia_mining/mining)
+"IZ" = (
+/turf/simulated/wall/r_wall,
+/area/burzsia_mining)
+"Jb" = (
+/obj/effect/floor_decal/corner/orange/full,
+/obj/structure/closet/emcloset,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"Jw" = (
+/obj/effect/floor_decal/corner/orange/full{
+	dir = 1
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"JA" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 6
+	},
+/obj/structure/extinguisher_cabinet/east,
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"JD" = (
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 8;
+	icon_state = "1-8"
+	},
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 4;
+	icon_state = "1-4"
+	},
+/obj/structure/machinery/atmospherics/pipe/manifold/hidden/supply,
+/obj/structure/machinery/atmospherics/pipe/manifold/hidden/scrubbers,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"JL" = (
+/obj/effect/map_effect/marker/airlock/burzsia_mining,
+/obj/effect/map_effect/marker_helper/airlock/exterior,
+/obj/structure/machinery/atmospherics/unary/vent_pump/high_volume/aux{
+	dir = 8
+	},
+/turf/simulated/floor/airless,
+/area/burzsia_mining/mining)
+"JM" = (
+/obj/structure/table/steel,
+/obj/item/storage/toolbox/mechanical,
+/obj/structure/machinery/light{
+	dir = 1
+	},
+/obj/item/blueprints/outpost,
+/obj/item/pen/drafting/blue{
+	pixel_x = -6;
+	pixel_y = 8
+	},
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"JQ" = (
+/obj/structure/machinery/atmospherics/pipe/manifold/hidden/red{
+	dir = 1
+	},
+/turf/simulated/floor/plating,
+/area/burzsia_mining/engineering)
+"Ld" = (
+/obj/structure/bed/stool/chair/office/bridge,
+/obj/effect/floor_decal/corner/orange{
+	dir = 4
+	},
+/obj/effect/floor_decal/corner/dark_green{
+	dir = 1
+	},
+/obj/effect/ghostspawpoint{
+	identifier = "burzsia_foreman";
+	name = "igs - burzsia_foreman"
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/foreman)
+"Lu" = (
+/obj/structure/mirror{
+	pixel_y = 32
+	},
+/obj/structure/sink{
+	pixel_y = 21
+	},
+/turf/simulated/floor/tiled/freezer,
+/area/burzsia_mining)
+"LD" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 9
+	},
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 2;
+	icon_state = "1-2"
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"LE" = (
+/obj/effect/floor_decal/industrial/outline/yellow,
+/obj/structure/cargo_receptacle{
+	max_spawn = 2;
+	min_spawn = 1;
+	override_name = "Burzsia I - Hephaestus Mining Outpost";
+	payment_modifier = 1.2
+	},
+/turf/simulated/floor/airless,
+/area/burzsia_mining/mining)
+"LR" = (
+/obj/structure/machinery/vending/cigarette,
+/obj/effect/floor_decal/corner/orange/full{
+	dir = 1
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"Me" = (
+/obj/effect/floor_decal/corner/orange/full{
+	dir = 1
+	},
+/obj/item/storage/secure/safe{
+	pixel_x = 32
+	},
+/obj/structure/sign/flag/heph/unmovable{
+	pixel_y = 32
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/foreman)
+"Mf" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 9
+	},
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 8;
+	icon_state = "1-8"
+	},
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 4;
+	icon_state = "1-4"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 4
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"Mq" = (
+/obj/structure/machinery/light/small{
+	dir = 8;
+	must_start_working = 1
+	},
+/obj/effect/map_effect/marker/airlock/burzsia_mining,
+/obj/structure/machinery/atmospherics/unary/vent_pump/high_volume{
+	dir = 4
+	},
+/obj/structure/machinery/airlock_sensor{
+	pixel_x = -22;
+	dir = 4;
+	pixel_y = 8
+	},
+/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller{
+	dir = 4;
+	pixel_x = -22;
+	pixel_y = -6
+	},
+/turf/simulated/floor/plating,
+/area/burzsia_mining/mining)
+"MA" = (
+/obj/effect/map_effect/marker/airlock/burzsia_mining,
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/aux{
+	dir = 6
+	},
+/obj/structure/machinery/atmospherics/pipe/manifold/hidden{
+	dir = 4
+	},
+/turf/simulated/floor/plating,
+/area/burzsia_mining/mining)
+"MG" = (
+/obj/structure/machinery/atmospherics/pipe/manifold/hidden/cyan{
+	dir = 1
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"MS" = (
+/obj/structure/machinery/mineral/stacking_machine{
+	dir = 8
+	},
+/obj/structure/machinery/conveyor{
+	dir = 8;
+	id = "burzsia_mining";
+	backwards = 1
+	},
+/turf/simulated/floor/plating,
+/area/burzsia_mining/mining)
+"Nk" = (
+/turf/simulated/wall/r_wall,
+/area/burzsia_mining/engineering)
+"Nv" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 9
+	},
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 2;
+	icon_state = "1-2"
+	},
+/obj/structure/machinery/vending/wallmed1{
+	pixel_x = -32;
+	req_access = null
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"NC" = (
+/obj/structure/table/rack,
+/obj/structure/window/reinforced{
+	dir = 1
+	},
+/obj/structure/window/reinforced{
+	dir = 8
+	},
+/obj/structure/window/reinforced{
+	dir = 4
+	},
+/obj/structure/machinery/door/window{
+	req_access = list(202)
+	},
+/obj/item/rig/industrial/equipped,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"NG" = (
+/obj/item/pickaxe,
+/obj/item/pickaxe,
+/obj/structure/closet/toolcloset/empty,
+/obj/item/wrench,
+/obj/item/wrench,
+/obj/item/wrench,
+/obj/item/crowbar/red,
+/obj/item/crowbar/red,
+/obj/item/crowbar/red,
+/obj/item/analyzer,
+/obj/item/analyzer,
+/obj/item/analyzer,
+/obj/structure/machinery/atmospherics/unary/vent_pump/on{
+	dir = 1
+	},
+/obj/structure/machinery/light,
+/obj/item/storage/bag/ore,
+/obj/item/storage/bag/ore,
+/turf/simulated/floor/tiled/steel{
+	temperature = 278.15
+	},
+/area/burzsia_mining/mining)
+"Oc" = (
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 10
+	},
+/obj/structure/machinery/atmospherics/pipe/manifold/hidden/supply{
+	dir = 1
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"Of" = (
+/obj/effect/floor_decal/industrial/outline/yellow,
+/obj/structure/ore_box,
+/obj/structure/machinery/light,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"Ol" = (
+/obj/structure/machinery/portable_atmospherics/canister/air/airlock,
+/obj/effect/floor_decal/industrial/outline/yellow,
+/turf/simulated/floor/plating,
+/area/burzsia_mining/engineering)
+"Or" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 9
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"Os" = (
+/obj/effect/map_effect/window_spawner/full/reinforced/firedoor{
+	spawn_grille = 1;
+	req_one_access = list(202)
+	},
+/turf/simulated/floor/plating,
+/area/burzsia_mining/foreman)
+"OA" = (
+/obj/structure/cable/green{
+	d1 = 4;
+	d2 = 8;
+	icon_state = "4-8"
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"OV" = (
+/obj/effect/floor_decal/corner/orange/full{
+	dir = 8
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"OZ" = (
+/obj/structure/closet/crate,
+/obj/effect/floor_decal/industrial/outline/yellow,
+/obj/structure/machinery/light,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"Ph" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 5
+	},
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 2;
+	icon_state = "1-2"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply,
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"PM" = (
+/obj/structure/machinery/atmospherics/binary/passive_gate/supply{
+	dir = 4;
+	target_pressure = 250
+	},
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"Qe" = (
+/obj/structure/cable/green,
+/obj/structure/machinery/power/terminal{
+	dir = 4
+	},
+/obj/item/reagent_containers/glass/bucket{
+	pixel_x = -13
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"Qk" = (
+/obj/effect/map_effect/marker/airlock/burzsia_mining,
+/obj/effect/map_effect/marker_helper/airlock/out,
+/obj/structure/machinery/atmospherics/unary/vent_pump/high_volume/aux{
+	dir = 8
+	},
+/turf/simulated/floor/plating,
+/area/burzsia_mining/mining)
+"Qs" = (
+/obj/effect/floor_decal/corner/orange/full{
+	dir = 8
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"QG" = (
+/obj/item/pickaxe,
+/obj/item/pickaxe,
+/obj/structure/closet/toolcloset/empty,
+/obj/item/wrench,
+/obj/item/wrench,
+/obj/item/wrench,
+/obj/item/crowbar/red,
+/obj/item/crowbar/red,
+/obj/item/crowbar/red,
+/obj/item/analyzer,
+/obj/item/analyzer,
+/obj/item/analyzer,
+/obj/structure/machinery/atmospherics/unary/vent_pump/on{
+	dir = 1
+	},
+/obj/item/storage/bag/ore,
+/obj/item/storage/bag/ore,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"QI" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 6
+	},
+/obj/structure/machinery/light{
+	dir = 4
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"Re" = (
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"Rh" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 10
+	},
+/obj/structure/machinery/atmospherics/unary/vent_scrubber/on{
+	dir = 1
+	},
+/obj/random/poster/civilian{
+	pixel_y = -32
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"Rv" = (
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 9
+	},
+/turf/simulated/floor/tiled/freezer,
+/area/burzsia_mining)
+"Rw" = (
+/obj/effect/floor_decal/corner/dark_green{
+	dir = 5
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/foreman)
+"RA" = (
+/obj/structure/table/steel,
+/obj/effect/floor_decal/corner/orange/diagonal,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"RF" = (
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 5
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 9
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"RJ" = (
+/obj/structure/machinery/atmospherics/portables_connector{
+	dir = 4
+	},
+/obj/structure/machinery/light{
+	dir = 8
+	},
+/turf/simulated/floor/plating,
+/area/burzsia_mining/engineering)
+"Sg" = (
+/obj/structure/machinery/light{
+	dir = 8
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"Sz" = (
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/universal{
+	dir = 4
+	},
+/turf/simulated/floor,
+/area/burzsia_mining/engineering)
+"TB" = (
+/turf/simulated/wall/r_wall,
+/area/burzsia_mining/dormitories)
+"TC" = (
+/obj/effect/floor_decal/corner/orange/full,
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"TD" = (
+/obj/effect/floor_decal/corner/dark_green/full,
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 4;
+	icon_state = "1-4"
+	},
+/obj/structure/machinery/atmospherics/unary/vent_scrubber/on{
+	dir = 4
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/foreman)
+"TF" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 10
+	},
+/obj/structure/machinery/alarm/south{
+	req_one_access = list(202)
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining)
+"TG" = (
+/obj/structure/machinery/atmospherics/pipe/simple/hidden{
+	dir = 10
+	},
+/obj/effect/map_effect/marker_helper/airlock/interior,
+/obj/effect/map_effect/marker/airlock/burzsia_mining,
+/obj/structure/machinery/airlock_sensor{
+	dir = 1;
+	pixel_y = -20;
+	pixel_x = 28
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"TM" = (
+/obj/effect/map_effect/marker/airlock/burzsia_mining,
+/obj/structure/machinery/atmospherics/unary/vent_pump/high_volume/aux{
+	dir = 8
+	},
+/obj/effect/map_effect/marker_helper/airlock/out,
+/turf/simulated/floor/plating,
+/area/burzsia_mining/mining)
+"TS" = (
+/obj/structure/closet/toolcloset/empty,
+/obj/item/pickaxe/drill,
+/obj/item/gun/energy/plasmacutter,
+/obj/effect/floor_decal/industrial/outline/yellow,
+/obj/item/storage/belt/mining,
+/obj/item/plastique/seismic,
+/obj/item/plastique/seismic,
+/obj/item/gun/custom_ka/frame01/prebuilt,
+/obj/item/ore_detector,
+/obj/item/flashlight/lantern,
+/obj/structure/machinery/atmospherics/unary/vent_scrubber/on{
+	dir = 4
+	},
+/obj/item/radio,
+/obj/item/stack/flag/yellow,
+/obj/item/stack/flag/yellow,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"TX" = (
+/obj/structure/cable/green,
+/obj/structure/machinery/power/apc/hyper/east{
+	req_access = list(202)
+	},
+/obj/structure/table/steel,
+/obj/structure/machinery/recharger{
+	pixel_x = -6;
+	pixel_y = 4
+	},
+/obj/structure/machinery/recharger{
+	pixel_x = 6;
+	pixel_y = 4
+	},
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"Ub" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 6
+	},
+/obj/structure/machinery/alarm/east{
+	req_one_access = list(202)
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/foreman)
+"Uc" = (
+/obj/structure/machinery/mineral/rigpress,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"Ud" = (
+/obj/structure/machinery/conveyor{
+	dir = 8;
+	id = "burzsia_mining";
+	backwards = 1
+	},
+/obj/structure/railing/mapped,
+/turf/simulated/floor/plating,
+/area/burzsia_mining/mining)
+"UQ" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 10
+	},
+/obj/structure/machinery/power/apc/south{
+	is_critical = 1;
+	req_access = list(202)
+	},
+/obj/structure/cable/green,
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"UR" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 5
+	},
+/obj/structure/machinery/atmospherics/unary/vent_pump/on,
+/obj/structure/machinery/light{
+	dir = 1
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"VH" = (
+/obj/effect/floor_decal/corner/orange/full{
+	dir = 4
+	},
+/obj/structure/machinery/atmospherics/unary/vent_pump/on{
+	dir = 8;
+	level = 2
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/foreman)
+"VV" = (
+/obj/effect/floor_decal/corner/lime/diagonal,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/foreman)
+"VY" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 5
+	},
+/obj/structure/sign/flag/heph/large/north{
+	pixel_y = 32
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"Wd" = (
+/obj/structure/railing/mapped{
+	dir = 8
+	},
+/obj/structure/plasticflaps/mining,
+/obj/structure/machinery/conveyor{
+	dir = 1;
+	id = "burzsia_mining"
+	},
+/turf/simulated/floor/plating,
+/area/burzsia_mining/mining)
+"Wh" = (
+/obj/structure/bed/stool/padded/brown,
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"Wt" = (
+/obj/structure/cable/green{
+	d1 = 1;
+	d2 = 2;
+	icon_state = "1-2"
+	},
+/obj/structure/machinery/light{
+	dir = 4
+	},
+/obj/structure/table/steel,
+/obj/structure/machinery/cell_charger,
+/obj/item/cell/high{
+	pixel_y = 6
+	},
+/obj/item/cell/high{
+	pixel_y = 4
+	},
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"WE" = (
+/obj/structure/table/steel,
+/obj/item/reagent_containers/food/drinks/drinkingglass/newglass/coffeecup/metal/hepht,
+/obj/effect/floor_decal/corner/orange/diagonal,
+/obj/structure/machinery/photocopier/faxmachine{
+	department = "Hephaestus Mining Outpost";
+	req_one_access = list(202);
+	pixel_y = 3
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/foreman)
+"WI" = (
+/obj/structure/bed/stool/padded/brown,
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 4
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"WK" = (
+/turf/simulated/floor/tiled/freezer,
+/area/burzsia_mining)
+"Xe" = (
+/obj/structure/machinery/light{
+	dir = 1
+	},
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"Xk" = (
+/obj/effect/floor_decal/industrial/outline/yellow,
+/obj/structure/machinery/mining/brace{
+	dir = 4
+	},
+/turf/simulated/floor/airless,
+/area/burzsia_mining/mining)
+"Xq" = (
+/obj/structure/machinery/mineral/stacking_unit_console{
+	pixel_y = 32
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"Xv" = (
+/obj/structure/machinery/conveyor{
+	dir = 8;
+	id = "burzsia_mining";
+	backwards = 1
+	},
+/obj/effect/floor_decal/industrial/warning/cee{
+	dir = 8
+	},
+/obj/structure/railing/mapped,
+/obj/structure/plasticflaps/mining,
+/turf/simulated/floor/plating,
+/area/burzsia_mining/mining)
+"Ye" = (
+/obj/effect/floor_decal/corner/orange{
+	dir = 6
+	},
+/obj/random/dirt_75,
+/obj/random/poster/civilian{
+	pixel_x = 32
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"Yn" = (
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 9
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/turf/simulated/floor/tiled/freezer,
+/area/burzsia_mining)
+"Yr" = (
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply,
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"Yw" = (
+/obj/structure/machinery/mech_recharger/hephaestus,
+/obj/effect/floor_decal/industrial/outline/yellow,
+/turf/simulated/floor/airless,
+/area/burzsia_mining/mining)
+"Yy" = (
+/obj/effect/floor_decal/corner/dark_green{
+	dir = 6
+	},
+/obj/structure/cable/green{
+	d1 = 4;
+	d2 = 8;
+	icon_state = "4-8"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 6
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/dormitories)
+"YQ" = (
+/obj/structure/dispenser/oxygen,
+/obj/effect/floor_decal/industrial/outline/yellow,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"YT" = (
+/obj/structure/bed/stool/padded/brown,
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 10
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/mess_hall)
+"YV" = (
+/obj/structure/machinery/light{
+	dir = 1
+	},
+/obj/random/dirt_75,
+/turf/simulated/floor/plating,
+/area/burzsia_mining/engineering)
+"YY" = (
+/obj/effect/floor_decal/corner/dark_green{
+	dir = 10
+	},
+/obj/structure/cable/green{
+	d1 = 4;
+	d2 = 8;
+	icon_state = "4-8"
+	},
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
+	dir = 4
+	},
+/turf/simulated/floor/tiled/dark,
+/area/burzsia_mining/foreman)
+"Zd" = (
+/obj/structure/machinery/suit_cycler/mining{
+	req_access = list(202)
+	},
+/obj/structure/sign/flag/heph/large/north{
+	pixel_y = 32
+	},
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"Zy" = (
+/obj/structure/closet/crate,
+/obj/effect/floor_decal/industrial/outline/yellow,
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+"ZC" = (
+/obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
+	dir = 4
+	},
+/turf/simulated/floor/tiled/steel,
+/area/burzsia_mining/mining)
+
+(1,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+"}
+(2,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+"}
+(3,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+"}
+(4,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+"}
+(5,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+"}
+(6,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+Nk
+Nk
+Nk
+Nk
+Nk
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+"}
+(7,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+Nk
+Nk
+Nk
+Nk
+Nk
+Nk
+Nk
+Nk
+rf
+Hv
+vU
+Nk
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+"}
+(8,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+Nk
+Ol
+yB
+RJ
+uN
+bB
+Nk
+HJ
+Cp
+eP
+Qe
+Nk
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+"}
+(9,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+Nk
+Ol
+yP
+is
+MG
+DP
+lr
+jV
+eP
+eP
+sS
+Nk
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+"}
+(10,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+Nk
+ju
+JQ
+Ag
+Sz
+OA
+Nk
+Nk
+Nk
+Nk
+Nk
+Nk
+TB
+mc
+mc
+mc
+mc
+mc
+mc
+mc
+mc
+AI
+AI
+AI
+AI
+AI
+"}
+(11,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+Nk
+YV
+ms
+vh
+PM
+Ea
+Nk
+lm
+EF
+wx
+tP
+zM
+TB
+NC
+Sg
+oL
+TS
+zt
+po
+fy
+mc
+AI
+AI
+AI
+AI
+AI
+"}
+(12,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+Nk
+vD
+fp
+pL
+Bp
+OA
+Nk
+CW
+hJ
+kJ
+kJ
+kS
+TB
+Zd
+Du
+oL
+rH
+Du
+Du
+Du
+mc
+mc
+mc
+mc
+mc
+lO
+"}
+(13,1,1) = {"
+AI
+yV
+yV
+yV
+yV
+yV
+yV
+eg
+Re
+dp
+tF
+mf
+Nk
+de
+Yy
+Ch
+zj
+bH
+TB
+HB
+Du
+oL
+qg
+Du
+qm
+Ac
+mc
+Bn
+Mq
+Bn
+mc
+jA
+"}
+(14,1,1) = {"
+AI
+yV
+Dy
+cw
+pY
+TD
+yV
+Nk
+Nk
+pT
+Nk
+Nk
+Nk
+TB
+Ht
+TB
+TB
+TB
+TB
+YQ
+Du
+oL
+qg
+qm
+qm
+TG
+Bo
+MA
+pK
+DG
+hs
+vt
+"}
+(15,1,1) = {"
+AI
+Os
+Rw
+WE
+VV
+YY
+yV
+Qs
+Or
+zT
+ga
+gs
+ev
+oN
+Gn
+Jb
+IZ
+De
+Du
+Uc
+Du
+qn
+rH
+Du
+qm
+QG
+mc
+TM
+TM
+Qk
+mc
+JL
+"}
+(16,1,1) = {"
+AI
+Os
+Ld
+mF
+jk
+AS
+jg
+Ph
+pP
+md
+pP
+eU
+hj
+pP
+JD
+TF
+IZ
+JM
+zB
+Yr
+Yr
+Yr
+RF
+Du
+Du
+NG
+mc
+mc
+mc
+mc
+mc
+lO
+"}
+(17,1,1) = {"
+AI
+Os
+so
+bk
+VV
+mk
+yV
+Jw
+QI
+FM
+jX
+hi
+jP
+Ef
+mL
+qY
+IZ
+eQ
+Ew
+Du
+qm
+qm
+ZC
+qm
+qm
+Gh
+mc
+LE
+lO
+lO
+lO
+lO
+"}
+(18,1,1) = {"
+AI
+yV
+Me
+Ub
+wk
+VH
+yV
+IZ
+IZ
+zh
+IZ
+IZ
+nP
+qr
+gz
+xc
+IZ
+sI
+uT
+Wt
+TX
+qm
+ZC
+Du
+qm
+Gh
+mc
+Xk
+lO
+lO
+lO
+lO
+"}
+(19,1,1) = {"
+AI
+yV
+yV
+yV
+yV
+yV
+yV
+IZ
+ab
+Yn
+vp
+vp
+nP
+IZ
+uU
+IZ
+IZ
+nP
+GW
+nP
+nP
+qm
+ZC
+Du
+qm
+Of
+mc
+IM
+lO
+lO
+lO
+lO
+"}
+(20,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+IZ
+Lu
+Co
+WK
+DS
+nP
+OV
+dS
+Nv
+rX
+LD
+Mf
+TC
+nP
+zn
+dK
+qm
+qm
+zJ
+mc
+AK
+lO
+lO
+lO
+lO
+"}
+(21,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+IZ
+xY
+Co
+jY
+lR
+nP
+BQ
+Oc
+pH
+pH
+pH
+sd
+UQ
+nP
+Xv
+mc
+Xe
+qm
+Zy
+mc
+eQ
+lO
+lO
+lO
+lO
+"}
+(22,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+IZ
+Lu
+bx
+IZ
+IZ
+nP
+VY
+WI
+RA
+fM
+pD
+Wh
+ht
+nP
+Ud
+qm
+qm
+Du
+OZ
+mc
+Yw
+lO
+lO
+lO
+lO
+"}
+(23,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+IZ
+Av
+Rv
+cE
+aB
+nP
+Aq
+WI
+RA
+RA
+RA
+Wh
+ov
+nP
+MS
+mc
+Xq
+qm
+Zy
+mc
+Yw
+lO
+lO
+lO
+lO
+"}
+(24,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+IZ
+IZ
+IZ
+IZ
+IZ
+nP
+UR
+bL
+pD
+RA
+fM
+YT
+Rh
+nP
+Ud
+mc
+mS
+Du
+zG
+mc
+mc
+nR
+lO
+lO
+lO
+"}
+(25,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+nP
+Gu
+EL
+AH
+AH
+AH
+As
+GR
+nP
+zA
+uc
+jr
+jr
+jr
+jr
+Wd
+iN
+lO
+lO
+lO
+"}
+(26,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+nP
+LR
+EM
+JA
+kd
+Ye
+EM
+Dm
+nP
+mc
+mc
+mc
+mc
+mc
+mc
+mc
+lO
+lO
+lO
+lO
+"}
+(27,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+nP
+nP
+nP
+nP
+nP
+nP
+nP
+nP
+nP
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+"}
+(28,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+"}
+(29,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+"}
+(30,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+"}
+(31,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+"}
+(32,1,1) = {"
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+AI
+"}

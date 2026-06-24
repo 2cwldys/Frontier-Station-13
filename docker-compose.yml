@@ -1,0 +1,17 @@
+services:
+  db:
+    image: mariadb:10.11
+    container_name: aurora-db
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: aurora_root
+      MARIADB_DATABASE: aurora_persist
+      MARIADB_USER: aurora
+      MARIADB_PASSWORD: aurora
+    ports:
+      - "3306:3306"
+    volumes:
+      - aurora_db_data:/var/lib/mysql
+
+volumes:
+  aurora_db_data:

@@ -1,0 +1,754 @@
+/*
+ * Persistence - Mob Health & Inventory
+ * Saves and restores character physical state (organ damage, temperature, stamina, fire)
+ * and equipment loadout (typepath-based serialization of worn/held items) across rounds.
+ *
+ * Health key:     ckey + char_name
+ * Inventory key:  ckey + char_name
+ *
+ * Restore hook: /mob/living/carbon/human/LateInitialize() — fires after mob spawns and
+ * job gear is issued, so we overlay saved inventory on top of default equips.
+ *
+ * Only runs on the SCCV Horizon map.
+ */
+
+// ============================================================
+// SYSTEM 8: MOB HEALTH
+// ============================================================
+
+/// Cached health data keyed by "[ckey]|[char_name]"
+GLOBAL_LIST_EMPTY(persistence_health_cache)
+
+/**
+ * Load saved health state into cache.
+ * Called from SSpersistence.Initialize().
+ */
+/datum/controller/subsystem/persistence/proc/mobsHealthInitialize()
+	PRIVATE_PROC(TRUE)
+	GLOB.persistence_health_cache = list()
+
+	if(!SSatlas.current_map)
+		log_subsystem_persistence_info("MobHealth: Map is not SCCV Horizon, skipping health persistence init.")
+		return
+
+	if(!databaseCheckConnection("mobsHealthInitialize"))
+		return
+
+	var/datum/db_query/query = SSdbcore.NewQuery(
+		"SELECT ckey, char_name, organ_damage_json, stamina, bodytemperature, on_fire, fire_stacks FROM ss13_char_health",
+		list()
+	)
+	query.Execute()
+
+	if(!databaseCheckQueryResult(query, "mobsHealthInitialize"))
+		qdel(query)
+		return
+
+	var/loaded = 0
+	while(query.NextRow())
+		var/key = "[query.item[1]]|[query.item[2]]"
+		GLOB.persistence_health_cache[key] = list(
+			"organ_damage_json" = query.item[3],
+			"stamina"           = text2num(query.item[4]),
+			"bodytemperature"   = text2num(query.item[5]),
+			"on_fire"           = text2num(query.item[6]),
+			"fire_stacks"       = text2num(query.item[7])
+		)
+		loaded++
+
+	qdel(query)
+	log_subsystem_persistence_info("MobHealth: Loaded [loaded] health entries.")
+
+/**
+ * Save health state for all connected living human mobs at round end.
+ * Called from SSpersistence.Shutdown().
+ */
+/datum/controller/subsystem/persistence/proc/mobsHealthFinalize()
+	PRIVATE_PROC(TRUE)
+
+	if(!SSatlas.current_map)
+		log_subsystem_persistence_info("MobHealth: Map is not SCCV Horizon, skipping health persistence save.")
+		return
+
+	if(!databaseCheckConnection("mobsHealthFinalize"))
+		return
+
+	var/saved = 0
+	for(var/mob/living/carbon/human/H in GLOB.human_mob_list)
+		if(!H.ckey || !H.real_name)
+			continue
+		if(!H.z)
+			continue
+
+		// Serialize organ state: limb_name => {brute, burn, robotic, model, augments}
+		var/list/organ_damage = list()
+		for(var/obj/item/organ/external/O in H.organs)
+			if(!O.limb_name)
+				continue
+			var/list/augments = list()
+			for(var/obj/item/organ/A in O.internal_organs)
+				if(A.is_augment)
+					augments += "[A.type]"
+			if(!O.brute_dam && !O.burn_dam && !O.robotic && !length(augments))
+				continue
+			var/list/limb = list("brute" = O.brute_dam, "burn" = O.burn_dam)
+			if(O.robotic)
+				limb["robotic"] = 1
+				if(O.model) limb["model"] = O.model
+			if(length(augments))
+				limb["augments"] = augments
+			organ_damage[O.limb_name] = limb
+
+		var/datum/db_query/insert = SSdbcore.NewQuery(
+			{"INSERT INTO ss13_char_health (ckey, char_name, organ_damage_json, stamina, bodytemperature, on_fire, fire_stacks, saved_at)
+			VALUES (:ckey, :char_name, :organ_damage_json, :stamina, :bodytemperature, :on_fire, :fire_stacks, NOW())
+			ON DUPLICATE KEY UPDATE organ_damage_json = VALUES(organ_damage_json), stamina = VALUES(stamina),
+			bodytemperature = VALUES(bodytemperature), on_fire = VALUES(on_fire), fire_stacks = VALUES(fire_stacks), saved_at = NOW()"},
+			list(
+				"ckey"             = H.ckey,
+				"char_name"        = H.real_name,
+				"organ_damage_json"= length(organ_damage) ? json_encode(organ_damage) : null,
+				"stamina"          = H.stamina,
+				"bodytemperature"  = H.bodytemperature,
+				"on_fire"          = H.on_fire ? 1 : 0,
+				"fire_stacks"      = H.fire_stacks
+			)
+		)
+		insert.Execute()
+		databaseCheckQueryResult(insert, "mobsHealthFinalize insert")
+		qdel(insert)
+		saved++
+
+	log_subsystem_persistence_info("MobHealth: Saved health state for [saved] mobs.")
+
+/**
+ * Apply cached health data to a newly spawned human mob.
+ * Called from /mob/living/carbon/human/LateInitialize().
+ */
+/mob/living/carbon/human/proc/applyPersistentHealthData()
+	if(!GLOB.config.sql_enabled || !length(GLOB.persistence_health_cache))
+		return
+	if(!ckey || !real_name)
+		return
+
+	var/key = "[ckey]|[real_name]"
+	var/list/entry = GLOB.persistence_health_cache[key]
+	if(!entry)
+		return
+
+	// Apply organ state: damage, robolimb, augments
+	if(entry["organ_damage_json"])
+		var/list/organ_data = json_decode(entry["organ_damage_json"])
+		if(organ_data && islist(organ_data))
+			for(var/limb_name in organ_data)
+				var/obj/item/organ/external/O = organs_by_name[limb_name]
+				if(!O)
+					continue
+				var/list/limb = organ_data[limb_name]
+				var/brute_amt = text2num(limb["brute"]) || 0
+				var/burn_amt  = text2num(limb["burn"]) || 0
+				if(brute_amt > 0 || burn_amt > 0)
+					O.take_damage(brute_amt, burn_amt)
+				// Restore robolimb state
+				if(limb["robotic"])
+					var/company = limb["model"] || null
+					if(!O.robotic)
+						O.robotize(company)
+				// Restore augments
+				if(limb["augments"] && islist(limb["augments"]))
+					for(var/aug_type_str in limb["augments"])
+						var/aug_path = text2path(aug_type_str)
+						if(!aug_path || !ispath(aug_path, /obj/item/organ))
+							continue
+						var/already_installed = FALSE
+						for(var/obj/item/organ/A in O.internal_organs)
+							if(A.type == aug_path)
+								already_installed = TRUE
+								break
+						if(!already_installed)
+							try
+								// new path(loc, mapload, internal) — internal=TRUE hooks the augment into parent_organ automatically
+								new aug_path(src, FALSE, TRUE)
+							catch(var/exception/aug_e)
+								log_subsystem_persistence_error("MobHealth: Failed to restore augment [aug_type_str] for [real_name]: [aug_e]")
+
+	// Apply systemic stats
+	bodytemperature = text2num(entry["bodytemperature"]) || bodytemperature
+	stamina         = text2num(entry["stamina"]) || stamina
+
+	if(entry["on_fire"] && text2num(entry["on_fire"]))
+		IgniteMob(text2num(entry["fire_stacks"]) || 1)
+
+	log_subsystem_persistence_info("MobHealth: Restored health state for [real_name] ([ckey]).")
+
+// ============================================================
+// SYSTEM 9A: CHARACTER IDENTITY (citizenship, voice, flavor texts)
+// ============================================================
+
+/// Cached identity data keyed by "[ckey]|[char_name]"
+GLOBAL_LIST_EMPTY(persistence_identity_cache)
+
+/datum/controller/subsystem/persistence/proc/charIdentityInitialize()
+	PRIVATE_PROC(TRUE)
+	GLOB.persistence_identity_cache = list()
+
+	if(!SSatlas.current_map)
+		return
+	if(!databaseCheckConnection("charIdentityInitialize"))
+		return
+
+	var/datum/db_query/query = SSdbcore.NewQuery(
+		"SELECT ckey, char_name, citizenship, special_voice, flavor_texts FROM ss13_char_identity",
+		list()
+	)
+	query.Execute()
+
+	if(!databaseCheckQueryResult(query, "charIdentityInitialize"))
+		qdel(query)
+		return
+
+	var/loaded = 0
+	while(query.NextRow())
+		var/key = "[query.item[1]]|[query.item[2]]"
+		GLOB.persistence_identity_cache[key] = list(
+			"citizenship"   = query.item[3],
+			"special_voice" = query.item[4],
+			"flavor_texts"  = query.item[5]
+		)
+		loaded++
+	qdel(query)
+	log_subsystem_persistence_info("CharIdentity: Loaded [loaded] identity entries.")
+
+/datum/controller/subsystem/persistence/proc/charIdentityFinalize()
+	PRIVATE_PROC(TRUE)
+
+	if(!SSatlas.current_map)
+		return
+	if(!databaseCheckConnection("charIdentityFinalize"))
+		return
+
+	var/saved = 0
+	for(var/mob/living/carbon/human/H in GLOB.human_mob_list)
+		if(!H.ckey || !H.real_name)
+			continue
+		if(!H.z)
+			continue
+		charIdentitySaveOne(H)
+		saved++
+	log_subsystem_persistence_info("CharIdentity: Saved [saved] identity entries.")
+
+/datum/controller/subsystem/persistence/proc/charIdentitySaveOne(mob/living/carbon/human/H)
+	if(!H || !H.ckey || !H.real_name)
+		return
+	if(!databaseCheckConnection("charIdentitySaveOne"))
+		return
+
+	var/flavor_json = length(H.flavor_texts) ? json_encode(H.flavor_texts) : null
+
+	var/datum/db_query/ins = SSdbcore.NewQuery(
+		{"INSERT INTO ss13_char_identity (ckey, char_name, citizenship, special_voice, flavor_texts)
+		VALUES (:ckey, :char_name, :citizenship, :special_voice, :flavor_texts)
+		ON DUPLICATE KEY UPDATE citizenship = VALUES(citizenship), special_voice = VALUES(special_voice),
+		flavor_texts = VALUES(flavor_texts), saved_at = NOW()"},
+		list(
+			"ckey"          = H.ckey,
+			"char_name"     = H.real_name,
+			"citizenship"   = H.citizenship || null,
+			"special_voice" = H.special_voice || null,
+			"flavor_texts"  = flavor_json
+		)
+	)
+	ins.Execute()
+	databaseCheckQueryResult(ins, "charIdentitySaveOne")
+	qdel(ins)
+
+/mob/living/carbon/human/proc/applyPersistentIdentity()
+	if(!GLOB.config.sql_enabled || !islist(GLOB.persistence_identity_cache))
+		return
+	if(!ckey || !real_name)
+		return
+
+	var/key = "[ckey]|[real_name]"
+	var/list/entry = GLOB.persistence_identity_cache[key]
+	if(!entry)
+		return
+
+	if(entry["citizenship"])
+		citizenship = entry["citizenship"]
+	if(entry["special_voice"])
+		special_voice = entry["special_voice"]
+	if(entry["flavor_texts"])
+		var/list/ft = json_decode(entry["flavor_texts"])
+		if(ft && islist(ft))
+			flavor_texts = ft
+
+	log_subsystem_persistence_info("CharIdentity: Restored identity for [real_name] ([ckey]).")
+
+// ============================================================
+// SYSTEM 9: MOB INVENTORY
+// ============================================================
+
+/// Cached inventory data keyed by "[ckey]|[char_name]"
+GLOBAL_LIST_EMPTY(persistence_inventory_cache)
+
+/// Equipment slots to serialize: slot_define => slot_name_key
+GLOBAL_LIST_INIT(persistence_inventory_slots, list(
+	"w_uniform" = slot_w_uniform,
+	"wear_suit" = slot_wear_suit,
+	"head"      = slot_head,
+	"gloves"    = slot_gloves,
+	"shoes"     = slot_shoes,
+	"glasses"   = slot_glasses,
+	"wear_mask" = slot_wear_mask,
+	"wear_id"   = slot_wear_id,
+	"l_ear"     = slot_l_ear,
+	"r_ear"     = slot_r_ear,
+	"belt"      = slot_belt,
+	"back"      = slot_back,
+	"pants"     = slot_pants,
+	"wrists"    = slot_wrists,
+	"l_hand"    = slot_l_hand,
+	"r_hand"    = slot_r_hand,
+	"s_store"   = slot_s_store
+))
+
+/**
+ * Load saved inventory state into cache.
+ * Called from SSpersistence.Initialize().
+ */
+/datum/controller/subsystem/persistence/proc/mobsInventoryInitialize()
+	PRIVATE_PROC(TRUE)
+	GLOB.persistence_inventory_cache = list()
+
+	if(!SSatlas.current_map)
+		log_subsystem_persistence_info("MobInventory: Map is not SCCV Horizon, skipping inventory persistence init.")
+		return
+
+	if(!databaseCheckConnection("mobsInventoryInitialize"))
+		return
+
+	var/datum/db_query/query = SSdbcore.NewQuery(
+		"SELECT ckey, char_name, inventory_json FROM ss13_char_inventory",
+		list()
+	)
+	query.Execute()
+
+	if(!databaseCheckQueryResult(query, "mobsInventoryInitialize"))
+		qdel(query)
+		return
+
+	var/loaded = 0
+	while(query.NextRow())
+		var/key = "[query.item[1]]|[query.item[2]]"
+		GLOB.persistence_inventory_cache[key] = query.item[3]
+		loaded++
+
+	qdel(query)
+	log_subsystem_persistence_info("MobInventory: Loaded [loaded] inventory entries.")
+
+/**
+ * Save inventory state for all connected living human mobs at round end.
+ * Called from SSpersistence.Shutdown().
+ */
+/datum/controller/subsystem/persistence/proc/mobsInventoryFinalize()
+	PRIVATE_PROC(TRUE)
+
+	if(!SSatlas.current_map)
+		log_subsystem_persistence_info("MobInventory: Map is not SCCV Horizon, skipping inventory persistence save.")
+		return
+
+	if(!databaseCheckConnection("mobsInventoryFinalize"))
+		return
+
+	var/saved = 0
+	for(var/mob/living/carbon/human/H in GLOB.human_mob_list)
+		if(!H.ckey || !H.real_name)
+			continue
+		if(!H.z)
+			continue
+
+		var/list/inv = list()
+		for(var/slot_name in GLOB.persistence_inventory_slots)
+			var/slot_id = GLOB.persistence_inventory_slots[slot_name]
+			var/obj/item/I = H.get_equipped_item(slot_id)
+			inv[slot_name] = I ? serializePersistentItem(I) : null
+
+		var/datum/db_query/insert = SSdbcore.NewQuery(
+			{"INSERT INTO ss13_char_inventory (ckey, char_name, inventory_json, saved_at)
+			VALUES (:ckey, :char_name, :inventory_json, NOW())
+			ON DUPLICATE KEY UPDATE inventory_json = VALUES(inventory_json), saved_at = NOW()"},
+			list(
+				"ckey"           = H.ckey,
+				"char_name"      = H.real_name,
+				"inventory_json" = json_encode(inv)
+			)
+		)
+		insert.Execute()
+		databaseCheckQueryResult(insert, "mobsInventoryFinalize insert")
+		qdel(insert)
+		saved++
+
+	log_subsystem_persistence_info("MobInventory: Saved inventory state for [saved] mobs.")
+
+// ============================================================
+// SYSTEM 10: MOB POSITION
+// ============================================================
+
+/// Cached position data keyed by "[ckey]|[char_name]"
+GLOBAL_LIST_EMPTY(persistence_position_cache)
+
+/**
+ * Load saved mob positions into cache.
+ * Called from SSpersistence.Initialize().
+ */
+/datum/controller/subsystem/persistence/proc/mobPositionInitialize()
+	PRIVATE_PROC(TRUE)
+	GLOB.persistence_position_cache = list()
+
+	if(!SSatlas.current_map)
+		return
+
+	if(!databaseCheckConnection("mobPositionInitialize"))
+		return
+
+	var/datum/db_query/query = SSdbcore.NewQuery(
+		"SELECT ckey, char_name, x, y, z FROM ss13_mob_position",
+		list()
+	)
+	query.Execute()
+
+	if(!databaseCheckQueryResult(query, "mobPositionInitialize"))
+		qdel(query)
+		return
+
+	var/loaded = 0
+	while(query.NextRow())
+		var/key = "[query.item[1]]|[query.item[2]]"
+		GLOB.persistence_position_cache[key] = list(
+			"x" = text2num(query.item[3]),
+			"y" = text2num(query.item[4]),
+			"z" = text2num(query.item[5])
+		)
+		loaded++
+
+	qdel(query)
+	log_subsystem_persistence_info("MobPosition: Loaded [loaded] saved positions.")
+
+/**
+ * Delete all persistence data for a specific character from every SQL table.
+ * Called when a player deletes their character via the preferences panel.
+ */
+/proc/persistence_delete_character_data(ckey, char_name)
+	if(!GLOB.config.sql_enabled || !SSdbcore.Connect())
+		return
+	var/tables = list("ss13_char_health", "ss13_char_inventory", "ss13_char_identity", "ss13_mob_position")
+	for(var/table in tables)
+		var/datum/db_query/q = SSdbcore.NewQuery(
+			"DELETE FROM [table] WHERE ckey = :ckey AND char_name = :char_name",
+			list("ckey" = ckey, "char_name" = char_name)
+		)
+		q.Execute()
+		qdel(q)
+	// Also clear from in-memory caches so the character stops appearing in selection
+	var/key = "[ckey]|[char_name]"
+	GLOB.persistence_health_cache    -= key
+	GLOB.persistence_inventory_cache -= key
+	GLOB.persistence_identity_cache  -= key
+	GLOB.persistence_position_cache  -= key
+	log_world("Persistence: Deleted all data for character '[char_name]' ([ckey]).")
+
+/**
+ * Save position for all living human mobs (called from forceSaveAll / Shutdown).
+ */
+/datum/controller/subsystem/persistence/proc/mobsPositionFinalizeAll()
+	PRIVATE_PROC(TRUE)
+	if(!SSatlas.current_map)
+		return
+	if(!databaseCheckConnection("mobsPositionFinalizeAll"))
+		return
+	var/saved = 0
+	for(var/mob/living/carbon/human/H in GLOB.human_mob_list)
+		if(!H.ckey || !H.real_name)
+			continue
+		if(!H.z)
+			continue
+		mobPositionSave(H)
+		saved++
+	log_subsystem_persistence_info("MobPosition: Saved positions for [saved] mobs.")
+
+/**
+ * Save one mob's current position to the database immediately.
+ * Called on logout / cryo.
+ */
+/datum/controller/subsystem/persistence/proc/mobPositionSave(mob/living/carbon/human/H)
+	if(!H || !H.ckey || !H.real_name)
+		return
+	if(!databaseCheckConnection("mobPositionSave"))
+		return
+
+	var/datum/db_query/ins = SSdbcore.NewQuery(
+		{"INSERT INTO ss13_mob_position (ckey, char_name, x, y, z)
+		VALUES (:ckey, :char_name, :x, :y, :z)
+		ON DUPLICATE KEY UPDATE x = VALUES(x), y = VALUES(y), z = VALUES(z), saved_at = NOW()"},
+		list("ckey" = H.ckey, "char_name" = H.real_name, "x" = H.x, "y" = H.y, "z" = H.z)
+	)
+	ins.Execute()
+	databaseCheckQueryResult(ins, "mobPositionSave")
+	qdel(ins)
+
+	// Update cache
+	var/key = "[H.ckey]|[H.real_name]"
+	GLOB.persistence_position_cache[key] = list("x" = H.x, "y" = H.y, "z" = H.z)
+
+/**
+ * Restore mob to their last saved position, or spawn at default landmark.
+ */
+/mob/living/carbon/human/proc/applyPersistentPosition()
+	if(!GLOB.config.sql_enabled || !islist(GLOB.persistence_position_cache))
+		_persistentSpawnDefault()
+		return
+
+	var/key = "[ckey]|[real_name]"
+	var/list/entry = GLOB.persistence_position_cache[key]
+	if(!entry)
+		_persistentSpawnDefault()
+		return
+
+	var/sx = text2num(entry["x"]) || entry["x"]
+	var/sy = text2num(entry["y"]) || entry["y"]
+	var/sz = text2num(entry["z"]) || entry["z"]
+	var/turf/T = locate(sx, sy, sz)
+	if(T && sz)
+		forceMove(T)
+		log_subsystem_persistence_info("MobPosition: Restored [real_name] to ([sx],[sy],[sz]).")
+	else
+		_persistentSpawnDefault()
+
+/mob/living/carbon/human/proc/_persistentSpawnDefault()
+	var/list/landmarks = list()
+	for(var/obj/effect/landmark/start/L in world)
+		landmarks += L
+	if(length(landmarks))
+		forceMove(get_turf(pick(landmarks)))
+	else
+		forceMove(GLOB.newplayer_start)
+
+// ============================================================
+// PER-MOB SAVE HELPERS (used by cryo-on-logout)
+// ============================================================
+
+/**
+ * Save health state for a single mob immediately.
+ */
+/datum/controller/subsystem/persistence/proc/mobsHealthSaveOne(mob/living/carbon/human/H)
+	if(!H || !H.ckey || !H.real_name)
+		return
+	if(!databaseCheckConnection("mobsHealthSaveOne"))
+		return
+
+	var/list/organ_damage = list()
+	for(var/obj/item/organ/external/O in H.organs)
+		if(!O.limb_name)
+			continue
+		var/list/augments = list()
+		for(var/obj/item/organ/A in O.internal_organs)
+			if(A.is_augment)
+				augments += "[A.type]"
+		if(!O.brute_dam && !O.burn_dam && !O.robotic && !length(augments))
+			continue
+		var/list/limb = list("brute" = O.brute_dam, "burn" = O.burn_dam)
+		if(O.robotic)
+			limb["robotic"] = 1
+			if(O.model) limb["model"] = O.model
+		if(length(augments))
+			limb["augments"] = augments
+		organ_damage[O.limb_name] = limb
+
+	var/datum/db_query/ins = SSdbcore.NewQuery(
+		{"INSERT INTO ss13_char_health (ckey, char_name, organ_damage_json, stamina, bodytemperature, on_fire, fire_stacks, saved_at)
+		VALUES (:ckey, :char_name, :organ_damage_json, :stamina, :bodytemperature, :on_fire, :fire_stacks, NOW())
+		ON DUPLICATE KEY UPDATE organ_damage_json = VALUES(organ_damage_json), stamina = VALUES(stamina),
+		bodytemperature = VALUES(bodytemperature), on_fire = VALUES(on_fire), fire_stacks = VALUES(fire_stacks), saved_at = NOW()"},
+		list(
+			"ckey"              = H.ckey,
+			"char_name"         = H.real_name,
+			"organ_damage_json" = length(organ_damage) ? json_encode(organ_damage) : null,
+			"stamina"           = H.stamina,
+			"bodytemperature"   = H.bodytemperature,
+			"on_fire"           = H.on_fire ? 1 : 0,
+			"fire_stacks"       = H.fire_stacks
+		)
+	)
+	ins.Execute()
+	databaseCheckQueryResult(ins, "mobsHealthSaveOne")
+	qdel(ins)
+
+/**
+ * Save inventory state for a single mob immediately.
+ */
+/datum/controller/subsystem/persistence/proc/mobsInventorySaveOne(mob/living/carbon/human/H)
+	if(!H || !H.ckey || !H.real_name)
+		return
+	if(!databaseCheckConnection("mobsInventorySaveOne"))
+		return
+
+	var/list/inv = list()
+	for(var/slot_name in GLOB.persistence_inventory_slots)
+		var/slot_id = GLOB.persistence_inventory_slots[slot_name]
+		var/obj/item/I = H.get_equipped_item(slot_id)
+		inv[slot_name] = I ? serializePersistentItem(I) : null
+
+	var/datum/db_query/ins = SSdbcore.NewQuery(
+		{"INSERT INTO ss13_char_inventory (ckey, char_name, inventory_json, saved_at)
+		VALUES (:ckey, :char_name, :inventory_json, NOW())
+		ON DUPLICATE KEY UPDATE inventory_json = VALUES(inventory_json), saved_at = NOW()"},
+		list(
+			"ckey"           = H.ckey,
+			"char_name"      = H.real_name,
+			"inventory_json" = json_encode(inv)
+		)
+	)
+	ins.Execute()
+	databaseCheckQueryResult(ins, "mobsInventorySaveOne")
+	qdel(ins)
+
+/**
+ * Recursively serialize an item as a typepath + contents tree.
+ * Only saves typepath; per-item internal state is out of scope for v1.
+ * RETURN: list with "type" key and optional "contents" list for storage items.
+ */
+/proc/serializePersistentItem(obj/item/I)
+	if(!I)
+		return null
+	var/list/data = list("type" = "[I.type]")
+
+	// Storage contents — recursive
+	if(istype(I, /obj/item/storage))
+		var/obj/item/storage/S = I
+		var/list/contents = list()
+		for(var/obj/item/child in S.contents)
+			var/list/child_data = serializePersistentItem(child)
+			if(child_data)
+				contents += list(child_data)
+		if(length(contents))
+			data["contents"] = contents
+
+	// Reagent contents (beakers, bottles, syringes, spray bottles, extinguishers, etc.)
+	if(I.reagents && I.reagents.total_volume > 0 && length(I.reagents.reagent_volumes))
+		var/list/reagents = list()
+		for(var/rtype in I.reagents.reagent_volumes)
+			reagents["[rtype]"] = I.reagents.reagent_volumes[rtype]
+		data["reagents"] = json_encode(reagents)
+
+	// Paper / note written content
+	if(istype(I, /obj/item/paper))
+		var/obj/item/paper/P = I
+		if(P.info)
+			data["paper_info"] = P.info
+
+	// Stack material amounts
+	if(istype(I, /obj/item/stack))
+		var/obj/item/stack/ST = I
+		data["stack_amount"] = ST.amount
+
+	return data
+
+/**
+ * Apply cached inventory data to a newly spawned human mob.
+ * Called from /mob/living/carbon/human/LateInitialize() after job gear is issued.
+ * Replaces default job-given items with saved items slot-by-slot.
+ */
+/mob/living/carbon/human/proc/applyPersistentInventory()
+	if(!GLOB.config.sql_enabled || !length(GLOB.persistence_inventory_cache))
+		return
+	if(!ckey || !real_name)
+		return
+
+	var/key = "[ckey]|[real_name]"
+	var/json = GLOB.persistence_inventory_cache[key]
+	if(!json)
+		return
+
+	var/list/inv = json_decode(json)
+	if(!inv || !islist(inv))
+		return
+
+	for(var/slot_name in GLOB.persistence_inventory_slots)
+		if(!(slot_name in inv))
+			continue
+		var/slot_id = GLOB.persistence_inventory_slots[slot_name]
+		var/list/item_data = inv[slot_name]
+
+		// Drop whatever is currently in this slot
+		var/obj/item/existing = get_equipped_item(slot_id)
+		if(existing)
+			existing.forceMove(get_turf(src))
+
+		// Null entry means saved as empty; leave slot empty
+		if(!item_data)
+			continue
+
+		// Create and equip saved item
+		var/obj/item/restored = deserializePersistentItem(item_data, src)
+		if(restored)
+			equip_to_slot_or_del(restored, slot_id)
+			log_subsystem_persistence_info("MobInventory: Equipped [restored.type] in slot [slot_name] for [real_name].")
+		else
+			log_subsystem_persistence_error("MobInventory: Failed to restore item in slot [slot_name] ([item_data["type"] || "unknown type"]) for [real_name].")
+
+	// Strip any QDELETED items — prevents ghost items stuck in HUD slots
+	for(var/slot_name in GLOB.persistence_inventory_slots)
+		var/slot_id = GLOB.persistence_inventory_slots[slot_name]
+		var/obj/item/equipped = get_equipped_item(slot_id)
+		if(equipped && QDELETED(equipped))
+			equipped.forceMove(get_turf(src))
+			unEquip(equipped, TRUE)
+
+	log_subsystem_persistence_info("MobInventory: Restored inventory for [real_name] ([ckey]).")
+
+/**
+ * Recursively deserialize an item from a typepath + contents tree.
+ * Creates the item in the holder's loc; fills storage contents recursively.
+ * RETURN: the created item, or null on failure.
+ */
+/proc/deserializePersistentItem(list/data, atom/holder)
+	if(!data || !islist(data))
+		return null
+	var/item_type = text2path(data["type"])
+	if(!item_type || !ispath(item_type, /obj/item))
+		return null
+
+	var/obj/item/I = new item_type(holder)
+	if(!I || QDELETED(I))
+		return null
+
+	// Storage contents
+	if(data["contents"] && istype(I, /obj/item/storage))
+		var/obj/item/storage/S = I
+		for(var/list/child_data in data["contents"])
+			var/obj/item/child = deserializePersistentItem(child_data, I)
+			if(child)
+				S.handle_item_insertion(child, TRUE)
+
+	// Reagents
+	if(data["reagents"] && I.reagents)
+		I.reagents.clear_reagents()
+		var/list/reagents = json_decode(data["reagents"])
+		if(islist(reagents))
+			for(var/rtype_str in reagents)
+				var/rtype = text2path(rtype_str)
+				if(rtype)
+					I.reagents.add_reagent(rtype, text2num(reagents[rtype_str]))
+
+	// Paper text
+	if(data["paper_info"] && istype(I, /obj/item/paper))
+		var/obj/item/paper/P = I
+		P.info = data["paper_info"]
+
+	// Stack amount
+	if(!isnull(data["stack_amount"]) && istype(I, /obj/item/stack))
+		var/obj/item/stack/ST = I
+		ST.amount = text2num(data["stack_amount"]) || ST.amount
+		ST.update_icon()
+
+	return I

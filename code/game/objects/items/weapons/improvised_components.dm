@@ -1,0 +1,195 @@
+/obj/item/material/butterflyconstruction
+	name = "unfinished concealed knife"
+	desc = "An unfinished concealed knife, it looks like the screws need to be tightened."
+	icon = 'icons/obj/weapons_build.dmi'
+	icon_state = "butterflystep1"
+	w_class = WEIGHT_CLASS_SMALL
+	force_divisor = 0.1
+	thrown_force_divisor = 0.1
+
+/obj/item/material/butterflyconstruction/attackby(obj/item/attacking_item, mob/user)
+	if(attacking_item.tool_behaviour == TOOL_SCREWDRIVER)
+		to_chat(user, "You finish the concealed blade weapon.")
+		new /obj/item/material/knife/butterfly(user.loc, material.name)
+		qdel(src)
+		return
+
+/obj/item/material/butterflyblade
+	name = "knife blade"
+	desc = "A knife blade. Unusable as a weapon without a grip."
+	icon = 'icons/obj/weapons_build.dmi'
+	icon_state = "butterfly2"
+	w_class = WEIGHT_CLASS_SMALL
+	force_divisor = 0.1
+	thrown_force_divisor = 0.1
+
+/obj/item/material/butterflyhandle
+	name = "concealed knife grip"
+	desc = "A plasteel grip with screw fittings for a blade."
+	icon = 'icons/obj/weapons_build.dmi'
+	icon_state = "butterfly1"
+	w_class = WEIGHT_CLASS_SMALL
+	force_divisor = 0.1
+	thrown_force_divisor = 0.1
+
+/obj/item/material/butterflyhandle/attackby(obj/item/attacking_item, mob/user)
+	if(istype(attacking_item, /obj/item/material/butterflyblade))
+		var/obj/item/material/butterflyblade/B = attacking_item
+		to_chat(user, "You attach the two concealed blade parts.")
+		var/finished = new /obj/item/material/butterflyconstruction(user.loc, B.material.name)
+		qdel(attacking_item)
+		qdel(src)
+		user.put_in_hands(finished)
+		return
+
+/obj/item/material/wirerod
+	name = "wired rod"
+	desc = "A rod with some wire wrapped around the top. It'd be easy to attach something to the top bit."
+	icon_state = "wiredrod"
+	item_state = "rods"
+	obj_flags = OBJ_FLAG_CONDUCTABLE
+	force = 18
+	throwforce = 10
+	w_class = WEIGHT_CLASS_NORMAL
+	attack_verb = list("hit", "bludgeoned", "whacked", "bonked")
+	force_divisor = 0.1
+	thrown_force_divisor = 0.1
+	applies_material_colour = FALSE
+	var/forward_cable_color = COLOR_RED
+
+/obj/item/material/wirerod/Initialize(mapload, var/material_key, var/cable_color)
+	. = ..()
+	if(!cable_color)
+		cable_color = COLOR_RED
+	forward_cable_color = cable_color
+	var/image/I = image(icon, null, "wiredrod_cable")
+	I.appearance_flags = RESET_COLOR
+	I.color = cable_color
+	AddOverlays(I)
+
+/obj/item/material/wirerod/attackby(obj/item/attacking_item, mob/user)
+	..()
+	var/obj/item/finished
+	if(istype(attacking_item, /obj/item/material/shard) || istype(attacking_item, /obj/item/material/spearhead))
+		var/obj/item/material/tmp_shard = attacking_item
+		finished = new /obj/item/material/twohanded/spear(get_turf(user), tmp_shard.material.name)
+		to_chat(user, SPAN_NOTICE("You fasten \the [attacking_item] to the top of the rod with the cable."))
+	else if(attacking_item.tool_behaviour == TOOL_WIRECUTTER)
+		finished = new /obj/item/melee/baton/cattleprod(get_turf(user), forward_cable_color)
+		to_chat(user, SPAN_NOTICE("You fasten the wirecutters to the top of the rod with the cable, prongs outward."))
+	else if(istype(attacking_item, /obj/item/material/wirerod))
+		finished = new /obj/item/trap/tripwire(get_turf(user), forward_cable_color)
+		to_chat(user, SPAN_NOTICE("You attach the two wired rods together, spooling the cable between them."))
+	if(finished)
+		user.drop_from_inventory(src,finished)
+		user.drop_from_inventory(attacking_item,finished)
+		//TODO: Possible better animation here.
+		qdel(attacking_item)
+		qdel(src)
+		user.put_in_hands(finished)
+	update_icon(user)
+
+/obj/item/material/shaft
+	name = "shaft"
+	desc = "A large stick, you could probably attach something to it."
+	icon = 'icons/obj/weapons_build.dmi'
+	icon_state = "shaft"
+	item_state = "rods"
+	force = 11
+	throwforce = 3
+	w_class = WEIGHT_CLASS_BULKY
+	attack_verb = list("hit", "bludgeoned", "whacked", "bonked")
+	force_divisor = 0.1
+	thrown_force_divisor = 0.1
+	default_material = "wood"
+
+/obj/item/material/shaft/attackby(obj/item/attacking_item, mob/user)
+	..()
+	var/obj/item/finished
+	if(istype(attacking_item, /obj/item/material/spearhead))
+		var/obj/item/material/spearhead/tip = attacking_item
+		finished = new /obj/item/material/twohanded/pike(get_turf(user), tip.material.name)
+		to_chat(user, SPAN_NOTICE("You attach \the [attacking_item] to the top of \the [src]."))
+	if(finished)
+		user.drop_from_inventory(src,finished)
+		user.drop_from_inventory(attacking_item,finished)
+		qdel(attacking_item)
+		qdel(src)
+		//TODO: Possible better animation here.
+		user.put_in_hands(finished)
+	update_icon(user)
+
+/obj/item/material/spearhead
+	name = "spearhead"
+	desc = "A pointy spearhead, not really useful without a shaft."
+	icon = 'icons/obj/weapons_build.dmi'
+	icon_state = "spearhead"
+	force = 11
+	throwforce = 5
+	w_class = WEIGHT_CLASS_SMALL
+	attack_verb = list("attacked", "poked")
+	force_divisor = 0.1
+	thrown_force_divisor = 0.1
+	default_material = "steel"
+
+
+/obj/item/material/woodenshield
+	name = "shield donut"
+	desc = "A wooden disc. Unusable as a shield without metal. Don't eat this."
+	icon = 'icons/obj/square_shield.dmi'
+	icon_state = "shield_fitting_inner"
+	force_divisor = 0.1
+	thrown_force_divisor = 0.1
+	default_material = "wood"
+
+/obj/item/material/woodenshield/attackby(obj/item/attacking_item, mob/user)
+	..()
+	var/obj/item/finished
+	if(istype(attacking_item, /obj/item/material/shieldbits))
+		var/obj/item/material/woodenshield/donut = attacking_item
+		finished = new /obj/item/shield/buckler(get_turf(user), donut.material.name)
+		to_chat(user, SPAN_NOTICE("You attach \the [attacking_item] to \the [src]."))
+	if(finished)
+		user.drop_from_inventory(src)
+		user.drop_from_inventory(attacking_item)
+		qdel(attacking_item)
+		qdel(src)
+		user.put_in_hands(finished)
+	update_icon(user)
+
+/obj/item/material/shieldbits
+	name = "shield fittings"
+	desc = "A metal ring and boss, fitting for a buckler."
+	icon = 'icons/obj/square_shield.dmi'
+	icon_state = "shield_fitting_outer"
+	force_divisor = 0.1
+	thrown_force_divisor = 0.1
+	default_material = "steel"
+
+/obj/item/woodcirclet
+	name = "wood circlet"
+	desc = "A small wood circlet for making a flower crown."
+	icon = 'icons/obj/weapons_build.dmi'
+	icon_state = "woodcirclet"
+	item_state = "woodcirclet"
+	w_class = WEIGHT_CLASS_SMALL
+
+/obj/item/woodcirclet/attackby(obj/item/attacking_item, mob/user)
+	var/obj/item/complete = null
+	if(istype(attacking_item, /obj/item/seeds))	// Only allow seeds, since we rely on their structure
+		var/obj/item/seeds/S = attacking_item
+		if(istype(S.seed, /datum/seed/flower/poppy))
+			complete = new /obj/item/clothing/head/poppy_crown(get_turf(user))
+		else if(istype(S.seed, /datum/seed/flower/sunflower))
+			complete = new /obj/item/clothing/head/sunflower_crown(get_turf(user))
+		else if(istype(S.seed, /datum/seed/flower))  // Note: might be a problem if more flowers are added
+			complete = new /obj/item/clothing/head/lavender_crown(get_turf(user))
+
+		if(complete != null)
+			to_chat(user, SPAN_NOTICE("You attach the " + S.seed.seed_name + " to the circlet and create a beautiful flower crown."))
+			user.drop_from_inventory(attacking_item)
+			user.drop_from_inventory(src)
+			qdel(attacking_item)
+			qdel(src)
+			user.put_in_hands(complete)
+			return

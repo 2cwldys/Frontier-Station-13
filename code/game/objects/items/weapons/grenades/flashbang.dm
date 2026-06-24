@@ -1,0 +1,124 @@
+/obj/item/grenade/flashbang
+	name = "flashbang"
+	icon_state = "flashbang"
+	item_state = "flashbang"
+	origin_tech = list(TECH_MATERIAL = 2, TECH_COMBAT = 1)
+
+/obj/item/grenade/flashbang/prime()
+	..()
+	var/turf/T = get_turf(src)
+	for(var/mob/living/L in get_hearers_in_view(7, src))
+		bang(T, L)
+
+	// Damage blobs.
+	for(var/obj/effect/blob/B in get_hear(8,get_turf(src)))
+		var/damage = round(30/(get_dist(B,get_turf(src))+1))
+		B.health -= damage
+		B.update_icon()
+
+	single_spark(T)
+	new /obj/effect/smoke/illumination(T, brightness=15)
+	qdel(src)
+
+/obj/item/grenade/flashbang/explode_in_hand(var/mob/living/carbon/human/victim, var/obj/item/organ/external/exploded_organ)
+	. = ..()
+	if(exploded_organ)
+		victim.apply_damage(20, DAMAGE_BRUTE, exploded_organ, src, DAMAGE_FLAG_EXPLODE, 20)
+		victim.apply_damage(30, DAMAGE_BURN, exploded_organ, src, DAMAGE_FLAG_EXPLODE, 20)
+
+	victim.apply_damage(20, DAMAGE_BRUTE, null, src, DAMAGE_FLAG_EXPLODE|DAMAGE_FLAG_DISPERSED, 20)
+	victim.apply_damage(30, DAMAGE_BURN, null, src, DAMAGE_FLAG_EXPLODE|DAMAGE_FLAG_DISPERSED, 20)
+
+/obj/item/grenade/flashbang/proc/bang(turf/T, mob/living/M)
+	to_chat(M, SPAN_HIGHDANGER("BANG!"))
+	playsound(T, 'sound/weapons/flashbang.ogg', 50, 1, 3, 0.5, 1)
+
+	if(M.flash_act(ignore_inherent = TRUE))
+		M.Weaken(10)
+
+	var/distance_to_grenade = get_dist(T, M)
+
+	// 1 - 9x/70 gives us 100% at zero, 87% at 1 turf, all the way to 10% at 7
+	var/bang_intensity = 1 - (9 * distance_to_grenade / 70)
+
+	var/ear_damage = 10 * bang_intensity
+	var/deafen_damage = 15 * (1 - bang_intensity)
+
+
+	// we only stun if they've got sensitive ears and got it active as well as if it is close enough.
+	if(M.get_hearing_sensitivity() && astype(M, /mob/living/carbon/human)?.is_listening() && distance_to_grenade < 5)
+		// checking for protection is handled by noise_act
+		M.noise_act(intensity = EAR_PROTECTION_MAJOR, stun_pwr = 2, damage_pwr = ear_damage, deafen_pwr = deafen_damage)
+	else
+		M.noise_act(intensity = EAR_PROTECTION_MODERATE, damage_pwr = ear_damage, deafen_pwr = deafen_damage)
+
+	M.disable_cloaking_device()
+	M.update_icon()
+
+/obj/item/grenade/flashbang/clusterbang
+	name = "clusterbang"
+	icon = 'icons/obj/grenade.dmi'
+	icon_state = "clusterbang"
+
+
+/obj/item/grenade/flashbang/clusterbang/prime()
+	var/numspawned = rand(4,8)
+	var/again = 0
+	var/atom/A = get_turf(src)
+	for(var/more = numspawned,more > 0,more--)
+		if(prob(35))
+			again++
+			numspawned --
+
+	for(,numspawned > 0, numspawned--)
+		spawn(0)
+			new /obj/item/grenade/flashbang/cluster(A)//Launches flashbangs
+			playsound(src.loc, 'sound/weapons/armbomb.ogg', 75, 1, -3)
+
+	for(,again > 0, again--)
+		spawn(0)
+			new /obj/item/grenade/flashbang/clusterbang/segment(A)//Creates a 'segment' that launches a few more flashbangs
+			playsound(src.loc, 'sound/weapons/armbomb.ogg', 75, 1, -3)
+	QDEL_IN(src, 1)
+
+/obj/item/grenade/flashbang/clusterbang/segment
+	desc = "A smaller segment of a clusterbang. Better run."
+	name = "clusterbang segment"
+	icon = 'icons/obj/grenade.dmi'
+	icon_state = "clusterbang_segment"
+
+/obj/item/grenade/flashbang/clusterbang/segment/New()//Segments should never exist except part of the clusterbang, since these immediately 'do their thing' and asplode
+
+	icon_state = "clusterbang_segment_active"
+	active = 1
+	var/stepdist = rand(1,4)//How far to step
+	var/temploc = src.loc//Saves the current location to know where to step away from
+	walk_away(src,temploc,stepdist)//I must go, my people need me
+	var/dettime = rand(15,60)
+	addtimer(CALLBACK(src, PROC_REF(prime)), dettime)
+	..()
+
+/obj/item/grenade/flashbang/clusterbang/segment/prime()
+	var/numspawned = rand(4,8)
+	for(var/more = numspawned,more > 0,more--)
+		if(prob(35))
+			numspawned --
+	var/atom/A = get_turf(src)
+	for(,numspawned > 0, numspawned--)
+		spawn(0)
+			new /obj/item/grenade/flashbang/cluster(A)
+			playsound(src.loc, 'sound/weapons/armbomb.ogg', 75, 1, -3)
+
+	QDEL_IN(src, 1)
+
+/obj/item/grenade/flashbang/cluster/New()//Same concept as the segments, so that all of the parts don't become reliant on the clusterbang
+	set waitfor = FALSE
+	icon_state = "flashbang_active"
+	active = 1
+	var/stepdist = rand(1,3)
+	var/temploc = src.loc
+	walk_away(src,temploc,stepdist)
+	var/dettime = rand(15,60)
+	addtimer(CALLBACK(src, PROC_REF(prime)), dettime)
+	..()
+

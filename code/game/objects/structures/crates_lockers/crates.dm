@@ -1,0 +1,799 @@
+//This file was auto-corrected by findeclaration.exe on 25.5.2012 20:42:32
+
+#define ABOVE_TABLE 1
+#define UNDER_TABLE -1
+/obj/structure/closet/crate
+	name = "crate"
+	desc = "A rectangular steel crate."
+	icon = 'icons/obj/containers/crate.dmi'
+	icon_state = "crate"
+	climbable = TRUE
+	build_amt = 10
+	slowdown = 0
+	open_sound = 'sound/machines/crate_open.ogg'
+	close_sound = 'sound/machines/crate_close.ogg'
+	open_sound_volume = 35
+	close_sound_volume = 50
+	store_structure = TRUE
+	dense_when_open = TRUE
+	door_anim_squish = 0.30
+	door_anim_time = 3
+	door_anim_angle = 140
+	door_hinge_x = 3.5
+	pass_flags_self = PASSSTRUCTURE | LETPASSTHROW
+
+	var/tablestatus = 0
+
+	var/azimuth_angle_2 = 180 //in this context the azimuth angle for over 90 degree
+	var/radius_2 = 1.35
+	var/static/list/animation_math //assoc list with pre calculated values
+
+/obj/structure/closet/crate/mechanics_hints(mob/user, distance, is_adjacent)
+	. += ..()
+	. += "Crates can be placed on top of tables by clicking and dragging the crate onto the target table."
+
+/obj/structure/closet/crate/antagonist_hints(mob/user, distance, is_adjacent)
+	. = list()
+
+/obj/structure/closet/crate/can_open()
+	if(tablestatus == UNDER_TABLE)//Can't be opened while under a table
+		return 0
+	. = ..()
+
+/obj/structure/closet/crate/can_close()
+	return 1
+
+/obj/structure/closet/crate/animate_door(var/closing = FALSE)
+	if(!door_anim_time)
+		return
+	if(!door_obj) door_obj = new
+	if(animation_math == null) //checks if there is already a list for animation_math if not creates one to avoid runtimes
+		animation_math = new/list()
+	if(!door_anim_time == 0 && !animation_math["[door_anim_time]-[door_anim_angle]-[azimuth_angle_2]-[radius_2]-[door_hinge_x]"])
+		animation_list()
+	vis_contents |= door_obj
+	door_obj.icon = icon
+	door_obj.icon_state = "[icon_door || icon_state]_door"
+	is_animating_door = TRUE
+	var/num_steps = round(door_anim_time / world.tick_lag)
+	var/list/animation_math_list = animation_math["[door_anim_time]-[door_anim_angle]-[azimuth_angle_2]-[radius_2]-[door_hinge_x]"]
+	for(var/I in 0 to num_steps)
+		var/door_state = I == (closing ? num_steps : 0) ? "[icon_door || icon_state]_door" : animation_math_list[closing ? 2 * num_steps - I : num_steps + I] <= 0 ? "[icon_door_override ? icon_door : icon_state]_back" : "[icon_door || icon_state]_door"
+		var/door_layer = I == (closing ? num_steps : 0) ? ABOVE_HUMAN_LAYER : animation_math_list[closing ? 2 * num_steps - I : num_steps + I] <= 0 ? FLOAT_LAYER : ABOVE_HUMAN_LAYER
+		var/crateanim_1 = 0
+		var/crateanim_2 = 1
+
+		if(!(I == (closing ? num_steps : 0)))
+			crateanim_1 = animation_math_list[closing ? num_steps - I : I]
+			crateanim_2 = animation_math_list[closing ?  2 * num_steps - I : num_steps + I]
+
+		var/matrix/M = get_door_transform(crateanim_1, crateanim_2)
+		if(I == 0)
+			door_obj.transform = M
+			door_obj.icon_state = door_state
+			door_obj.layer = door_layer
+		else if(I == 1)
+			animate(door_obj, transform = M, icon_state = door_state, layer = door_layer, time = world.tick_lag, flags = ANIMATION_END_NOW)
+		else
+			animate(transform = M, icon_state = door_state, layer = door_layer, time = world.tick_lag)
+
+	addtimer(CALLBACK(src, PROC_REF(end_door_animation)), door_anim_time, TIMER_UNIQUE|TIMER_OVERRIDE|TIMER_CLIENT_TIME)
+
+/obj/structure/closet/crate/get_door_transform(crateanim_1, crateanim_2)
+	var/matrix/M = matrix()
+	M.Translate(0, -door_hinge_x)
+	M.Multiply(matrix(1, crateanim_1, 0, 0, crateanim_2, 0))
+	M.Translate(0, door_hinge_x)
+	return M
+
+/obj/structure/closet/crate/proc/animation_list() //pre calculates a list of values for the crate animation cause byond not like math
+	var/num_steps_1 = door_anim_time / world.tick_lag
+	var/list/new_animation_math_sublist[num_steps_1 * 2]
+	for(var/I in 1 to num_steps_1) //loop to save the animation values into the lists
+		var/angle_1 = door_anim_angle * (I / num_steps_1)
+		var/polar_angle = abs(arcsin(cos(angle_1)))
+		var/azimuth_angle = angle_1 >= 90 ? azimuth_angle_2 : 0
+		var/radius_cr = angle_1 >= 90 ? radius_2 : 1
+		new_animation_math_sublist[I] = -sin(polar_angle) * sin(azimuth_angle) * radius_cr
+		new_animation_math_sublist[num_steps_1 + I] = cos(azimuth_angle) * sin(polar_angle) * radius_cr
+	animation_math["[door_anim_time]-[door_anim_angle]-[azimuth_angle_2]-[radius_2]-[door_hinge_x]"] = new_animation_math_sublist
+
+/*
+==========================
+	Table interactions
+==========================
+*/
+/obj/structure/closet/crate/CanPass(atom/movable/mover, turf/target, height=0, air_group=0)
+	if(mover?.movement_type & PHASING)
+		return TRUE
+	if (istype(mover, /obj/structure/closet/crate))//Handle interaction with other crates
+		var/obj/structure/closet/crate/C = mover
+		if (tablestatus && tablestatus != C.tablestatus) // Crates can go under tables with crates on top of them, and vice versa
+			return TRUE
+		else
+			return FALSE
+	if (istype(mover,/obj/projectile))
+		// Crates on a table always block shots, otherwise they only occasionally do so.
+		return tablestatus == ABOVE_TABLE ? FALSE : (prob(15) ? FALSE : TRUE)
+	else if((istype(mover) && (mover.pass_flags & PASSTABLE)) && tablestatus == ABOVE_TABLE)
+		return TRUE
+	return ..()
+
+/obj/structure/closet/crate/Move(var/turf/destination, dir)
+	. = ..()
+	if(.)
+		if (locate(/obj/structure/table) in destination)
+			if(locate(/obj/structure/table/rack) in destination)
+				set_tablestatus(ABOVE_TABLE)
+			else if(tablestatus != ABOVE_TABLE)
+				set_tablestatus(UNDER_TABLE)//Slide under the table
+		else
+			set_tablestatus(FALSE)
+
+/obj/structure/closet/crate/toggle(var/mob/user)
+	if(!opened && tablestatus == UNDER_TABLE)
+		to_chat(user, SPAN_WARNING("You can't open \the [src] while the lid is obstructed!"))
+		return FALSE
+	if(istype(loc, /obj/structure/crate_shelf))
+		to_chat(user, SPAN_WARNING("You can't open \the [src] while it is on a shelf!"))
+		return FALSE
+	else
+		return ..()
+
+/obj/structure/closet/crate/proc/set_tablestatus(var/target)
+	if (tablestatus != target)
+		tablestatus = target
+
+	spawn(3)//Short spawn prevents things popping up where they shouldnt
+		switch (target)
+			if (ABOVE_TABLE)
+				layer = ABOVE_TABLE_LAYER
+				pixel_y = 8
+			if (FALSE)
+				layer = initial(layer)
+				pixel_y = 0
+			if (UNDER_TABLE)
+				layer = BELOW_TABLE_LAYER
+				pixel_y = -4
+
+//For putting on tables
+/obj/structure/closet/crate/mouse_drop_dragged(atom/over, mob/user, src_location, over_location, params)
+	if (istype(over, /obj/structure/table) && !istype(loc, /obj/structure/crate_shelf))
+		put_on_table(over, user)
+		return TRUE
+	else if(istype(over, /obj/structure/crate_shelf) && !istype(loc, /obj/structure/crate_shelf))
+		put_on_shelf(over, user)
+		return TRUE
+	if(istype(loc, /obj/structure/crate_shelf) && isturf(over) && !is_blocked_turf(over))
+		take_off_shelf(loc, user, over)
+		return TRUE
+	else
+		return ..()
+
+/obj/structure/closet/crate/proc/put_on_shelf(var/obj/structure/crate_shelf/shelf, var/mob/user)
+	shelf.load(src, user)
+
+/obj/structure/closet/crate/proc/take_off_shelf(var/obj/structure/crate_shelf/shelf, var/mob/user, turf/unload_turf)
+	shelf.unload(src, user, unload_turf)
+
+/obj/structure/closet/crate/Adjacent(atom/neighbor, atom/target, atom/movable/mover)
+	. = ..()
+	if(istype(loc, /obj/structure/crate_shelf))
+		var/obj/structure/crate_shelf/S = loc
+		return S.Adjacent(neighbor, target, mover)
+
+/obj/structure/closet/crate/proc/put_on_table(var/obj/structure/table/table, var/mob/user)
+	if (!table || !user || (tablestatus == UNDER_TABLE))
+		return
+
+	//User must be in reach of the crate
+	if (!user.Adjacent(src))
+		to_chat(user, SPAN_WARNING("You need to be closer to the crate!"))
+		return
+
+	//One of us has to be near the table
+	if (!user.Adjacent(table) && !Adjacent(table))
+		to_chat(user, SPAN_WARNING("Take the crate closer to the table!"))
+		return
+
+	for (var/obj/structure/closet/crate/C in get_turf(table))
+		if (C.tablestatus != UNDER_TABLE)
+			to_chat(user, SPAN_WARNING("There's already a crate on this table!"))
+			return
+
+	//Crates are heavy, hauling them onto tables is hard.
+	//The more stuff thats in it, the longer it takes
+	//Good place to factor in Strength in future
+	var/timeneeded = 2 SECONDS
+
+	if (tablestatus == ABOVE_TABLE && Adjacent(table))
+		//Sliding along a tabletop we're already on. Instant and silent
+		timeneeded = 0
+		return TRUE
+	else
+		//Add time based on mass of contents
+		for (var/obj/O in contents)
+			timeneeded += 1.5* O.w_class
+		for (var/mob/M in contents)
+			timeneeded += 1.5* M.mob_size
+
+	if (timeneeded > 0)
+		user.visible_message("[user] starts hoisting \the [src] onto \the [table].", "You start hoisting \the [src] onto \the [table]. This will take about [timeneeded * 0.1] seconds.")
+		user.face_atom(src)
+		if (!do_after(user, timeneeded, src))
+			return FALSE
+		else
+			forceMove(get_turf(table))
+			set_tablestatus(ABOVE_TABLE)
+			var/loudness = "thunk."
+			if(timeneeded * 0.1 > 10)
+				loudness = "loud THUNK!"
+			visible_message("[user] puts \the [src] onto \the [table] with a [loudness]", "[user] puts \the [src] onto \the [table].", intent_message = THUNK_SOUND)
+			return TRUE
+
+/*
+=====================
+	Secure Crates
+=====================
+*/
+
+/obj/structure/closet/crate/secure
+	name = "secure crate"
+	desc = "A secure crate."
+	locked = TRUE
+	secure = TRUE
+	secure_lights = TRUE
+	maxhealth = OBJECT_HEALTH_VERY_HIGH
+	armor = list(
+		MELEE = ARMOR_MELEE_RESISTANT,
+		BULLET = ARMOR_BALLISTIC_MEDIUM,
+		LASER = ARMOR_LASER_MEDIUM,
+		ENERGY = ARMOR_ENERGY_RESISTANT,
+	)
+
+/obj/structure/closet/crate/plastic
+	name = "plastic crate"
+	desc = "A rectangular plastic crate."
+	icon_state = "plastic_crate"
+
+/obj/structure/closet/crate/coffin
+	name = "coffin"
+	desc = "It's a burial receptacle for the dearly departed."
+	icon_state = "coffin"
+	build_amt = 5
+	open_sound = 'sound/machines/wooden_closet_open.ogg'
+	close_sound = 'sound/machines/wooden_closet_close.ogg'
+	open_sound_volume = 25
+	close_sound_volume = 50
+	door_anim_angle = 140
+	azimuth_angle_2 = 180
+	door_anim_time = 5
+	door_hinge_x = 5
+
+/obj/structure/closet/crate/internals
+	name = "internals crate"
+	desc = "A internals crate."
+	icon_state = "o2_crate"
+
+/obj/structure/closet/crate/trashcart
+	name = "trash cart"
+	desc = "A heavy, metal trashcart with wheels."
+	icon_state = "trashcart"
+	door_hinge_x = 2.5
+
+/obj/structure/closet/crate/miningcart
+	desc = "A mining cart. This one doesn't work on rails, but has to be dragged."
+	name = "mining cart"
+	icon_state = "miningcart"
+	door_hinge_x = 2.5
+
+/obj/structure/closet/crate/miningcart/ore/fill()
+	var/i_max = rand(3, 6)
+	for(var/i in 1 to i_max)
+		var/o = pickweight(
+			list(
+				/obj/item/ore = 2,
+				/obj/item/ore/coal = 3,
+				/obj/item/ore/diamond = 1,
+				/obj/item/ore/glass = 3,
+				/obj/item/ore/aluminium = 3,
+				/obj/item/ore/gold = 2,
+				/obj/item/ore/iron = 3,
+				/obj/item/ore/osmium = 1,
+				/obj/item/ore/lead = 2,
+				/obj/item/ore/silver = 2,
+				/obj/item/ore/slag = 1,
+				/obj/item/ore/uranium = 1
+			)
+		)
+		var/j_max = rand(4, 10)
+		for(var/j in 1 to j_max)
+			new o(src)
+
+/*these aren't needed anymore
+/obj/structure/closet/crate/hat
+	desc = "A crate filled with Valuable Collector's Hats!."
+	name = "Hat Crate"
+	icon_state = "crate"
+	icon_opened = "crateopen"
+	icon_closed = "crate"
+*/
+
+/obj/structure/closet/crate/medical
+	name = "medical crate"
+	desc = "A medical crate."
+	icon_state = "medical_crate"
+
+/obj/structure/closet/crate/rfd
+	name = "\improper RFD C-Class crate"
+	desc = "A crate with a Rapid-Fabrication-Device C-Class."
+	icon_state = "eng_tool"
+	icon_door_override = TRUE
+	icon_door = "eng"
+
+/obj/structure/closet/crate/rfd/fill()
+	new /obj/item/rfd_ammo(src)
+	new /obj/item/rfd_ammo(src)
+	new /obj/item/rfd_ammo(src)
+	new /obj/item/rfd/construction(src)
+
+/obj/structure/closet/crate/solar
+	name = "solar pack crate"
+	icon_state = "eng_elec"
+	icon_door_override = TRUE
+	icon_door = "eng"
+
+/obj/structure/closet/crate/solar/fill()
+	new /obj/item/solar_assembly(src)
+	new /obj/item/solar_assembly(src)
+	new /obj/item/solar_assembly(src)
+	new /obj/item/solar_assembly(src)
+	new /obj/item/solar_assembly(src)
+	new /obj/item/solar_assembly(src)
+	new /obj/item/solar_assembly(src)
+	new /obj/item/solar_assembly(src)
+	new /obj/item/solar_assembly(src)
+	new /obj/item/solar_assembly(src)
+	new /obj/item/solar_assembly(src)
+	new /obj/item/solar_assembly(src)
+	new /obj/item/solar_assembly(src)
+	new /obj/item/solar_assembly(src)
+	new /obj/item/solar_assembly(src)
+	new /obj/item/solar_assembly(src)
+	new /obj/item/solar_assembly(src)
+	new /obj/item/solar_assembly(src)
+	new /obj/item/solar_assembly(src)
+	new /obj/item/solar_assembly(src)
+	new /obj/item/solar_assembly(src)
+	new /obj/item/circuitboard/solar_control(src)
+	new /obj/item/tracker_electronics(src)
+	new /obj/item/paper/solar(src)
+
+/obj/structure/closet/crate/freezer
+	name = "freezer"
+	desc = "A freezer."
+	icon_state = "freezer"
+	door_hinge_x = 4.5
+	var/target_temp = T0C - 40
+	var/cooling_power = 40
+
+/obj/structure/closet/crate/freezer/return_air()
+	var/datum/gas_mixture/gas = (..())
+	if(!gas)	return null
+	var/datum/gas_mixture/newgas = new/datum/gas_mixture()
+	newgas.copy_from(gas)
+	if(newgas.temperature <= target_temp)	return
+
+	if((newgas.temperature - cooling_power) > target_temp)
+		newgas.temperature -= cooling_power
+	else
+		newgas.temperature = target_temp
+	return newgas
+
+/obj/structure/closet/crate/freezer/rations
+	name = "emergency rations"
+	desc = "A crate of emergency rations and bottles of water."
+
+/obj/structure/closet/crate/freezer/rations/fill()
+	for(var/i=1,i<=6,i++)
+		new /obj/random/mre(src)
+		new /obj/item/reagent_containers/food/drinks/waterbottle(src)
+
+/obj/structure/closet/crate/freezer/kois
+	name = "freezer"
+	desc = "A freezer, painted in a sickly yellow, with a biohazard sign on the side."
+	icon_state = "freezer_kois"
+
+/obj/structure/closet/crate/freezer/kois/rations
+	name = "emergency k'ois rations"
+	desc = "A crate of emergency k'ois rations and bottles of water. Painted in a sickly yellow, with a biohazard sign on the side."
+
+/obj/structure/closet/crate/freezer/kois/rations/fill()
+	for(var/i=1,i<=6,i++)
+		new /obj/item/storage/box/fancy/mre/menu12(src)
+		new /obj/item/reagent_containers/food/drinks/waterbottle(src)
+
+/obj/structure/closet/crate/bin
+	name = "large bin"
+	desc = "A large bin."
+	icon_state = "largebin"
+
+/obj/structure/closet/crate/bin/filled/fill()
+	for(var/i=1,i<=6,i++)
+		new /obj/random/junk(src)
+
+/obj/structure/closet/crate/drop
+	name = "drop crate"
+	desc = "A large, sturdy crate meant for airdrops."
+	icon_state = "drop_crate"
+	door_hinge_x = 0.5
+
+/obj/structure/closet/crate/drop/grey
+	name = "drop crate"
+	desc = "A large, sturdy crate meant for airdrops."
+	icon_state = "drop_crate-grey"
+	door_hinge_x = 0.5
+
+/obj/structure/closet/crate/tool
+	name = "tool crate"
+	desc = "It's a crate for storing tools."
+	icon_state = "eng_tool"
+	icon_door_override = TRUE
+	icon_door = "eng"
+
+/obj/structure/closet/crate/rad
+	name = "radioactive gear crate"
+	desc = "A crate with a radiation sign on it."
+	icon_state = "eng_rad"
+	icon_door_override = TRUE
+	icon_door = "eng"
+
+/obj/structure/closet/crate/rad/gear/fill()
+	new /obj/item/clothing/suit/radiation(src)
+	new /obj/item/clothing/head/radiation(src)
+	new /obj/item/clothing/suit/radiation(src)
+	new /obj/item/clothing/head/radiation(src)
+	new /obj/item/clothing/suit/radiation(src)
+	new /obj/item/clothing/head/radiation(src)
+	new /obj/item/clothing/suit/radiation(src)
+	new /obj/item/clothing/head/radiation(src)
+
+/obj/structure/closet/crate/elec
+	name = "electrical supplies crate"
+	desc = "It's a crate for storing electrical equipment."
+	icon_state = "eng_elec"
+	icon_door_override = TRUE
+	icon_door = "eng"
+
+/obj/structure/closet/crate/weld
+	name = "welding supplies crate"
+	desc = "It's a crate for storing welding tools."
+	icon_state = "eng_weld"
+	icon_door_override = TRUE
+	icon_door = "eng"
+
+/obj/structure/closet/crate/secure/aimodules
+	name = "AI modules crate"
+	desc = "A secure crate full of AI modules."
+	icon_state = "science_crate"
+	req_access = list(ACCESS_CENT_SPECOPS)
+
+/obj/structure/closet/crate/secure/aimodules/fill()
+	for(var/moduletype in subtypesof(/obj/item/aiModule))
+		new moduletype(src)
+
+/obj/structure/closet/crate/weapon
+	name = "weapons crate"
+	desc = "A weapons crate."
+	icon_state = "syndi_crate" //haha this pun was totally worth it.
+
+/obj/structure/closet/crate/weapon/alt
+	icon_state = "syndi_crate1"
+
+/obj/structure/closet/crate/secure/weapon
+	name = "weapons crate"
+	desc = "A secure weapons crate."
+	icon_state = "syndi_crate"
+	icon_door_override = TRUE
+	icon_door = "syndi_crate"
+
+/obj/structure/closet/crate/secure/weapon/alt
+	icon_state = "syndi_crate1"
+	icon_door = "syndi_crate1"
+
+/obj/structure/closet/crate/secure/legion
+	name = "foreign legion supply crate"
+	desc = "A secure supply crate, It carries the insignia of the Tau Ceti Foreign Legion. It appears quite scuffed."
+	icon_state = "tcfl_crate"
+	req_access = list(ACCESS_LEGION)
+
+/obj/structure/closet/crate/secure/phoron
+	name = "phoron crate"
+	desc = "A secure phoron crate."
+	icon_state = "phoron_crate"
+	open_sound = 'sound/machines/wooden_closet_open.ogg'
+	close_sound = 'sound/machines/wooden_closet_close.ogg'
+
+/obj/structure/closet/crate/secure/gear
+	name = "gear crate"
+	desc = "A secure gear crate."
+	icon_state = "secgear_crate"
+
+/obj/structure/closet/crate/secure/hydrosec
+	name = "secure hydroponics crate"
+	desc = "A crate painted in the scheme of the station's botanists."
+	icon_state = "hydro_crate"
+	req_one_access = list(ACCESS_HYDROPONICS, ACCESS_XENOBOTANY)
+
+/obj/structure/closet/crate/secure/bin
+	name = "secure bin"
+	desc = "A secure bin."
+	icon_state = "largebins"
+	icon_door_overlay = "largebin"
+	icon_door_override = TRUE
+	icon_door = "largebin"
+
+/obj/structure/closet/crate/large
+	name = "large crate"
+	desc = "A hefty metal crate."
+	icon_state = "largemetal"
+	health = 200
+	door_anim_time = 0
+
+/obj/structure/closet/crate/large/close()
+	. = ..()
+	if (.)//we can hold up to one large item
+		var/found = 0
+		for(var/obj/structure/S in loc)
+			if(S == src)
+				continue
+			if(!S.anchored)
+				found = 1
+				S.forceMove(src)
+				break
+		if(!found)
+			for(var/obj/structure/machinery/M in loc)
+				if(!M.anchored)
+					M.forceMove(src)
+					break
+	return
+
+/obj/structure/closet/crate/secure/large
+	name = "large crate"
+	desc = "A hefty metal crate with an electronic locking system."
+	icon_state = "largemetal"
+	icon_door_overlay = "largemetal"
+	health = 400
+	secure_lights = FALSE
+	door_anim_time = 0
+
+/obj/structure/closet/crate/secure/large/close()
+	. = ..()
+	if (.)//we can hold up to one large item
+		var/found = 0
+		for(var/obj/structure/S in loc)
+			if(S == src)
+				continue
+			if(!S.anchored)
+				found = 1
+				S.forceMove(src)
+				break
+		if(!found)
+			for(var/obj/structure/machinery/M in loc)
+				if(!M.anchored)
+					M.forceMove(src)
+					break
+	return
+
+/obj/structure/closet/crate/secure/large/larva // Spawns with one greimorian larva inside of it. Can mature inside, so be careful.
+
+/obj/structure/closet/crate/secure/large/larva/fill()
+	new /obj/effect/spider/spiderling(src)
+
+/obj/structure/closet/crate/secure/large/viscerator // Spawns with one viscerator inside of it.
+
+/obj/structure/closet/crate/secure/large/viscerator/fill()
+	new /mob/living/simple_animal/hostile/viscerator(src)
+
+/obj/structure/closet/crate/secure/large/rats // Spawns with rats inside it.
+
+/obj/structure/closet/crate/secure/large/rats/fill()
+	for(var/i=1,i<=5,i++)
+		new /mob/living/simple_animal/rat(src)
+
+/obj/structure/closet/crate/hydroponics
+	name = "hydroponics crate"
+	desc = "All you need to destroy those pesky weeds and pests."
+	icon_state = "hydro_crate"
+
+/obj/structure/closet/crate/hydroponics/prespawned
+
+//This exists so the prespawned hydro crates spawn with their contents.
+/obj/structure/closet/crate/hydroponics/prespawned/fill()
+	new /obj/item/material/minihoe(src)
+	new /obj/item/material/hatchet(src)
+	new /obj/item/wirecutters/clippers(src)
+	new /obj/item/reagent_containers/glass/bucket(src)
+	new /obj/item/reagent_containers/spray/plantbgone(src)
+	new /obj/item/reagent_containers/spray/plantbgone(src)
+	new /obj/item/reagent_containers/glass/fertilizer/ez(src)
+	new /obj/item/reagent_containers/glass/fertilizer/ez(src)
+
+// Everything you need for beekeeping, including the bees. Those with allergies need not apply.
+/obj/structure/closet/crate/hydroponics/beekeeping
+	name = "beekeeping crate"
+	desc = "Live bees included! Several small labels warn of the hazards involved therein."
+
+/obj/structure/closet/crate/hydroponics/beekeeping/fill()
+	new /obj/item/bee_pack(src)
+	new /obj/item/honey_frame(src)
+	new /obj/item/honey_frame(src)
+	new /obj/item/beehive_assembly(src)
+	new /obj/item/bee_net(src)
+	new /obj/item/bee_smoker(src)
+	new /obj/item/crowbar(src)
+
+// Includes everything you need to run your own horticultural medicinal operation. Or something more nefarious, if you prefer.
+/obj/structure/closet/crate/hydroponics/herbalism
+	name = "herbalist crate"
+	desc = "Contains equipment and storage vessels involved in the processing and packaging of herbal medicine."
+
+/obj/structure/closet/crate/hydroponics/herbalism/fill()
+	new /obj/item/storage/box/spraybottles(src)
+	new /obj/item/storage/box/pillbottles(src)
+	new /obj/item/storage/box/inhalers_auto(src)
+	new /obj/item/storage/box/autoinjectors(src)
+	new /obj/item/reagent_containers/chem_disp_cartridge(src)
+	new /obj/item/reagent_containers/chem_disp_cartridge(src)
+	new /obj/item/reagent_containers/chem_disp_cartridge(src)
+	new /obj/item/reagent_containers/chem_disp_cartridge(src)
+	new /obj/item/reagent_containers/chem_disp_cartridge(src)
+	new /obj/item/reagent_containers/chem_disp_cartridge(src)
+
+// Spawns with everything you need to make your very own field kitchen! (assuming you have power)
+// Contains enough to create a stove and oven. Using loops for anything above one for readability. Best paired with a freezer with ingredients.
+// Intended to provide enough equipment that more than just chefs can function as field cooks on expeditions.
+/obj/structure/closet/crate/field_kitchen
+
+/obj/structure/closet/crate/field_kitchen/fill()
+	for(var/_ in 1 to 6)
+		new /obj/item/stock_parts/capacitor(src)
+	for(var/_ in 1 to 4)
+		new /obj/item/stock_parts/matter_bin(src)
+	for(var/_ in 1 to 2)
+		new /obj/item/stock_parts/scanning_module(src)
+	new /obj/item/circuitboard/oven(src)
+	new /obj/item/circuitboard/stove(src)
+	new /obj/item/stack/cable_coil(src)
+	new /obj/item/storage/box/kitchen(src)
+	new /obj/item/reagent_containers/spray/cleaner(src)
+	new /obj/item/storage/box/gloves(src)
+	new /obj/item/storage/box/large/condiment(src)
+
+//A crate that populates itself with randomly selected loot from randomstock.dm
+//Can be passed in a rarity value, which is used as a multiplier on the rare/uncommon chance
+//Quantity of spawns is number of discrete selections from the loot lists, default 10
+
+/obj/structure/closet/crate/loot
+	name = "unusual container"
+	desc = "A mysterious container of unknown origins. What mysteries lie within?"
+	icon = 'icons/obj/random.dmi'
+	icon_state = "loot_crate"
+	var/rarity = 1
+	var/quantity = 10
+	var/list/spawntypes
+
+/obj/structure/closet/crate/loot/Initialize(mapload, no_fill)
+	. = ..()
+
+	spawntypes = list(
+		"1" = STOCK_RARE_PROB * rarity,
+		"2" = STOCK_UNCOMMON_PROB * rarity,
+		"3" = (100 - ((STOCK_RARE_PROB * rarity) + (STOCK_UNCOMMON_PROB * rarity)))
+	)
+
+	var/list/crates_to_use = typesof(/obj/structure/closet/crate) - typesof(/obj/structure/closet/crate/secure/gear_loadout)
+	crates_to_use -= /obj/structure/closet/crate/loot
+	crates_to_use -= /obj/structure/closet/crate/loot/contraband
+	var/icontype = pick(crates_to_use)
+	var/obj/structure/closet/crate/C = new icontype(get_turf(src), TRUE) //TRUE as we do not want the crate to fill(), we will fill it ourselves.
+
+	C.name = name
+	C.desc = desc
+
+	fill_spawned_crate(C, quantity)
+
+	if(C.secure || C.locked) //These should always be accessible
+		C.secure = FALSE
+		C.locked = FALSE
+		C.secure_lights = FALSE
+		C.req_access = null
+
+	C.anchored = FALSE
+
+	C.update_icon()
+
+	qdel(src)
+
+/obj/structure/closet/crate/loot/proc/get_spawntype()
+	var/stocktype = pickweight(spawntypes)
+	switch (stocktype)
+		if ("1")
+			return pickweight(GLOB.random_stock_rare)
+		if ("2")
+			return pickweight(GLOB.random_stock_uncommon)
+		if ("3")
+			return pickweight(GLOB.random_stock_common)
+
+/obj/structure/closet/crate/loot/proc/fill_spawned_crate(var/obj/structure/closet/crate/spawned_crate, var/quantity)
+	for(var/i in 1 to quantity)
+		var/newtype = get_spawntype()
+		call(newtype)(spawned_crate)
+
+/obj/structure/closet/crate/loot/contraband
+	name = "suspicious container"
+	desc = "A container of some kind. Any and all identifying markings have been filed away. Who knows what it could hold!"
+
+/obj/structure/closet/crate/loot/contraband/fill_spawned_crate(spawned_crate, quantity)
+	for(var/i in 1 to quantity)
+		new /obj/random/contraband(spawned_crate)
+
+/obj/structure/closet/crate/extinguisher_cartridges
+	name = "crate of extinguisher cartridges"
+	desc = "Contains a dozen empty extinguisher cartridges."
+	icon_state = "fire"
+
+/obj/structure/closet/crate/extinguisher_cartridges/fill()
+	for(var/a = 1 to 12)
+		new /obj/item/reagent_containers/extinguisher_refill(src)
+
+/obj/structure/closet/crate/autakh
+	name = "aut'akh crate"
+	desc = "Contains a number of limbs and augmentations created by the Aut'akh Commune."
+	icon_state = "autakh_crate"
+
+/obj/structure/closet/crate/autakh/fill()
+	new /obj/item/organ/external/arm/right/autakh(src)
+	new /obj/item/organ/external/arm/right/autakh(src)
+	new /obj/item/organ/external/arm/autakh(src)
+	new /obj/item/organ/external/arm/autakh(src)
+	new /obj/item/organ/external/hand/autakh(src)
+	new /obj/item/organ/external/hand/autakh(src)
+	new /obj/item/organ/external/hand/right/autakh(src)
+	new /obj/item/organ/external/hand/right/autakh(src)
+	new /obj/item/organ/external/leg/autakh(src)
+	new /obj/item/organ/external/leg/autakh(src)
+	new /obj/item/organ/external/leg/right/autakh(src)
+	new /obj/item/organ/external/leg/right/autakh(src)
+	new /obj/item/organ/external/foot/autakh(src)
+	new /obj/item/organ/external/foot/autakh(src)
+	new /obj/item/organ/external/foot/right/autakh(src)
+	new /obj/item/organ/external/foot/right/autakh(src)
+	new /obj/item/organ/external/hand/right/autakh/tool(src)
+	new /obj/item/organ/external/hand/right/autakh/tool/mining(src)
+	new /obj/item/organ/external/hand/right/autakh/medical(src)
+	new /obj/item/organ/external/hand/right/autakh/security(src)
+
+/obj/structure/closet/crate/security
+	name = "security crate"
+	desc = "A secure security crate. Secure."
+	icon_state = "security_crate"
+	secure = TRUE
+
+/obj/structure/closet/crate/drinks
+	name = "exotic drinks crate"
+	desc = "A crate packed with boxes of various beverages. Handle with care!"
+
+/obj/structure/closet/crate/drinks/fill()
+	new /obj/item/storage/box/burukutu(src)
+	new /obj/item/storage/box/skrellbeerdyn(src)
+	new /obj/item/storage/box/khlibnyz(src)
+	new /obj/item/storage/box/hrozamal_soda(src)
+	new /obj/item/storage/box/xuizijuice(src)
+	new /obj/item/storage/box/midynhr_water(src)
+	new /obj/item/storage/box/fancy/yoke/grape_juice(src)
+	new /obj/item/storage/box/fancy/yoke/beetle_milk(src)
+	new /obj/item/storage/box/unique/tea/rasnif(src)
+	new /obj/item/storage/box/unique/tea/messa(src)
+	new /obj/item/reagent_containers/toothpaste(src)
+	new /obj/item/reagent_containers/food/drinks/flask/vacuumflask/mouthwash(src)

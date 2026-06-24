@@ -1,0 +1,259 @@
+/datum/faction/hephaestus_industries
+	name = "Hephaestus Industries"
+	description = {"
+	Hephaestus Industries, a sprawling and diverse mega-corporation
+	focused on engineering and manufacturing on a massive scale, found their start
+	as a conglomerate of several aerospace companies in the 22nd century.<br><br> Initially
+	funded by sales of new designs for warp technology, the company fell on hard times
+	during the Second Great Depression in the late 23rd century. Receiving bailouts
+	from the Sol Alliance and securing several crucial production contracts, they have slowly
+	worked their way to become the dominant manufacturing mega-corporation in the
+	Sol Alliance, pioneering interstellar logistics and construction on an awe-inspiring scale.
+	"}
+	departments = list(DEPARTMENT_ENGINEERING, DEPARTMENT_CARGO)
+	title_suffix = "Hepht"
+	wiki_page = "Hephaestus_Industries"
+
+	allowed_role_types = HEPH_ROLES
+
+	allowed_species_types = list(
+		/datum/species/human,
+		/datum/species/skrell,
+		/datum/species/machine,
+		/datum/species/unathi,
+		/datum/species/bug = TRUE,
+		/datum/species/bug/type_b = TRUE,
+		/datum/species/bug/type_b/type_bb = TRUE,
+		/datum/species/bug/type_e = TRUE,
+		/datum/species/tajaran,
+		/datum/species/diona
+	)
+
+	blacklisted_citizenship_types = list(
+		/datum/citizenship/free_council,
+		/datum/citizenship/nka
+	)
+
+	job_species_blacklist = list(
+		"Corporate Liaison" = list(
+			SPECIES_VAURCA_WORKER,
+			SPECIES_VAURCA_WARRIOR,
+			SPECIES_VAURCA_ATTENDANT,
+			SPECIES_VAURCA_BULWARK,
+			SPECIES_VAURCA_BREEDER
+		)
+	)
+
+	titles_to_loadout = list(
+		"Hangar Technician" = /obj/outfit/job/hangar_tech/hephaestus,
+		"Shaft Miner" = /obj/outfit/job/mining/hephaestus,
+		"Machinist" = /obj/outfit/job/machinist/hephaestus,
+		"Ship Engineer" = /obj/outfit/job/engineer/hephaestus,
+		"Atmospheric Technician" = /obj/outfit/job/atmos/hephaestus,
+		"Engineering Apprentice" = /obj/outfit/job/intern_eng/hephaestus,
+		"Atmospherics Apprentice" = /obj/outfit/job/intern_atmos/hephaestus,
+		"Corporate Reporter" = /obj/outfit/job/journalist/hephaestus,
+		"Corporate Liaison" = /obj/outfit/job/representative/hephaestus,
+		"Corporate Aide" = /obj/outfit/job/corporate_aide/hephaestus,
+		"Assistant" = /obj/outfit/job/assistant/hephaestus,
+		"Technical Assistant" = /obj/outfit/job/assistant/tech_assistant/hephaestus,
+		"Off-Duty Crew Member" = /obj/outfit/job/visitor/hephaestus,
+		"Engineering Personnel" = /obj/outfit/job/engineer/event/hephaestus,
+		"Operations Personnel" = /obj/outfit/job/hangar_tech/event/hephaestus
+	)
+
+/datum/faction/hephaestus_industries/get_corporate_objectives(var/mission_level)
+	switch(mission_level)
+		if(REPRESENTATIVE_MISSION_HIGH)
+			return pick("Recruit a crew member to disperse physical or radio material besmirching the image of Zavodskoi Interstellar",
+						"Support Hephaestus employees involved in disputes with Zavodskoi Interstellar contractors",
+						"Identify and document Zavodskoi Interstellar employees with disfavourable views towards Zavodskoi")
+		if(REPRESENTATIVE_MISSION_MEDIUM)
+			return pick("Identify the seeds of unionisation among Hephaestus employees. Report union representatives",
+						"Have a Hephaestus employee sign a contract extension",
+						"Emphasise how relatable Titanius Aeson is to the common worker")
+		else
+			return pick("Conduct a survey on Hephaestus Industries employee morale",
+						"Evaluate crew opinions on Hephaestus industrial synthetics",
+						"Survey unathi crew members on their views of Hephaestus Industries",
+						"Identify and resolve a complaint of a Hephaestus Industries employee")
+
+
+/obj/outfit/job/hangar_tech/hephaestus
+	name = "Hangar Technician - Hephaestus"
+
+	uniform = /obj/item/clothing/under/rank/hangar_technician/heph
+	id = /obj/item/card/id/hephaestus
+
+	backpack_faction = /obj/item/storage/backpack/heph
+	satchel_faction = /obj/item/storage/backpack/satchel/heph
+	dufflebag_faction = /obj/item/storage/backpack/duffel/heph
+	messengerbag_faction = /obj/item/storage/backpack/messenger/heph
+
+/obj/outfit/job/machinist/hephaestus
+	name = "Machinist - Hephaestus"
+
+	uniform = /obj/item/clothing/under/rank/machinist/heph
+	id = /obj/item/card/id/hephaestus
+
+	backpack_faction = /obj/item/storage/backpack/heph
+	satchel_faction = /obj/item/storage/backpack/satchel/heph
+	dufflebag_faction = /obj/item/storage/backpack/duffel/heph
+	messengerbag_faction = /obj/item/storage/backpack/messenger/heph
+
+/obj/outfit/job/mining/hephaestus
+	name = "Shaft Miner - Hephaestus"
+
+	uniform = /obj/item/clothing/under/rank/miner/heph
+	id = /obj/item/card/id/hephaestus
+
+	backpack_faction = /obj/item/storage/backpack/heph
+	satchel_faction = /obj/item/storage/backpack/satchel/heph
+	dufflebag_faction = /obj/item/storage/backpack/duffel/heph
+	messengerbag_faction = /obj/item/storage/backpack/messenger/heph
+
+/obj/outfit/job/engineer/hephaestus
+	name = "Engineer - Hephaestus"
+
+	uniform = /obj/item/clothing/under/rank/engineer/heph
+	head = /obj/item/clothing/head/hardhat/green
+	id = /obj/item/card/id/hephaestus
+
+	backpack_faction = /obj/item/storage/backpack/heph
+	satchel_faction = /obj/item/storage/backpack/satchel/heph
+	dufflebag_faction = /obj/item/storage/backpack/duffel/heph
+	messengerbag_faction = /obj/item/storage/backpack/messenger/heph
+
+/obj/outfit/job/atmos/hephaestus
+	name = "Atmospheric Technician - Hephaestus"
+
+	uniform = /obj/item/clothing/under/rank/atmospheric_technician/heph
+	head = /obj/item/clothing/head/hardhat/green
+	id = /obj/item/card/id/hephaestus
+
+	backpack_faction = /obj/item/storage/backpack/heph
+	satchel_faction = /obj/item/storage/backpack/satchel/heph
+	dufflebag_faction = /obj/item/storage/backpack/duffel/heph
+	messengerbag_faction = /obj/item/storage/backpack/messenger/heph
+
+/obj/outfit/job/intern_eng/hephaestus
+	name = "Engineering Apprentice - Hephaestus"
+
+	uniform = /obj/item/clothing/under/rank/engineer/apprentice/heph
+	head = /obj/item/clothing/head/beret/corporate/heph
+	id = /obj/item/card/id/hephaestus
+
+	backpack_faction = /obj/item/storage/backpack/heph
+	satchel_faction = /obj/item/storage/backpack/satchel/heph
+	dufflebag_faction = /obj/item/storage/backpack/duffel/heph
+	messengerbag_faction = /obj/item/storage/backpack/messenger/heph
+
+/obj/outfit/job/intern_atmos/hephaestus
+	name = "Atmospherics Apprentice - Hephaestus"
+
+	uniform = /obj/item/clothing/under/rank/engineer/apprentice/heph
+	head = /obj/item/clothing/head/beret/corporate/heph
+	id = /obj/item/card/id/hephaestus
+
+	backpack_faction = /obj/item/storage/backpack/heph
+	satchel_faction = /obj/item/storage/backpack/satchel/heph
+	dufflebag_faction = /obj/item/storage/backpack/duffel/heph
+	messengerbag_faction = /obj/item/storage/backpack/messenger/heph
+
+/obj/outfit/job/representative/hephaestus
+	name = "Hephaestus Corporate Liaison"
+
+	head = /obj/item/clothing/head/beret/corporate/heph
+	uniform = /obj/item/clothing/under/rank/liaison/heph
+	suit = /obj/item/clothing/suit/storage/liaison/heph
+	id = /obj/item/card/id/hephaestus
+	accessory = /obj/item/clothing/accessory/tie/corporate/heph
+	suit_accessory = /obj/item/clothing/accessory/pin/corporate/heph
+
+	backpack_faction = /obj/item/storage/backpack/heph
+	satchel_faction = /obj/item/storage/backpack/satchel/heph
+	dufflebag_faction = /obj/item/storage/backpack/duffel/heph
+	messengerbag_faction = /obj/item/storage/backpack/messenger/heph
+
+	backpack_contents = list(
+		/obj/item/camera = 1,
+		/obj/item/gun/energy/pistol = 1,
+		/obj/item/stamp/hephaestus = 1
+	)
+
+/obj/outfit/job/corporate_aide/hephaestus
+	name = "Hephaestus Corporate Aide"
+	id = /obj/item/card/id/hephaestus
+
+	head = /obj/item/clothing/head/beret/corporate/heph
+	suit = /obj/item/clothing/suit/storage/toggle/corp/heph
+
+	backpack_faction = /obj/item/storage/backpack/heph
+	satchel_faction = /obj/item/storage/backpack/satchel/heph
+	dufflebag_faction = /obj/item/storage/backpack/duffel/heph
+	messengerbag_faction = /obj/item/storage/backpack/messenger/heph
+
+/obj/outfit/job/journalist/hephaestus
+	name = "Corporate Reporter - Hephaestus"
+
+	uniform = /obj/item/clothing/under/librarian/heph
+	id = /obj/item/card/id/hephaestus
+
+	backpack_faction = /obj/item/storage/backpack/heph
+	satchel_faction = /obj/item/storage/backpack/satchel/heph
+	dufflebag_faction = /obj/item/storage/backpack/duffel/heph
+	messengerbag_faction = /obj/item/storage/backpack/messenger/heph
+
+/obj/outfit/job/assistant/hephaestus
+	name = "Assistant - Hephaestus"
+
+	id = /obj/item/card/id/hephaestus
+
+	backpack_faction = /obj/item/storage/backpack/heph
+	satchel_faction = /obj/item/storage/backpack/satchel/heph
+	dufflebag_faction = /obj/item/storage/backpack/duffel/heph
+	messengerbag_faction = /obj/item/storage/backpack/messenger/heph
+
+/obj/outfit/job/assistant/tech_assistant/hephaestus
+	name = "Technical Assistant - Hephaestus"
+
+	id = /obj/item/card/id/hephaestus
+
+	backpack_faction = /obj/item/storage/backpack/heph
+	satchel_faction = /obj/item/storage/backpack/satchel/heph
+	dufflebag_faction = /obj/item/storage/backpack/duffel/heph
+	messengerbag_faction = /obj/item/storage/backpack/messenger/heph
+
+
+/obj/outfit/job/visitor/hephaestus
+	name = "Off-Duty Crew Member - Hephaestus"
+
+	id = /obj/item/card/id/hephaestus
+
+	backpack_faction = /obj/item/storage/backpack/heph
+	satchel_faction = /obj/item/storage/backpack/satchel/heph
+	dufflebag_faction = /obj/item/storage/backpack/duffel/heph
+	messengerbag_faction = /obj/item/storage/backpack/messenger/heph
+
+/obj/outfit/job/hangar_tech/event/hephaestus
+	name = "Operations Personnel - Hephaestus"
+
+	uniform = /obj/item/clothing/under/rank/hangar_technician/heph
+	id = /obj/item/card/id/hephaestus
+
+	backpack_faction = /obj/item/storage/backpack/heph
+	satchel_faction = /obj/item/storage/backpack/satchel/heph
+	dufflebag_faction = /obj/item/storage/backpack/duffel/heph
+	messengerbag_faction = /obj/item/storage/backpack/messenger/heph
+
+/obj/outfit/job/engineer/event/hephaestus
+	name = "Engineering Personnel - Hephaestus"
+
+	uniform = /obj/item/clothing/under/rank/engineer/heph
+	head = /obj/item/clothing/head/hardhat/green
+	id = /obj/item/card/id/hephaestus
+
+	backpack_faction = /obj/item/storage/backpack/heph
+	satchel_faction = /obj/item/storage/backpack/satchel/heph
+	dufflebag_faction = /obj/item/storage/backpack/duffel/heph
+	messengerbag_faction = /obj/item/storage/backpack/messenger/heph

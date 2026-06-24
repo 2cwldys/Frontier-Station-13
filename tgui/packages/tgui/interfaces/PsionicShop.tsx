@@ -1,0 +1,113 @@
+import {
+  BlockQuote,
+  Box,
+  Button,
+  NoticeBox,
+  Section,
+} from 'tgui-core/components';
+import { useBackend, useLocalState } from '../backend';
+import { Window } from '../layouts';
+import { SearchBar } from './common/SearchBar';
+
+export type PsiData = {
+  psi_rank: string;
+  psi_points: number;
+  available_psionics: Psionic[];
+  bought_powers: string[];
+};
+
+type Psionic = {
+  name: string;
+  desc: string;
+  point_cost: number;
+  minimum_rank: string;
+  path: string;
+};
+
+export const PsionicShop = (props) => {
+  const { act, data } = useBackend<PsiData>();
+
+  const [searchTerm, setSearchTerm] = useLocalState<string>(`searchTerm`, ``);
+
+  return (
+    <Window theme="wizard">
+      <Window.Content scrollable>
+        <Section
+          title="Psionic Point Shop"
+          buttons={
+            <SearchBar
+              autoFocus
+              placeholder="Search by name"
+              query={searchTerm}
+              onSearch={(value) => {
+                setSearchTerm(value);
+              }}
+              style={{ width: '40vw' }}
+            />
+          }
+        >
+          <Box fontSize={1.4}>
+            You are{' '}
+            <Box as="span" bold>
+              {data.psi_rank}
+            </Box>
+            .
+          </Box>
+          {data.psi_points ? (
+            <Box>
+              You have{' '}
+              <Box as="span" bold>
+                {data.psi_points}
+              </Box>{' '}
+              points left.
+            </Box>
+          ) : (
+            ''
+          )}
+
+          {data.available_psionics?.length ? (
+            <PsionicsList />
+          ) : (
+            <NoticeBox>There are no psionics available.</NoticeBox>
+          )}
+        </Section>
+      </Window.Content>
+    </Window>
+  );
+};
+
+export const PsionicsList = (props) => {
+  const { act, data } = useBackend<PsiData>();
+
+  const [searchTerm, setSearchTerm] = useLocalState<string>(`searchTerm`, ``);
+
+  return (
+    <Section>
+      {data.available_psionics
+        .filter(
+          (psi) =>
+            psi.name.toLowerCase().indexOf(searchTerm.toLowerCase()) > -1,
+        )
+        .map((psi) => (
+          <Section
+            key={psi.name}
+            title={`${psi.name} (${psi.point_cost})`}
+            buttons={
+              <Button
+                content="Buy"
+                icon="shopping-cart"
+                color="green"
+                disabled={
+                  psi.point_cost > data.psi_points ||
+                  data.bought_powers.includes(psi.path)
+                }
+                onClick={() => act('buy', { buy: psi.path })}
+              />
+            }
+          >
+            <BlockQuote>{psi.desc}</BlockQuote>
+          </Section>
+        ))}
+    </Section>
+  );
+};

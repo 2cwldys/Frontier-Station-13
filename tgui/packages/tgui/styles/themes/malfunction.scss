@@ -1,0 +1,30 @@
+/**
+ * Copyright (c) 2020 Aleksej Komarov
+ * SPDX-License-Identifier: MIT
+ */
+
+.theme-malfunction {
+  --button-background-default: var(--color-primary);
+  --button-background-disabled: #363636;
+  --button-background-selected: #1e5881;
+  --button-background-caution: #be6209;
+  --button-background-danger: #9a9d00;
+  --input-border-color: #910101;
+  --input-border-color-focus: #910101;
+  --number-input-border-color: #910101;
+  --number-input-border-color-active: #910101;
+  --notice-box-background: #1a3f57;
+  --notice-box-color: var(--color-text-fixed-white);
+  --progress-bar-background: rgba(0, 0, 0, 0.5);
+  --progress-bar-fill: var(--color-primary);
+  --tooltip-background: #235577;
+  --titlebar-background: #1a3f57;
+  --color-base: #1b3443;
+  --color-primary: #910101;
+  --base-gradient-spread: 6;
+  --section-background: rgba(0, 0, 0, 0.33);
+
+  .Layout__content {
+    background-image: none;
+  }
+}

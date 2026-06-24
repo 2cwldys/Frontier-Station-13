@@ -1,0 +1,19 @@
+# Directories
+changelogs
+data
+font-awesome
+jquery
+juke
+**/build
+**/dist
+**/node_modules
+
+## Tgui
+node_modules
+.yarn
+# Specific files
+package-lock.json
+# File names / types
+*.min.*
+*.pnp.*
+*.bundle.*

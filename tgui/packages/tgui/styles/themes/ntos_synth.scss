@@ -1,0 +1,65 @@
+/**
+ * Copyright (c) 2020 Aleksej Komarov
+ * SPDX-License-Identifier: MIT
+ */
+
+@use '../base.scss';
+
+
+//palette
+$cyan: #5edba5;
+$pink: #ed12f5;
+$orange: #ff9900;
+$purple: #463191;
+
+.theme-ntos_synth {
+  --button-background-default: #{$cyan};
+  --button-background-disabled: #363636;
+  --button-background-selected: #465899;
+  --button-background-caution: #be6209;
+  --button-color-transparent: rgba(227, 240, 255, 0.75);
+  --progress-bar-fill: rgba(237, 18, 245, 0.75);
+  --section-background: rgba(0, 0, 0, 0.3);
+  --tooltip-background: rgba(255, 153, 0, 0.75);
+  --titlebar-background: rgba(3, 100, 117, 0.75);
+  --color-base: #{$purple};
+  --color-primary: #{$pink};
+  --color-good: #{$cyan};
+  --color-label: #{$orange};
+  --base-gradient-spread: 12;
+
+  .Section {
+    color: $cyan;
+    background-image: linear-gradient(
+      to right,
+      rgba(194, 0, 219, 0.75),
+      rgba(3, 100, 117, 0.75)
+    );
+  }
+  .Button {
+    color: $cyan;
+    background-color: $purple;
+    outline: base.em(2px) outset $pink;
+  }
+  .ProgressBar {
+    color: $orange;
+  }
+
+  .Layout__content {
+    background-image: url('../../assets/bg-synthsunset-c-grid.svg');
+    background-size: 100%;
+    background-position: top;
+    background-repeat: no-repeat;
+  }
+  .Tab {
+    color: $cyan;
+    background-image: linear-gradient(
+      to right,
+      rgba(255, 153, 0, 0.4),
+      rgba(194, 0, 219, 0.75)
+    );
+  }
+  .Tab--selected {
+    color: $pink;
+  }
+}

@@ -1,0 +1,28 @@
+
+
+.theme-nanotrasen {
+  --button-background-default: #295482;
+  --button-background-disabled: #363636;
+  --button-background-selected: #88ccff;
+  --button-background-caution: #be6209;
+  --button-background-danger: #ad2727;
+  --input-border-color: #ffffff;
+  --input-border-color-focus: #ffffff;
+  --number-input-border-color: #ffffff;
+  --number-input-border-color-active: #ffffff;
+  --notice-box-background: #06243a;
+  --notice-box-color: var(--color-text-fixed-white);
+  --progress-bar-background: rgba(0, 0, 0, 0.5);
+  --progress-bar-fill: #093452;
+  --tooltip-background: #182935;
+  --titlebar-background: #051520;
+  --color-base: #092437;
+  --color-primary: #ffffff;
+  --color-bad: #ad2727;
+  --base-gradient-spread: 6;
+  --section-background: rgba(0, 0, 0, 0.33);
+
+  .Layout__content {
+    background-image: url('../../assets/bg-nanotrasen.svg');
+  }
+}

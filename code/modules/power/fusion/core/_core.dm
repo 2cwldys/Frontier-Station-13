@@ -1,0 +1,146 @@
+#define MAX_FIELD_STR 10000
+#define MIN_FIELD_STR 1
+
+/obj/structure/machinery/power/fusion_core
+	name = "\improper INDRA Mk. II Tokamak core"
+	desc = "An enormous solenoid for generating extremely high power electromagnetic fields. It includes a kinetic energy harvester."
+	icon = 'icons/obj/machinery/fusion_core.dmi'
+	icon_state = "core0"
+	layer = ABOVE_HUMAN_LAYER
+	density = TRUE
+	use_power = POWER_USE_IDLE
+	idle_power_usage = 10000
+	/// Gets multiplied by field strength
+	active_power_usage = 50000
+	anchored = FALSE
+
+	var/obj/effect/fusion_em_field/owned_field
+	/// The currently configured Field Strength (1 = 100 Tesla).
+	var/field_strength = 1
+	/// This is for the INDRA, allowing a maximum 5-radius field. Change this for larger/smaller reactors.
+	var/field_strength_max = 1.2
+	var/initial_id_tag
+
+/obj/structure/machinery/power/fusion_core/mapped
+	anchored = TRUE
+
+/obj/structure/machinery/power/fusion_core/Initialize()
+	. = ..()
+	connect_to_network()
+	AddComponent(/datum/component/local_network_member, initial_id_tag)
+
+/obj/structure/machinery/power/fusion_core/Destroy()
+	if(owned_field)
+		qdel(owned_field)
+		owned_field = null
+	set_light(0)
+	return ..()
+
+/**
+ * If there's no powernet or no owned field, shutdown() in those cases too.
+ */
+/obj/structure/machinery/power/fusion_core/process()
+	. = ..()
+	if(stat & BROKEN || !powernet || !owned_field)
+		Shutdown()
+
+/**
+ * Create a new owned_field of appropriate strength and update power usage.
+ */
+/obj/structure/machinery/power/fusion_core/proc/Startup()
+	if(owned_field)
+		return
+	owned_field = new(loc, src)
+	owned_field.ChangeFieldStrength(field_strength)
+	icon_state = "core1"
+	update_use_power(POWER_USE_ACTIVE)
+	set_light(3, 0.7, COLOR_PALE_BLUE_GRAY)
+	. = 1
+
+/**
+ * If we're too hot, there's going to be an explosion, EMP, etc. Bad time.
+ */
+/obj/structure/machinery/power/fusion_core/proc/Shutdown(force_rupture)
+	if(owned_field)
+		icon_state = "core0"
+		// Blow the whole fucking thing up.
+		if(force_rupture || owned_field.plasma_temperature > 720000)
+			owned_field.Rupture()
+		// Just radiate all that temperature into the environment. Unless you're under 1000 K, its still a big 'fuck you,' but admittedly better than EMP/explosion.
+		else
+			owned_field.RadiateAll()
+		qdel(owned_field)
+		owned_field = null
+	update_use_power(POWER_USE_IDLE)
+	set_light(0)
+
+/obj/structure/machinery/power/fusion_core/proc/AddParticles(name, quantity = 1)
+	if(owned_field)
+		owned_field.AddParticles(name, quantity)
+		. = 1
+
+/obj/structure/machinery/power/fusion_core/bullet_act(obj/projectile/hitting_projectile, def_zone, piercing_hit)
+	. = ..()
+	if(. != BULLET_ACT_HIT)
+		return .
+
+	if(owned_field)
+		. = owned_field.bullet_act(hitting_projectile)
+
+/obj/structure/machinery/power/fusion_core/proc/set_strength(value)
+	value = clamp(value, MIN_FIELD_STR, MAX_FIELD_STR)
+	field_strength = value
+	change_power_consumption(1500 * (value ** 1.5), POWER_USE_ACTIVE)
+	if(owned_field)
+		owned_field.ChangeFieldStrength(value)
+
+/obj/structure/machinery/power/fusion_core/attack_hand(mob/user)
+	. = ..()
+	if(ishuman(user))
+		visible_message(SPAN_NOTICE("\The [user] hugs \the [src] to make it feel better!"))
+		if(owned_field)
+			Shutdown()
+	return TRUE
+
+/obj/structure/machinery/power/fusion_core/attackby(obj/item/attacking_item, mob/user)
+
+	if(owned_field)
+		to_chat(user,SPAN_WARNING("Shut \the [src] off first!"))
+		return
+
+	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
+		var/datum/component/local_network_member/fusion = GetComponent(/datum/component/local_network_member)
+		fusion.get_new_tag(user)
+		return
+
+	else if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		anchored = !anchored
+		playsound(src.loc, 'sound/items/Ratchet.ogg', 75, 1)
+		if(anchored)
+			user.visible_message("[user.name] secures [src.name] to the floor.", \
+				"You secure the [src.name] to the floor.", \
+				"You hear a ratchet")
+		else
+			user.visible_message("[user.name] unsecures [src.name] from the floor.", \
+				"You unsecure the [src.name] from the floor.", \
+				"You hear a ratchet")
+		return
+
+	return ..()
+
+/obj/structure/machinery/power/fusion_core/proc/jumpstart(field_temperature)
+	field_strength = 120 // Generally a good size.
+	Startup()
+	if(!owned_field)
+		return FALSE
+	owned_field.plasma_temperature = field_temperature
+	return TRUE
+
+/obj/structure/machinery/power/fusion_core/proc/check_core_status()
+	if(!powernet)
+		connect_to_network()
+	if(stat & BROKEN)
+		return FALSE
+	if(idle_power_usage > POWER_AVAIL(src))
+		return FALSE
+	. = TRUE

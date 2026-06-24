@@ -1,0 +1,638 @@
+import {
+  Box,
+  Button,
+  Collapsible,
+  Dropdown,
+  Image,
+  Input,
+  LabeledList,
+  NoticeBox,
+  Section,
+  Stack,
+  Tabs,
+  Tooltip,
+} from 'tgui-core/components';
+import type { BooleanLike } from 'tgui-core/react';
+import { capitalize } from 'tgui-core/string';
+import { useBackend, useLocalState } from '../backend';
+import { NtosWindow } from '../layouts';
+import { SearchBar } from './common/SearchBar';
+
+export type RecordsData = {
+  activeview: string;
+  editingvalue: string;
+  physical_status_options: string[];
+  criminal_status_options: string[];
+  mental_status_options: string[];
+  blood_type_options: string[];
+  medical_options: string[];
+
+  authenticated: BooleanLike;
+  canprint: BooleanLike;
+  available_types: number;
+  editable: number;
+  allrecords: Record[];
+  allrecords_locked: RecordLocked[];
+
+  front: string;
+  side: string;
+  active: Record;
+};
+
+type Record = {
+  id: string;
+  name: string;
+  rank: string;
+  sex: string;
+  age: string;
+  fingerprint: string;
+  has_notes: string;
+  blood_dna: string;
+  dna: string;
+  physical_status: string;
+  mental_status: string;
+  species: string;
+  citizenship: string;
+  religion: string;
+  employer: string;
+  notes: string;
+  security: Security;
+  medical: Medical;
+  ccia_notes: string;
+  ccia_actions: string[];
+};
+
+type Security = {
+  notes: string;
+  criminal: string;
+  crimes: string;
+  incidents: Incident[];
+};
+
+type Incident = {
+  charges: string[];
+  datetime: string;
+  fine: number;
+  brig_sentence: number;
+  id: string;
+  notes: string;
+};
+
+type Medical = {
+  notes: string;
+  disabilities: string;
+  allergies: string;
+  diseases: string;
+  blood_type: string;
+  blood_dna: string;
+};
+
+type RecordLocked = {
+  id: string;
+  name: string;
+  rank: string;
+};
+
+export const Records = (props) => {
+  const { act, data } = useBackend<RecordsData>();
+  const [searchTerm, setSearchTerm] = useLocalState<string>(`searchTerm`, ``);
+
+  return (
+    <NtosWindow width={900} height={900}>
+      <NtosWindow.Content scrollable>
+        {!data.authenticated ? (
+          <NoticeBox color="white">
+            <Button
+              content={'Please log in to continue to the database.'}
+              icon="unlock"
+              color={'green'}
+              onClick={() => act('login')}
+            />{' '}
+          </NoticeBox>
+        ) : (
+          <RecordsView />
+        )}
+      </NtosWindow.Content>
+    </NtosWindow>
+  );
+};
+
+export const RecordsView = (props) => {
+  const { act, data } = useBackend<RecordsData>();
+  const [recordTab, setRecordTab] = useLocalState('recordTab', 'All');
+
+  return (
+    <Stack>
+      <Stack.Item width={'300px'}>
+        <ListAllRecords />
+      </Stack.Item>
+      <Stack.Item grow>{data.active ? <ListActive /> : ''}</Stack.Item>
+    </Stack>
+  );
+};
+
+export const ListAllRecords = (props) => {
+  const { act, data } = useBackend<RecordsData>();
+  const [recordTab, setRecordTab] = useLocalState('recordTab', 'All');
+  const [searchTerm, setSearchTerm] = useLocalState<string>(`searchTerm`, ``);
+
+  return (
+    <Section
+      title="Records"
+      fill
+      buttons={
+        <Stack align="center">
+          <Stack.Item>
+            <Tooltip content="Search by name or DNA.">
+              <SearchBar
+                autoFocus
+                query={searchTerm}
+                onSearch={(value) => {
+                  setSearchTerm(value);
+                }}
+                style={{ width: '12rem' }}
+              />
+            </Tooltip>
+          </Stack.Item>
+          <Stack.Item>
+            <Button
+              icon={data.authenticated ? 'lock' : 'unlock'}
+              tooltip="Log Out"
+              color={data.authenticated ? 'red' : 'green'}
+              onClick={() => act(data.authenticated ? 'logout' : 'login')}
+            />
+          </Stack.Item>
+        </Stack>
+      }
+    >
+      <Tabs vertical>
+        {data.allrecords
+          .filter(
+            (record) =>
+              record.name.toLowerCase().indexOf(searchTerm) > -1 ||
+              record.fingerprint.toLowerCase().indexOf(searchTerm) > -1 ||
+              record.dna.toLowerCase().indexOf(searchTerm) > -1,
+          )
+          .map((record) => (
+            <Tabs.Tab
+              key={record.id}
+              icon={
+                record.has_notes !== 'No notes found.'
+                  ? 'align-justify'
+                  : 'strikethrough'
+              }
+              onClick={() => act('setactive', { setactive: record.id })}
+            >
+              {`${record.id}: ${record.name} (${record.rank})`}
+            </Tabs.Tab>
+          ))}
+      </Tabs>
+    </Section>
+  );
+};
+
+// Omega shitcode ahead but this is my like 56th UI and I don't give a fuck anymore.
+export const ListActive = (props) => {
+  const { act, data } = useBackend<RecordsData>();
+  const [recordTab, setRecordTab] = useLocalState('recordTab', 'All');
+  const [editingPhysStatus, setEditingPhysStatus] = useLocalState<boolean>(
+    'editingPhysStatus',
+    false,
+  );
+  const [editingMentalStatus, setEditingMentalStatus] = useLocalState<boolean>(
+    'editingMentalStatus',
+    false,
+  );
+  const [editingBloodType, setEditingBloodType] = useLocalState<boolean>(
+    'editingBloodType',
+    false,
+  );
+  const [editingFingerprint, setEditingFingerprint] = useLocalState<boolean>(
+    'editingFingerprint',
+    false,
+  );
+  const [editingCriminalStatus, setEditingCriminalStatus] =
+    useLocalState<boolean>('editingCriminalStatus', false);
+  const [editingSpecies, setEditingSpecies] = useLocalState<boolean>(
+    'editingSpecies',
+    false,
+  );
+  const [editingCitizenship, setEditingCitizenship] = useLocalState<boolean>(
+    'editingCitizenship',
+    false,
+  );
+  const [editingReligion, setEditingReligion] = useLocalState<boolean>(
+    'editingReligion',
+    false,
+  );
+  const [editingEmployer, setEditingEmployer] = useLocalState<boolean>(
+    'editingEmployer',
+    false,
+  );
+  const [editingDNA, setEditingDNA] = useLocalState<boolean>(
+    'editingDNA',
+    false,
+  );
+
+  const [editingDisabilities, setEditingDisabilities] = useLocalState<boolean>(
+    'editingDisabilities',
+    false,
+  );
+  const [editingAllergies, setEditingAllergies] = useLocalState<boolean>(
+    'editingAllergies',
+    false,
+  );
+  const [editingDisease, setEditingDisease] = useLocalState<boolean>(
+    'editingDisease',
+    false,
+  );
+
+  return (
+    <Section
+      fill
+      title={data.active.name}
+      buttons={
+        <Button content="Print" icon="print" onClick={() => act('print')} />
+      }
+    >
+      <Tabs>
+        {data.available_types & 8 ? (
+          <Tabs.Tab
+            selected={recordTab === 'All (Locked)'}
+            onClick={() => setRecordTab('All (Locked)')}
+          >
+            All (Locked)
+          </Tabs.Tab>
+        ) : (
+          ''
+        )}
+        {data.active ? (
+          <>
+            {data.available_types & 1 ? (
+              <Tabs.Tab
+                selected={recordTab === 'General'}
+                onClick={() => setRecordTab('General')}
+              >
+                General - #{data.active.id}
+              </Tabs.Tab>
+            ) : (
+              ''
+            )}{' '}
+            {data.available_types & 4 ? (
+              <Tabs.Tab
+                selected={recordTab === 'Security'}
+                onClick={() => setRecordTab('Security')}
+              >
+                Security - #{data.active.id}
+              </Tabs.Tab>
+            ) : (
+              ''
+            )}{' '}
+            {data.available_types & 2 ? (
+              <Tabs.Tab
+                selected={recordTab === 'Medical'}
+                onClick={() => setRecordTab('Medical')}
+              >
+                Medical - #{data.active.id}
+              </Tabs.Tab>
+            ) : (
+              ''
+            )}
+          </>
+        ) : (
+          ''
+        )}
+      </Tabs>
+      <Image
+        width="64px"
+        height="64px"
+        src={`data:image/jpeg;base64,${data.front}`}
+      />
+      <Image
+        width="64px"
+        height="64px"
+        src={`data:image/jpeg;base64,${data.side}`}
+      />
+      <LabeledList>
+        <LabeledList.Item label="ID">#{data.active.id}</LabeledList.Item>
+        <LabeledList.Item label="Name">{data.active.name}</LabeledList.Item>
+        <LabeledList.Item label="Age">{data.active.age}</LabeledList.Item>
+        <LabeledList.Item label="Sex">
+          {capitalize(data.active.sex)}
+        </LabeledList.Item>
+        <LabeledList.Item label="Species">
+          {data.editable & 1 ? (
+            <Box>
+              {editingSpecies ? (
+                <Input
+                  placeholder={data.active.species}
+                  width="100%"
+                  onChange={(v) =>
+                    act('editrecord', {
+                      key: 'species',
+                      value: v,
+                    })
+                  }
+                />
+              ) : (
+                <Box>
+                  {data.active.species}&nbsp;
+                  <Button
+                    icon="pencil-ruler"
+                    onClick={() => setEditingSpecies(true)}
+                  />
+                </Box>
+              )}
+            </Box>
+          ) : (
+            data.active.species
+          )}
+        </LabeledList.Item>
+        <LabeledList.Item label="Rank">{data.active.rank}</LabeledList.Item>
+        <LabeledList.Item label="Physical Status">
+          {data.editable & 1 || data.editable & 2 ? (
+            <Box>
+              {editingPhysStatus ? (
+                <Dropdown
+                  options={data.physical_status_options}
+                  displayText={data.active.physical_status}
+                  selected={data.active.physical_status}
+                  onSelected={(v) =>
+                    act('editrecord', {
+                      key: 'physical_status',
+                      value: v,
+                    })
+                  }
+                />
+              ) : (
+                <Box>
+                  {data.active.physical_status}&nbsp;
+                  <Button
+                    icon="pencil-ruler"
+                    onClick={() => setEditingPhysStatus(true)}
+                  />
+                </Box>
+              )}
+            </Box>
+          ) : (
+            data.active.physical_status
+          )}
+        </LabeledList.Item>
+        <LabeledList.Item label="Mental Status">
+          {data.editable & 1 || data.editable & 2 ? (
+            <Box>
+              {editingMentalStatus ? (
+                <Dropdown
+                  options={data.mental_status_options}
+                  displayText={data.active.mental_status}
+                  selected={data.active.mental_status}
+                  onSelected={(v) =>
+                    act('editrecord', {
+                      key: 'mental_status',
+                      value: v,
+                    })
+                  }
+                />
+              ) : (
+                <Box>
+                  {data.active.mental_status}&nbsp;
+                  <Button
+                    icon="pencil-ruler"
+                    onClick={() => setEditingMentalStatus(true)}
+                  />
+                </Box>
+              )}
+            </Box>
+          ) : (
+            data.active.mental_status
+          )}
+        </LabeledList.Item>
+        {data.active.security ? (
+          <LabeledList.Item label="Criminal Status">
+            {data.editable & 4 ? (
+              <Box>
+                {editingCriminalStatus ? (
+                  <Dropdown
+                    options={data.criminal_status_options}
+                    displayText={data.active.security.criminal}
+                    selected={data.active.security.criminal}
+                    onSelected={(v) =>
+                      act('editrecord', {
+                        record_type: 'security',
+                        key: 'criminal',
+                        value: v,
+                      })
+                    }
+                  />
+                ) : (
+                  <Box>
+                    {data.active.security.criminal}&nbsp;
+                    <Button
+                      icon="pencil-ruler"
+                      onClick={() => setEditingCriminalStatus(true)}
+                    />
+                  </Box>
+                )}
+              </Box>
+            ) : (
+              data.active.security.criminal
+            )}
+          </LabeledList.Item>
+        ) : (
+          ''
+        )}
+        <LabeledList.Item label="Fingerprint">
+          {data.editable & 1 ? (
+            <Box>
+              {editingFingerprint ? (
+                <Input
+                  placeholder={data.active.fingerprint}
+                  width="100%"
+                  onChange={(v) =>
+                    act('editrecord', {
+                      key: 'fingerprint',
+                      value: v,
+                    })
+                  }
+                />
+              ) : (
+                <Box>
+                  {data.active.fingerprint}&nbsp;
+                  <Button
+                    icon="pencil-ruler"
+                    onClick={() => setEditingFingerprint(true)}
+                  />
+                </Box>
+              )}
+            </Box>
+          ) : (
+            data.active.fingerprint
+          )}
+        </LabeledList.Item>
+        {data.available_types & 1 && recordTab === 'General' ? (
+          <>
+            <LabeledList.Item label="Citizenship">
+              {data.editable & 1 ? (
+                <Box>
+                  {editingCitizenship ? (
+                    <Input
+                      placeholder={data.active.citizenship}
+                      width="100%"
+                      onChange={(v) =>
+                        act('editrecord', {
+                          key: 'citizenship',
+                          value: v,
+                        })
+                      }
+                    />
+                  ) : (
+                    <Box>
+                      {data.active.citizenship}&nbsp;
+                      <Button
+                        icon="pencil-ruler"
+                        onClick={() => setEditingCitizenship(true)}
+                      />
+                    </Box>
+                  )}
+                </Box>
+              ) : (
+                data.active.citizenship
+              )}
+            </LabeledList.Item>
+            <LabeledList.Item label="Religion">
+              {data.editable & 1 ? (
+                <Box>
+                  {editingReligion ? (
+                    <Input
+                      placeholder={data.active.religion}
+                      width="100%"
+                      onChange={(v) =>
+                        act('editrecord', {
+                          key: 'religion',
+                          value: v,
+                        })
+                      }
+                    />
+                  ) : (
+                    <Box>
+                      {data.active.religion}&nbsp;
+                      <Button
+                        icon="pencil-ruler"
+                        onClick={() => setEditingReligion(true)}
+                      />
+                    </Box>
+                  )}
+                </Box>
+              ) : (
+                data.active.religion
+              )}
+            </LabeledList.Item>
+            <LabeledList.Item label="Employer">
+              {data.editable & 1 ? (
+                <Box>
+                  {editingEmployer ? (
+                    <Input
+                      placeholder={data.active.employer}
+                      width="100%"
+                      onChange={(v) =>
+                        act('editrecord', {
+                          key: 'employer',
+                          value: v,
+                        })
+                      }
+                    />
+                  ) : (
+                    <Box>
+                      {data.active.employer}&nbsp;
+                      <Button
+                        icon="pencil-ruler"
+                        onClick={() => setEditingEmployer(true)}
+                      />
+                    </Box>
+                  )}
+                </Box>
+              ) : (
+                data.active.employer
+              )}
+            </LabeledList.Item>
+          </>
+        ) : (
+          ''
+        )}
+      </LabeledList>
+      {recordTab === 'General' ? (
+        <Section title="Employment Records">
+          {data.active.notes.split('\n').map((line) => (
+            <Box key={line}>{line}</Box>
+          ))}
+        </Section>
+      ) : recordTab === 'Security' ? (
+        <Section title="Security Records">
+          {data.active.security.notes.split('\n').map((line) => (
+            <Box key={line}>{line}</Box>
+          ))}
+        </Section>
+      ) : recordTab === 'Medical' ? (
+        <Section title="Medical Records">
+          {data.active.medical.notes.split('\n').map((line) => (
+            <Box key={line}>{line}</Box>
+          ))}
+        </Section>
+      ) : (
+        ''
+      )}
+
+      {recordTab === 'Security' ? (
+        <>
+          <Section title="Incidents">
+            {data.active.security.incidents?.length
+              ? data.active.security.incidents.map((incident) => (
+                  <Box backgroundColor="#223449" key={incident.id}>
+                    <Collapsible title={incident.datetime}>
+                      <Box fontSize={1.3} bold color="red">
+                        {incident.charges.toLocaleString()}
+                      </Box>
+                      <Box color="red">
+                        {incident.fine
+                          ? `Fined ${incident.fine.toFixed(2)}电.`
+                          : 'Sentenced to ' +
+                            incident.brig_sentence +
+                            ' minutes of brig time.'}
+                      </Box>
+                      <br />
+                      <br />
+                      {incident.notes}
+                    </Collapsible>
+                  </Box>
+                ))
+              : 'No incidents on record.'}
+          </Section>
+          <Section title="Crimes">{data.active.security.crimes}</Section>
+        </>
+      ) : (
+        ''
+      )}
+
+      {data.active.ccia_notes ? (
+        <Section title="CCIA Notes">
+          {data.active.ccia_notes.split('\n').map((line) => (
+            <Box key={line}>{line}</Box>
+          ))}
+        </Section>
+      ) : (
+        ''
+      )}
+      {data.active.ccia_actions ? (
+        <Section title="CCIA Actions">
+          {data.active.ccia_actions.length
+            ? data.active.ccia_actions.map((line) => (
+                <Box key={line}>{line}</Box>
+              ))
+            : 'No CCIA actions on record.'}
+        </Section>
+      ) : (
+        ''
+      )}
+    </Section>
+  );
+};

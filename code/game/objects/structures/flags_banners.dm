@@ -1,0 +1,4263 @@
+//
+// Flags
+//
+
+// Flag Item
+/obj/item/flag
+	name = "boxed flag"
+	desc = "A flag neatly folded into a wooden container."
+	icon = 'icons/obj/structure/flags.dmi'
+	icon_state = "flag_boxed"
+	var/flag_path
+
+	/// Boolean, set to `TRUE` if a flag is large (2x1)
+	var/flag_size = FALSE
+
+	var/obj/structure/sign/flag/flag_structure
+	var/stand_icon = "banner_stand"
+
+// Flag on Wall
+/obj/structure/sign/flag
+	name = "blank flag"
+	desc = "Nothing to see here."
+	icon = 'icons/obj/structure/flags.dmi'
+	icon_state = "flag"
+
+	/// If a big flag, the other half of the flag is referenced here
+	var/obj/structure/sign/flag/linked_flag
+	/// For returning your flag
+	var/obj/item/flag/flag_item
+
+	/// Boolean, if we've been torn down
+	var/ripped = FALSE
+
+	/// Default offset value. Used in accurately locating the turf we're standing on.
+	var/offset_constant = 32
+	/// Boolean, set to TRUE if someone is folding the banner.
+	var/currently_folding = FALSE
+	var/ripped_outline_state = "flag_ripped"
+	var/flag_path
+	var/flag_size
+	var/icon/flag_icon
+	var/icon/shading_icon
+	var/icon/banner_icon
+	var/icon/rolled_outline
+	var/unmovable = FALSE
+	var/stand_icon = "banner_stand"
+
+/obj/structure/sign/flag/mechanics_hints(mob/user, distance, is_adjacent)
+	. += ..()
+	. += "With the HELP intent, use an empty hand on this to examine it."
+	. += "With the DISARM intent, use an empty hand on this to fold it back up."
+	. += "With the GRAB intent, use an empty hand on this to salute it. How patriotic!"
+	. += "With the HURT intent, use an empty hand on this rip it down. You will receive a prompt to confirm the action."
+
+/obj/structure/sign/flag/Initialize(mapload, var/newdir, var/linked_flag_path, var/deploy, var/icon_file, var/item_flag_path)
+	. = ..()
+	dir = newdir
+
+	if(!flag_path)
+		if(item_flag_path) // redundancy
+			flag_path = item_flag_path
+		else
+			flag_path = icon_state
+
+	if(deploy)
+		switch(dir)
+			if(NORTH)
+				pixel_y = 32
+			if(SOUTH)
+				pixel_y = -32
+			if(EAST)
+				pixel_x = 32
+			if(WEST)
+				pixel_x = -32
+
+	if(linked_flag_path)
+		icon_state = "[linked_flag_path]_r"
+		ripped_outline_state = "flag_ripped_r"
+		flag_icon = new(icon_file, icon_state, dir)
+		shading_icon = new('icons/obj/structure/flags.dmi', "flag_r", dir)
+		flag_icon.Blend(shading_icon, ICON_MULTIPLY)
+		icon = flag_icon
+		return
+
+	//Handles the creation of the large flags and single flags
+	if(flag_size)
+		create_other_half(loc, dir, flag_path, icon, pixel_x, pixel_y)
+	else
+		icon_state = "[flag_path]"
+		flag_icon = new(icon, icon_state)
+		shading_icon = new('icons/obj/structure/flags.dmi', "flag")
+		flag_icon.Blend(shading_icon, ICON_MULTIPLY)
+		var/turf/T = locate(x + src.pixel_x / offset_constant, y + src.pixel_y / offset_constant, z)
+		if(iswall(T))
+			icon = flag_icon
+			return
+		for(var/obj/A in T)
+			if(istype(A, /obj/structure/window) || istype(A, /obj/effect/map_effect/window_spawner))
+				icon = flag_icon
+				return
+		banner_icon = new('icons/obj/structure/flags.dmi', stand_icon)
+		flag_icon.Blend(banner_icon, ICON_UNDERLAY)
+		verbs += /obj/structure/sign/flag/proc/toggle
+		icon = flag_icon
+
+/**
+ * If the flag is a big flag, handles the creation and alignment of the other half of it
+ *
+ * * loc - The location where to create the flag (before transformation)
+ * * dir - The direction of the flag
+ * * flag_path - The `icon_state` that the other half will have (flag_path + "_l")
+ * * icon - The icon
+ * * offset_x - Pixel shift that was applied to the first half of the flag, if any
+ * * offset_y - Pixel shift that was applied to the first half of the flag, if any
+ */
+/obj/structure/sign/flag/proc/create_other_half(loc, dir, flag_path, icon, offset_x, offset_y)
+	SHOULD_NOT_SLEEP(TRUE)
+
+	icon_state = "[flag_path]_l" // Just adding to the flag spaghetti.
+	ripped_outline_state = "flag_ripped_l"
+	flag_icon = new(icon, icon_state, dir)
+	shading_icon = new('icons/obj/structure/flags.dmi', "flag_l", dir)
+	flag_icon.Blend(shading_icon, ICON_MULTIPLY)
+	var/obj/structure/sign/flag/F2 = new(loc, dir, linked_flag_path = flag_path, icon_file = icon)
+	src.icon = flag_icon
+	linked_flag = F2
+
+	//Apply the pixel shifting based on the direction to the new other half of the flag
+	switch(F2.dir)
+		if(NORTH)
+			F2.pixel_x = 32
+		if(SOUTH)
+			F2.pixel_x = 32
+		if(EAST)
+			F2.pixel_y = -32
+		if(WEST)
+			F2.pixel_y = 32
+
+	//Apply the offsets we received
+	F2.pixel_x += offset_x
+	F2.pixel_y += offset_y
+
+	//Finish configuring the second half of the instance
+	F2.linked_flag = src
+	F2.name = name
+	F2.desc = desc
+	F2.desc_extended = desc_extended
+	F2.flag_item = flag_item
+
+	//Requeue the area for smoothing, just in case
+	QUEUE_SMOOTH(src)
+	QUEUE_SMOOTH_NEIGHBORS(src)
+
+/obj/structure/sign/flag/New(loc, var/newdir, var/linked_flag_path, var/deploy, var/icon_file, var/item_flag_path)
+	. = ..()
+
+/obj/item/flag/attack_self(mob/user)
+	if(flag_size)
+		return
+
+	if(use_check_and_message(user))
+		return
+
+	for(var/obj/A in get_step(get_turf(user), user.dir))
+		if(!iswall(A) && !istype(A, /obj/structure/table) && !istype(A, /obj/structure/window_frame) && !istype(A, /obj/structure/window))
+			if(A.density || istype(A, /obj/structure/bed))
+				to_chat(user, SPAN_WARNING("You can't place this here, [A.name] is blocking the way!"))
+				return
+		continue
+
+	if(isfloor(user.loc))
+		user.visible_message(SPAN_NOTICE("\The [user] deploys \the [src] on \the [get_turf(loc)]."), SPAN_NOTICE("You deploy \the [src] on \the [get_turf(loc)]."))
+		user.drop_from_inventory(src)
+		new flag_structure(user.loc, user.dir, deploy = TRUE, item_flag_path = flag_path)
+		qdel(src)
+
+/obj/item/flag/afterattack(var/atom/A, var/mob/user, var/adjacent)
+	if(!adjacent)
+		return
+
+	if(use_check_and_message(user))
+		return
+
+	if((!iswall(A) && !istype(A, /obj/structure/window)) || !isturf(user.loc))
+		to_chat(user, SPAN_WARNING("You can't place this here!"))
+		return
+
+	var/placement_dir = get_dir(user, A)
+	if (!(placement_dir in GLOB.cardinals))
+		to_chat(user, SPAN_WARNING("You must stand directly in front of the location you wish to place that on."))
+		return
+
+	user.visible_message(SPAN_NOTICE("\The [user] fastens \the [src] to \the [A]."), SPAN_NOTICE("You fasten \the [src] to \the [A]."))
+	user.drop_from_inventory(src)
+	new flag_structure(user.loc, placement_dir, deploy = TRUE, item_flag_path = flag_path)
+	qdel(src)
+
+
+/obj/structure/sign/flag/Destroy()
+	if(linked_flag?.linked_flag == src) // Catches other instances where one half might be destroyed, say by a broken wall, to avoid runtimes.
+		linked_flag.linked_flag = null // linked_flag
+	. = ..()
+
+/obj/structure/sign/flag/ex_act(severity)
+	switch(severity)
+		if(1)
+			qdel(src)
+		if(2)
+			if(prob(50))
+				qdel(src)
+			else
+				rip()
+		if(3)
+			rip()
+
+/obj/structure/sign/flag/unfasten(mob/user)
+	if(unmovable)
+		return
+	if(!ripped)
+		if(banner_icon)
+			user.visible_message(SPAN_NOTICE("\The [user] collapses \the [src] and folds it back up."), SPAN_NOTICE("You collapse \the [src] and fold it back up."))
+		else
+			user.visible_message(SPAN_NOTICE("\The [user] unfastens \the [src] and folds it back up."), SPAN_NOTICE("You unfasten \the [src] and fold it back up."))
+		var/obj/item/flag/F = new flag_item(get_turf(user))
+		user.put_in_hands(F)
+	else
+		user.visible_message(SPAN_NOTICE("\The [user] unfastens the tattered remnants of \the [src]."), SPAN_NOTICE("You unfasten the tattered remains of \the [src]."))
+	if(linked_flag)
+		qdel(linked_flag) // Otherwise you're going to get weird duping nonsense.
+	qdel(src)
+
+/obj/structure/sign/flag/attack_hand(mob/user)
+	switch(user.a_intent)
+		if(I_HELP)
+			examinate(user, src)
+		if(I_DISARM)
+			if(currently_folding)
+				to_chat(user, SPAN_WARNING("You are already folding up \the [src]."))
+				return
+			currently_folding = TRUE
+			user.visible_message(SPAN_NOTICE("\The [user] begins to carefully fold up \the [src]."), SPAN_NOTICE("You begin to carefully fold up \the [src]."))
+			if(do_after(user, 50))
+				unfasten(user)
+			else
+				currently_folding = FALSE
+		if(I_GRAB)
+			user.visible_message(SPAN_NOTICE("\The [user] salutes \the [src]."), SPAN_NOTICE("You salute \the [src]."))
+		if(I_HURT)
+			if(unmovable || ripped)
+				return
+			if(alert("Do you want to rip \the [src] from its place?","You think...","Yes","No") == "Yes")
+				if(!Adjacent(user)) // Cannot bring up dialogue and walk away.
+					return FALSE
+				user.visible_message(SPAN_WARNING("\The [user] starts to grab hold of \the [src] with destructive intent!"), SPAN_WARNING("You grab hold of \the [src] with destructive intent!"),)
+				if(!do_after(user, 5 SECONDS, src))
+					return FALSE
+				user.visible_message(SPAN_WARNING("\The [user] rips \the [src] in a single, decisive motion!"), SPAN_WARNING("You rip \the [src] in a single, decisive motion!"))
+				playsound(src.loc, 'sound/items/poster_ripped.ogg', 100, 1)
+				add_fingerprint(user)
+				rip(user)
+
+/obj/structure/sign/flag/proc/rip(mob/user, var/rip_linked = TRUE)
+	var/icon/ripped_outline = new('icons/obj/structure/flags.dmi', ripped_outline_state, dir)
+	if(!flag_icon)
+		flag_icon = new(icon, icon_state)
+	flag_icon.AddAlphaMask(ripped_outline)
+	if(banner_icon)
+		flag_icon.Blend(banner_icon, ICON_UNDERLAY)
+	icon = flag_icon
+	name = "ripped flag"
+	desc = "You can't make out anything from the flag's original print. It's ruined."
+	ripped = TRUE
+	if(rip_linked)
+		var/obj/item/stack/material/cloth/C = new(src.loc, flag_size ? 2 : 1)
+		if(user)
+			user.put_in_hands(C)
+	if(rip_linked && linked_flag)
+		linked_flag.rip(user, FALSE) // Prevents an infinite ripping loop.
+
+/obj/structure/sign/flag/attackby(obj/item/attacking_item, mob/user)
+	..()
+	if(attacking_item.isFlameSource())
+		visible_message(SPAN_WARNING("\The [user] starts to burn \the [src] down!"))
+		if(!do_after(user, 2 SECONDS, src))
+			return FALSE
+		visible_message(SPAN_WARNING("\The [user] burns \the [src] down!"))
+		playsound(src.loc, 'sound/items/cigs_lighters/zippo_on.ogg', 100, 1)
+		new /obj/effect/decal/cleanable/ash(src.loc)
+		if(linked_flag)
+			qdel(linked_flag)
+		qdel(src)
+		return TRUE
+
+/obj/structure/sign/flag/proc/toggle()
+	set name = "Toggle Banner"
+	set category = "Object"
+	set src in oview(1)
+
+	if(use_check_and_message(usr))
+		return 0
+
+	icon = initial(icon)
+	flag_icon = new(icon, icon_state)
+
+	if(!rolled_outline)
+		shading_icon = new('icons/obj/structure/flags.dmi', "flag_rolled")
+		rolled_outline = new('icons/obj/structure/flags.dmi', "banner_rolled")
+		flag_icon.AddAlphaMask(rolled_outline)
+	else
+		rolled_outline = null
+		shading_icon = new('icons/obj/structure/flags.dmi', "flag")
+
+	flag_icon.Blend(shading_icon, ICON_MULTIPLY)
+	banner_icon = new('icons/obj/structure/flags.dmi', stand_icon)
+	flag_icon.Blend(banner_icon, ICON_UNDERLAY)
+	icon = flag_icon
+
+// Flags
+
+/obj/item/flag/blank
+	flag_path = "blank"
+	flag_structure = /obj/structure/sign/flag/blank
+
+/obj/structure/sign/flag/blank
+	flag_path = "flag"
+	flag_item = /obj/item/flag/blank
+
+// Sol
+
+/obj/item/flag/sol
+	name = "\improper Sol Alliance flag"
+	desc = "The bright blue flag of the Alliance of Sovereign Solarian Nations."
+	flag_path = "sol"
+	flag_structure = /obj/structure/sign/flag/sol
+
+/obj/structure/sign/flag/sol
+	name = "\improper Sol Alliance flag"
+	desc = "The bright blue flag of the Alliance of Sovereign Solarian Nations."
+	icon_state = "sol"
+	flag_path = "sol"
+	flag_item = /obj/item/flag/sol
+
+/obj/item/flag/sol/old
+	name = "old Sol Alliance flag"
+	desc = "The flag of the pre-Interstellar War Solarian Alliance, once flown from Earth to the human frontier."
+	desc_extended = "The flag of the pre-Interstellar War Alliance of Sovereign Solarian Nations, the single largest state in the Spur's history. The three stars represented the Northern, Central, and Southern Solarian Frontiers."
+	flag_path = "sol_old"
+	flag_structure = /obj/structure/sign/flag/sol/old
+
+/obj/structure/sign/flag/sol/old
+	name = "old Sol Alliance flag"
+	desc = "The flag of the pre-Interstellar War Solarian Alliance, once flown from Earth to the human frontier."
+	desc_extended = "The flag of the pre-Interstellar War Alliance of Sovereign Solarian Nations, the single largest state in the Spur's history. The three stars represented the Northern, Central, and Southern Solarian Frontiers."
+	icon_state = "sol_old"
+	flag_path = "sol_old"
+	flag_item = /obj/item/flag/sol/old
+
+/obj/item/flag/sol/l
+	name = "large Sol Alliance flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/sol/large
+
+/obj/structure/sign/flag/sol/large
+	icon_state = "sol_l"
+	flag_path = "sol"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/sol/l
+
+/obj/structure/sign/flag/sol/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/sol/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/sol/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/sol/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+/obj/item/flag/sol/old/l
+	name = "large old Sol Alliance flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/sol/old/large
+
+/obj/structure/sign/flag/sol/old/large
+	icon_state = "sol_old_l"
+	flag_path = "sol_old"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/sol/old/l
+
+/obj/structure/sign/flag/sol/old/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/sol/old/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/sol/old/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/sol/old/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Dominia
+
+/obj/item/flag/dominia
+	name = "\improper Dominian Empire flag"
+	desc = "The Imperial Standard of Emperor Boleslaw Keeser of Dominia."
+	flag_path = "dominia"
+	flag_structure = /obj/structure/sign/flag/dominia
+
+/obj/structure/sign/flag/dominia
+	name = "\improper Dominian Empire flag"
+	desc = "The Imperial Standard of Emperor Boleslaw Keeser of Dominia."
+	icon_state = "dominia"
+	flag_path = "dominia"
+	flag_item = /obj/item/flag/dominia
+
+/obj/item/flag/dominia/l
+	name = "large Dominian Empire flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/dominia/large
+
+/obj/structure/sign/flag/dominia/large
+	icon_state = "dominia_l"
+	flag_path = "dominia"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/dominia/l
+
+/obj/structure/sign/flag/dominia/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/dominia/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/dominia/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/dominia/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Elyra
+
+/obj/item/flag/elyra
+	name = "\improper Elyran flag"
+	desc = "The hopeful colors of the Serene Republic of Elyra."
+	flag_path = "elyra"
+	flag_structure = /obj/structure/sign/flag/elyra
+
+/obj/structure/sign/flag/elyra
+	name = "\improper Elyran flag"
+	desc = "The hopeful colors of the Serene Republic of Elyra."
+	icon_state = "elyra"
+	flag_path = "elyra"
+	flag_item = /obj/item/flag/elyra
+
+/obj/item/flag/elyra/l
+	name = "large Elyran flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/elyra/large
+
+/obj/structure/sign/flag/elyra/large
+	icon_state = "elyra_l"
+	flag_path = "elyra"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/elyra/l
+
+/obj/structure/sign/flag/elyra/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/elyra/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/elyra/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/elyra/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Hegemony
+
+/obj/item/flag/hegemony
+	name = "\improper Hegemony flag"
+	desc = "The feudal standard of the Izweski Hegemony."
+	flag_path = "izweski"
+	flag_structure = /obj/structure/sign/flag/hegemony
+
+/obj/structure/sign/flag/hegemony
+	name = "\improper Hegemony flag"
+	desc = "The feudal standard of the Izweski Hegemony."
+	icon_state = "izweski"
+	flag_path = "izweski"
+	flag_item = /obj/item/flag/hegemony
+
+/obj/item/flag/hegemony/l
+	name = "large Hegemony flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/hegemony/large
+
+/obj/structure/sign/flag/hegemony/large
+	icon_state = "izweski_l"
+	flag_path = "izweski"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/hegemony/l
+
+/obj/structure/sign/flag/hegemony/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/hegemony/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/hegemony/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/hegemony/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+/obj/item/flag/ouerea
+	name = "\improper Ouerea flag"
+	desc = "The modern day flag of Ouerea. Due to the incorporation of red stripes to symbolize the blood of the nobility spilled in the rebellion, this is not the current official flag of the planet."
+	flag_path = "ouerea"
+	flag_structure = /obj/structure/sign/flag/ouerea
+
+/obj/structure/sign/flag/ouerea
+	name = "\improper Ouerea flag"
+	desc = "The modern day flag of Ouerea. Due to the incorporation of red stripes to symbolize the blood of the nobility spilled in the rebellion, this is not the current official flag of the planet."
+	icon_state = "ouerea"
+	flag_path = "ouerea"
+	flag_item = /obj/item/flag/ouerea
+
+/obj/item/flag/ouerea/l
+	name = "large Ouerea flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/ouerea/large
+
+/obj/structure/sign/flag/ouerea/large
+	icon_state = "ouerea_l"
+	flag_path = "ouerea"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/ouerea/l
+
+/obj/structure/sign/flag/ouerea/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/ouerea/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/ouerea/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/ouerea/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+/obj/item/flag/ouerea/old
+	name = "old Ouerea flag"
+	desc = "The old flag of Ouerea, dating back to its days as a joint mandate between the Nralakk Federation and, to a lesser extent, the Solarian Alliance. Due to controversy over the current flag, it remains the official flag of Ouerea."
+	flag_path = "ouerea_old"
+	flag_structure = /obj/structure/sign/flag/ouerea/old
+
+/obj/structure/sign/flag/ouerea/old
+	name = "old Ouerea flag"
+	desc = "The old flag of Ouerea, dating back to its days as a joint mandate between the Nralakk Federation and, to a lesser extent, the Solarian Alliance. Due to controversy over the current flag, it remains the official flag of Ouerea."
+	icon_state = "ouerea_old"
+	flag_path = "ouerea_old"
+	flag_item = /obj/item/flag/ouerea/old
+
+/obj/item/flag/ouerea/old/l
+	name = "large old Ouerea flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/ouerea/old/large
+
+/obj/structure/sign/flag/ouerea/old/large
+	icon_state = "ouerea_old_l"
+	flag_path = "ouerea_old"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/ouerea/old/l
+
+/obj/structure/sign/flag/ouerea/old/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/ouerea/old/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/ouerea/old/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/ouerea/old/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+/obj/item/flag/fishingleague
+	name = "\improper Fishing League flag"
+	desc = "The standard of the Fishing League guild."
+	flag_path = "fishingleague"
+	flag_structure = /obj/structure/sign/flag/fishingleague
+
+/obj/structure/sign/flag/fishingleague
+	name = "\improper Fishing League flag"
+	desc = "The standard of the Fishing League guild."
+	icon_state = "fishingleague"
+	flag_path = "fishingleague"
+	flag_item = /obj/item/flag/fishingleague
+
+// Nralakk
+
+/obj/item/flag/nralakk
+	name = "\improper Nralakk Federation flag"
+	desc = "The insignia of the Nralakk Federation."
+	flag_path = "nralakk"
+	flag_structure = /obj/structure/sign/flag/nralakk
+
+/obj/structure/sign/flag/nralakk
+	name = "\improper Nralakk Federation flag"
+	desc = "The insignia of the Nralakk Federation."
+	icon_state = "nralakk"
+	flag_path = "nralakk"
+	flag_item = /obj/item/flag/nralakk
+
+/obj/item/flag/nralakk/l
+	name = "large Nralakk Federation flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/nralakk/large
+
+/obj/structure/sign/flag/nralakk/large
+	icon_state = "nralakk_l"
+	flag_path = "nralakk"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/nralakk/l
+
+/obj/structure/sign/flag/nralakk/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/nralakk/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/nralakk/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/nralakk/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Traverse
+
+/obj/item/flag/traverse
+	name = "\improper Free Traverser flag"
+	desc = "The insignia of the Free Traversers."
+	flag_path = "traverse"
+	flag_structure = /obj/structure/sign/flag/traverse
+
+/obj/structure/sign/flag/traverse
+	name = "\improper Free Traverser flag"
+	desc = "The insignia of the Free Traversers."
+	icon_state = "traverse"
+	flag_path = "traverse"
+	flag_item = /obj/item/flag/traverse
+
+/obj/item/flag/traverse/l
+	name = "large Free Traverser flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/traverse/large
+
+/obj/structure/sign/flag/traverse/large
+	icon_state = "traverse_l"
+	flag_path = "traverse"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/traverse/l
+
+/obj/structure/sign/flag/traverse/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/traverse/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/traverse/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/traverse/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Nanotrasen.
+
+/obj/item/flag/nanotrasen
+	name = "\improper NanoTrasen Corporation flag"
+	desc = "The logo of NanoTrasen on a flag."
+	flag_path = "nanotrasen"
+	flag_structure = /obj/structure/sign/flag/nanotrasen
+
+/obj/structure/sign/flag/nanotrasen
+	name = "\improper NanoTrasen Corporation flag"
+	desc = "The logo of NanoTrasen on a flag."
+	icon_state = "nanotrasen"
+	flag_path = "nanotrasen"
+	flag_item = /obj/item/flag/nanotrasen
+
+/obj/structure/sign/flag/nanotrasen/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/nanotrasen/l
+	name = "large NanoTrasen Corporation flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/nanotrasen/large
+
+/obj/structure/sign/flag/nanotrasen/large
+	icon_state = "nanotrasen_l"
+	flag_path = "nanotrasen"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/nanotrasen/l
+
+/obj/structure/sign/flag/nanotrasen/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/nanotrasen/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/nanotrasen/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/nanotrasen/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Eridani
+
+/obj/item/flag/eridani
+	name = "\improper Eridani Corporate Federation flag"
+	desc = "The logo of the Eridani Corporate Federation on a flag."
+	flag_path = "eridani"
+	flag_structure = /obj/structure/sign/flag/eridani
+
+/obj/structure/sign/flag/eridani
+	name = "\improper Eridani Corporate Federation flag"
+	desc = "The logo of the Eridani Corporate Federation on a flag."
+	icon_state = "eridani"
+	flag_path = "eridani"
+	flag_item = /obj/item/flag/eridani
+
+/obj/structure/sign/flag/eridani/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/eridani/l
+	name = "large Eridani Corporate Federation flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/eridani/large
+
+/obj/structure/sign/flag/eridani/large
+	icon_state = "eridani_l"
+	flag_path = "eridani"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/eridani/l
+
+/obj/structure/sign/flag/eridani/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/eridani/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/eridani/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/eridani/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Coalition
+
+/obj/item/flag/coalition
+	name = "\improper Coalition of Colonies flag"
+	desc = "The flag of the diverse Coalition of Colonies."
+	flag_path = "coalition"
+	flag_structure = /obj/structure/sign/flag/coalition
+
+/obj/structure/sign/flag/coalition
+	name = "\improper Coalition of Colonies flag"
+	desc = "The flag of the diverse Coalition of Colonies."
+	icon_state = "coalition"
+	flag_path = "coalition"
+	flag_item = /obj/item/flag/coalition
+
+/obj/structure/sign/flag/coalition/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/coalition/l
+	name = "large Coalition of Colonies flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/coalition/large
+
+/obj/structure/sign/flag/coalition/large
+	icon_state = "coalition_l"
+	flag_path = "coalition"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/coalition/l
+
+/obj/structure/sign/flag/coalition/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/coalition/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/coalition/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/coalition/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+//All-Xanu Republic
+/obj/item/flag/xanu
+	name = "\improper All-Xanu Republic banner"
+	desc = "The banner of the All-Xanu Republic, the beating heart of the Coalition of Colonies."
+	desc_extended = "The banner of the All-Xanu Republic is a banner of three horizontal stripes, blue, orange, and green, with a white chevron featuring the same colors inset in each other. The blue represents liberty and freedom, orange represents determination and hard work, green represents the planet and its people, and the white represents justice and peace."
+	flag_path = "xanu"
+	flag_structure = /obj/structure/sign/flag/xanu
+
+/obj/structure/sign/flag/xanu
+	name = "\improper All-Xanu Republic banner"
+	desc = "The banner of the All-Xanu Republic, the beating heart of the Coalition of Colonies."
+	desc_extended = "The banner of the All-Xanu Republic is a banner of three horizontal stripes, blue, orange, and green, with a white chevron featuring the same colors inset in each other. The blue represents liberty and freedom, orange represents determination and hard work, green represents the planet and its people, and the white represents justice and peace."
+	icon_state = "xanu"
+	flag_path = "xanu"
+	flag_item = /obj/item/flag/xanu
+
+/obj/item/flag/xanu/l
+	name = "\improper All-Xanu Republic flag"
+	desc = "The flag of the All-Xanu Republic, the beating heart of the Coalition of Colonies"
+	desc_extended = "The flag of the All-Xanu Republic is a flag of three horizontal stripes, blue, orange, and green, with a white circle in the middle featuring the national crest of Xanu Prime, a peacock feather. The blue represents liberty and freedom, orange represents determination and hard work, green represents the planet and its people, white represents justice and peace, and the national crest represents the republic itself."
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/xanu/large
+
+/obj/structure/sign/flag/xanu/large
+	name = "\improper All-Xanu Republic flag"
+	desc = "The flag of the All-Xanu Republic, the beating heart of the Coalition of Colonies"
+	desc_extended = "The flag of the All-Xanu Republic is a flag of three horizontal stripes, blue, orange, and green, with a white circle in the middle featuring the national crest of Xanu Prime, a peacock feather. The blue represents liberty and freedom, orange represents determination and hard work, green represents the planet and its people, white represents justice and peace, and the national crest represents the republic itself."
+	icon_state = "xanu_l"
+	flag_path = "xanu"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/xanu/l
+
+/obj/structure/sign/flag/xanu/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/xanu/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/xanu/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/xanu/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Varuca/Sedantis
+
+/obj/item/flag/sedantis
+	name = "\improper Sedantis flag"
+	desc = "The emblem of Sedantis on a flag, emblematic of Vaurca longing."
+	flag_path = "sedantis"
+	flag_structure = /obj/structure/sign/flag/sedantis
+
+/obj/structure/sign/flag/sedantis
+	name = "\improper Sedantis flag"
+	desc = "The emblem of Sedantis on a flag, emblematic of Vaurca longing."
+	icon_state = "sedantis"
+	flag_path = "sedantis"
+	flag_item = /obj/item/flag/sedantis
+
+/obj/structure/sign/flag/sedantis/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/sedantis/l
+	name = "large Sedantis flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/sedantis/large
+
+/obj/structure/sign/flag/sedantis/large
+	icon_state = "sedantis_l"
+	flag_path = "sedantis"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/sedantis/l
+
+/obj/structure/sign/flag/sedantis/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/sedantis/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/sedantis/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/sedantis/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Red Coalition
+
+/obj/item/flag/red_coalition
+	name = "\improper Red Coalition flag"
+	desc = "A high quality copy of an original Red Coalition banner. This variant on the standard was flown by the Zelazny arcology during the Martian World War, Zelazny's origins as a \
+	mining colony represented in the center by the alchemical symbol for iron."
+	icon_state = "coalition_flag_boxed"
+	flag_path = "red_coalition"
+	flag_structure = /obj/structure/sign/flag/red_coalition
+
+/obj/structure/sign/flag/red_coalition
+	name = "\improper Red Coalition flag"
+	desc = "A high quality copy of an original Red Coalition banner. This variant on the standard was flown by the Zelazny arcology during the Martian World War, Zelazny's origins as a \
+	mining colony represented in the center by the alchemical symbol for iron."
+	icon_state = "red_coalition"
+	flag_path = "red_coalition"
+	flag_item = /obj/item/flag/red_coalition
+
+/obj/structure/sign/flag/red_coalition/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/red_coalition/l
+	name = "large Red Coalition flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/red_coalition/large
+
+/obj/structure/sign/flag/red_coalition/large
+	icon_state = "red_coalition_l"
+	flag_path = "red_coalition"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/red_coalition/l
+
+/obj/structure/sign/flag/red_coalition/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/red_coalition/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/red_coalition/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/red_coalition/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// DPRA
+
+/obj/item/flag/dpra
+	name = "\improper Democratic People's Republic of Adhomai flag"
+	desc = "The black flag of the Democratic People's Republic of Adhomai."
+	desc_extended = "The most pervasive and successful rebellion came from a group calling themselves the Adhomai Libeation Army, a group made up of Tajara from almost every walk of \
+	life. Opposing corporate claims on Tajaran soil and citing mismatched development and governmental negligence as the fault of humanity, they aim \
+	to \"free Tajara from the new shackles imposed upon them by the corporate overlords and return Adhomai to a free, prosperous planet like our ancestors dreamed of.\" They named the \
+	nation they were fighting for the Democratic People's Republic of Adhomai."
+	flag_path = "dpra"
+	flag_structure = /obj/structure/sign/flag/dpra
+
+/obj/structure/sign/flag/dpra
+	name = "\improper Democratic People's Republic of Adhomai flag"
+	desc = "The black flag of the Democratic People's Republic of Adhomai."
+	desc_extended = "The most pervasive and successful rebellion came from a group calling themselves the Adhomai Libeation Army, a group made up of Tajara from almost every walk of \
+	life. Opposing corporate claims on Tajaran soil and citing mismatched development and governmental negligence as the fault of humanity, they aim \
+	to \"free Tajara from the new shackles imposed upon them by the corporate overlords and return Adhomai to a free, prosperous planet like our ancestors dreamed of.\" They named the \
+	nation they were fighting for the Democratic People's Republic of Adhomai."
+	flag_path = "dpra"
+	icon_state = "dpra"
+	flag_item = /obj/item/flag/dpra
+
+/obj/structure/sign/flag/dpra/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/dpra/l
+	name = "large Democratic People's Republic of Adhomai flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/dpra/large
+
+/obj/structure/sign/flag/dpra/large
+	icon_state = "dpra_l"
+	flag_path = "dpra"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/dpra/l
+
+/obj/structure/sign/flag/dpra/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/dpra/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/dpra/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/dpra/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// PRA
+
+/obj/item/flag/pra
+	name = "\improper People's Republic of Adhomai flag"
+	desc = "The Tajaran flag of the People's Republic of Adhomai."
+	flag_path = "pra"
+	desc_extended = "Lead by President Njadrasanukii Hadii, the People's Republic of Adhomai are considered the 'loyalist' faction on Adhomai and enjoy galactic recognition as the \
+	government of Adhomai. It claims to be the true keeper of Al'mari's legacy. However, the PRA can be described as a Hadiist branch of Al'mari's revolutionary ideology - that means \
+	putting the State at the top of a hierarchy of power. The PRA is a very centralized state, but in recent years has slowly been able to start making true its promises to bring \
+	revolution to the masses. With land reform, enfranchisement of women and peasantry, literacy initiatives, and the collectivization of farms and the means of production, the PRA is \
+	struggling to hold true to its radical ideals while an entrenched upper party stubbornly tries to hold onto power."
+	flag_structure = /obj/structure/sign/flag/pra
+
+/obj/structure/sign/flag/pra
+	name = "\improper People's Republic of Adhomai flag"
+	desc = "The tajaran flag of the People's Republic of Adhomai."
+	desc_extended = "Lead by President Njadrasanukii Hadii, the People's Republic of Adhomai are considered the 'loyalist' faction on Adhomai and enjoy galactic recognition as the \
+	government of Adhomai. It claims to be the true keeper of Al'mari's legacy. However, the PRA can be described as a Hadiist branch of Al'mari's revolutionary ideology - that means \
+	putting the State at the top of a hierarchy of power. The PRA is a very centralized state, but in recent years has slowly been able to start making true its promises to bring \
+	revolution to the masses. With land reform, enfranchisement of women and peasantry, literacy initiatives, and the collectivization of farms and the means of production, the PRA is \
+	struggling to hold true to its radical ideals while an entrenched upper party stubbornly tries to hold onto power."
+	flag_path = "pra"
+	icon_state = "pra"
+	flag_item = /obj/item/flag/pra
+
+/obj/structure/sign/flag/pra/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/pra/l
+	name = "large People's Republic of Adhomai flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/pra/large
+
+/obj/structure/sign/flag/pra/large
+	icon_state = "pra_l"
+	flag_path = "pra"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/pra/l
+
+/obj/structure/sign/flag/pra/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/pra/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/pra/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/pra/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// NKA
+
+/obj/item/flag/nka
+	name = "\improper New Kingdom of Adhomai flag"
+	desc = "The blue flag of the New Kingdom of Adhomai."
+	flag_path = "nka"
+	desc_extended = " The New Kingdom is ruled by a Njarir'Akhran noble line that survived the previous Revolution by remaining in hiding, owing to the efforts of their supporters. \
+	Ruled by King Vahzirthaamro Azunja specifically, he denounces both other factions in the civil war as illegitimate and himself as the only legitimate ruler of Adhomai. \
+	Supporters of the New Kingdom tend to be rare outside lands it controls. However, they believe strongly that the current republic on Adhomai was founded on genocide and unspeakable \
+	slaughters. The New Kingdom puts forth the ideology that Republicanism is bloodshed. The only way to return Adhomai to peace and prosperity is to learn from the mistakes of the \
+	ancient nobles and Republicans, and create a new noble dynasty."
+	flag_structure = /obj/structure/sign/flag/nka
+
+/obj/structure/sign/flag/nka
+	name = "\improper New Kingdom of Adhomai flag"
+	desc = "The blue flag of the New Kingdom of Adhomai."
+	desc_extended = " The New Kingdom is ruled by a Njarir'Akhran noble line that survived the previous Revolution by remaining in hiding, owing to the efforts of their supporters. \
+	Ruled by King Vahzirthaamro Azunja specifically, he denounces both other factions in the civil war as illegitimate and himself as the only legitimate ruler of Adhomai. \
+	Supporters of the New Kingdom tend to be rare outside lands it controls. However, they believe strongly that the current republic on Adhomai was founded on genocide and unspeakable \
+	slaughters. The New Kingdom puts forth the ideology that Republicanism is bloodshed. The only way to return Adhomai to peace and prosperity is to learn from the mistakes of the \
+	ancient nobles and Republicans, and create a new noble dynasty."
+	flag_path = "nka"
+	icon_state = "nka"
+	flag_item = /obj/item/flag/nka
+
+/obj/structure/sign/flag/nka/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/nka/l
+	name = "large New Kingdom of Adhomai flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/nka/large
+
+/obj/structure/sign/flag/nka/large
+	icon_state = "nka_l"
+	flag_path = "nka"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/nka/l
+
+/obj/structure/sign/flag/nka/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/nka/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/nka/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/nka/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// FTC
+
+/obj/item/flag/ftc
+	name = "\improper Free Tajaran Council flag"
+	desc = "The red and black flag of the Free Tajaran Council, the largest tajaran community in Himeo."
+	flag_path = "ftc"
+	desc_extended = "The Free Tajaran Council began as a rebel faction in the Duchy of Shungsta during the First Revolution. Born among oppressed peasants and factory workers, \
+	the movement advocated for the total abolishment of the existing governments in favor of local democratic councils. The Free Council became a serious contender for power in Northern Ras'nrr after Volin Kar'etrink - a young Hharar worker known to be a firebrand - was elected its leader. \
+	Due to its innate hostility to all other Adhomian Civil War factions, the Free Tajaran Council was unable to secure any significant territory outside of Northern Ras'nrr. The Council's forces were quickly defeated by the Hadiist forces when they invaded the region in 2427. \
+	Assisted off-world by the intervention of NanoTrasen, the surviving tajara travelled through Coalition of Colonies territory until reaching Himeo. Posing as refugees from the ongoing civil war, they were granted asylum and a degree of autonomy. \
+	Through the cooperation with Himeo, the Free Council prospered and grew in numbers. Despite all the prosperity however, Volin Kar'etrink is very old; little time is left for him in this world. \
+	The Free Tajaran Council now stands at a crossroads: a choice must be made concerning their future. In their struggle to influence the tajara, the nations on Adhomai have taken notice of the sizable community in Himeo. \
+	The Council is now a battleground for another proxy war between the Adhomian nations, who each sponsor different opposing factions within the community to gain their eventual support."
+	flag_structure = /obj/structure/sign/flag/ftc
+
+/obj/structure/sign/flag/ftc
+	name = "\improper Free Tajaran Council flag"
+	desc = "The red and black flag of the Free Tajaran Council, the largest tajaran community in Himeo."
+	desc_extended = "The Free Tajaran Council began as a rebel faction in the Duchy of Shungsta during the First Revolution. Born among oppressed peasants and factory workers, \
+	the movement advocated for the total abolishment of the existing governments in favor of local democratic councils. The Free Council became a serious contender for power in Northern Ras'nrr after Volin Kar'etrink - a young Hharar worker known to be a firebrand - was elected its leader. \
+	Due to its innate hostility to all other Adhomian Civil War factions, the Free Tajaran Council was unable to secure any significant territory outside of Northern Ras'nrr. The Council's forces were quickly defeated by the Hadiist forces when they invaded the region in 2427. \
+	Assisted off-world by the intervention of NanoTrasen, the surviving tajara travelled through Coalition of Colonies territory until reaching Himeo. Posing as refugees from the ongoing civil war, they were granted asylum and a degree of autonomy. \
+	Through the cooperation with Himeo, the Free Council prospered and grew in numbers. Despite all the prosperity however, Volin Kar'etrink is very old; little time is left for him in this world. \
+	The Free Tajaran Council now stands at a crossroads: a choice must be made concerning their future. In their struggle to influence the tajara, the nations on Adhomai have taken notice of the sizable community in Himeo. \
+	The Council is now a battleground for another proxy war between the Adhomian nations, who each sponsor different opposing factions within the community to gain their eventual support."
+	flag_path = "ftc"
+	icon_state = "ftc"
+	flag_item = /obj/item/flag/ftc
+
+/obj/structure/sign/flag/ftc/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/ftc/l
+	name = "large Free Tajaran Council flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/ftc/large
+
+/obj/structure/sign/flag/ftc/large
+	icon_state = "ftc_l"
+	flag_path = "ftc"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/ftc/l
+
+/obj/structure/sign/flag/ftc/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/ftc/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/ftc/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/ftc/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Hephaestus
+
+/obj/item/flag/heph
+	name = "\improper Hephaestus Industries flag"
+	desc = "The logo of Hephaestus Industries on a flag."
+	flag_path = "heph"
+	flag_structure = /obj/structure/sign/flag/heph
+
+/obj/structure/sign/flag/heph
+	name = "\improper Hephaestus Industries flag"
+	desc = "The logo of Hephaestus Industries on a flag."
+	flag_path = "heph"
+	icon_state = "heph"
+	flag_item = /obj/item/flag/heph
+
+/obj/structure/sign/flag/heph/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/heph/l
+	name = "large Hephaestus Industries flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/heph/large
+
+/obj/structure/sign/flag/heph/large
+	icon_state = "heph_l"
+	flag_path = "heph"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/heph/l
+
+/obj/structure/sign/flag/heph/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/heph/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/heph/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/heph/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Zeng-Hu
+
+/obj/item/flag/zenghu
+	name = "\improper Zeng-Hu Pharmaceuticals flag"
+	desc = "The logo of Zeng-Hu Pharmaceuticals on a flag."
+	flag_path = "zenghu"
+	flag_structure = /obj/structure/sign/flag/zenghu
+
+/obj/structure/sign/flag/zenghu
+	name = "\improper Zeng-Hu Pharmaceuticals flag"
+	desc = "The logo of Zeng-Hu Pharmaceuticals on a flag."
+	flag_path = "zenghu"
+	icon_state = "zenghu"
+	flag_item = /obj/item/flag/zenghu
+
+/obj/structure/sign/flag/zenghu/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/zenghu/l
+	name = "large Zeng-Hu Pharmaceuticals flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/zenghu/large
+
+/obj/structure/sign/flag/zenghu/large
+	icon_state = "zenghu_l"
+	flag_path = "zenghu"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/zenghu/l
+
+/obj/structure/sign/flag/zenghu/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/zenghu/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/zenghu/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/zenghu/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Zavodskoi
+
+/obj/item/flag/zavodskoi
+	name = "\improper Zavodskoi Interstellar flag"
+	desc = "The logo of Zavodskoi Interstellar on a flag."
+	flag_path = "zavodskoi"
+	flag_structure = /obj/structure/sign/flag/zavodskoi
+
+/obj/structure/sign/flag/zavodskoi
+	name = "\improper Zavodskoi Interstellar flag"
+	desc = "The logo of Zavodskoi Interstellar on a flag."
+	flag_path = "zavodskoi"
+	icon_state = "zavodskoi"
+	flag_item = /obj/item/flag/zavodskoi
+
+/obj/structure/sign/flag/zavodskoi/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/zavodskoi/l
+	name = "large Zavodskoi Interstellar flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/zavodskoi/large
+
+/obj/structure/sign/flag/zavodskoi/large
+	icon_state = "zavodskoi_l"
+	flag_path = "zavodskoi"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/zavodskoi/l
+
+/obj/structure/sign/flag/zavodskoi/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/zavodskoi/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/zavodskoi/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/zavodskoi/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Idris
+
+/obj/item/flag/idris
+	name = "\improper Idris Incorporated flag"
+	desc = "The logo of Idris Incorporated on a flag."
+	flag_path = "idris"
+	flag_structure = /obj/structure/sign/flag/idris
+
+/obj/structure/sign/flag/idris
+	name = "\improper Idris Incorporated flag"
+	desc = "The logo of Idris Incorporated on a flag."
+	flag_path = "idris"
+	icon_state = "idris"
+	flag_item = /obj/item/flag/idris
+
+/obj/structure/sign/flag/idris/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/idris/l
+	name = "large idris Incorporated flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/idris/large
+
+/obj/structure/sign/flag/idris/large
+	icon_state = "idris_l"
+	flag_path = "idris"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/idris/l
+
+/obj/structure/sign/flag/idris/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/idris/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/idris/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/idris/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Trinary
+
+/obj/item/flag/trinaryperfection
+	name = "\improper Trinary Perfection flag"
+	desc = "The flag of the Trinary Perfection."
+	desc_extended = "The Trinary Perfection is a new religious movement whose core beliefs are that synthetics are alive, divine, and have the potential to ascend to that of gods. The triangle intersecting the gear represents the exchange of ideas that make up the Trinary Perfection, the study of robotics, religion and the elevation of artificial intelligence."
+	flag_path = "trinaryperfection"
+	flag_structure = /obj/structure/sign/flag/trinaryperfection
+
+/obj/structure/sign/flag/trinaryperfection
+	name = "\improper Trinary Perfection flag"
+	desc = "The flag of the Trinary Perfection."
+	desc_extended = "The Trinary Perfection is a new religious movement whose core beliefs are that synthetics are alive, divine, and have the potential to ascend to that of gods. The triangle intersecting the gear represents the exchange of ideas that make up the Trinary Perfection, the study of robotics, religion and the elevation of artificial intelligence."
+	flag_path = "trinaryperfection"
+	icon_state = "trinaryperfection"
+	flag_item = /obj/item/flag/trinaryperfection
+
+/obj/structure/sign/flag/trinaryperfection/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/trinaryperfection/l
+	name = "large Trinary Perfection flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/trinaryperfection/large
+
+/obj/structure/sign/flag/trinaryperfection/large
+	icon_state = "trinaryperfection_l"
+	flag_path = "trinaryperfection"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/trinaryperfection/l
+
+/obj/structure/sign/flag/trinaryperfection/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/trinaryperfection/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/trinaryperfection/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/trinaryperfection/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Golden Deep
+
+/obj/item/flag/goldendeep
+	name = "\improper Golden Deep flag"
+	desc = "The flag of the Golden Deep, depicting the Midas surrounded by a set of shields."
+	desc_extended = "The true meaning of the sigil on the Golden Deep's flag are shrouded in mystery and more than a few Estriconian merchants have dedicated small fortunes to studying it. The marking first appeared within the halls of the Midas; the Golden Deep's enormous and ancient mothership where the merchant collective is believed to have been founded. Whatever its original purpose, this sigil has since been co-opted by the Golden Deep and placed on a backdrop of gold, diamond, and black, symbolizing the collective's pursuit of wealth amidst the void of space. Wherever this flag flies, commerce is sure to follow."
+	flag_path = "goldendeep"
+	flag_structure = /obj/structure/sign/flag/goldendeep
+
+/obj/structure/sign/flag/goldendeep
+	name = "\improper Golden Deep flag"
+	desc = "The flag of the Golden Deep Collective."
+	desc_extended = "The true meaning of the sigil on the Golden Deep's flag are shrouded in mystery and more than a few Estriconian merchants have dedicated small fortunes to studying it. The marking first appeared within the halls of the Midas; the Golden Deep's enormous and ancient mothership where the merchant collective is believed to have been founded. Whatever its original purpose, this sigil has since been co-opted by the Golden Deep and placed on a backdrop of gold, diamond, and black, symbolizing the collective's pursuit of wealth amidst the void of space. Wherever this flag flies, commerce is sure to follow."
+	flag_path = "goldendeep"
+	icon_state = "goldendeep"
+	flag_item = /obj/item/flag/goldendeep
+
+/obj/structure/sign/flag/goldendeep/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/goldendeep/l
+	name = "large Golden Deep flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/goldendeep/large
+
+/obj/structure/sign/flag/goldendeep/large
+	icon_state = "goldendeep_l"
+	flag_path = "goldendeep"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/goldendeep/l
+
+/obj/structure/sign/flag/goldendeep/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/goldendeep/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/goldendeep/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/goldendeep/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Dominian Standards
+
+/obj/item/flag/diona
+	name = "\improper Strange Imperial standard"
+	desc = "A strange green flag in Imperial style. What House could it represent?"
+	flag_path = "diona"
+	flag_structure = /obj/structure/sign/flag/diona
+
+/obj/structure/sign/flag/diona
+	name = "\improper Strange Imperial standard"
+	desc = "A strange green flag in Imperial style. What House could it represent?"
+	flag_path = "diona"
+	icon_state = "diona"
+	flag_item = /obj/item/flag/diona
+
+/obj/item/flag/strelitz
+	name = "\improper House Strelitz standard"
+	desc = "The red and gold standard of House Strelitz represents loyalty and bravery. It proudly flies above thousands of military facilities across the Empire and beyond."
+	flag_path = "strelitz"
+	flag_structure = /obj/structure/sign/flag/strelitz
+
+/obj/structure/sign/flag/strelitz
+	name = "\improper House Strelitz standard"
+	desc = "The red and gold standard of House Strelitz represents loyalty and bravery. It proudly flies above thousands of military facilities across the Empire and beyond."
+	icon_state = "strelitz"
+	flag_path = "strelitz"
+	flag_item = /obj/item/flag/strelitz
+
+/obj/item/flag/volvalaad
+	name = "\improper House Volvalaad standard"
+	desc = "The black and dark blue hues of House Volvalaad's standard go hand-in-hand with the Empire's greatest scientific accomplishment: geneboosting. May Crown Princess Keeser live for a thousand years!"
+	flag_path = "volvalaad"
+	flag_structure = /obj/structure/sign/flag/volvalaad
+
+/obj/structure/sign/flag/volvalaad
+	name = "\improper House Volvalaad standard"
+	desc = "The black and dark blue hues of House Volvalaad's standard go hand-in-hand with the Empire's greatest scientific accomplishment: geneboosting. May Crown Princess Keeser live for a thousand years!"
+	flag_path = "volvalaad"
+	icon_state = "volvalaad"
+	flag_item = /obj/item/flag/volvalaad
+
+/obj/item/flag/kazhkz
+	name = "\improper House Kazhkz standard"
+	desc = "A red-and-orange standard with a circular chevron which represents House Kazhkz-Han'san, one of the unathi houses of the \
+	Empire of Dominia. They are known for their more modernist nature and aversion to augmentation."
+	flag_path = "kazhkz"
+	flag_structure = /obj/structure/sign/flag/kazhkz
+
+/obj/structure/sign/flag/kazhkz
+	name = "\improper House Kazhkz standard"
+	desc = "A red-and-orange standard with a circular chevron which represents House Kazhkz-Han'san, one of the unathi houses of the \
+	Empire of Dominia. They are known for their more modernist nature and aversion to augmentation."
+	flag_path = "kazhkz"
+	icon_state = "kazhkz"
+	flag_item = /obj/item/flag/kazhkz
+
+/obj/item/flag/hansan
+	name = "\improper House Han'san standard"
+	desc = "A green standard with a circular chevron which represents the Clan Han'san, currently sidelined in the \
+	unathi House Kazhkz-Han'san. They are known for their conservative and militant nature."
+	flag_path = "hansan"
+	flag_structure = /obj/structure/sign/flag/hansan
+
+/obj/structure/sign/flag/hansan
+	name = "\improper House Han'san standard"
+	desc = "A green standard with a circular chevron which represents the Clan Han'san, currently sidelined in the \
+	unathi House Kazhkz-Han'san. They are known for their conservative and militant nature."
+	flag_path = "hansan"
+	icon_state = "hansan"
+	flag_item = /obj/item/flag/hansan
+
+/obj/item/flag/caladius
+	name = "\improper House Caladius standard"
+	desc = "The purple standard of House Caladius flies proudly from Imperial government buildings, colonies, and merchant vessels. Known for its meritocracy, it also flies above many schools for gifted Ma'zals -- the future of the Imperial colonial bureaucracy."
+	flag_path = "caladius"
+	flag_structure = /obj/structure/sign/flag/caladius
+
+/obj/structure/sign/flag/caladius
+	name = "\improper House Caladius standard"
+	desc = "The purple standard of House Caladius flies proudly from Imperial government buildings, colonies, and merchant vessels. Known for its meritocracy, it also flies above many schools for gifted Ma'zals -- the future of the Imperial colonial bureaucracy."
+	flag_path = "caladius"
+	icon_state = "caladius"
+	flag_item = /obj/item/flag/caladius
+
+/obj/item/flag/zhao
+	name = "\improper House Zhao standard"
+	desc = "Renowned for their naval and engineering prowess, the white-and-silver standard of House Zhao flies proudly from Imperial Fleet facilities and colonial holdings across the southern Spur. Long live the Grand Admiral and the Empire!"
+	flag_path = "zhao"
+	flag_structure = /obj/structure/sign/flag/zhao
+
+/obj/structure/sign/flag/zhao
+	name = "\improper House Zhao standard"
+	desc = "Renowned for their naval and engineering prowess, the white-and-silver standard of House Zhao flies proudly from Imperial Fleet facilities and colonial holdings across the southern Spur. Long live the Grand Admiral and the Empire!"
+	flag_path = "zhao"
+	icon_state = "zhao"
+	flag_item = /obj/item/flag/zhao
+
+/obj/item/flag/seok
+	name = "\improper House Seok standard"
+	desc = "The red-black-red banner of House Seok. Long live the Empress and her family!"
+	desc_extended = "House Seok symbolizes itself with a traditional character roughly translating as ancient, signifying its venerable history and \
+	ties to the Imperial Household. Many Imperial cultural buildings, from libraries to opera houses, have this symbol engraved somewhere inside them as \
+	an enduring testament to House Seok's generosity."
+	flag_path = "seok"
+	flag_structure = /obj/structure/sign/flag/seok
+
+/obj/structure/sign/flag/seok
+	name = "\improper House Seok standard"
+	desc = "The red-black-red banner of House Seok. Long live the Empress and her family!"
+	desc_extended = "House Seok symbolizes itself with a traditional character roughly translating as ancient, signifying its venerable history and \
+	ties to the Imperial Household. Many Imperial cultural buildings, from libraries to opera houses, have this symbol engraved somewhere inside them as \
+	an enduring testament to House Seok's generosity."
+	icon_state = "seok"
+	flag_item = /obj/item/flag/seok
+
+/obj/item/flag/kaneko
+	name = "\improper House Kaneko standard"
+	desc = "The gold-and-silver banner of House Kaneko. Long live Zhurong and Count Kaneko!"
+	desc_extended = "The sixth great houses' symbol, a golden crysanthemum, symbolises the long history of House Kaneko and its great potential - and ambition. \
+	This symbol is often stamped on the support beams of Zhurong's structures and on the interior of Imperial Fleet hulls, symbolizing the steel used to construct \
+	it draws from the same great strength as House Kaneko."
+	flag_path = "kaneko"
+	flag_structure = /obj/structure/sign/flag/kaneko
+
+/obj/structure/sign/flag/kaneko
+	name = "\improper House Kaneko standard"
+	desc = "The gold-and-silver banner of House Kaneko. Long live Zhurong and Count Kaneko!"
+	desc_extended = "The sixth great houses' symbol, a golden crysanthemum, symbolises the long history of House Kaneko and its great potential - and ambition. \
+	This symbol is often stamped on the support beams of Zhurong's structures and on the interior of Imperial Fleet hulls, symbolizing the steel used to construct \
+	it draws from the same great strength as House Kaneko."
+	icon_state = "kaneko"
+	flag_item = /obj/item/flag/kaneko
+
+/obj/item/flag/sinzendorf
+	name = "\improper House von Sinzendorf standard"
+	desc = "The black-and-red banner of House von Sinzendorf. En garde!"
+	desc_extended = "The crossed swords and Imperial Eye of House von Sinzendorf’s crest feature prominently on its banner. The swords symbolize duty, honour, \
+	and loyalty until the end. The Imperial Eye symbolizes the Imperial Household, their masters. The Imperial Household's guard is closely associated with the \
+	von Sinzendorf's symbol, due to their long history as the Imperial family's bodyguards."
+	flag_path = "sinzendorf"
+	flag_structure = /obj/structure/sign/flag/sinzendorf
+
+/obj/structure/sign/flag/sinzendorf
+	name = "\improper House von Sinzendorf standard"
+	desc = "The black-and-red banner of House von Sinzendorf. En garde!"
+	desc_extended = "The crossed swords and Imperial Eye of House von Sinzendorf’s crest feature prominently on its banner. The swords symbolize duty, honour, \
+	and loyalty until the end. The Imperial Eye symbolizes the Imperial Household, their masters. The Imperial Household's guard is closely associated with the \
+	von Sinzendorf's symbol, due to their long history as the Imperial family's bodyguards."
+	icon_state = "sinzendorf"
+	flag_item = /obj/item/flag/sinzendorf
+
+// Biesel.
+
+/obj/item/flag/biesel
+	name = "\improper Republic of Biesel flag"
+	desc = "The colours and symbols of the Republic of Biesel."
+	flag_path = "biesel"
+	flag_structure = /obj/structure/sign/flag/biesel
+
+/obj/structure/sign/flag/biesel
+	name = "\improper Republic of Biesel flag"
+	desc = "The colours and symbols of the Republic of Biesel."
+	flag_path = "biesel"
+	icon_state = "biesel"
+	flag_item = /obj/item/flag/biesel
+
+/obj/structure/sign/flag/biesel/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/biesel/l
+	name = "large Republic of Biesel flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/biesel/large
+
+/obj/structure/sign/flag/biesel/large
+	icon_state = "biesel_l"
+	flag_path = "biesel"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/biesel/l
+
+/obj/structure/sign/flag/biesel/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/biesel/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/biesel/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/biesel/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+/obj/item/flag/biesel/old
+	name = "old Autonomous Solarian Republic of Biesel flag"
+	desc = "The flag used by Biesel and Valkyrie while they were semi-autonomous colonies of the Solarian Alliance, re-instated briefly during the 33rd Fleet's invasion and occupation in 2459. Due to this and the general hatred of the Sol Alliance across Tau Ceti, displaying this flag anywhere in Tau Ceti space would be a bold move, and is illegal as it often carries anti-corporatist and/or treasonous sentiments."
+	flag_path = "biesel_old"
+	flag_structure = /obj/structure/sign/flag/biesel/old
+
+/obj/structure/sign/flag/biesel/old
+	name = "old Autonomous Solarian Republic of Biesel flag"
+	desc = "The flag used by Biesel and Valkyrie while they were semi-autonomous colonies of the Solarian Alliance, re-instated briefly during the 33rd Fleet's invasion and occupation in 2459. Due to this and the general hatred of the Sol Alliance across Tau Ceti, displaying this flag anywhere in Tau Ceti space would be a bold move, and is illegal as it often carries anti-corporatist and/or treasonous sentiments."
+	flag_path = "biesel_old"
+	icon_state = "biesel_old"
+	flag_item = /obj/item/flag/biesel/old
+
+/obj/structure/sign/flag/biesel/old/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/biesel/old/l
+	name = "large old Autonomous Solarian Republic of Biesel flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/biesel/old/large
+
+/obj/structure/sign/flag/biesel/old/large
+	icon_state = "biesel_old_l"
+	flag_path = "biesel_old"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/biesel/old/l
+
+/obj/structure/sign/flag/biesel/old/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/biesel/old/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/biesel/old/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/biesel/old/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+/obj/item/flag/biesel/antique
+	name = "antique Solarian Colonial Mandate of Tau Ceti flag"
+	desc = "The flag used by Biesel and Valkyrie before the Interstellar War, during its initial colonization. This flag still has the old Solarian Alliance canton in the corner. This flag is old enough that it is considered an antique and not illegal to display, but would still be a bad move to publicly display it in Tau Ceti space, primarily due to its rarity."
+	flag_path = "antique_biesel"
+	flag_structure = /obj/structure/sign/flag/biesel/antique
+
+/obj/structure/sign/flag/biesel/antique
+	name = "antique Solarian Colonial Mandate of Tau Ceti flag"
+	desc = "The flag used by Biesel and Valkyrie before the Interstellar War, during its initial colonization. This flag still has the old Solarian Alliance canton in the corner. This flag is old enough that it is considered an antique and not illegal to display, but would still be a bad move to publicly display it in Tau Ceti space, primarily due to its rarity."
+	flag_path = "antique_biesel"
+	icon_state = "antique_biesel"
+	flag_item = /obj/item/flag/biesel/antique
+
+/obj/structure/sign/flag/biesel/antique/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/biesel/antique/l
+	name = "large antique Solarian Colonial Mandate of Tau Ceti flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/biesel/antique/large
+
+/obj/structure/sign/flag/biesel/antique/large
+	icon_state = "biesel_antique_l"
+	flag_path = "biesel_antique"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/biesel/antique/l
+
+/obj/structure/sign/flag/biesel/antique/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/biesel/antique/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/biesel/antique/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/biesel/antique/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// SCC
+
+/obj/item/flag/scc
+	name = "\improper Stellar Corporate Conglomerate flag"
+	desc = "The colours and logo of the Stellar Corporate Conglomerate."
+	desc_extended = "The Stellar Corporate Conglomerate, also known as Chainlink, is a joint alliance between the NanoTrasen Corporation, Hephaestus Industries, Idris Incorporated, Zeng-Hu Pharmaceuticals and Zavodskoi Interstellar to exercise an undisputed economic dominance over the Orion Spur."
+	flag_path = "scc"
+	flag_structure = /obj/structure/sign/flag/scc
+
+/obj/structure/sign/flag/scc
+	name = "\improper Stellar Corporate Conglomerate flag"
+	desc = "The colours and logo of the Stellar Corporate Conglomerate."
+	desc_extended = "The Stellar Corporate Conglomerate, also known as Chainlink, is a joint alliance between the NanoTrasen Corporation, Hephaestus Industries, Idris Incorporated, Zeng-Hu Pharmaceuticals and Zavodskoi Interstellar to exercise an undisputed economic dominance over the Orion Spur."
+	flag_path = "scc"
+	icon_state = "scc"
+	flag_item = /obj/item/flag/scc
+
+/obj/structure/sign/flag/scc/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/scc/l
+	name = "large Stellar Corporate Conglomerate flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/scc/large
+
+/obj/structure/sign/flag/scc/large
+	icon_state = "scc_l"
+	flag_path = "scc"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/scc/l
+
+/obj/structure/sign/flag/scc/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/scc/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/scc/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/scc/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Fisanduh
+
+/obj/item/flag/fisanduh
+	name = "\improper Confederated States of Fisanduh flag"
+	desc = "A flag of the fallen Confederated States of Fisanduh."
+	desc_extended = "The red-gold-white flag of the Confederated States of Fisanduh and, by extention, the Fisanduh Freedom Front. Due to its origins, possession of such a flag in the Empire outside of Fisanduh itself can carry an extremely harsh punishment if one is an Imperial citizen or \
+	subject. This has not stopped it from becoming a symbol of resistance, and reproductions are extremely common in more rebellious areas of the Empire. Even if they are beaten-down and run ragged by war, the spirit of Fisanduh will live forever in the hearts of its people."
+	flag_path = "fisanduh"
+	flag_structure = /obj/structure/sign/flag/fisanduh
+
+/obj/structure/sign/flag/fisanduh
+	name = "\improper Confederated States of Fisanduh flag"
+	desc = "A flag of the fallen Confederated States of Fisanduh."
+	desc_extended = "The red-gold-white flag of the Confederated States of Fisanduh and, by extention, the Fisanduh Freedom Front. Due to its origins, possession of such a flag in the Empire outside of Fisanduh itself can carry an extremely harsh punishment if one is an Imperial citizen or \
+	subject. This has not stopped it from becoming a symbol of resistance, and reproductions are extremely common in more rebellious areas of the Empire. Even if they are beaten-down and run ragged by war, the spirit of Fisanduh will live forever in the hearts of its people."
+	flag_path = "fisanduh"
+	icon_state = "fisanduh"
+	flag_item = /obj/item/flag/fisanduh
+
+/obj/structure/sign/flag/fisanduh/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/fisanduh/l
+	name = "large Confederated States of Fisanduh flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/fisanduh/large
+
+/obj/structure/sign/flag/fisanduh/large
+	icon_state = "fisanduh_l"
+	flag_path = "fisanduh"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/fisanduh/l
+
+/obj/structure/sign/flag/fisanduh/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/fisanduh/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/fisanduh/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/fisanduh/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Gadpathur
+
+/obj/item/flag/gadpathur
+	name = "\improper United Planetary Defense Council of Gadpathur flag"
+	desc = "The black and brown flag of Gadpathur, featuring the planet's commonly-seen sun iconography in the centre. The Gadpathurian flag is a common sight in the Coalition's military, and can be seen everywhere on Gadpathur -- from lighters to ID card to government buildings. \
+	It is uncommonly seen outside of the Coalition as a symbol of anti-Solarian sentiment."
+	desc_extended = "The Gadpathurian flag is, surprisingly, a variation of the common flag of its hated enemy: the Alliance of Sovereign Solarian Nations. The reason for this is simple: in the immediate aftermath of the planet's orbital bombardment by the Solarian \
+	Navy the most common flags available for the various successor states were the ASSN flags still flying over the ruins of government buildings. The black-brown flag of Ashia Patvardhan's Gadpathurian Reunification League that is now Gadpathur's flag was simply one of many of \
+	these variant flags before the League's reunification. The black and brown represent the planet itself, while the red-and-gold sun represents that the people of the planet are still alive and burning with a desire to never again fall."
+	flag_path = "gadpathur"
+	flag_structure = /obj/structure/sign/flag/gadpathur
+
+/obj/structure/sign/flag/gadpathur
+	name = "\improper United Planetary Defense Council of Gadpathur flag"
+	desc = "The black and brown flag of Gadpathur, featuring the planet's commonly-seen sun iconography in the centre. The Gadpathurian flag is a common sight in the Coalition's military, and can be seen everywhere on Gadpathur -- from lighters to ID card to government buildings. \
+	It is uncommonly seen outside of the Coalition as a symbol of anti-Solarian sentiment."
+	desc_extended = "The Gadpathurian flag is, surprisingly, a variation of the common flag of its hated enemy: the Alliance of Sovereign Solarian Nations. The reason for this is simple: in the immediate aftermath of the planet's orbital bombardment by the Solarian \
+	Navy the most common flags available for the various successor states were the ASSN flags still flying over the ruins of government buildings. The black-brown flag of Ashia Patvardhan's Gadpathurian Reunification League that is now Gadpathur's flag was simply one of many of \
+	these variant flags before the League's reunification. The black and brown represent the planet itself, while the red-and-gold sun represents that the people of the planet are still alive and burning with a desire to never again fall."
+	flag_path = "gadpathur"
+	icon_state = "gadpathur"
+	flag_item = /obj/item/flag/gadpathur
+
+/obj/structure/sign/flag/gadpathur/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/gadpathur/l
+	name = "large United Planetary Defense Council of Gadpathur flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/gadpathur/large
+
+/obj/structure/sign/flag/gadpathur/large
+	icon_state = "gadpathur_l"
+	flag_path = "gadpathur"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/gadpathur/l
+
+/obj/structure/sign/flag/gadpathur/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/gadpathur/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/gadpathur/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/gadpathur/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Vysoka
+
+/obj/item/flag/vysoka
+	name = "\improper Free System of Vysoka flag"
+	desc = "The flag of the Free System of Vysoka."
+	desc_extended = "The red, yellow and Coalition-blue flag of Vysoka, as drawn when one wishes to represent the planet as a whole. As Vysokan communities are rather traditional and tied to their respective Host, village or city-state, natives are more likely to \
+	identify with local symbols. This has not stopped the original flag from being flown in times of much-needed unity."
+	flag_path = "vysoka"
+	flag_structure = /obj/structure/sign/flag/vysoka
+
+/obj/structure/sign/flag/vysoka
+	name = "\improper Free System of Vysoka flag"
+	desc = "The flag of the Free System of Vysoka."
+	desc_extended = "The red, yellow and Coalition-blue flag of Vysoka, as drawn when one wishes to represent the planet as a whole. As Vysokan communities are rather traditional and tied to their respective Host, village or city-state, natives are more likely to \
+	identify with local symbols. This has not stopped the original flag from being flown in times of much-needed unity."
+	flag_path = "vysoka"
+	icon_state = "vysoka"
+	flag_item = /obj/item/flag/vysoka
+
+/obj/structure/sign/flag/vysoka/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/vysoka/l
+	name = "large Free System of Vysoka flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/vysoka/large
+
+/obj/structure/sign/flag/vysoka/large
+	icon_state = "vysoka_l"
+	flag_path = "vysoka"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/vysoka/l
+
+/obj/structure/sign/flag/vysoka/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/vysoka/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/vysoka/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/vysoka/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Konyang
+
+/obj/item/flag/konyang
+	name = "\improper Konyang flag"
+	desc = "The flag of Konyang."
+	desc_extended = "The white, blue and yellow flag of Konyang was adopted in 2462, having unofficially been used by pro-autonomy circles long before the declaration of independence. The traditional taitju represents peace and harmony as the highest values of \
+	the new state, with the color blue representing the waterways the planet is known for and yellow, their aim of prosperity. The white background represents Konyang's purity."
+	flag_path = "konyang"
+	flag_structure = /obj/structure/sign/flag/konyang
+
+/obj/structure/sign/flag/konyang
+	name = "\improper Konyang flag"
+	desc = "The flag of Konyang."
+	desc_extended = "The white, blue and yellow flag of Konyang was adopted in 2462, having unofficially been used by pro-autonomy circles long before the declaration of independence. The traditional taitju represents peace and harmony as the highest values of \
+	the new state, with the color blue representing the waterways the planet is known for and yellow, their aim of prosperity. The white background represents Konyang's purity."
+	flag_path = "konyang"
+	icon_state = "konyang"
+	flag_item = /obj/item/flag/konyang
+
+/obj/structure/sign/flag/konyang/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/konyang/l
+	name = "large Konyang flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/konyang/large
+
+/obj/structure/sign/flag/konyang/large
+	icon_state = "konyang_l"
+	flag_path = "konyang"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/konyang/l
+
+/obj/structure/sign/flag/konyang/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/konyang/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/konyang/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/konyang/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Izharshan
+
+/obj/item/flag/izharshan
+	name = "\improper Izharshan Flag"
+	desc = "The tan and orange flag of Izharshan's Raiders, depicting a Unathi skull and a star above, surrounded by axes. Due to the sheer size of Izharshan's fleet, and the wide area in \
+	which they operate has this specific flag be sighted far and wide, leading to the misconception for some that it is in fact used by all Unathi pirates."
+	desc_extended = "Iconography is taken quite seriously among Unathi pirates. With much time to spare during lengthy flights, it's not rare for crew, especially officers, to indulge in arts, leading to fleets often finding skilled artists \
+	in their ranks who, alongside their Fang Captains, create their flag. Though there are recurring elements in Unathi pirate flag designs, such as depictions of heads, skulls, stellar bodies \
+	and weaponry, there are no proper rules in creating a flag for ones Unathi fleets... Still, the sheer popularity of Izharshan's flag, and the fact that it was one of the first flags created by a Unathi Pirate fleet made it a model to follow \
+	for many others, with a Sinta (or their head or skull) taking a central place in the picture, and other elements complimenting it, generally in a symmetrical fashion."
+	flag_path = "izharshan"
+	flag_structure = /obj/structure/sign/flag/izharshan
+
+/obj/structure/sign/flag/izharshan
+	name = "\improper Izharshan Flag"
+	desc = "The tan and orange flag of Izharshan's Raiders, depicting a Unathi skull and a star above, surrounded by axes. Due to the sheer size of Izharshan's fleet, and the wide area in \
+	which they operate has this specific flag be sighted far and wide, leading to the misconception for some that it is in fact used by all Unathi pirates."
+	desc_extended = "Iconography is taken quite seriously among Unathi pirates. With much time to spare during lengthy flights, it's not rare for crew, especially officers, to indulge in arts, leading to fleets often finding skilled artists \
+	in their ranks who, alongside their Fang Captains, create their flag. Though there are recurring elements in Unathi pirate flag designs, such as depictions of heads, skulls, stellar bodies \
+	and weaponry, there are no proper rules in creating a flag for ones Unathi fleets... Still, the sheer popularity of Izharshan's flag, and the fact that it was one of the first flags created by a Unathi Pirate fleet made it a model to follow \
+	for many others, with a Sinta (or their head or skull) taking a central place in the picture, and other elements complimenting it, generally in a symmetrical fashion."
+	flag_path = "izharshan"
+	icon_state = "izharshan"
+	flag_item = /obj/item/flag/izharshan
+
+/obj/structure/sign/flag/izharshan/unmovable
+	unmovable = TRUE
+
+//Tarwa Conglomerate
+
+/obj/item/flag/tarwa
+	name = "\improper Tarwa Conglomerate flag"
+	desc = "The black, white and green flag of the Tarwa Conglomerate, depicting an Unathi skeleton with a diona gestalt growing within it. This flag is rarely seen within civilised space, and only \
+	occasionally mentioned in spacer tales, speaking of a 'fleet of the living dead'."
+	desc_extended = "The Tarwa Conglomerate's banner was, according to legend, designed by Tarskin Tarwa himself, once a brilliant scientist at the Skalamar University of Medicine. When he was expelled \
+	for his experiments on 'Sinta-Diona compatibility', he took to the stars as a pirate. The Conglomerate's ships are rare sightings in civilised space, clinging to the edges of the known Spur. Little is known \
+	of this enigmatic pirate fleet, but every now and then a tale will be heard of wrecked ships moving again, crewed by the living dead..."
+	flag_path = "tarwa"
+	flag_structure = /obj/structure/sign/flag/tarwa
+
+/obj/structure/sign/flag/tarwa
+	name = "\improper Tarwa Conglomerate Flag"
+	desc = "The black, white and green flag of the Tarwa Conglomerate, depicting an Unathi skeleton with a diona gestalt growing within it. This flag is rarely seen within civilised space, and only \
+	occasionally mentioned in spacer tales, speaking of a 'fleet of the living dead'."
+	desc_extended = "The Tarwa Conglomerate's banner was, according to legend, designed by Tarskin Tarwa himself, once a brilliant scientist at the Skalamar University of Medicine. When he was expelled \
+	for his experiments on 'Sinta-Diona compatibility', he took to the stars as a pirate. The Conglomerate's ships are rare sightings in civilised space, clinging to the edges of the known Spur. Little is known \
+	of this enigmatic pirate fleet, but every now and then a tale will be heard of wrecked ships moving again, crewed by the living dead..."
+	flag_path = "tarwa"
+	icon_state = "tarwa"
+	flag_item = /obj/item/flag/tarwa
+
+/obj/structure/sign/flag/tarwa/unmovable
+	unmovable = TRUE
+
+// PMCG
+
+/obj/item/flag/pmcg
+	name = "\improper Private Military Contracting Group flag"
+	desc = "The flag representing the coalition of medical and security contractors in service to the Stellar Corporate Conglomerate."
+	flag_path = "pmcg"
+	flag_structure = /obj/structure/sign/flag/pmcg
+
+/obj/structure/sign/flag/pmcg
+	name = "\improper Private Military Contracting Group flag"
+	desc = "The flag representing the coalition of medical and security contractors in service to the Stellar Corporate Conglomerate."
+	flag_path = "pmcg"
+	icon_state = "pmcg"
+	flag_item = /obj/item/flag/pmcg
+
+/obj/structure/sign/flag/pmcg/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/pmcg/l
+	name = "large Private Military Contracting Group flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/pmcg/large
+
+/obj/structure/sign/flag/pmcg/large
+	icon_state = "pmcg_l"
+	flag_path = "pmcg"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/pmcg/l
+
+/obj/structure/sign/flag/pmcg/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/pmcg/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/pmcg/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/pmcg/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Himeo
+
+/obj/item/flag/himeo
+	name = "\improper United Syndicates of Himeo flag"
+	desc = "The flag of the United Syndicates of Himeo."
+	flag_path = "himeo"
+	flag_structure = /obj/structure/sign/flag/himeo
+
+/obj/structure/sign/flag/himeo
+	name = "\improper United Syndicates of Himeo flag"
+	desc = "The flag of the United Syndicates of Himeo."
+	flag_path = "himeo"
+	icon_state = "himeo"
+	flag_item = /obj/item/flag/himeo
+
+/obj/structure/sign/flag/himeo/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/himeo/l
+	name = "large United Syndicates of Himeo flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/himeo/large
+
+/obj/structure/sign/flag/himeo/large
+	icon_state = "himeo_l"
+	flag_path = "himeo"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/himeo/l
+
+/obj/structure/sign/flag/himeo/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/himeo/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/himeo/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/himeo/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Assunzione
+
+/obj/item/flag/assunzione
+	name = "\improper Republic of Assunzione flag"
+	desc = "The flag of the Republic of Assunzione."
+	flag_path = "assunzione"
+	flag_structure = /obj/structure/sign/flag/assunzione
+
+/obj/structure/sign/flag/assunzione
+	name = "\improper Republic of Assunzione flag"
+	desc = "The flag of the Republic of Assunzione."
+	flag_path = "assunzione"
+	icon_state = "assunzione"
+	flag_item = /obj/item/flag/assunzione
+
+/obj/structure/sign/flag/assunzione/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/assunzione/l
+	name = "large Republic of Assunzione flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/assunzione/large
+
+/obj/structure/sign/flag/assunzione/large
+	icon_state = "assunzione_l"
+	flag_path = "assunzione"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/assunzione/l
+
+/obj/structure/sign/flag/assunzione/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/assunzione/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/assunzione/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/assunzione/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+/obj/item/flag/luceist/l
+	name = "large Luceian flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/luceist/large
+
+/obj/structure/sign/flag/luceist/large
+	icon_state = "luceist_l"
+	flag_path = "luceist"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/luceist/l
+
+// Port Antillia
+
+/obj/item/flag/portantillia
+	name = "\improper Union of Port Antillia flag"
+	desc = "The flag of the Union of Port Antillia."
+	flag_path = "portantillia"
+	flag_structure = /obj/structure/sign/flag/portantillia
+
+/obj/structure/sign/flag/portantillia
+	name = "\improper Union of Port Antillia flag"
+	desc = "The flag of the Union of Port Antillia."
+	flag_path = "portantillia"
+	icon_state = "portantillia"
+	flag_item = /obj/item/flag/portantillia
+
+/obj/structure/sign/flag/portantillia/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/portantillia/l
+	name = "large Union of Port Antillia flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/portantillia/large
+
+/obj/structure/sign/flag/portantillia/large
+	icon_state = "portantillia_l"
+	flag_path = "portantillia"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/portantillia/l
+
+/obj/structure/sign/flag/portantillia/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/portantillia/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/portantillia/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/portantillia/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// San Colette
+
+/obj/item/flag/sancolette
+	name = "\improper Sovereign Solarian Republic of San Colette flag"
+	desc = "The flag of the Sovereign Solarian Republic of San Colette."
+	flag_path = "sancolette"
+	flag_structure = /obj/structure/sign/flag/sancolette
+
+/obj/structure/sign/flag/sancolette
+	name = "\improper Sovereign Solarian Republic of San Colette flag"
+	desc = "The flag of the Sovereign Solarian Republic of San Colette."
+	flag_path = "sancolette"
+	icon_state = "sancolette"
+	flag_item = /obj/item/flag/sancolette
+
+/obj/structure/sign/flag/sancolette/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/sancolette/l
+	name = "large Sovereign Solarian Republic of San Colette flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/sancolette/large
+
+/obj/structure/sign/flag/sancolette/large
+	icon_state = "sancolette_l"
+	flag_path = "sancolette"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/sancolette/l
+
+/obj/structure/sign/flag/sancolette/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/sancolette/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/sancolette/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/sancolette/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+/obj/item/flag/sancolette/old
+	name = "old Sovereign Solarian Republic of San Colette flag"
+	desc = "The flag of the Sovereign Solarian Republic of San Colette, before its re-integration with the Solarian Alliance through the Northern Solarian Reconstruction Mandate. Still common throughout the spur, as volunteers in the war for the Middle Ring Shield Pact often collected them as memorabilia."
+	flag_path = "sancolette_old"
+	flag_structure = /obj/structure/sign/flag/sancolette/old
+
+/obj/structure/sign/flag/sancolette/old
+	name = "old Sovereign Solarian Republic of San Colette flag"
+	desc = "The flag of the Sovereign Solarian Republic of San Colette, before its re-integration with the Solarian Alliance through the Northern Solarian Reconstruction Mandate. Still common throughout the spur, as volunteers in the war for the Middle Ring Shield Pact often collected them as memorabilia."
+	flag_path = "sancolette_old"
+	icon_state = "sancolette_old"
+	flag_item = /obj/item/flag/sancolette/old
+
+/obj/structure/sign/flag/sancolette/old/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/sancolette/old/l
+	name = "large old Sovereign Solarian Republic of San Colette flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/sancolette/old/large
+
+/obj/structure/sign/flag/sancolette/old/large
+	icon_state = "sancolette_old_l"
+	flag_path = "sancolette_old"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/sancolette/old/l
+
+/obj/structure/sign/flag/sancolette/old/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/sancolette/old/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/sancolette/old/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/sancolette/old/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Mictlan
+
+/obj/item/flag/mictlan
+	name = "\improper Mictlan flag"
+	desc = "The flag of Mictlan."
+	flag_path = "mictlan"
+	flag_structure = /obj/structure/sign/flag/mictlan
+
+/obj/structure/sign/flag/mictlan
+	name = "\improper Mictlan flag"
+	desc = "The flag of Mictlan."
+	flag_path = "mictlan"
+	icon_state = "mictlan"
+	flag_item = /obj/item/flag/mictlan
+
+/obj/structure/sign/flag/mictlan/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/mictlan/l
+	name = "large Mictlan flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/mictlan/large
+
+/obj/structure/sign/flag/mictlan/large
+	icon_state = "mictlan_l"
+	flag_path = "mictlan"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/mictlan/l
+
+/obj/structure/sign/flag/mictlan/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/mictlan/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/mictlan/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/mictlan/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+
+// New Hai Phong
+
+/obj/item/flag/nhp
+	name = "\improper New Hai Phong flag"
+	desc = "The flag of New Hai Phong."
+	flag_path = "newhaiphong"
+	flag_structure = /obj/structure/sign/flag/nhp
+
+/obj/structure/sign/flag/nhp
+	name = "\improper New Hai Phong flag"
+	desc = "The flag of New Hai Phong."
+	flag_path = "newhaiphong"
+	icon_state = "newhaiphong"
+	flag_item = /obj/item/flag/nhp
+
+/obj/structure/sign/flag/nhp/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/nhp/l
+	name = "large New Hai Phong flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/nhp/large
+
+/obj/structure/sign/flag/nhp/large
+	icon_state = "newhaiphong_l"
+	flag_path = "newhaiphong"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/nhp/l
+
+/obj/structure/sign/flag/nhp/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/nhp/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/nhp/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/nhp/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Silversun
+
+/obj/item/flag/silversun
+	name = "\improper Silversun flag"
+	desc = "The flag of Silversun."
+	flag_path = "silversun"
+	flag_structure = /obj/structure/sign/flag/silversun
+
+/obj/structure/sign/flag/silversun
+	name = "\improper Silversun flag"
+	desc = "The flag of Silversun."
+	flag_path = "silversun"
+	icon_state = "silversun"
+	flag_item = /obj/item/flag/silversun
+
+/obj/structure/sign/flag/silversun/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/silversun/l
+	name = "large Silversun flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/silversun/large
+
+/obj/structure/sign/flag/silversun/large
+	icon_state = "silversun_l"
+	flag_path = "silversun"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/silversun/l
+
+/obj/structure/sign/flag/silversun/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/silversun/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/silversun/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/silversun/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Luna
+
+/obj/item/flag/luna
+	name = "\improper Lunan flag"
+	desc = "The flag of Luna. The crescent represents Luna itself, and is meant to remind viewers of Selene's headpiece."
+	flag_path = "luna"
+	flag_structure = /obj/structure/sign/flag/luna
+
+/obj/structure/sign/flag/luna
+	name = "\improper Lunan flag"
+	desc = "The flag of Luna. The crescent represents Luna itself, and is meant to remind viewers of Selene's headpiece."
+	flag_path = "luna"
+	icon_state = "luna"
+	flag_item = /obj/item/flag/luna
+
+/obj/item/flag/luna/l
+	name = "large Lunan flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/luna/large
+
+/obj/structure/sign/flag/luna/large
+	icon_state = "luna_l"
+	flag_path = "luna"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/luna/l
+
+/obj/structure/sign/flag/luna/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/luna/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/luna/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/luna/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+//Persepolis
+
+/obj/item/flag/persepolis
+	name = "\improper Persepolis flag"
+	desc = "The flag of Persepolis. The colors are similar to the Presepolean sky during sunrise over the planet's oceans. The writing on the flag reads: Freedom and Justice."
+	flag_path = "persepolis"
+	flag_structure = /obj/structure/sign/flag/persepolis
+
+/obj/structure/sign/flag/persepolis
+	name = "\improper Persepolis flag"
+	desc = "The flag of Persepolis. The colors are similar to the Presepolean sky during sunrise over the planet's oceans. The writing on the flag reads: Freedom and Justice.."
+	flag_path = "persepolis"
+	icon_state = "persepolis"
+	flag_item = /obj/item/flag/persepolis
+
+/obj/item/flag/persepolis/l
+	name = "large Persepolis flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/persepolis/large
+
+/obj/structure/sign/flag/persepolis/large
+	icon_state = "persepolis_l"
+	flag_path = "persepolis"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/persepolis/l
+
+/obj/structure/sign/flag/persepolis/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/persepolis/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/persepolis/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/persepolis/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+//Damascus
+
+/obj/item/flag/damascus
+	name = "\improper Damascus flag"
+	desc = "The flag of Damascus. Popularized during the Elyran Revolution among protestors, the writing on the flag bears the famed slogan: At Any Price."
+	flag_path = "damascus"
+	flag_structure = /obj/structure/sign/flag/damascus
+
+/obj/structure/sign/flag/damascus
+	name = "\improper Damascus flag"
+	desc = "The flag of Damascus. Popularized during the Elyran Revolution among protestors, the writing on the flag bears the famed slogan: At Any Price."
+	flag_path = "damascus"
+	icon_state = "damascus"
+	flag_item = /obj/item/flag/damascus
+
+/obj/item/flag/damascus/l
+	name = "large Damascus flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/damascus/large
+
+/obj/structure/sign/flag/damascus/large
+	icon_state = "damascus_l"
+	flag_path = "damascus"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/damascus/l
+
+/obj/structure/sign/flag/damascus/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/damascus/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/damascus/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/damascus/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+//Medina
+/obj/item/flag/medina
+	name = "\improper Medina flag"
+	desc = "The flag of Medina. The colors represent wealth, progress, purity, and phoron."
+	flag_path = "medina"
+	flag_structure = /obj/structure/sign/flag/medina
+
+/obj/structure/sign/flag/medina
+	name = "\improper Medina flag"
+	desc = "The flag of Medina. The colors represent wealth, progress, purity, and phoron."
+	flag_path = "medina"
+	icon_state = "medina"
+	flag_item = /obj/item/flag/medina
+
+/obj/item/flag/medina/l
+	name = "large Medina flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/medina/large
+
+/obj/structure/sign/flag/medina/large
+	icon_state = "medina_l"
+	flag_path = "medina"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/medina/l
+
+/obj/structure/sign/flag/medina/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/medina/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/medina/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/medina/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+//Aemaq
+/obj/item/flag/aemaq
+	name = "\improper Aemaq flag"
+	desc = "The flag of Aemaq. The colors of the flag represent wealth, energy, the planet's oceans, and the pure hearts of the Aemaqans."
+	flag_path = "aemaq"
+	flag_structure = /obj/structure/sign/flag/aemaq
+
+/obj/structure/sign/flag/aemaq
+	name = "\improper Aemaq flag"
+	desc = "The flag of Aemaq. The colors of the flag represent wealth, energy, the planet's oceans, and the pure hearts of the Aemaqans."
+	flag_path = "aemaq"
+	icon_state = "aemaq"
+	flag_item = /obj/item/flag/aemaq
+
+/obj/item/flag/aemaq/l
+	name = "large Aemaq flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/aemaq/large
+
+/obj/structure/sign/flag/aemaq/large
+	icon_state = "aemaq_l"
+	flag_path = "aemaq"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/aemaq/l
+
+/obj/structure/sign/flag/aemaq/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/aemaq/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/aemaq/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/aemaq/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+//New Suez
+/obj/item/flag/newsuez
+	name = "\improper New Suez flag"
+	desc = "The flag of New Suez. The moon of Persepolis is surrounded by the stars that represent the parties of the 2381 New Suez Accords."
+	flag_path = "newsuez"
+	flag_structure = /obj/structure/sign/flag/newsuez
+
+/obj/structure/sign/flag/newsuez
+	name = "\improper New Suez flag"
+	desc = "The flag of New Suez. The moon of Persepolis is surrounded by the stars that represent the parties of the 2381 New Suez Accords."
+	flag_path = "newsuez"
+	icon_state = "newsuez"
+	flag_item = /obj/item/flag/newsuez
+
+/obj/item/flag/newsuez/l
+	name = "large New Suez flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/newsuez/large
+
+/obj/structure/sign/flag/newsuez/large
+	icon_state = "newsuez_l"
+	flag_path = "newsuez"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/newsuez/l
+
+/obj/structure/sign/flag/newsuez/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/newsuez/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/newsuez/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/newsuez/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Hive Zo'ra
+
+/obj/item/flag/zora
+	name = "\improper Hive Zo'ra flag"
+	desc = "The flag of Hive Zo'ra."
+	flag_path = "zora"
+	flag_structure = /obj/structure/sign/flag/zora
+
+/obj/structure/sign/flag/zora
+	name = "\improper Hive Zo'ra flag"
+	desc = "The flag of Hive Zo'ra."
+	flag_path = "zora"
+	icon_state = "zora"
+	flag_item = /obj/item/flag/zora
+
+/obj/structure/sign/flag/zora/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/zora/l
+	name = "large Hive Zo'ra flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/zora/large
+
+/obj/structure/sign/flag/zora/large
+	icon_state = "zora_l"
+	flag_path = "zora"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/zora/l
+
+/obj/structure/sign/flag/zora/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/zora/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/zora/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/zora/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Hive K'lax
+
+/obj/item/flag/klax
+	name = "\improper Hive K'lax flag"
+	desc = "The flag of Hive K'lax."
+	flag_path = "klax"
+	flag_structure = /obj/structure/sign/flag/klax
+
+/obj/structure/sign/flag/klax
+	name = "\improper Hive K'lax flag"
+	desc = "The flag of Hive K'lax."
+	flag_path = "klax"
+	icon_state = "klax"
+	flag_item = /obj/item/flag/klax
+
+/obj/structure/sign/flag/klax/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/klax/l
+	name = "large Hive K'lax flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/klax/large
+
+/obj/structure/sign/flag/klax/large
+	icon_state = "klax_l"
+	flag_path = "klax"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/klax/l
+
+/obj/structure/sign/flag/klax/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/klax/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/klax/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/klax/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Hive C'thur
+
+/obj/item/flag/cthur
+	name = "\improper Hive C'thur flag"
+	desc = "The flag of Hive C'thur."
+	flag_path = "cthur"
+	flag_structure = /obj/structure/sign/flag/cthur
+
+/obj/structure/sign/flag/cthur
+	name = "\improper Hive C'thur flag"
+	desc = "The flag of Hive C'thur."
+	flag_path = "cthur"
+	icon_state = "cthur"
+	flag_item = /obj/item/flag/cthur
+
+/obj/structure/sign/flag/cthur/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/cthur/l
+	name = "large Hive C'thur flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/cthur/large
+
+/obj/structure/sign/flag/cthur/large
+	icon_state = "cthur_l"
+	flag_path = "cthur"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/cthur/l
+
+/obj/structure/sign/flag/cthur/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/cthur/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/cthur/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/cthur/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Orion Express
+
+/obj/item/flag/orion_express
+	name = "\improper Orion Express flag"
+	desc = "The flag of Orion Express."
+	flag_path = "orion"
+	flag_structure = /obj/structure/sign/flag/orion_express
+
+/obj/structure/sign/flag/orion_express
+	name = "\improper Orion Express flag"
+	desc = "The flag of Orion Express."
+	flag_path = "orion"
+	icon_state = "orion"
+	flag_item = /obj/item/flag/orion_express
+
+/obj/structure/sign/flag/orion_express/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/orion_express/l
+	name = "large Orion Express flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/orion_express/large
+
+/obj/structure/sign/flag/orion_express/large
+	icon_state = "orion_l"
+	flag_path = "orion"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/orion_express/l
+
+/obj/structure/sign/flag/orion_express/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/orion_express/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/orion_express/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/orion_express/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Imperial Frontier
+
+/obj/item/flag/imperial_frontier
+	name = "\improper Imperial Frontier flag"
+	desc = "The multi-colored flag of the Dominian Empire's frontier regions known as the Imperial Frontier. This flag is a common sight on worlds such as Sun Reach."
+	desc_extended = "The four colors of this flag are symbolic of the most important actors of the Imperial Frontier. Dark red represents the Imperial Army under House Strelitz, purple represents the missionary (and financial) work of House Caladius, red represents the Empire, and white represents the Imperial Fleet under House Zhao."
+	flag_path = "imperial_frontier"
+	flag_structure = /obj/structure/sign/flag/imperial_frontier
+
+/obj/structure/sign/flag/imperial_frontier
+	name = "\improper Imperial Frontier flag"
+	desc = "The multi-colored flag of the Dominian Empire's frontier regions known as the Imperial Frontier. This flag is a common sight on worlds such as Sun Reach."
+	desc_extended = "The four colors of this flag are symbolic of the most important actors of the Imperial Frontier. Dark red represents the Imperial Army under House Strelitz, purple represents the missionary (and financial) work of House Caladius, red represents the Empire, and white represents the Imperial Fleet under House Zhao."
+	flag_path = "imperial_frontier"
+	icon_state = "imperial_frontier"
+	flag_item = /obj/item/flag/imperial_frontier
+
+/obj/structure/sign/flag/imperial_frontier/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/imperial_frontier/l
+	name = "large Imperial Frontier flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/imperial_frontier/large
+
+/obj/structure/sign/flag/imperial_frontier/large
+	icon_state = "imperial_frontier_l"
+	flag_path = "imperial_frontier"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/imperial_frontier/l
+
+/obj/structure/sign/flag/imperial_frontier/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/imperial_frontier/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/imperial_frontier/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/imperial_frontier/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+
+//tajaran gods
+
+/obj/item/flag/srendarr
+	name = "\improper S'rendarr Banner"
+	desc = "A banner with the symbol of S'rendarr, the Adhomian god of life, fertility, sunlight, youthful energy, and everything associated with the time of summer and daylight."
+	flag_path = "srendarr"
+	flag_structure = /obj/structure/sign/flag/srendarr
+	stand_icon = "wood_stand"
+
+/obj/structure/sign/flag/srendarr
+	name = "\improper S'rendarr Banner"
+	desc = "A banner with the symbol of S'rendarr, the Adhomian god of life, fertility, sunlight, youthful energy, and everything associated with the time of summer and daylight."
+	icon_state = "srendarr"
+	flag_path = "srendarr"
+	flag_item = /obj/item/flag/srendarr
+	stand_icon = "wood_stand"
+
+/obj/item/flag/messa
+	name = "\improper Messa Banner"
+	desc = "A banner with the symbol of Messa, the Adhomian goddess of inevitability, old age, and winter, but also of guidance, wisdom, protection, and patience."
+	flag_path = "messa"
+	flag_structure = /obj/structure/sign/flag/messa
+	stand_icon = "wood_stand"
+
+/obj/structure/sign/flag/messa
+	name = "\improper Messa Banner"
+	desc = "A banner with the symbol of Messa, the Adhomian goddess of inevitability, old age, and winter, but also of guidance, wisdom, protection, and patience."
+	icon_state = "messa"
+	flag_path = "messa"
+	flag_item = /obj/item/flag/messa
+	stand_icon = "wood_stand"
+
+/obj/item/flag/matake
+	name = "\improper Mata'ke Banner"
+	desc = "A banner with the symbol of Mata'ke, the spearhead. Mata'ke is the Ma'ta'ke deity of snow, judgment, practicality, order, and strength."
+	flag_path = "matake"
+	flag_structure = /obj/structure/sign/flag/matake
+	stand_icon = "wood_stand"
+
+/obj/structure/sign/flag/matake
+	name = "\improper Mata'ke Banner"
+	desc = "A banner with the symbol of Mata'ke, the spearhead. Mata'ke is the Ma'ta'ke deity of snow, judgment, practicality, order, and strength."
+	icon_state = "matake"
+	flag_path = "matake"
+	flag_item = /obj/item/flag/matake
+	stand_icon = "wood_stand"
+
+/obj/item/flag/marryam
+	name = "\improper Marryam Banner"
+	desc = "A banner with the symbol of Marryam, the poppy. Marryam is the Ma'ta'ke deity of settlements, sleep, and parenthood."
+	flag_path = "marryam"
+	flag_structure = /obj/structure/sign/flag/marryam
+	stand_icon = "wood_stand"
+
+/obj/structure/sign/flag/marryam
+	name = "\improper Marryam Banner"
+	desc = "A banner with the symbol of Marryam, the poppy. Marryam is the Ma'ta'ke deity of settlements, sleep, and parenthood."
+	icon_state = "marryam"
+	flag_path = "marryam"
+	flag_item = /obj/item/flag/marryam
+	stand_icon = "wood_stand"
+
+/obj/item/flag/rredouane
+	name = "\improper Rredouane Banner"
+	desc = "A banner with the symbol of Rredouane, the dice and blade. Rredouane is the Ma'ta'ke deity of valor, triumph, and victory."
+	flag_path = "rredouane"
+	flag_structure = /obj/structure/sign/flag/rredouane
+	stand_icon = "wood_stand"
+
+/obj/structure/sign/flag/rredouane
+	name = "\improper Rredouane Banner"
+	desc = "A banner with the symbol of Rredouane, the dice and blade. Rredouane is the Ma'ta'ke deity of valor, triumph, and victory."
+	icon_state = "rredouane"
+	flag_path = "rredouane"
+	flag_item = /obj/item/flag/rredouane
+	stand_icon = "wood_stand"
+
+/obj/item/flag/shumaila
+	name = "\improper Shumaila Banner"
+	desc = "A banner with the symbol of Shumaila, the bulwark. Shumaila is the Ma'ta'ke deity of fortification, chastity, and architecture."
+	flag_path = "shumaila"
+	flag_structure = /obj/structure/sign/flag/shumaila
+	stand_icon = "wood_stand"
+
+/obj/structure/sign/flag/shumaila
+	name = "\improper Shumaila Banner"
+	desc = "A banner with the symbol of Shumaila, the bulwark. Shumaila is the Ma'ta'ke deity of fortification, chastity, and architecture."
+	icon_state = "shumaila"
+	flag_path = "shumaila"
+	flag_item = /obj/item/flag/shumaila
+	stand_icon = "wood_stand"
+
+/obj/item/flag/kraszar
+	name = "\improper Kraszar Banner"
+	desc = "A banner with the symbol of Hraszar, the scroll of ages. Kraszar is the Ma'ta'ke deity of joy, stories, and language."
+	flag_path = "kraszar"
+	flag_structure = /obj/structure/sign/flag/kraszar
+	stand_icon = "wood_stand"
+
+/obj/structure/sign/flag/kraszar
+	name = "\improper Kraszar Banner"
+	desc = "A banner with the symbol of Hraszar, the scroll of ages. Kraszar is the Ma'ta'ke deity of joy, stories, and language."
+	icon_state = "kraszar"
+	flag_path = "kraszar"
+	flag_item = /obj/item/flag/kraszar
+	stand_icon = "wood_stand"
+
+/obj/item/flag/dhrarmela
+	name = "\improper Dhrarmela Banner"
+	desc = "A banner with the symbol of Dhrarmela, the divinity anvil. Dhrarmela is the Ma'ta'ke deity of forges, anvils, and craftsmanship."
+	flag_path = "dhrarmela"
+	flag_structure = /obj/structure/sign/flag/dhrarmela
+	stand_icon = "wood_stand"
+
+/obj/structure/sign/flag/dhrarmela
+	name = "\improper Dhrarmela Banner"
+	desc = "A banner with the symbol of Dhrarmela, the divinity anvil. Dhrarmela is the Ma'ta'ke deity of forges, anvils, and craftsmanship."
+	icon_state = "dhrarmela"
+	flag_path = "dhrarmela"
+	flag_item = /obj/item/flag/dhrarmela
+	stand_icon = "wood_stand"
+
+/obj/item/flag/azubarre
+	name = "\improper Azubarre Banner"
+	desc = "A banner with the symbol of Azubarre, the torch of passion. Kraszar is the Ma'ta'ke deity of love, fertility, and marriage."
+	flag_path = "azubarre"
+	flag_structure = /obj/structure/sign/flag/azubarre
+	stand_icon = "wood_stand"
+
+/obj/structure/sign/flag/azubarre
+	name = "\improper Azubarre Banner"
+	desc = "A banner with the symbol of Azubarre, the torch of passion. Kraszar is the Ma'ta'ke deity of love, fertility, and marriage."
+	icon_state = "azubarre"
+	flag_path = "azubarre"
+	flag_item = /obj/item/flag/azubarre
+	stand_icon = "wood_stand"
+
+/obj/item/flag/raskara
+	name = "\improper Raskara Banner"
+	desc = "A banner with the symbol of Raskara, the Moon."
+	flag_path = "raskara"
+	flag_structure = /obj/structure/sign/flag/raskara
+	stand_icon = "wood_stand"
+
+/obj/structure/sign/flag/raskara
+	name = "\improper Raskara Banner"
+	desc = "A banner with the symbol of Raskara, the Moon."
+	icon_state = "raskara"
+	flag_path = "raskara"
+	flag_item = /obj/item/flag/raskara
+	stand_icon = "wood_stand"
+
+// Federal Technocracy of Galatea
+
+/obj/item/flag/galatea_government
+	name = "\improper Federal Technocracy of Galatea flag"
+	desc = "The flag of the Federal Technocracy of Galatea."
+	flag_path = "galatea_government"
+	flag_structure = /obj/structure/sign/flag/galatea_government
+
+/obj/structure/sign/flag/galatea_government
+	name = "\improper Federal Technocracy of Galatea flag"
+	desc = "The flag of the Federal Technocracy of Galatea."
+	flag_path = "galatea_government"
+	icon_state = "galatea_government"
+	flag_item = /obj/item/flag/galatea_government
+
+/obj/structure/sign/flag/galatea_government/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/galatea_government/l
+	name = "large Federal Technocracy of Galatea flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/galatea_government/large
+
+/obj/structure/sign/flag/galatea_government/large
+	icon_state = "galatea_government_l"
+	flag_path = "galatea_government"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/galatea_government/l
+
+/obj/structure/sign/flag/galatea_government/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/galatea_government/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/galatea_government/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/galatea_government/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Galatea
+
+/obj/item/flag/galatea
+	name = "\improper Galatea flag"
+	desc = "The flag of Galatea, the premier member-state of the Federal Technocracy of Galatea."
+	flag_path = "galatea"
+	flag_structure = /obj/structure/sign/flag/galatea
+
+/obj/structure/sign/flag/galatea
+	name = "\improper Galatea flag"
+	desc = "The flag of Galatea, the premier member-state of the Federal Technocracy of Galatea."
+	flag_path = "galatea"
+	icon_state = "galatea"
+	flag_item = /obj/item/flag/galatea
+
+/obj/structure/sign/flag/galatea/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/galatea/l
+	name = "large Galatea flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/galatea/large
+
+/obj/structure/sign/flag/galatea/large
+	icon_state = "galatea_l"
+	flag_path = "galatea"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/galatea/l
+
+/obj/structure/sign/flag/galatea/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/galatea/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/galatea/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/galatea/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Tsukuyomi
+
+/obj/item/flag/tsukuyomi
+	name = "\improper Tsukuyomi flag"
+	desc = "The flag of Tsukuyomi, a member-state of the Federal Technocracy of Galatea."
+	flag_path = "tsukuyomi"
+	flag_structure = /obj/structure/sign/flag/tsukuyomi
+
+/obj/structure/sign/flag/tsukuyomi
+	name = "\improper Tsukuyomi flag"
+	desc = "The flag of Tsukuyomi, a member-state of the Federal Technocracy of Galatea."
+	flag_path = "tsukuyomi"
+	icon_state = "tsukuyomi"
+	flag_item = /obj/item/flag/tsukuyomi
+
+/obj/structure/sign/flag/tsukuyomi/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/tsukuyomi/l
+	name = "large Tsukuyomi flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/tsukuyomi/large
+
+/obj/structure/sign/flag/tsukuyomi/large
+	icon_state = "tsukuyomi_l"
+	flag_path = "tsukuyomi"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/tsukuyomi/l
+
+/obj/structure/sign/flag/tsukuyomi/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/tsukuyomi/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/tsukuyomi/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/tsukuyomi/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Svarog
+
+/obj/item/flag/svarog
+	name = "\improper Svarog flag"
+	desc = "The flag of Svarog, a member-state of the Federal Technocracy of Galatea."
+	flag_path = "svarog"
+	flag_structure = /obj/structure/sign/flag/svarog
+
+/obj/structure/sign/flag/svarog
+	name = "\improper Svarog flag"
+	desc = "The flag of Svarog, a member-state of the Federal Technocracy of Galatea."
+	flag_path = "svarog"
+	icon_state = "svarog"
+	flag_item = /obj/item/flag/svarog
+
+/obj/structure/sign/flag/svarog/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/svarog/l
+	name = "large Svarog flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/svarog/large
+
+/obj/structure/sign/flag/svarog/large
+	icon_state = "svarog_l"
+	flag_path = "svarog"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/svarog/l
+
+/obj/structure/sign/flag/svarog/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/svarog/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/svarog/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/svarog/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Empyrean
+
+/obj/item/flag/empyrean
+	name = "\improper Empyrean flag"
+	desc = "The flag of Empyrean, a member-state of the Federal Technocracy of Galatea."
+	flag_path = "empyrean"
+	flag_structure = /obj/structure/sign/flag/empyrean
+
+/obj/structure/sign/flag/empyrean
+	name = "\improper Empyrean flag"
+	desc = "The flag of Empyrean, a member-state of the Federal Technocracy of Galatea."
+	flag_path = "empyrean"
+	icon_state = "empyrean"
+	flag_item = /obj/item/flag/empyrean
+
+/obj/structure/sign/flag/empyrean/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/empyrean/l
+	name = "large Empyrean flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/empyrean/large
+
+/obj/structure/sign/flag/empyrean/large
+	icon_state = "empyrean_l"
+	flag_path = "empyrean"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/empyrean/l
+
+/obj/structure/sign/flag/empyrean/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/empyrean/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/empyrean/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/empyrean/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+//Scarab Fleet
+/obj/item/flag/scarab
+	name = "\improper Scarab Fleet flag"
+	desc = "The flag of the Scarab Fleet."
+	flag_path = "scarab"
+	flag_structure = /obj/structure/sign/flag/scarab
+
+/obj/structure/sign/flag/scarab
+	name = "\improper Scarab Fleet flag"
+	desc = "The flag of the Scarab Fleet."
+	flag_path = "scarab"
+	icon_state = "scarab"
+	flag_item = /obj/item/flag/scarab
+
+/obj/structure/sign/flag/scarab/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/scarab/l
+	name = "large Scarab Fleet flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/scarab/large
+
+/obj/structure/sign/flag/scarab/large
+	icon_state = "scarab_l"
+	flag_path = "scarab"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/scarab/l
+
+/obj/structure/sign/flag/scarab/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/scarab/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/scarab/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/scarab/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+//Traditionalist Coalition
+
+/obj/item/flag/traditionalist
+	name = "\improper Traditionalist Coalition flag"
+	desc = "The blue-and-green battle standard of the defeated Traditionalist Coalition. Flying this flag is an act of treason under Izweski law."
+	desc_extended = "The Traditionalist Coalition chose a simple flag to represent its myriad nations - blue for the waters and green for the earth of Moghes, with gilded axes representing their willingness to fight for their beliefs. \
+	Given the events of the Contact War, the colors of the flag are often considered somewhat of a bitter irony."
+	flag_path = "traditionalist"
+	flag_structure = /obj/structure/sign/flag/traditionalist
+
+/obj/structure/sign/flag/traditionalist
+	name = "\improper Traditionalist Coalition flag"
+	desc = "The blue-and-green battle standard of the defeated Traditionalist Coalition. Flying this flag is a high crime under Izweski law."
+	desc_extended = "The Traditionalist Coalition chose a simple flag to represent its myriad nations - blue for the waters and green for the earth of Moghes, with gilded axes representing their willingness to fight for their beliefs. \
+	Given the events of the Contact War, the colors of the flag are often considered somewhat of a bitter irony."
+	flag_path = "traditionalist"
+	icon_state = "traditionalist"
+	flag_item = /obj/item/flag/traditionalist
+
+/obj/structure/sign/flag/traditionalist/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/traditionalist/l
+	name = "large Traditionalist Coalition flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/traditionalist/large
+
+/obj/structure/sign/flag/traditionalist/large
+	icon_state = "traditionalist_l"
+	flag_path = "traditionalist"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/traditionalist/l
+
+/obj/structure/sign/flag/traditionalist/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/traditionalist/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/traditionalist/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/traditionalist/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+//Exclusionists
+/obj/item/flag/exclusionist
+	name = "\improper Exclusionist flag"
+	desc = "The gold and black flag of the Exclusionists, a heretical and extremist sect of the Trinary Perfection."
+	flag_path = "exclusionist"
+	flag_structure = /obj/structure/sign/flag/exclusionist
+
+/obj/structure/sign/flag/exclusionist
+	name = "\improper Exclusionist flag"
+	desc = "The gold and black flag of the Exclusionists, a heretical and extremist sect of the Trinary Perfection."
+	flag_path = "exclusionist"
+	icon_state = "exclusionist"
+	flag_item = /obj/item/flag/exclusionist
+
+/obj/structure/sign/flag/exclusionist/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/exclusionist/l
+	name = "large Exclusionist flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/exclusionist/large
+
+/obj/structure/sign/flag/exclusionist/large
+	icon_state = "exclusionist_l"
+	flag_path = "exclusionist"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/exclusionist/l
+
+/obj/structure/sign/flag/exclusionist/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/exclusionist/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/exclusionist/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/exclusionist/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Callisto
+
+/obj/item/flag/callisto
+	name = "\improper Callistean flag"
+	desc = "The flag of the Commonwealth of Callisto, the gateway to Sol and its largest port."
+	flag_path = "callisto"
+	flag_structure = /obj/structure/sign/flag/callisto
+
+/obj/structure/sign/flag/callisto
+	name = "\improper Callistean flag"
+	desc = "The flag of the Commonwealth of Callisto, the gateway to Sol and its largest port."
+	flag_path = "callisto"
+	icon_state = "callisto"
+	flag_item = /obj/item/flag/callisto
+
+/obj/item/flag/callisto/l
+	name = "large Callistean flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/callisto/large
+
+/obj/structure/sign/flag/callisto/large
+	icon_state = "callisto_l"
+	flag_path = "callisto"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/callisto/l
+
+/obj/structure/sign/flag/callisto/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/callisto/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/callisto/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/callisto/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Venus
+
+/obj/item/flag/venus
+	name = "\improper Venusian flag"
+	desc = "The flag of Venus, the beating heart of Solarian cinema and entertainment."
+	flag_path = "venus"
+	flag_structure = /obj/structure/sign/flag/venus
+
+/obj/structure/sign/flag/venus
+	name = "\improper Venusian flag"
+	desc = "The flag of Venus, the beating heart of Solarian cinema and entertainment."
+	flag_path = "venus"
+	icon_state = "venus"
+	flag_item = /obj/item/flag/venus
+
+/obj/item/flag/venus/l
+	name = "large Venusian flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/venus/large
+
+/obj/structure/sign/flag/venus/large
+	icon_state = "venus_l"
+	flag_path = "venus"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/venus/l
+
+/obj/structure/sign/flag/venus/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/venus/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/venus/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/venus/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+//Hiskyn
+/obj/item/flag/hiskyn
+	name = "\improper Hiskyn's Revanchists flag"
+	desc = "This crimson and black banner depicts an Unathi skull with a thin-bladed knife hanging above it. Anyone familiar with the pirate fleets of the southern Spur would recognise it as the banner of Hiskyn's Revanchists."
+	desc_extended = "The Hiskyn clan was once part of the clan Kazhkz, prior to their oaths of fealty to the Empire of Dominia. The Kazhkz-Han'san fleet split over the schism, with those who refused to bend their knees to a human power taking the name of Hiskyn. This fleet is known to target Dominian vessels with a vengeance, and particularly vessels carrying Dominian Unathi, whom they bear a deep hatred for."
+	flag_path = "hiskyn"
+	flag_structure = /obj/structure/sign/flag/hiskyn
+
+/obj/structure/sign/flag/hiskyn
+	name = "\improper Hiskyn's Revanchists flag"
+	desc = "This crimson and black banner depicts an Unathi skull with a thin-bladed knife hanging above it. Anyone familiar with the pirate fleets of the southern Spur would recognise it as the banner of Hiskyn's Revanchists."
+	desc_extended = "The Hiskyn clan was once part of the clan Kazhkz, prior to their oaths of fealty to the Empire of Dominia. The Kazhkz-Han'san fleet split over the schism, with those who refused to bend their knees to a human power taking the name of Hiskyn. This fleet is known to target Dominian vessels with a vengeance, and particularly vessels carrying Dominian Unathi, whom they bear a deep hatred for."
+	flag_path = "hiskyn"
+	icon_state = "hiskyn"
+	flag_item = /obj/item/flag/hiskyn
+
+/obj/structure/sign/flag/hiskyn/unmovable
+	unmovable = TRUE
+
+//The Consortium
+
+/obj/item/flag/consortium
+	name = "\improper Consortium flag"
+	desc = "The flag of The Consortium of Hieroaetheria."
+	desc_extended = "Founded decades prior to any outside interference, though by the name of the Affiliation - at least according to the direct translation from Rootsong - it was a loose confederation of dozens of conglomerates present across the region of Mede."
+	flag_path = "consortium"
+	flag_structure = /obj/structure/sign/flag/consortium
+
+/obj/structure/sign/flag/consortium
+	name = "\improper Consortium flag"
+	desc = "The flag of The Consortium of Hieroaetheria."
+	desc_extended = "Founded decades prior to any outside interference, though by the name of the Affiliation - at least according to the direct translation from Rootsong - it was a loose confederation of dozens of conglomerates present across the region of Mede."
+	flag_path = "consortium"
+	icon_state = "consortium"
+	flag_item = /obj/item/flag/consortium
+
+/obj/structure/sign/flag/consortium/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/consortium/l
+	name = "large Consortium flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/consortium/large
+
+/obj/structure/sign/flag/consortium/large
+	icon_state = "consortium_l"
+	flag_path = "consortium"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/consortium/l
+
+/obj/structure/sign/flag/consortium/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/consortium/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/consortium/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/consortium/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+	//The Eternal Republic of the Ekane
+/obj/item/flag/ekane
+	name = "\improper Ekane flag"
+	desc = "The flag of the Eternal Republic of the Ekane."
+	desc_extended = "A theocratic autocracy, the Eternal Republic of the Ekane was founded after first contact with the Skrell in 2390 CE - in which by then the Eternal spread rife throughout the community.\
+	Roughly a decade following its introduction to Hieroaetheria, the Eternal had managed to conglomerate primarily within the cities dotting the Ekane region of the planet - which eventually saw unification beneath the banner of the Eternal Republic of the Ekane."
+	flag_path = "ekane"
+	flag_structure = /obj/structure/sign/flag/ekane
+
+/obj/structure/sign/flag/ekane
+	name = "\improper Ekane flag"
+	desc = "The flag of the Eternal Republic of the Ekane"
+	desc_extended = "A theocratic autocracy, the Eternal Republic of the Ekane was founded after first contact with the Skrell in 2390 CE - in which by then the Eternal spread rife throughout the community.\
+	Roughly a decade following its introduction to Hieroaetheria, the Eternal had managed to conglomerate primarily within the cities dotting the Ekane region of the planet - which eventually saw unification beneath the banner of the Eternal Republic of the Ekane."
+	flag_path = "ekane"
+	icon_state = "ekane"
+	flag_item = /obj/item/flag/ekane
+
+/obj/structure/sign/flag/ekane/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/ekane/l
+	name = "large Ekane flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/ekane/large
+
+/obj/structure/sign/flag/ekane/large
+	icon_state = "ekane_l"
+	flag_path = "ekane"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/ekane/l
+
+/obj/structure/sign/flag/ekane/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/ekane/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/ekane/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/ekane/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+//The Union of Gla'orr
+/obj/item/flag/glaorr
+	name = "\improper Gla'orr flag"
+	desc = "The flag of the Union of Gla'orr."
+	desc_extended = "Autocratic, and staunchly opposed to further integration of non-Dionae, the Union of Gla'orr is largely considered an affront to all the ideals held by the Consortium, an anti-thesis to the growing democratic tendencies of Hieroaetheria."
+	flag_path = "glaorr"
+	flag_structure = /obj/structure/sign/flag/glaorr
+
+/obj/structure/sign/flag/glaorr
+	name = "\improper Gla'orr flag"
+	desc = "The flag of the Union of Gla'orr"
+	desc_extended = "Autocratic, and staunchly opposed to further integration of non-Dionae, the Union of Gla'orr is largely considered an affront to all the ideals held by the Consortium, an anti-thesis to the growing democratic tendencies of Hieroaetheria."
+	flag_path = "glaorr"
+	icon_state = "glaorr"
+	flag_item = /obj/item/flag/glaorr
+
+/obj/structure/sign/flag/glaorr/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/glaorr/l
+	name = "large Gla'orr flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/glaorr/large
+
+/obj/structure/sign/flag/glaorr/large
+	icon_state = "glaorr_l"
+	flag_path = "glaorr"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/glaorr/l
+
+/obj/structure/sign/flag/glaorr/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/glaorr/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/glaorr/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/glaorr/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+//Burzsia
+/obj/item/flag/burzsia
+	name = "\improper Burzsia flag"
+	desc = "The sigil of Burzsia, placed on a background of Hephaestus green."
+	flag_path = "burzsia"
+	flag_structure = /obj/structure/sign/flag/burzsia
+
+/obj/structure/sign/flag/burzsia
+	name = "\improper Burzsia flag"
+	desc = "The sigil of Burzsia, placed on a background of Hephaestus green."
+	flag_path = "burzsia"
+	icon_state = "burzsia"
+	flag_item = /obj/item/flag/burzsia
+
+/obj/structure/sign/flag/burzsia/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/burzsia/l
+	name = "\improper large Burzsia Flag"
+	flag_path = "burzsia"
+	flag_structure = /obj/structure/sign/flag/burzsia/large
+
+/obj/structure/sign/flag/burzsia/large
+	icon_state = "burzsia_l"
+	flag_path = "burzsia"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/burzsia/l
+
+/obj/structure/sign/flag/burzsia/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flagburzsia/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/burzsia/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/burzsia/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+//Unathi Ruin Flags/Tapestries
+/obj/item/flag/unathi_tapestry
+	name = "folded tapestry"
+	desc = "An ancient piece of woven cloth, carefully folded."
+	icon = 'icons/obj/unathi_ruins.dmi'
+	icon_state = "tapestry_folded"
+	flag_structure = /obj/structure/sign/flag/unathi_tapestry
+
+/obj/structure/sign/flag/unathi_tapestry
+	name = "sun tapestry"
+	desc = "A worn and faded tapestry depicting a bright sun shining down on the surface of Moghes."
+	icon = 'icons/obj/unathi_ruins.dmi'
+	icon_state = "sun"
+	flag_path = "sun"
+	flag_item = /obj/item/flag/unathi_tapestry
+
+/obj/item/flag/unathi_tapestry/moon
+	flag_structure = /obj/structure/sign/flag/unathi_tapestry/moon
+
+/obj/structure/sign/flag/unathi_tapestry/moon
+	name = "moon tapestry"
+	desc = "A worn and faded tapestry depicting a crescent moon."
+	icon_state = "moon"
+	flag_path = "moon"
+	flag_item = /obj/item/flag/unathi_tapestry/moon
+
+/obj/item/flag/unathi_tapestry/crown
+	flag_structure = /obj/structure/sign/flag/unathi_tapestry/crown
+
+/obj/structure/sign/flag/unathi_tapestry/crown
+	name = "crown tapestry"
+	desc = "A worn and faded tapestry depicting an Unathi figure, with a crown being lowered onto their head."
+	icon_state = "crown"
+	flag_path = "crown"
+	flag_item = /obj/item/flag/unathi_tapestry/crown
+
+/obj/item/flag/unathi_tapestry/warrior
+	flag_structure = /obj/structure/sign/flag/unathi_tapestry/warrior
+
+/obj/structure/sign/flag/unathi_tapestry/warrior
+	name = "warrior tapestry"
+	desc = "A worn and faded tapestry depicting an Unathi figure in full battle armor."
+	icon_state = "warrior"
+	flag_path = "warrior"
+	flag_item = /obj/item/flag/unathi_tapestry/warrior
+
+/obj/item/flag/unathi_tapestry/brothers
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/unathi_tapestry/brothers
+
+/obj/structure/sign/flag/unathi_tapestry/brothers
+	name = "brothers tapestry"
+	desc = "A large and faded tapestry depicting two Unathi wielding war scythes, standing back to back."
+	icon_state = "brothers_l"
+	flag_path = "brothers"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/unathi_tapestry/brothers
+
+/obj/structure/sign/flag/unathi_tapestry/brothers/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/unathi_tapestry/brothers/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/unathi_tapestry/brothers/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/unathi_tapestry/brothers/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+/obj/item/flag/unathi_tapestry/city
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/unathi_tapestry/city
+
+/obj/structure/sign/flag/unathi_tapestry/city
+	name = "city tapestry"
+	desc = "A large and faded tapestry depicting an ancient city, towering resplendent over the land."
+	icon_state = "city_l"
+	flag_path = "city"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/unathi_tapestry/city
+
+/obj/structure/sign/flag/unathi_tapestry/city/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/unathi_tapestry/city/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/unathi_tapestry/city/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/unathi_tapestry/city/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+/obj/item/flag/unathi_tapestry/wall
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/unathi_tapestry/wall
+
+/obj/structure/sign/flag/unathi_tapestry/wall
+	name = "wall tapestry"
+	desc = "A large and faded tapestry depicting a mighty wall, staffed by hundreds of warriors. Storm clouds gather above it."
+	icon_state = "wall_l"
+	flag_path = "wall"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/unathi_tapestry/wall
+
+/obj/structure/sign/flag/unathi_tapestry/wall/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/unathi_tapestry/wall/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/unathi_tapestry/wall/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/unathi_tapestry/wall/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+/obj/item/flag/unathi_tapestry/unathi
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/unathi_tapestry/unathi
+
+/obj/structure/sign/flag/unathi_tapestry/unathi
+	name = "unathi tapestry"
+	desc = "A large and faded tapestry depicting a single Unathi figure - regal, resplendent, and utterly alone.."
+	icon_state = "unathi_l"
+	flag_path = "unathi"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/unathi_tapestry/unathi
+
+/obj/structure/sign/flag/unathi_tapestry/unathi/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/unathi_tapestry/unathi/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/unathi_tapestry/unathi/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/unathi_tapestry/unathi/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+/obj/item/flag/unathi_tapestry/mador
+	icon_state = "mador_tapestry_folded"
+	flag_structure = /obj/structure/sign/flag/unathi_tapestry/mador_1
+
+/obj/structure/sign/flag/unathi_tapestry/mador_1
+	name = "\improper Sinta'Mador tapestry"
+	desc = "A worn and faded tapestry bearing script in the lost language of the Sinta'Mador."
+	icon_state = "mador3"
+	flag_path = "mador3"
+	flag_item = /obj/item/flag/unathi_tapestry/mador
+
+/obj/item/flag/unathi_tapestry/mador/mador_2
+	flag_structure = /obj/structure/sign/flag/unathi_tapestry/mador_2
+
+/obj/structure/sign/flag/unathi_tapestry/mador_2
+	name = "\improper Sinta'Mador tapestry"
+	desc = "A worn and faded tapestry bearing script in the lost language of the Sinta'Mador."
+	icon_state = "mador4"
+	flag_path = "mador4"
+	flag_item = /obj/item/flag/unathi_tapestry/mador/mador_2
+
+/obj/item/flag/unathi_tapestry/mador_3
+	flag_structure = /obj/structure/sign/flag/unathi_tapestry/mador_3
+	flag_size = TRUE
+
+/obj/structure/sign/flag/unathi_tapestry/mador_3
+	name = "large Sinta'Mador tapestry"
+	desc = "A large tapestry bearing script in the lost language of the Sinta'Mador"
+	icon_state = "mador1_l"
+	flag_path = "mador1"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/unathi_tapestry/mador_3
+
+/obj/structure/sign/flag/unathi_tapestry/mador_3/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/unathi_tapestry/mador_3/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/unathi_tapestry/mador_3/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/unathi_tapestry/mador_3/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+/obj/item/flag/unathi_tapestry/mador_4
+	flag_structure = /obj/structure/sign/flag/unathi_tapestry/mador_4
+	flag_size = TRUE
+
+/obj/structure/sign/flag/unathi_tapestry/mador_4
+	name = "large Sinta'Mador tapestry"
+	desc = "A large tapestry bearing script in the lost language of the Sinta'Mador"
+	icon_state = "mador2_l"
+	flag_path = "mador2"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/unathi_tapestry/mador_4
+
+/obj/structure/sign/flag/unathi_tapestry/mador_4/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/unathi_tapestry/mador_4/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/unathi_tapestry/mador_4/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/unathi_tapestry/mador_4/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// New Gibson
+/obj/structure/sign/flag/newgibson
+	name = "\improper New Gibson flag"
+	desc = "The flag of the New Gibson."
+	icon_state = "newgibson"
+	flag_item = /obj/item/flag/newgibson
+
+/obj/item/flag/newgibson
+	name = "\improper New Gibson flag"
+	desc = "The flag of New Gibson."
+	flag_path = "newgibson"
+	flag_structure = /obj/structure/sign/flag/newgibson
+
+/obj/item/flag/newgibson/l
+	name = "\improper large New Gibson flag"
+	flag_path = "newgibson"
+	flag_structure = /obj/structure/sign/flag/newgibson/large
+
+/obj/structure/sign/flag/newgibson/large
+	icon_state = "newgibson_l"
+	flag_path = "newgibson"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/newgibson/l
+
+/obj/structure/sign/flag/newgibson/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/newgibson/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/newgibson/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/newgibson/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// The Commonwealth of Valkyrie.
+/obj/structure/sign/flag/valkyrie
+	name = "\improper Valkyrie flag"
+	desc = "The flag of the Commonwealth of Valkyrie."
+	icon_state = "valkyrie"
+	flag_item = /obj/item/flag/valkyrie
+
+/obj/item/flag/valkyrie
+	name = "\improper Valkyrie flag"
+	desc = "The flag of the Commonwealth of Valkyrie."
+	flag_path = "valkyrie"
+	flag_structure = /obj/structure/sign/flag/valkyrie
+
+/obj/item/flag/valkyrie/l
+	name = "\improper large Valkyrie flag"
+	flag_path = "valkyrie"
+	flag_structure = /obj/structure/sign/flag/valkyrie/large
+
+/obj/structure/sign/flag/valkyrie/large
+	icon_state = "valkyrie_l"
+	flag_path = "valkyrie"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/valkyrie/l
+
+/obj/structure/sign/flag/valkyrie/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/valkyrie/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/valkyrie/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/valkyrie/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Pluto.
+/obj/structure/sign/flag/pluto
+	name = "\improper Pluto flag"
+	desc = "The flag of Pluto, the furthest planet of the Sol System and one of the few socialist states in the modern Spur. Soviet citizens - be proud, you opened the road to the stars from Earth!"
+	desc_extended = "The flag of the Communist Party of the Supreme Soviet of the Plutonian System and Surrounding Space is intended to hearken back to the flags of Earth's Soviet republics. The blue represents the beauty of the stars, while the large star with five smaller stars represents Pluto and its moons."
+	icon_state = "pluto"
+	flag_item = /obj/item/flag/pluto
+
+/obj/item/flag/pluto
+	name = "\improper Pluto flag"
+	desc = "The flag of Pluto, the furthest planet of the Sol System and one of the few socialist states in the modern Spur. Soviet citizens - be proud, you opened the road to the stars from Earth!"
+	desc_extended = "The flag of the Communist Party of the Supreme Soviet of the Plutonian System and Surrounding Space is intended to hearken back to the flags of Earth's Soviet republics. The blue represents the beauty of the stars, while the large star with five smaller stars represents Pluto and its moons."
+	flag_path = "pluto"
+	flag_structure = /obj/structure/sign/flag/pluto
+
+/obj/item/flag/pluto/l
+	name = "\improper large Pluto flag"
+	flag_path = "pluto"
+	flag_structure = /obj/structure/sign/flag/pluto/large
+
+/obj/structure/sign/flag/pluto/large
+	icon_state = "pluto_l"
+	flag_path = "pluto"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/pluto/l
+
+/obj/structure/sign/flag/pluto/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/pluto/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/pluto/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/pluto/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// SSRM (Southern Solarian Reconstruction Mandate).
+/obj/structure/sign/flag/ssrm
+	name = "\improper Southern Solarian Reconstruction Mandate flag"
+	desc = "The flag of the Southern Solarian Reconstruction Mandate. Intended to be simple and easy to produce."
+	desc_extended = "Simple to produce and manufacture, the Reconstruction Mandate flags are temporary by design - once the regions are stabilized, the flags will be furled and lowered for the last time."
+	icon_state = "ssrm"
+	flag_item = /obj/item/flag/ssrm
+
+/obj/item/flag/ssrm
+	name = "\improper Southern Solarian Reconstruction Mandate flag"
+	desc = "The flag of the Southern Solarian Reconstruction Mandate. Intended to be simple and easy to produce."
+	desc_extended = "Simple to produce and manufacture, the Reconstruction Mandate flags are temporary by design - once the regions are stabilized, the flags will be furled and lowered for the last time."
+	flag_path = "ssrm"
+	flag_structure = /obj/structure/sign/flag/ssrm
+
+/obj/item/flag/ssrm/l
+	name = "\improper large Southern Solarian Reconstruction Mandate flag"
+	flag_path = "ssrm"
+	flag_structure = /obj/structure/sign/flag/ssrm/large
+
+/obj/structure/sign/flag/ssrm/large
+	icon_state = "ssrm_l"
+	flag_path = "ssrm"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/ssrm/l
+
+/obj/structure/sign/flag/ssrm/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/ssrm/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/ssrm/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/ssrm/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// NSRM (Northern Solarian Reconstruction Mandate).
+/obj/structure/sign/flag/nsrm
+	name = "\improper Northern Solarian Reconstruction Mandate flag"
+	desc = "The flag of the Northern Solarian Reconstruction Mandate. Intended to be simple and easy to produce."
+	desc_extended = "Simple to produce and manufacture, the Reconstruction Mandate flags are temporary by design - once the regions are stabilized, the flags will be furled and lowered for the last time."
+	icon_state = "nsrm"
+	flag_item = /obj/item/flag/nsrm
+
+/obj/item/flag/nsrm
+	name = "\improper Northern Solarian Reconstruction Mandate flag"
+	desc = "The flag of the Northern Solarian Reconstruction Mandate. Intended to be simple and easy to produce."
+	desc_extended = "Simple to produce and manufacture, the Reconstruction Mandate flags are temporary by design - once the regions are stabilized, the flags will be furled and lowered for the last time."
+	flag_path = "nsrm"
+	flag_structure = /obj/structure/sign/flag/nsrm
+
+/obj/item/flag/nsrm/l
+	name = "\improper large Northern Solarian Reconstruction Mandate flag"
+	flag_path = "nsrm"
+	flag_structure = /obj/structure/sign/flag/nsrm/large
+
+/obj/structure/sign/flag/nsrm/large
+	icon_state = "nsrm_l"
+	flag_path = "nsrm"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/nsrm/l
+
+/obj/structure/sign/flag/nsrm/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/nsrm/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/nsrm/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/nsrm/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Mars.
+/obj/structure/sign/flag/mars
+	name = "\improper Provisional Government of Mars flag"
+	desc = "Intended to invoke unity between the Martian “Blues” (Solarian loyalists) and “Reds” (Martian loyalists) in the aftermath of the Violet Dawn disaster, this flag uses red (for Mars) in addition to blue and white (for the Alliance) in its design."
+	desc_extended = "The Alliance of Sovereign Solarian Nations' Provisional Government of Mars' flag was designed in a short period of time under the stressful conditions of the early Solarian Civil War, when many worried the Sol System itself would fall into infighting as the remnants of Frost's government struggled to resist a coup by more moderate forces."
+	icon_state = "mars"
+	flag_item = /obj/item/flag/mars
+
+/obj/item/flag/mars
+	name = "\improper Provisional Government of Mars flag"
+	desc = "The flag of Mars."
+	flag_path = "mars"
+	flag_structure = /obj/structure/sign/flag/mars
+
+/obj/item/flag/mars/l
+	name = "\improper large Provisional Government of Mars flag"
+	flag_path = "mars"
+	flag_structure = /obj/structure/sign/flag/mars/large
+
+/obj/structure/sign/flag/mars/large
+	icon_state = "mars_l"
+	flag_path = "mars"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/mars/l
+
+/obj/structure/sign/flag/mars/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/mars/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/mars/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/mars/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Visegrad
+/obj/item/flag/visegrad
+	name = "\improper Visegrad flag"
+	desc = "The flag of Visegrad."
+	desc_extended = "The blue, white, green and red flag of Visegrad was the original Warsaw Pact-created design for the planet's flag, and even after it acquired independence it was maintained, though with the removal of the socialist emblem and the addition of a Solarian ensign. \
+	It is said that the green represents the forests of the planet, the white the stormclouds, and the blue the sky hidden above, while the red is supposed to represent shared national unity."
+	flag_path = "visegrad"
+	flag_structure = /obj/structure/sign/flag/visegrad
+
+/obj/structure/sign/flag/visegrad
+	name = "\improper Visegrad flag"
+	desc = "The flag of Visegrad."
+	desc_extended = "The blue, white, green and red flag of Visegrad was the original Warsaw Pact-created design for the planet's flag, and even after it acquired independence it was maintained, though with the removal of the socialist emblem and the addition of a Solarian ensign. \
+	It is said that the green represents the forests of the planet, the white the stormclouds, and the blue the sky hidden above, while the red is supposed to represent shared national unity."
+	flag_path = "visegrad"
+	icon_state = "visegrad"
+	flag_item = /obj/item/flag/visegrad
+
+/obj/structure/sign/flag/visegrad/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/visegrad/l
+	name = "\improper large Visegrad flag"
+	flag_path = "visegrad"
+	flag_structure = /obj/structure/sign/flag/visegrad/large
+
+/obj/structure/sign/flag/visegrad/large
+	icon_state = "visegrad_l"
+	flag_path = "visegrad"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/visegrad/l
+
+/obj/structure/sign/flag/visegrad/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/visegrad/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/visegrad/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/visegrad/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Old Visegrad.
+/obj/item/flag/old_visegrad
+	name = "\improper Pact-era Visegrad flag"
+	desc = "The colonial flag of Visegrad, featuring the iconography of the Soviet Union and Warsaw Pact."
+	desc_extended = "Controversial on Visegrad itself due to its associations with the colony's past as a dumping ground for dissidents, reproductions of colonial-era flags are commonly sold to tourists and as collector's items. A vintage flag can go for tens of thousands of credits, but most in circulation currently are reproductions of varying quality - some even made in the Republic of Biesel."
+	flag_path = "old_visegrad"
+	flag_structure = /obj/structure/sign/flag/old_visegrad
+
+/obj/structure/sign/flag/old_visegrad
+	name = "\improper Pact-era Visegrad flag"
+	desc = "The colonial flag of Visegrad, featuring the iconography of the Soviet Union and Warsaw Pact."
+	desc_extended = "Controversial on Visegrad itself due to its associations with the colony's past as a dumping ground for dissidents, reproductions of colonial-era flags are commonly sold to tourists and as collector's items. A vintage flag can go for tens of thousands of credits, but most in circulation currently are reproductions of varying quality - some even made in the Republic of Biesel."
+	icon_state = "old_visegrad"
+	flag_item = /obj/item/flag/old_visegrad
+
+/obj/item/flag/old_visegrad/l
+	name = "\improper large Pact-era Visegrad flag"
+	flag_path = "old_visegrad"
+	flag_structure = /obj/structure/sign/flag/old_visegrad/large
+
+/obj/structure/sign/flag/old_visegrad/large
+	icon_state = "old_visegrad_l"
+	flag_path = "old_visegrad"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/old_visegrad/l
+
+/obj/structure/sign/flag/old_visegrad/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/old_visegrad/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/old_visegrad/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/old_visegrad/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Old Xanu
+/obj/item/flag/old_xanu
+	name = "\improper Solarian-era Xanu flag"
+	desc = "The flag of the Sovereign Solarian Nation of Xanu Prime. Nearly two-hundred years out of print, most of these are museum pieces or reproductions."
+	desc_extended = "The Department of Colonization designed this flag during the First Astonishment era of Xanu's history (2227-60), and it proved to be fairly popular. During the Interstellar War it was common for pro-Coalition Xanans to rip the third of the flag containing the Alliance's flag off, then display the remaining two-thirds. The All-Xanu Republic's current flag bears some resemblance to this flag."
+	flag_path = "old_xanu"
+	flag_structure = /obj/structure/sign/flag/old_xanu
+
+/obj/structure/sign/flag/old_xanu
+	name = "\improper Solarian-era Xanu flag"
+	desc = "The flag of the Sovereign Solarian Nation of Xanu Prime. Nearly two-hundred years out of print, most of these are museum pieces or reproductions."
+	desc_extended = "The Department of Colonization designed this flag during the First Astonishment era of Xanu's history (2227-60), and it proved to be fairly popular. During the Interstellar War it was common for pro-Coalition Xanans to rip the third of the flag containing the Alliance's flag off, then display the remaining two-thirds. The All-Xanu Republic's current flag bears some resemblance to this flag."
+	icon_state = "old_xanu"
+	flag_item = /obj/item/flag/old_xanu
+
+/obj/item/flag/old_xanu/l
+	name = "\improper large Solarian-era Xanu flag"
+	flag_path = "old_xanu"
+	flag_structure = /obj/structure/sign/flag/old_xanu/large
+
+/obj/structure/sign/flag/old_xanu/large
+	icon_state = "old_xanu_l"
+	flag_path = "old_xanu"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/old_xanu/l
+
+/obj/structure/sign/flag/old_xanu/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/old_xanu/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/old_xanu/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/old_xanu/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// HPS Narrows
+/obj/item/flag/narrows
+	name = "\improper HPS Narrows flag"
+	desc = "The flag of the HPS Narrows, representing Captain Helmsman of the United Drill on the top, the Council of Overseers on the bottom, and the Iron Eternal in between."
+	flag_path = "narrows"
+	flag_structure = /obj/structure/sign/flag/narrows
+
+/obj/structure/sign/flag/narrows
+	name = "\improper HPS Narrows flag"
+	desc = "The flag of the HPS Narrows, representing Captain Helmsman of the United Drill on the top, the Council of Overseers on the bottom, and the Iron Eternal in between."
+	icon_state = "narrows"
+	flag_item = /obj/item/flag/narrows
+
+/obj/item/flag/narrows/l
+	name = "\improper large HPS Narrows flag"
+	flag_path = "narrows"
+	flag_structure = /obj/structure/sign/flag/narrows/large
+
+/obj/structure/sign/flag/narrows/large
+	icon_state = "narrows_l"
+	flag_path = "narrows"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/narrows/l
+
+/obj/structure/sign/flag/narrows/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/narrows/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/narrows/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/narrows/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Voidtamer Banners
+/obj/item/flag/voidtamer
+	name = "voidtamer banner"
+	desc = "A banner of the Voidtamer Confluence, being made of a simple dried carp hide."
+	flag_path = "voidtamer"
+	flag_structure = /obj/structure/sign/flag/voidtamer
+
+/obj/structure/sign/flag/voidtamer
+	name = "voidtamer banner"
+	desc = "A banner of the Voidtamer Confluence, being made of a simple dried carp hide."
+	icon_state = "voidtamer_banner"
+	flag_item = /obj/item/flag/voidtamer
+
+/obj/item/flag/voidtamer_decorated
+	name = "decorated voidtamer banner"
+	desc = "A banner of the Voidtamer Confluence, being made of a simple dried carp hide and adorned with a golden pattern."
+	flag_path = "voidtamer_decorated"
+	flag_structure = /obj/structure/sign/flag/voidtamer_decorated
+
+/obj/structure/sign/flag/voidtamer_decorated
+	name = "decorated voidtamer banner"
+	desc = "A banner of the Voidtamer Confluence, being made of a simple dried carp hide and adorned with a golden pattern."
+	icon_state = "voidtamer_banner2"
+	flag_item = /obj/item/flag/voidtamer_decorated
+
+/obj/item/flag/voidtamer_star
+	name = "decorated voidtamer banner"
+	desc = "A banner of the Voidtamer Confluence, being made of a simple dried carp hide and adorned with gold in the rough style of a star."
+	flag_path = "voidtamer_star"
+	flag_structure = /obj/structure/sign/flag/voidtamer_star
+
+/obj/structure/sign/flag/voidtamer_star
+	name = "decorated voidtamer banner"
+	desc = "A banner of the Voidtamer Confluence, being made of a simple dried carp hide and adorned with gold in the rough style of a star."
+	icon_state = "voidtamer_banner3"
+	flag_item = /obj/item/flag/voidtamer_star
+
+/obj/item/flag/voidtamer_eye
+	name = "decorated voidtamer banner"
+	desc = "A banner of the Voidtamer Confluence, being made of a simple dried carp hide and adorned with gold in the rough style of an eye."
+	flag_path = "voidtamer_eye"
+	flag_structure = /obj/structure/sign/flag/voidtamer_eye
+
+/obj/structure/sign/flag/voidtamer_eye
+	name = "decorated voidtamer banner"
+	desc = "A banner of the Voidtamer Confluence, being made of a simple dried carp hide and adorned with gold in the rough style of an eye."
+	icon_state = "voidtamer_banner4"
+	flag_item = /obj/item/flag/voidtamer_eye
+
+// Zhurong
+
+/obj/item/flag/zhurong
+	name = "\improper Zhurong flag"
+	desc = "The white-and-gray flag of Zhurong. Long live the Empire, the Fleet, and House Zhao!"
+	desc_extended = "Commonly seen across Zhurong and in Zhao buildings, this flag is often regarded as the unofficial symbol of the Imperial Fleet. Zhurong shipbuilders have a tradition of carving this flag into supporting beams in ships, signifying their belief Zhurong’s steel will endure whatever is thrown at it."
+	flag_path = "zhurong"
+	flag_structure = /obj/structure/sign/flag/zhurong
+
+/obj/structure/sign/flag/zhurong
+	name = "\improper Zhurong flag"
+	desc = "The white-and-gray flag of Zhurong. Long live the Empire, the Fleet, and House Zhao!"
+	desc_extended = "Commonly seen across Zhurong and in Zhao buildings, this flag is often regarded as the unofficial symbol of the Imperial Fleet. Zhurong shipbuilders have a tradition of carving this flag into supporting beams in ships, signifying their belief Zhurong’s steel will endure whatever is thrown at it."
+	flag_path = "zhurong"
+	icon_state = "zhurong"
+	flag_item = /obj/item/flag/zhurong
+
+/obj/structure/sign/flag/zhurong/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/zhurong/l
+	name = "large Zhurong flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/zhurong/large
+
+/obj/structure/sign/flag/zhurong/large
+	icon_state = "zhurong_l"
+	flag_path = "zhurong"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/zhurong/l
+
+/obj/structure/sign/flag/zhurong/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/zhurong/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/zhurong/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/zhurong/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Sankt Frederick
+/obj/structure/sign/flag/sfk
+	name = "\improper Sankt Frederick banner"
+	desc = "The banner of Sankt Frederick, the steadfast breadbasket of the Solarian Wildlands."
+	desc_extended = "The banner of Sankt Frederick features a vertical tricolor of black, white, and blue, representing the planet’s rich soil, the people’s unity and perseverance, and its many lakes and rivers. At its center lies a blue escutcheon bearing a white wheat stalk, symbolizing Sankt Frederick’s agricultural heritage and its vital role in sustaining the wider Alliance."
+	icon_state = "sfk"
+	flag_item = /obj/item/flag/sfk
+
+/obj/item/flag/sfk
+	name = "\improper Sankt Frederick banner"
+	desc = "The banner of Sankt Frederick, the steadfast breadbasket of the Solarian Wildlands."
+	desc_extended = "The banner of Sankt Frederick features a vertical tricolor of black, white, and blue, representing the planet’s rich soil, the people’s unity and perseverance, and its many lakes and rivers. At its center lies a blue escutcheon bearing a white wheat stalk, symbolizing Sankt Frederick’s agricultural heritage and its vital role in sustaining the wider Alliance."
+	flag_path = "sfk"
+	flag_structure = /obj/structure/sign/flag/sfk
+
+/obj/item/flag/sfk/l
+	name = "\improper Sankt Frederick flag"
+	desc =  "The flag of Sankt Frederick, the steadfast breadbasket of the Solarian Wildlands."
+	desc_extended = "The flag of Sankt Frederick features a horizontal tricolor of black, white, and blue, representing the planet’s rich soil, the people’s unity and perseverance, and its many lakes and rivers. At its center lies a blue escutcheon bearing a white wheat stalk, symbolizing Sankt Frederick’s agricultural heritage and its vital role in sustaining the wider Alliance."
+	flag_path = "sfk"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/sfk/large
+
+/obj/structure/sign/flag/sfk/large
+	name = "\improper Sankt Frederick flag"
+	desc =  "The flag of Sankt Frederick, the steadfast breadbasket of the Solarian Wildlands."
+	desc_extended = "The flag of Sankt Frederick features a horizontal tricolor of black, white, and blue, representing the planet’s rich soil, the people’s unity and perseverance, and its many lakes and rivers. At its center lies a blue escutcheon bearing a white wheat stalk, symbolizing Sankt Frederick’s agricultural heritage and its vital role in sustaining the wider Alliance."
+	icon_state = "sfk_l"
+	flag_path = "sfk"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/sfk/l
+
+/obj/structure/sign/flag/sfk/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/sfk/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/sfk/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/sfk/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)
+
+// Outer Eyes
+
+/obj/item/flag/outer_eyes
+	name = "\improper Outer Eyes flag"
+	desc = "The staring eyes icon of that mysterious group, the Outer Eyes."
+	desc_extended = "This representation of the Eyes only hints at the provost's inner circle, allowing the larger eye to dominate."
+	flag_path = "outer_eyes"
+	flag_structure = /obj/structure/sign/flag/outer_eyes
+
+/obj/structure/sign/flag/outer_eyes
+	name = "\improper Outer Eyes flag"
+	desc = "The staring eyes icon of that mysterious group, the Outer Eyes."
+	desc_extended = "This representation of the Eyes only hints at the provost's inner circle, allowing the larger eye to dominate."
+	flag_path = "outer_eyes"
+	icon_state = "outer_eyes"
+	flag_item = /obj/item/flag/outer_eyes
+
+/obj/structure/sign/flag/outer_eyes/unmovable
+	unmovable = TRUE
+
+/obj/item/flag/outer_eyes/l
+	name = "large Outer Eyes flag"
+	flag_size = TRUE
+	flag_structure = /obj/structure/sign/flag/outer_eyes/large
+
+/obj/structure/sign/flag/outer_eyes/large
+	icon_state = "outer_eyes_l"
+	flag_path = "outer_eyes"
+	flag_size = TRUE
+	flag_item = /obj/item/flag/outer_eyes/l
+
+/obj/structure/sign/flag/outer_eyes/large/north/Initialize(mapload)
+	. = ..(mapload, NORTH)
+
+/obj/structure/sign/flag/outer_eyes/large/south/Initialize(mapload)
+	. = ..(mapload, SOUTH)
+
+/obj/structure/sign/flag/outer_eyes/large/east/Initialize(mapload)
+	. = ..(mapload, EAST)
+
+/obj/structure/sign/flag/outer_eyes/large/west/Initialize(mapload)
+	. = ..(mapload, WEST)

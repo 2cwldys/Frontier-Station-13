@@ -1,0 +1,18 @@
+/datum/faction/admin
+	name = "Admin Jobs"
+	description = "This faction is for IC administrative jobs used by staff."
+	departments = list(DEPARTMENT_COMMAND)
+	title_suffix = "SCC"
+
+	ui_priority = -INFINITY // top of the list
+
+	allowed_role_types = ADMIN_ROLES
+
+	allowed_species_types = list(
+		/datum/species/human,
+		/datum/species/skrell,
+		/datum/species/machine
+	)
+
+/datum/faction/admin/is_visible(var/mob/user)
+	return check_rights(R_CCIAA, FALSE, user)

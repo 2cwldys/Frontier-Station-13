@@ -1,0 +1,88 @@
+/obj/item/mech_component/propulsion
+	name = "legs"
+	center_of_mass = list("x"=24, "y"=4)
+	icon_state = "loader_legs"
+	power_use = 75
+	/// Movement delay added when moving in any direction.
+	var/move_delay = 5
+
+	/// Movement delay added when turning, cumulative with move_delay.
+	var/turn_delay = 5
+
+	/// Extra movement delay added when using reverse throttle.
+	var/reverse_delay = 10
+
+	/// Extra movement delay added when strafing.
+	var/strafe_delay_modifier = 1.5
+
+	/// Whether or not the legs allow strafing at all.
+	var/can_strafe = TRUE
+
+	/**
+	 * Extra movement delay added based on the ratio of the legs current damage to its maximum damage.
+	 * IE: If your max is 100, and you've taken 50 damage to the legs, this delay should come out to +5.
+	 * At 0 damage, the delay from this is also 0. So it linearly scales with leg damage.
+	 */
+	var/damaged_delay = 10
+
+	/**
+	 * Linear slope of a mech's damage delay characteristics, EG how "fast" it linearly scales.
+	 * This allows floating points, and can technically be a negative number. EG: "Rage mechanic where being damaged makes the mech faster"
+	 */
+	var/damaged_delay_slope = 1.0
+
+	var/obj/item/robot_parts/robot_component/actuator/motivator
+	var/mech_turn_sound = 'sound/mecha/mechturn.ogg'
+	var/mech_step_sound = 'sound/mecha/mechstep.ogg'
+	var/trample_damage = 5
+	var/hover = FALSE // Can this leg allow you to easily travel z-levels?
+
+/obj/item/mech_component/propulsion/Destroy()
+	QDEL_NULL(motivator)
+	. = ..()
+
+/obj/item/mech_component/propulsion/get_missing_parts_text()
+	. = ..()
+	if(!motivator)
+		. += SPAN_WARNING("It is missing an <a href='byond://?src=[REF(src)];info=actuator'>actuator</a>.")
+
+/obj/item/mech_component/propulsion/Topic(href, href_list)
+	. = ..()
+	if(.)
+		return
+	switch(href_list["info"])
+		if("actuator")
+			to_chat(usr, SPAN_NOTICE("An actuator can be created at a synthetic fabricator."))
+
+/obj/item/mech_component/propulsion/return_diagnostics(mob/user)
+	..()
+	if(motivator)
+		to_chat(user, SPAN_NOTICE("  - Actuator Integrity: <b>[round(((motivator.max_dam - motivator.total_dam) / motivator.max_dam) * 100, 0.1)]%</b>"))
+	else
+		to_chat(user, SPAN_WARNING("  - Actuator Missing or Non-functional."))
+
+/obj/item/mech_component/propulsion/ready_to_install()
+	return motivator
+
+/obj/item/mech_component/propulsion/update_components()
+	motivator = locate() in src
+
+/obj/item/mech_component/propulsion/attackby(obj/item/attacking_item, mob/user)
+	if(istype(attacking_item, /obj/item/robot_parts/robot_component/actuator))
+		if(motivator)
+			to_chat(user, SPAN_WARNING("\The [src] already has an actuator installed."))
+			return
+		motivator = attacking_item
+		install_component(attacking_item, user)
+	else
+		return ..()
+
+/obj/item/mech_component/propulsion/prebuild()
+	motivator = new(src)
+
+/obj/item/mech_component/propulsion/proc/can_move_on(var/turf/location, var/turf/target_loc)
+	if(!istype(location))
+		return 1 // Inside something, assume you can get out.
+	if(!istype(target_loc))
+		return 0 // What are you even doing.
+	return 1

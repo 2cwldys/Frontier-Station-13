@@ -1,0 +1,224 @@
+//Some defines to generalise colours used in lighting.
+//Important note on colors. Colors can end up significantly different from the basic html picture, especially when saturated
+/// Warm but extremely diluted red. rgb(250, 130, 130)
+#define LIGHT_COLOR_RED				"#FA8282"
+/// Bright but quickly dissipating neon green. rgb(100, 200, 100)
+#define LIGHT_COLOR_GREEN			"#64C864"
+/// Cold, diluted blue. rgb(100, 150, 250)
+#define LIGHT_COLOR_BLUE			"#6496FA"
+
+/// Light blue. rgb(142, 180, 255)
+#define LIGHT_COLOR_LIGHT_BLUE		"#8eb4ff"
+/// Cyan. rgb(125, 225, 225)
+#define LIGHT_COLOR_CYAN			"#7DE1E1"
+/// Diluted cyan. rgb(202, 240, 255)
+#define LIGHT_COLOR_FAINT_CYAN		"#caf0ff"
+/// Diluted, mid-warmth pink. rgb(225, 125, 225)
+#define LIGHT_COLOR_PINK			"#E17DE1"
+/// Dimmed yellow, leaning kaki. rgb(225, 225, 125)
+#define LIGHT_COLOR_YELLOW			"#E1E17D"
+/// Clear brown, mostly dim. rgb(150, 100, 50)
+#define LIGHT_COLOR_BROWN			"#966432"
+/// Soft, light beige.  rgb(252, 207, 144)
+#define LIGHT_COLOR_BEIGE	"#fccf90"
+/// Mostly pure orange. rgb(250, 150, 50)
+#define LIGHT_COLOR_ORANGE			"#FA9632"
+/// Soft purple. rgb(169, 127, 170)
+#define LIGHT_COLOR_PURPLE			"#A97FAA"
+/// Softer purple. Assunzione lighting. rgb(240,200,240)
+#define LIGHT_COLOR_PALE_PURPLE		"#F0C8F0"
+/// Deep purple. rgb(180, 60, 184)
+#define LIGHT_COLOR_VIOLET			"#B43CB8"
+/// Light red. rgb(232, 86, 86)
+#define LIGHT_COLOR_SCARLET			"#E85656"
+/// White. rgb(255, 255, 255)
+#define LIGHT_COLOR_WHITE			"#FFFFFF"
+
+//These ones aren't a direct colour like the ones above, because nothing would fit
+/// Warm orange color, leaning strongly towards yellow. rgb(250, 160, 25)
+#define LIGHT_COLOR_FIRE			"#FAA019"
+/// Very warm yellow, leaning slightly towards orange. rgb(196, 138, 24)
+#define LIGHT_COLOR_LAVA			"#C48A18"
+/// Bright, non-saturated red. Leaning slightly towards pink for visibility. rgb(250, 100, 75)
+#define LIGHT_COLOR_FLARE			"#FA644B"
+/// Weird color, between yellow and green, very slimy. rgb(175, 200, 75)
+#define LIGHT_COLOR_SLIME_LAMP		"#AFC84B"
+/// Extremely diluted yellow, close to skin color (for some reason). rgb(250, 225, 175)
+#define LIGHT_COLOR_TUNGSTEN		"#FAE1AF"
+/// Soft lighting for general-purpose light fixtures. rgb(192, 192, 202)
+#define LIGHT_COLOR_HALOGEN			"#C0C0CA"
+/// Red color used by emergency lighting. rgb(255, 50, 50)
+#define LIGHT_COLOR_EMERGENCY		"#FF3232"
+/// A softer emergency red, used for small bulbs. rgb(250, 130, 130)
+#define LIGHT_COLOR_EMERGENCY_SOFT	"#FA8282"
+/// Clinical white light bulbs
+#define LIGHT_COLOR_BULB_WHITE		"#FEFEFE"
+/// Grimier, warmer off-white.
+#define LIGHT_COLOR_OFFWHITE		"#efe5bb"
+/// Warm yellowish light bulbs
+#define LIGHT_COLOR_WARM			"#e7e6af"
+/// Amberish decayed light bulbs
+#define LIGHT_COLOR_DECAYED			"#fabd6d"
+/// Reddish decayed light bulbs
+#define LIGHT_COLOR_DYING			"#fa826d"
+/// Pale green. Mostly for medical.
+#define LIGHT_COLOR_CLINICAL		"#5bffaa"
+/// A very gentle purple-ish color!
+#define LIGHT_COLOR_LAVENDER		"#d8bfd8"
+
+// This is the list of area-based light variations!
+/// Quite clean, cold, clinical lighting. For tightly monitored or very sterile areas.
+#define LIGHT_CLINICAL_COLORS list(LIGHT_COLOR_BULB_WHITE, LIGHT_COLOR_WARM, LIGHT_COLOR_HALOGEN)
+/// Generic warmer off-white lighting, for public areas.
+#define LIGHT_WARM_COLORS list(LIGHT_COLOR_WARM, LIGHT_COLOR_OFFWHITE)
+/// Everything is yellow in engineering! It's industrial!
+#define LIGHT_ENGINEERING_COLORS list(LIGHT_COLOR_WARM, LIGHT_COLOR_DECAYED)
+/// Purple. Funky. Probably tastes like blueberries. For research.
+#define LIGHT_RESEARCH_COLORS list(LIGHT_COLOR_LAVENDER, LIGHT_COLOR_PALE_PURPLE)
+/// Foreboding blue. Ominous. You are in a high security area.
+#define LIGHT_HIGHSEC_COLORS list(LIGHT_COLOR_BLUE, LIGHT_COLOR_LIGHT_BLUE)
+
+#define LIGHT_MODE_RED      "red"
+#define LIGHT_MODE_DELTA    "delta"
+
+//Defines for lighting status, see power/lighting.dm
+#define LIGHT_OK     0
+#define LIGHT_EMPTY  1
+#define LIGHT_BROKEN 2
+#define LIGHT_BURNED 3
+
+#define LIGHT_EMERGENCY_POWER_USE 0.2 //How much power emergency lights will consume per tick
+
+// Some brightness/range defines for objects.
+#define L_WALLMOUNT_POWER 0.5
+#define L_WALLMOUNT_RANGE 1
+#define L_WALLMOUNT_HI_POWER 1/// $4
+
+#define L_WALLMOUNT_HI_RANGE 2
+// This controls by how much console sprites are dimmed before being overlayed.
+#define HOLOSCREEN_MULTIPLICATION_FACTOR 0.5
+#define HOLOSCREEN_ADDITION_OPACITY 0.75
+#define HOLOSCREEN_ADDITION_SCREENSAVER_OPACITY 0.5
+#define HOLOSCREEN_MULTIPLICATION_OPACITY 1
+
+// Just so we can avoid unneeded proc calls when profiling is disabled.
+#define L_PROF(O,T) if (GLOB.lighting_profiling) {lprof_write(O,T);}
+
+#define MINIMUM_USEFUL_LIGHT_RANGE 1.4
+
+/// Object doesn't use any of the light systems. Should be changed to add a light source to the object.
+#define NO_LIGHT_SUPPORT 0
+/// Light made with the lighting datums, applying a matrix.
+#define STATIC_LIGHT 1
+/// Light made by masking the lighting darkness plane.
+#define MOVABLE_LIGHT 2
+/// A mix of the above, cheaper on moving items than dynamic, but heavier on rendering than movable.
+#define HYBRID_LIGHT 3
+/// Pointy light.
+#define DIRECTIONAL_LIGHT 4
+
+#define LIGHT_ATTACHED (1<<0)
+
+/// Icon used for lighting shading effects.
+#define LIGHTING_ICON 'icons/effects/lighting_object.dmi'
+/// Icon used for lighting shading effects.
+#define LIGHTING_ICON_BIG 'icons/effects/lighting_object_big.dmi'
+
+#define ALPHA_TO_INTENSITY(alpha) (-(((clamp(alpha, 0, 22) - 22) / 6) ** 4) + 255)
+
+// How many tiles standard fires glow.
+#define LIGHT_RANGE_FIRE 3
+
+#define LIGHTING_PLANE_ALPHA_VISIBLE 255
+#define LIGHTING_PLANE_ALPHA_MOSTLY_VISIBLE 192
+#define LIGHTING_PLANE_ALPHA_SOMEWHAT_INVISIBLE 127
+#define LIGHTING_PLANE_ALPHA_MOSTLY_INVISIBLE 80
+#define LIGHTING_PLANE_ALPHA_INVISIBLE 0
+
+#define FLASH_LIGHT_DURATION 2
+#define FLASH_LIGHT_POWER 3
+#define FLASH_LIGHT_RANGE 3.8
+
+#define IS_OPAQUE_TURF(turf) (turf.directional_opacity == ALL_CARDINALS)
+
+// Emissive blocking.
+/// For anything that shouldn't block emissives. Small objects or translucent objects primarily
+#define EMISSIVE_BLOCK_NONE 0
+/// For anything that doesn't change outline or opaque area much or at all.
+#define EMISSIVE_BLOCK_GENERIC 1
+/// Uses a dedicated render_target object to copy the entire appearance in real time to the blocking layer. For things that can change in appearance a lot from the base state, like humans.
+#define EMISSIVE_BLOCK_UNIQUE 2
+
+
+/// The color matrix applied to all emissive overlays. Should be solely dependent on alpha and not have RGB overlap with [EM_BLOCK_COLOR].
+#define EMISSIVE_COLOR list(0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1, 1,1,1,0)
+/// A globaly cached version of [EMISSIVE_COLOR] for quick access.
+GLOBAL_LIST_INIT(emissive_color, EMISSIVE_COLOR)
+/// The color matrix applied to all emissive blockers. Should be solely dependent on alpha and not have RGB overlap with [EMISSIVE_COLOR].
+#define EM_BLOCK_COLOR list(0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1, 0,0,0,0)
+/// A globaly cached version of [EM_BLOCK_COLOR] for quick access.
+GLOBAL_LIST_INIT(em_block_color, EM_BLOCK_COLOR)
+/// A set of appearance flags applied to all emissive and emissive blocker overlays.
+#define EMISSIVE_APPEARANCE_FLAGS (KEEP_APART|KEEP_TOGETHER|RESET_COLOR|RESET_TRANSFORM)
+/// The color matrix used to mask out emissive blockers on the emissive plane. Alpha should default to zero, be solely dependent on the RGB value of [EMISSIVE_COLOR], and be independent of the RGB value of [EM_BLOCK_COLOR].
+#define EM_MASK_MATRIX list(0,0,0,1/3, 0,0,0,1/3, 0,0,0,1/3, 0,0,0,0, 1,1,1,0)
+/// A globaly cached version of [EM_MASK_MATRIX] for quick access.
+GLOBAL_LIST_INIT(em_mask_matrix, EM_MASK_MATRIX)
+
+/// Returns the red part of a #RRGGBB hex sequence as number.
+#define GETREDPART(hexa) hex2num(copytext(hexa, 2, 4))
+
+/// Returns the green part of a #RRGGBB hex sequence as number.
+#define GETGREENPART(hexa) hex2num(copytext(hexa, 4, 6))
+
+/// Returns the blue part of a #RRGGBB hex sequence as number.
+#define GETBLUEPART(hexa) hex2num(copytext(hexa, 6, 8))
+
+/// Parse the hexadecimal color into lumcounts of each perspective.
+#define PARSE_LIGHT_COLOR(source) \
+do { \
+	if (source.light_color != COLOR_WHITE) { \
+		var/__light_color = source.light_color; \
+		source.lum_r = GETREDPART(__light_color) / 255; \
+		source.lum_g = GETGREENPART(__light_color) / 255; \
+		source.lum_b = GETBLUEPART(__light_color) / 255; \
+	} else { \
+		source.lum_r = 1; \
+		source.lum_g = 1; \
+		source.lum_b = 1; \
+	}; \
+} while (FALSE)
+
+
+//Bay lighting engine shit, not in /code/modules/lighting because BYOND is being shit about it	//thats how defines work, hello?
+#define LIGHTING_INTERVAL 5 // frequency, in 1/10ths of a second, of the lighting process
+
+#define MOVABLE_MAX_RANGE 7
+
+/// Type of falloff to use for lighting; 1 for circular, 2 for square.
+#define LIGHTING_FALLOFF 1
+/// Use lambertian shading for light sources.
+#define LIGHTING_LAMBERTIAN 0
+/// Height off the ground of light sources on the pseudo-z-axis, you should probably leave this alone.
+#define LIGHTING_HEIGHT 1
+/// Value used to round lumcounts, values smaller than 1/129 don't matter (if they do, thanks sinking points), greater values will make lighting less precise, but in turn increase performance, VERY SLIGHTLY.
+#define LIGHTING_ROUND_VALUE (1 / 64)
+
+/// If the max of the lighting lumcounts of each spectrum drops below this, disable luminosity on the lighting objects. Set to zero to disable soft lighting. Luminosity changes then work if it's lit at all.
+#define LIGHTING_SOFT_THRESHOLD 0
+
+/// If I were you I'd leave this alone.
+#define LIGHTING_BASE_MATRIX \
+	list                     \
+	(                        \
+		1, 1, 1, 0, \
+		1, 1, 1, 0, \
+		1, 1, 1, 0, \
+		1, 1, 1, 0, \
+		0, 0, 0, 1           \
+	)                        \
+
+#define LIGHTING_NO_UPDATE 0
+#define LIGHTING_VIS_UPDATE 1
+#define LIGHTING_CHECK_UPDATE 2
+#define LIGHTING_FORCE_UPDATE 3

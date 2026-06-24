@@ -1,0 +1,446 @@
+/obj/item/clothing/suit/storage/toggle/labcoat/tajaran
+	name = "people's republic medical coat"
+	desc = "A sterile insulated coat made of leather stitched over fur."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "medcoat"
+	item_state = "medcoat"
+	desc_extended = "Today the fashion that dominates Adhomai shares few similarities to the clothing of old Furs, linen, hemp, silk and other such fabrics were traded for \
+	synthetic versions, creating a massive boom in the nylon industry and textile industry in the cities. Jeans, overcoats, army uniforms, parade uniforms, flags, pants, shirts, ties, \
+	suspenders, overalls are now the fashion of every Tajara from Nal'Tor to Kaltir. The protests of \"Old fashion\" supporters can't stand against how undeniably effective and cheap \
+	to produce Human clothes are. There are a few notable branches, the long-coat and fedora \"gangster style\". Leather jacket wearing \"Greaser\" or the popular amongst females, short \
+	and colorful dress wearing \"Flapper\" variety of clothing."
+
+/obj/item/clothing/suit/storage/toggle/tajaran/wool
+	name = "adhomian wool coat"
+	desc = "An adhomian coat, this one is a design commonly found among the Rhazar'Hrujmagh people."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "zhan_coat"
+	item_state = "zhan_coat"
+	contained_sprite = TRUE
+	desc_extended = "Today the fashion that dominates Adhomai shares few similarities to the clothing of old Furs, linen, hemp, silk and other such fabrics were traded for \
+	synthetic versions, creating a massive boom in the nylon industry and textile industry in the cities. Jeans, overcoats, army uniforms, parade uniforms, flags, pants, shirts, ties, \
+	suspenders, overalls are now the fashion of every Tajara from Nal'Tor to Kaltir. The protests of \"Old fashion\" supporters can't stand against how undeniably effective and cheap \
+	to produce Human clothes are. There are a few notable branches, the long-coat and fedora \"gangster style\". Leather jacket wearing \"Greaser\" or the popular amongst females, short \
+	and colorful dress wearing \"Flapper\" variety of clothing."
+
+/obj/item/clothing/suit/storage/toggle/tajaran/raakti_shariim
+	name = "\improper Raakti Shariim coat"
+	desc = "A blue adhomian wool coat with lilac purple accents and pale-gold insignia, signifying a Constable of the NKA's Raakti Shariim."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "raakti_shariim_coat"
+	item_state = "raakti_shariim_coat"
+	desc_extended = "The Raakti Shariim (Royal Peacekeepers in Ceti Basic) are the New Kingdom of Adhomai's policing and \
+		peacekeeping force, working closely with both the Royal Constabulary and the Royal Ministry of Intelligence to \
+		seek out internal threats to the Kingdom such as spies, terrorists, and other domestic enemies to the crown. \
+		The Raakti Shariim's uniforms incorporate a dark, navy blue paired with a lilac accent and pale-gold twin-sun \
+		insignia."
+
+/obj/item/clothing/suit/storage/toggle/tajaran
+	name = "tajaran naval coat"
+	desc = "A thick wool coat from Adhomai."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "navalcoat"
+	item_state = "navalcoat"
+	contained_sprite = TRUE
+	desc_extended = "Today the fashion that dominates Adhomai shares few similarities to the clothing of old Furs, linen, hemp, silk and other such fabrics were traded for \
+	synthetic versions, creating a massive boom in the nylon industry and textile industry in the cities. Jeans, overcoats, army uniforms, parade uniforms, flags, pants, shirts, ties, \
+	suspenders, overalls are now the fashion of every Tajara from Nal'Tor to Kaltir. The protests of \"Old fashion\" supporters can't stand against how undeniably effective and cheap \
+	to produce Human clothes are. There are a few notable branches, the long-coat and fedora \"gangster style\". Leather jacket wearing \"Greaser\" or the popular amongst females, short \
+	and colorful dress wearing \"Flapper\" variety of clothing."
+
+/obj/item/clothing/suit/storage/toggle/tajaran/consular
+	name = "people's republic consular coat"
+	desc = "An olive drab canvas coat used by the Diplomatic Service of the People's Republic of Adhomai. Based upon the same pattern of \
+	coats utilized by the Officer Corps, the Diplomatic Service coat simplifies the button pattern as the Service requires less security \
+	against the winds and cold of Adhomai."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "pra_consularcoat"
+	item_state = "pra_consularcoat"
+	contained_sprite = TRUE
+	desc_extended = "The People's Republic of Adhomai has enjoyed recognition across the Spur for longer than any other nation on Adhomai. \
+	Given the ambitions of the Republic, its Diplomatic Service remains an important part of Hadiist foreign affairs, being seen everywhere \
+	from Tau Ceti to the Coalition. The Service's mission is twofold. While ensuring cooperation and cordial affairs with potential trade \
+	partners, Consulars are typically expected to assist in intelligence gathering."
+
+/obj/item/clothing/suit/storage/toggle/tajaran/consular/dpra
+	name = "democratic people's republic consular coat"
+	desc = "A black and white canvas coat used by the Diplomatic Service of the Democratic People's Republic of Adhomai. These coats are \
+	commonly repurposed Hadiist coats left over by the Second Revolution. Due to the DPRA's stance on foreign affairs, little thought is \
+	placed into producing domestic models."
+	icon_state = "dpra_consularcoat"
+	item_state = "dpra_consularcoat"
+	desc_extended = "The Democratic People's Republic of Adhomai continues a stance of restrained diplomatic relations. Few nations enjoy a \
+	communicative let alone cordial relationship with the rebel nation. However, to achieve its mission in freeing the Tajaran people, off-world \
+	or otherwise, the Democratic Republic maintains a small diplomatic service focused entirely on Tajaran communities and little else."
+
+/obj/item/clothing/suit/storage/toggle/tajaran/consular/nka
+	name = "new kingdom consular coat"
+	desc = "A blue and gold coat used by the Diplomatic Service of the New Kingdom of Adhomai. These coats have only been issued in the \
+	past decade as the New Kingdom's economy begins to recover. With the focus on the image of the Kingdom's diplomatic staff, commoners \
+	and nobles alike share the same coat when representing the Kingdom abroad."
+	icon_state = "nka_consularcoat"
+	item_state = "nka_consularcoat"
+	desc_extended = "The New Kingdom of Adhomai has seen a rise in its international relations since it revolted in 2450. Having few working \
+	relationships, such as the Empire of Dominia, the New Kingdom's approach remains tied to its continued efforts to bring in Megacorporations. \
+	While the focus is improving relations for economic benefit, the Diplomatic Service does have an additional duty of aiding the Royalist \
+	communities across the Spur."
+
+/obj/item/clothing/suit/storage/tajaran/messa
+	name = "sun sister robe"
+	desc = "A robe worn by the female priests of the S'rand'Marr religion."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "messarobes"
+	item_state = "messarobes"
+	contained_sprite = TRUE
+	no_overheat = TRUE
+	desc_extended = "The official religious body of the S'rendarr & Messa religion  is reffered to as \"Parivara\" or roughly translated \"Family\". This branch is further split into \
+	the female Sun Sisters and male Priest's of S'rendarr. Currently their main role is to act as mediator and to remain out of political matters, there is however a certain unspoken \
+	agitation about the religion of Mata'ke and S'rrendars position within that pantheon. Further the Parivara has called multiple summits over the courses of war, which usually result \
+	in temporary cease-fires from all sides."
+	allowed = list(/obj/item/tank/emergency_oxygen,/obj/item/storage/bible,/obj/item/nullrod,/obj/item/reagent_containers/food/drinks/bottle/holywater)
+
+/obj/item/clothing/suit/storage/tajaran/matake
+	name = "Mata'ke priest mantle"
+	desc = "A mantle worn by the priests of Mata'ke."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "matakecoat"
+	item_state = "matakecoat"
+	contained_sprite = TRUE
+	no_overheat = TRUE
+	desc_extended = "The priesthood of Mata'ke is comprised of only men and strangely enough, hunters. Like their patron, all priests of Mata'ke must prove themselves capable, \
+	practical, strong and masters of Adhomai wilderness. Every clan and temple of Mata'ke has a different way of testing its applicants and these tests are always kept as a strict \
+	secret, the only thing known is that the majority of applicants never return. After they're accepted, priests of Mata'ke dress in furs and carry silver \
+	weapons, usually daggers for ease of transport and to simulate Mata'ke's sword. There is a remarkably low amount of Njarir'Akhran in the Mata'ke priesthood."
+	allowed = list(/obj/item/tank/emergency_oxygen,/obj/item/storage/bible,/obj/item/nullrod,/obj/item/reagent_containers/food/drinks/bottle/holywater)
+
+/obj/item/clothing/suit/storage/tajaran/azubarre
+	name = "Azubarre priest robes"
+	desc = "Large and fancy robes worn by the priests of Azubarre."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "azubarre"
+	item_state = "azubarre"
+	contained_sprite = TRUE
+	no_overheat = TRUE
+	desc_extended = "The priests of Azubarre are often adored and many aspire to become one, their large flowing robes and beautiful faces often accompany carnivals, marriages, \
+	birthdays, births and many other social events making them the epitome of life. However, the selection for such priests is considered by most to be very shallow, as only those \
+	beautiful and joyous enough are selected as priests. "
+	allowed = list(/obj/item/tank/emergency_oxygen,/obj/item/storage/bible,/obj/item/nullrod,/obj/item/reagent_containers/food/drinks/bottle/holywater)
+
+/obj/item/clothing/suit/storage/tajaran/raskara
+	name = "raskariim robes"
+	desc = "Sinister robes worn by the members of the cult of Raskara."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "raskarasuit"
+	item_state = "raskarasuit"
+	contained_sprite = TRUE
+	body_parts_covered = UPPER_TORSO|LOWER_TORSO|LEGS|FEET|ARMS|HANDS
+	flags_inv = HIDEWRISTS|HIDEGLOVES|HIDESHOES|HIDEJUMPSUIT|HIDETAIL
+	species_restricted = list(BODYTYPE_TAJARA)
+	desc_extended =  "Raskariim, commonly known as The Cult of Raskara are a prolific cult on Adhomai. The religion has been created on Adhomai but with the free commerce, a few human \
+	members have been recorded. While Raskara may seem like a single deity it is in fact split into three aspects, each one leading down a different path and seemingly every path \
+	subverting something S'rendarr and Messa stands for."
+
+/obj/item/clothing/suit/storage/hooded/tajaran
+	name = "gruff cloak"
+	desc = "A cloak designated for the lowest classes."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "taj_cloak"
+	item_state = "taj_cloak"
+	contained_sprite = TRUE
+	flags_inv = HIDETAIL
+	no_overheat = TRUE
+	desc_extended = "Today the fashion that dominates Adhomai shares few similarities to the clothing of old Furs, linen, hemp, silk and other such fabrics were traded for \
+	synthetic versions, creating a massive boom in the nylon industry and textile industry in the cities. Jeans, overcoats, army uniforms, parade uniforms, flags, pants, shirts, ties, \
+	suspenders, overalls are now the fashion of every Tajara from Nal'Tor to Kaltir. The protests of \"Old fashion\" supporters can't stand against how undeniably effective and cheap \
+	to produce Human clothes are. There are a few notable branches, the long-coat and fedora \"gangster style\". Leather jacket wearing \"Greaser\" or the popular amongst females, short \
+	and colorful dress wearing \"Flapper\" variety of clothing."
+
+/obj/item/clothing/suit/storage/hooded/tajaran/priest
+	name = "sun priest robe"
+	desc = "A robe worn by male priests of the S'rand'marr religion."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "priestrobe"
+	item_state = "priestrobe"
+	contained_sprite = TRUE
+	flags_inv = 0
+	allowed = list(/obj/item/tank/emergency_oxygen,/obj/item/storage/bible,/obj/item/nullrod,/obj/item/reagent_containers/food/drinks/bottle/holywater)
+	desc_extended = "The official religious body of the S'rendarr & Messa religion  is reffered to as \"Parivara\" or roughly translated \"Family\". This branch is further split into \
+	the female Sun Sisters and male Priest's of S'rendarr. Currently their main role is to act as mediator and to remain out of political matters, there is however a certain unspoken \
+	agitation about the religion of Mata'ke and S'rrendars position within that pantheon. Further the Parivara has called multiple summits over the courses of war, which usually result \
+	in temporary cease-fires from all sides."
+
+/obj/item/clothing/suit/storage/hooded/tajaran/surgery
+	name = "adhomian surgeon garb"
+	desc = "An utilitarian Adhomian surgeon's garb, with its design hardly changed from the First Revolution."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "tajscrubs"
+	item_state = "tajscrubs"
+	contained_sprite = TRUE
+	flags_inv = 0
+	hoodtype = /obj/item/clothing/head/winterhood/hoodie/taj_scrubs
+	allowed = list(/obj/item/stack/medical, /obj/item/reagent_containers/dropper, /obj/item/reagent_containers/hypospray, /obj/item/reagent_containers/syringe, \
+	/obj/item/healthanalyzer, /obj/item/flashlight, /obj/item/radio, /obj/item/tank/emergency_oxygen, /obj/item/breath_analyzer, /obj/item/reagent_containers/blood)
+	species_restricted = list(BODYTYPE_TAJARA)
+	desc_extended = null
+	armor = list(
+			bio = ARMOR_BIO_STRONG,
+		)
+
+/obj/item/clothing/head/winterhood/hoodie/taj_scrubs
+	name = "adhomian surgeon mask"
+	desc = "A surgical mask attached to a surgeon garb."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "tajscrubs_hood"
+	item_state = "tajscrubs_hood"
+	contained_sprite = TRUE
+	species_restricted = list(BODYTYPE_TAJARA)
+	body_parts_covered = FACE|HEAD
+	gas_transfer_coefficient = 0.90
+	permeability_coefficient = 0.01
+	armor = list(
+		BIO = ARMOR_BIO_RESISTANT
+	)
+
+/obj/item/clothing/suit/storage/hooded/tajaran/amohda
+	name = "amohdan cloak"
+	desc = "Originally used by the Amohdan swordsmen before the First Revolution, this cloak is now commonly worn by the island population."
+	icon_state = "amohda_cloak"
+	item_state = "amohda_cloak"
+	desc_extended = "The Feudal Era of Amohda is famous for the steel swords which became common. Many renowned swordsmen and famous warriors would travel the land fighting duels of \
+	single combat in their quests to become the greatest swordsman. Modern Amohda is under the control of the DPRA's Adhomai Liberation Army, further solidified after the defeat \
+	of a Nationalist revolt vying for a truly independent Amohda. The region is still beset by trouble within and without as a deeply divided Amohdan people continue to struggle in the \
+	bloody conflict to stamp out Nationalistic and to a lesser extent, divided Monarchistic sentiments while their rivals from the New Kingdom of Adhomai watch from the seas they rule \
+	and the People's Republic of Adhomai looms over the southern end of the island..."
+	flags_inv = 0
+
+/obj/item/clothing/suit/storage/hooded/tajaran/winter
+	name = "adhomian winter cloak"
+	desc = "A simple wool cloak used during the early days of the lesser winter."
+	icon_state = "winter_cloak"
+	item_state = "winter_cloak"
+	flags_inv = 0
+
+/obj/item/clothing/suit/storage/hooded/tajaran/royalist
+	name = "adhomian royalist cloak"
+	desc = "An Adhomian cloak with an asymmetric design. The symbol of the New Kingdom of Adhomai is at its back."
+	icon_state = "royalist_cloak"
+	item_state = "royalist_cloak"
+	desc_extended = "The New Kingdom of Adhomai culture is characterized as traditional; instead of trying to change the Tajaran caste system, those divisions are seen as a natural \
+	part of the Adhomian way of life. While the government makes no effort in enforcing this separation, there is a great societal expectation that each Tajara will attempt to stay in \
+	their customary roles related to their ethnicity."
+	flags_inv = 0
+
+/obj/item/clothing/suit/storage/hooded/tajaran/maroon
+	name = "adhomian maroon cloak"
+	desc = "A simple maroon colored Adhomian cloak."
+	icon_state = "maroon_cloak"
+	item_state = "maroon_cloak"
+	flags_inv = 0
+
+/obj/item/clothing/suit/storage/hooded/tajaran/fancy
+	name = "fancy adhomian cloak"
+	desc = "A fancy black Adhomian cloak."
+	icon_state = "hb_cloak"
+	item_state = "hb_cloak"
+	flags_inv = 0
+
+/obj/item/clothing/suit/storage/hooded/tajaran/colorable
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "taj_cloak_colorable"
+	item_state = "taj_cloak_colorable"
+	icon_override = null
+	contained_sprite = TRUE
+	build_from_parts = TRUE
+	has_accents = TRUE
+
+/obj/item/clothing/suit/storage/hooded/tajaran/colorable/fancy
+	name = "fancy adhomian cloak"
+	desc = "A fancy Adhomian cloak."
+	icon_state = "hb_cloak_colorable"
+	item_state = "hb_cloak_colorable"
+	worn_overlay =  "adornment"
+	flags_inv = 0
+
+/obj/item/clothing/suit/storage/hooded/tajaran/colorable/royal
+	name = "adhomian royal cloak"
+	desc = "An Adhomian cloak with an asymmetric design."
+	icon_state = "royal_cloak_colorable"
+	item_state = "royal_cloak_colorable"
+	worn_overlay =  "adornment"
+	flags_inv = 0
+
+/obj/item/clothing/suit/storage/hooded/tajaran/colorable/amohda
+	name = "amohdan cloak"
+	desc = "Originally used by the Amohdan swordsmen before the First Revolution, this cloak is now commonly worn by the island population."
+	icon_state = "amohda_cloak_colorable"
+	item_state = "amohda_cloak_colorable"
+	desc_extended = "The Feudal Era of Amohda is famous for the steel swords which became common. Many renowned swordsmen and famous warriors would travel the land fighting duels of \
+	single combat in their quests to become the greatest swordsman. Modern Amohda is under the control of the DPRA's Adhomai Liberation Army, further solidified after the defeat \
+	of a Nationalist revolt vying for a truly independent Amohda. The region is still beset by trouble within and without as a deeply divided Amohdan people continue to struggle in the \
+	bloody conflict to stamp out Nationalistic and to a lesser extent, divided Monarchistic sentiments while their rivals from the New Kingdom of Adhomai watch from the seas they rule \
+	and the People's Republic of Adhomai looms over the southern end of the island..."
+	flags_inv = 0
+
+/obj/item/clothing/suit/armor/amohda
+	name = "amohdan swordsman armor"
+	desc = "A suit of armor used by the traditional warriors of Amohda."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "amohdan_armor"
+	item_state = "amohdan_armor"
+	contained_sprite = TRUE
+	body_parts_covered = UPPER_TORSO|LOWER_TORSO|LEGS|ARMS
+	allowed = list(/obj/item/gun,/obj/item/material/sword)
+	flags_inv = HIDEJUMPSUIT|HIDETAIL
+	species_restricted = list(BODYTYPE_TAJARA)
+	armor = list(
+		MELEE = ARMOR_MELEE_MAJOR,
+		BULLET = ARMOR_BALLISTIC_PISTOL,
+		LASER = ARMOR_LASER_SMALL,
+		ENERGY = ARMOR_ENERGY_MINOR,
+		BOMB = ARMOR_BOMB_MINOR
+	)
+	siemens_coefficient = 0.35
+	desc_extended = "The Feudal Era of Amohda is famous for the steel swords which became common. Many renowned swordsmen and famous warriors would travel the land fighting duels of \
+	single combat in their quests to become the greatest swordsman. Modern Amohda is under the control of the DPRA's Adhomai Liberation Army, further solidified after the defeat \
+	of a Nationalist revolt vying for a truly independent Amohda. The region is still beset by trouble within and without as a deeply divided Amohdan people continue to struggle in the \
+	bloody conflict to stamp out Nationalistic and to a lesser extent, divided Monarchistic sentiments while their rivals from the New Kingdom of Adhomai watch from the seas they rule \
+	and the People's Republic of Adhomai looms over the southern end of the island..."
+
+/obj/item/clothing/suit/armor/cuirass
+	name = "cuirass"
+	desc = "A reinforced cuirass used by the forces of the new Kingdom of Adhomai."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "cuirass"
+	item_state = "cuirass"
+	contained_sprite = TRUE
+	armor = list(
+		MELEE = ARMOR_MELEE_MAJOR,
+		BULLET = ARMOR_BALLISTIC_PISTOL,
+		LASER = ARMOR_LASER_SMALL,
+		ENERGY = ARMOR_ENERGY_MINOR,
+		BOMB = ARMOR_BOMB_MINOR
+	)
+
+/obj/item/clothing/suit/storage/tajaran/pra_jacket
+	name = "hadiist surplus jacket"
+	desc = "An olive surplus jacket worn by the forces of the Grand People's Army."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "greenservice"
+	item_state = "greenservice"
+	contained_sprite = TRUE
+	body_parts_covered = UPPER_TORSO|LOWER_TORSO|LEGS|ARMS
+
+/obj/item/clothing/suit/storage/tajaran/pra_jacket/armored
+	name = "hadiist service jacket"
+	desc = "An olive military jacket worn by the forces of the Grand People's Army."
+	armor = list(
+		MELEE = ARMOR_MELEE_KNIVES,
+		BULLET = ARMOR_BALLISTIC_MINOR,
+		LASER = ARMOR_LASER_MINOR,
+		ENERGY = ARMOR_ENERGY_MINOR,
+		BOMB = ARMOR_BOMB_MINOR
+	)
+	siemens_coefficient = 0.50
+	allowed = list(/obj/item/gun/projectile/shotgun/pump/rifle, /obj/item/ammo_magazine/boltaction/adhomai, /obj/item/ammo_magazine/a68, /obj/item/gun/projectile/automatic/rifle/adhomian, /obj/item/flashlight)
+
+/obj/item/clothing/suit/storage/tajaran/dpra_jacket
+	name = "al'mariist jacket"
+	desc = "A jacket based on the Liberation Army's old equipment."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "dpra_jacket"
+	item_state = "dpra_jacket"
+	body_parts_covered = UPPER_TORSO|LOWER_TORSO|LEGS|ARMS
+	contained_sprite = TRUE
+
+/obj/item/clothing/suit/storage/tajaran/fancy
+	name = "fancy royalist jacket"
+	desc = "An adhomian jacket frequently worn by the New Kingdom's nobility."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "nka_Jacket"
+	item_state = "nka_Jacket"
+	body_parts_covered = UPPER_TORSO|LOWER_TORSO|LEGS|ARMS
+	contained_sprite = TRUE
+
+/obj/item/clothing/suit/storage/tajaran/fancycoat
+	name = "fancy black ladies coat"
+	desc = "A long tailed coat, commonly worn by woman in the New Kingdom."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "ladies_coat"
+	item_state = "ladies_coat"
+	body_parts_covered = UPPER_TORSO|LOWER_TORSO|LEGS|ARMS
+	contained_sprite = TRUE
+
+/obj/item/clothing/suit/storage/tajaran/fancycoat/red
+	name = "fancy red ladies coat"
+	icon_state = "ladies_coat_red"
+	item_state = "ladies_coat_red"
+
+/obj/item/clothing/suit/storage/tajaran/finecoat
+	name = "fine brown coat"
+	desc = "A fancy, warm coat suitable for a noble."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "finecoat"
+	item_state = "finecoat"
+	body_parts_covered = UPPER_TORSO|LOWER_TORSO|LEGS|ARMS
+	contained_sprite = TRUE
+
+/obj/item/clothing/suit/storage/tajaran/finecoat/blue
+	name = "fine blue coat"
+	icon_state = "finecoat_blue"
+	item_state = "finecoat_blue"
+
+/obj/item/clothing/suit/storage/tajaran/nka_merchant_navy
+	name = "her majesty's mercantile flotilla captain coat"
+	desc = "A fancy coat worn by captains of the New Kingdom's mercantile navy. It offers extra protection against space wind."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "capjacket"
+	item_state = "capjacket"
+	contained_sprite = TRUE
+
+/obj/item/clothing/suit/storage/tajaran/hunting
+	name = "adhomian hunting coat"
+	desc = "A coat made of adhomian pelts. Commonly used by hunters."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "hunter_coat"
+	item_state = "hunter_coat"
+	contained_sprite = TRUE
+	body_parts_covered = UPPER_TORSO|LOWER_TORSO|LEGS|ARMS
+	allowed = list(/obj/item/gun/projectile/shotgun, /obj/item/gun/projectile/shotgun/pump/rifle, /obj/item/ammo_magazine/boltaction, /obj/item/material/knife, /obj/item/flashlight)
+
+/obj/item/clothing/suit/storage/tajaran/archeologist
+	name = "archeologist jacket"
+	desc = "A leather jacket used by Adhomian archeologists. Perfect to store dynamite sticks."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "explorer_jacket"
+	item_state = "explorer_jacket"
+	contained_sprite = TRUE
+	allowed = list(/obj/item/grenade/dynamite, /obj/item/melee/whip, /obj/item/gun/projectile/revolver, /obj/item/pickaxe)
+
+/obj/item/clothing/suit/storage/tajaran/pra_cop
+	name = "PRA NPD jacket"
+	desc = "A warm and thick jacket with the markings of the PRA national police department."
+	desc_extended = "The National Police Department is the largest and best equipped police force on Adhomai. \
+	Responsible for law enforcement in the People's Republic, the olive drab uniforms and polished badges have maintained peace and order, \
+	or inspired fear, within the population since the nation's founding."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "taj_cop_suit"
+	item_state = "taj_cop_suit"
+	contained_sprite = TRUE
+
+/obj/item/clothing/suit/storage/tajaran/pra_cop/rural
+	name = "rural PRA NPD jacket"
+	desc = "A jacket with the markings of the PRA national police department that can commonly be found in the rural parts of the PRA."
+	icon_state = "taj_cop_suit_rural"
+	item_state = "taj_cop_suit_rural"
+
+/obj/item/clothing/suit/storage/toggle/tajaran/pra_submarine
+	name = "\improper PRA submariner coat"
+	desc = "A black leather coat with a Zshram fur lining and collar found in use by the People's Republic of Adhomai's submarine service."
+	icon = 'icons/obj/tajara_items.dmi'
+	icon_state = "pra_submarine_coat"
+	item_state = "pra_submarine_coat"
+	contained_sprite = TRUE
+	desc_extended = "The Miraniye T’varrnav Varrom, translated as Miran’miran Submarine Coat, is the standard overcoat supplied to the Republican Navy’s submarine service. Designed to \
+	insulate and protect the wearer against the ice-cold water of the Adhomian seas, the black leather coat is a source of pride among submariners and coveted by Al’mariist and Royalist \
+	sailors as a war trophy. Once produced within the port city of Miran’mir it is named after, the war forced production to move to the Ardiye Romanqri Khaz’tra in Nal’tor. Despite this, \
+	the coat had only minor changes, remaining constant throughout as a symbol of the Hadiist menace across the waves."

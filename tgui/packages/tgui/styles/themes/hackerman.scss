@@ -1,0 +1,36 @@
+/**
+ * Copyright (c) 2020 Aleksej Komarov
+ * SPDX-License-Identifier: MIT
+ */
+
+@use '../base.scss';
+.theme-hackerman {
+  --button-background-default: var(--color-primary);
+  --button-background-disabled: #4a6a4a;
+  --button-background-selected: #00ff00;
+  --tab-background-selected: #00ff003f;
+  --tab-color: #e7e7e7;
+  --input-border-color: var(--color-primary);
+  --input-border-color-focus: var(--color-primary);
+  --titlebar-background: #223d22;
+  --color-base: #121b12;
+  --color-primary: #00ff00;
+  --base-gradient-spread: 0;
+  --section-background: rgba(0, 0, 0, 0.33);
+
+  .Layout__content {
+    background-image: none;
+  }
+
+  .Button {
+    font-family: monospace;
+    border-width: base.em(2px);
+    border-style: outset;
+    border-color: #00aa00;
+    outline: base.em(1px) solid rgb(0, 122, 0);
+  }
+
+  .candystripe:nth-child(odd) {
+    background-color: rgba(0, 100, 0, 0.5);
+  }
+}

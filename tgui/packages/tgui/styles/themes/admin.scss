@@ -1,0 +1,17 @@
+/**
+ * Copyright (c) 2020 Aleksej Komarov
+ * SPDX-License-Identifier: MIT
+ */
+
+.theme-admin {
+  --color-base: #29333a;
+  --color-primary: #1596b6;
+  --base-gradient-spread: 6;
+  --border-radius-unit: 2px;
+
+  
+
+  .Layout__content {
+    background-image: url('../../assets/bg-admin.svg');
+  }
+}

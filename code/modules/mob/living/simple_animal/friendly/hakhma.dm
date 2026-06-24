@@ -1,0 +1,29 @@
+/mob/living/simple_animal/hakhma
+	name = "hakhma"
+	desc = "An oversized insect bred by Scarab colony ships, known for their milk."
+	icon = 'icons/mob/npc/livestock.dmi'
+	icon_state = "hakhma"
+	icon_living = "hakhma"
+	icon_dead = "hakhma_dead"
+	icon_rest = "hakhma_rest"
+	speak_emote = list("chitters")
+	emote_hear = list("chitters")
+	emote_see = list("shakes its head")
+	speak_chance = 1
+	turns_per_move = 5
+	meat_amount = 35
+	meat_type = /obj/item/reagent_containers/food/snacks/meat/hakhma
+	organ_names = list("head", "chest", "right fore leg", "left fore leg", "right rear leg", "left rear leg")
+	response_help  = "pets"
+	response_disarm = "gently pushes aside"
+	response_harm   = "kicks"
+	attacktext = "kicks"
+	health = 250
+	maxhealth = 250
+	canbrush = TRUE
+	brush = /obj/item/reagent_containers/glass/rag
+
+	mob_size = 15
+
+	can_be_milked = TRUE
+	milk_type = /singleton/reagent/drink/milk/beetle

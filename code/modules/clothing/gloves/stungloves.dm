@@ -1,0 +1,10 @@
+/obj/item/clothing/gloves/update_icon()
+	..()
+	if(wired)
+		AddOverlays("gloves_wire")
+	else
+		CutOverlays("gloves_wire")
+	if(cell)
+		AddOverlays("gloves_cell")
+	else
+		CutOverlays("gloves_cell")

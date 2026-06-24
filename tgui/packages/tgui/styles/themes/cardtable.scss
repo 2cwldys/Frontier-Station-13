@@ -1,0 +1,28 @@
+/**
+ * Copyright (c) 2020 Aleksej Komarov
+ * SPDX-License-Identifier: MIT
+ */
+
+@use '../base.scss';
+//Made for the roulette table, probably requires a bunch of manual hacks to work for anything else
+.theme-cardtable {
+  --button-background-default: #117039;
+  --button-background-disabled: #363636;
+  --button-background-selected: #9d0808;
+  --button-background-caution: #be6209;
+  --button-background-danger: #9a9d00;
+  --number-input-border-color: #fff;
+  --number-input-border-color-active: #fff;
+  --progress-bar-background: rgba(0, 0, 0, 0.5);
+  --progress-bar-fill: #117039;
+  --titlebar-background: #381608;
+  --color-base: #117039;
+  --color-primary: #000000;
+  --base-gradient-spread: 0;
+  --border-radius-unit: 0;
+  --section-background: rgba(0, 0, 0, 0.33);
+
+  .Button {
+    border: base.em(2px) solid #fff;
+  }
+}

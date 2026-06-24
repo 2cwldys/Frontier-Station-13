@@ -1,0 +1,118 @@
+import { Button, NoticeBox, Section } from 'tgui-core/components';
+import type { BooleanLike } from 'tgui-core/react';
+import { useBackend, useLocalState } from '../backend';
+import { NtosWindow } from '../layouts';
+import { SearchBar } from './common/SearchBar';
+
+export type CameraData = {
+  current_camera: Camera;
+  current_network: string;
+  networks: Network[];
+  cameras: Camera[];
+};
+
+type Camera = {
+  name: string;
+  deact: BooleanLike; // deactivated
+  camera: string; // ref
+  x: number;
+  y: number;
+  z: number;
+};
+
+type Network = {
+  tag: string;
+  has_access: BooleanLike;
+};
+
+export const CameraMonitoring = (props) => {
+  const { act, data } = useBackend<CameraData>();
+
+  return (
+    <NtosWindow resizable height={800} width={900}>
+      <NtosWindow.Content scrollable>
+        {data.networks?.length ? (
+          <ShowNetworks />
+        ) : (
+          <NoticeBox>No networks available.</NoticeBox>
+        )}
+        {data.current_network ? <ShowNetworkCameras /> : ''}
+      </NtosWindow.Content>
+    </NtosWindow>
+  );
+};
+
+export const ShowNetworks = (props) => {
+  const { act, data } = useBackend<CameraData>();
+
+  return (
+    <Section
+      title="Networks"
+      buttons={
+        <Button
+          content="Reset"
+          icon="user-circle"
+          onClick={() => act('reset')}
+        />
+      }
+    >
+      {data.networks
+        .filter((n) => n.has_access)
+        .map((network) => (
+          <Button
+            content={network.tag}
+            selected={data.current_network === network.tag}
+            key={network.tag}
+            onClick={() =>
+              act('switch_network', { switch_network: network.tag })
+            }
+          />
+        ))}
+    </Section>
+  );
+};
+
+export const ShowNetworkCameras = (props) => {
+  const { act, data } = useBackend<CameraData>();
+  const [searchTerm, setSearchTerm] = useLocalState<string>(`searchTerm`, ``);
+
+  return (
+    <Section
+      title="Cameras"
+      buttons={
+        <SearchBar
+          autoFocus
+          placeholder="Search by name"
+          query={searchTerm}
+          onSearch={(value) => {
+            setSearchTerm(value);
+          }}
+          style={{ width: '40vw' }}
+        />
+      }
+    >
+      {data.cameras?.length ? (
+        data.cameras
+          .filter(
+            (c) => c.name?.toLowerCase().indexOf(searchTerm.toLowerCase()) > -1,
+          )
+          .map((camera) => (
+            <Button
+              content={camera.name}
+              key={camera.camera}
+              disabled={camera.deact}
+              selected={
+                data.current_camera &&
+                data.current_camera.camera === camera.camera
+              } // thanks whoever named this nanoui bit this and then shat it around everywhere
+              onClick={() =>
+                act('switch_camera', { switch_camera: camera.camera })
+              }
+            />
+          ))
+      ) : (
+        <NoticeBox>No cameras detected.</NoticeBox>
+      )}
+    </Section>
+  );
+};

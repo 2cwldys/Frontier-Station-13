@@ -1,0 +1,90 @@
+import {
+  Button,
+  LabeledList,
+  NoticeBox,
+  NumberInput,
+  Section,
+} from 'tgui-core/components';
+import type { BooleanLike } from 'tgui-core/react';
+import { useBackend } from '../backend';
+import { Window } from '../layouts';
+
+export type FusionGyrotronData = {
+  manufacturer: string;
+  gyro_power_constant: number;
+  gyrotrons: Gyrotron[];
+};
+
+type Gyrotron = {
+  id: string;
+  ref: string;
+  active: BooleanLike;
+  firedelay: number;
+  energy: number;
+  power_status: string;
+};
+
+export const FusionGyrotronControl = (props) => {
+  const { act, data } = useBackend<FusionGyrotronData>();
+
+  return (
+    <Window width={400} height={500} theme={data.manufacturer}>
+      <Window.Content scrollable>
+        {data.gyrotrons?.length ? (
+          data.gyrotrons.map((gyrotron) => (
+            <Section
+              title={`Gyrotron ${gyrotron.id}`}
+              key={gyrotron.id}
+              buttons={
+                <Button
+                  content={gyrotron.active ? 'Online' : 'Offline'}
+                  icon={gyrotron.active ? 'power-off' : 'times'}
+                  color={gyrotron.active ? 'good' : 'bad'}
+                  onClick={() => act('toggle', { machine: gyrotron.ref })}
+                />
+              }
+            >
+              <NoticeBox>
+                Power consumption per shot: {gyrotron.power_status}
+              </NoticeBox>
+              <LabeledList>
+                <LabeledList.Item label="Strength">
+                  <NumberInput
+                    value={gyrotron.energy}
+                    minValue={1}
+                    maxValue={250}
+                    unit="x"
+                    stepPixelSize={15}
+                    onChange={(value) =>
+                      act('modifypower', {
+                        modifypower: value,
+                        machine: gyrotron.ref,
+                      })
+                    }
+                  />
+                </LabeledList.Item>
+                <LabeledList.Item label="Fire Delay">
+                  <NumberInput
+                    value={gyrotron.firedelay}
+                    minValue={2}
+                    maxValue={10}
+                    stepPixelSize={15}
+                    unit="ds"
+                    onChange={(value) =>
+                      act('modifyrate', {
+                        modifyrate: value,
+                        machine: gyrotron.ref,
+                      })
+                    }
+                  />
+                </LabeledList.Item>
+              </LabeledList>
+            </Section>
+          ))
+        ) : (
+          <NoticeBox>No gyrotrons detected.</NoticeBox>
+        )}
+      </Window.Content>
+    </Window>
+  );
+};

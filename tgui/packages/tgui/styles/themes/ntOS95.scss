@@ -1,0 +1,125 @@
+/**
+ * Copyright (c) 2020 Aleksej Komarov
+ * SPDX-License-Identifier: MIT
+ */
+
+@use 'sass:color';
+
+@use '../base.scss';
+$light-gray: #c3c3c3;
+$dark-gray: #858585;
+$scrollbar-color-multiplier: 1;
+
+.theme-ntOS95 {
+  --button-background-default: #e8e4c9;
+  --button-background-disabled: #363636;
+  --button-background-selected: #007c11;
+  --button-background-caution: #be6209;
+  --button-background-danger: #9d0808;
+  --progress-bar-background: rgba(0, 0, 0, 0.5);
+  --progress-bar-fill: #e8e4c9;
+  --section-background: rgba(0, 0, 0, 0.4);
+  --tooltip-background: #ecee9e;
+  --titlebar-background: #000080;
+  --color-base: #008081;
+  --color-primary: #000000;
+  --color-good: #007c11;
+  --color-average: #f0ec11;
+  --color-bad: #db2828;
+  --color-label: #000000;
+  --base-gradient-spread: 0;
+  --border-radius-unit: 0;
+
+  .Button {
+    color: #161613;
+    background-color: #c2c2c2;
+    //border: base.em(2px) outset #E8E4C9;
+    outline: base.em(2px) outset #c3c3c3;
+  }
+  .Button:hover {
+    background-color: #002ead;
+    transition: 0.1s;
+  }
+
+  .Section {
+    color: black;
+    background-color: #c0c0c0;
+    outline: base.em(2px) outset #c3c3c3;
+  }
+
+  .Input {
+    background-color: white;
+    outline: base.em(2px) inset #c3c3c3;
+  }
+
+  .Layout__content {
+    background-image: none;
+  }
+  .Layout,
+  .Layout * {
+    // Fancy scrollbar
+    scrollbar-base-color: color.scale(
+      $light-gray,
+      $lightness: -25% * $scrollbar-color-multiplier
+    );
+    scrollbar-face-color: color.scale(
+      $light-gray,
+      $lightness: 10% * $scrollbar-color-multiplier
+    );
+
+    scrollbar-3dlight-color: color.scale(
+      $light-gray,
+      $lightness: 0% * $scrollbar-color-multiplier
+    );
+    scrollbar-highlight-color: color.scale(
+      $light-gray,
+      $lightness: 0% * $scrollbar-color-multiplier
+    );
+    scrollbar-track-color: color.scale(
+      $light-gray,
+      $lightness: -25% * $scrollbar-color-multiplier
+    );
+    scrollbar-arrow-color: color.scale(
+      $light-gray,
+      $lightness: 50% * $scrollbar-color-multiplier
+    );
+    scrollbar-shadow-color: color.scale(
+      $light-gray,
+      $lightness: 10% * $scrollbar-color-multiplier
+    );
+  }
+
+  .Tab {
+    color: #000000;
+    background-color: #ecee9e;
+  }
+
+  .Tab--selected {
+    color: #9d0808;
+    background-color: #c3c3c3;
+  }
+
+  body {
+    overflow: auto;
+    font-family: ui-sans-serif;
+  }
+  .ProgressBar {
+    color: white;
+  }
+
+  .Table__cell {
+    display: table-cell;
+    padding: 0 0.25em;
+    background-color: #c3c3c3;
+    //outline: base.em(3px) outset #c0c0c0
+  }
+  .Box {
+    outline: base.em(3px) outset #c0c0c0;
+  }
+  .Tooltip {
+    color: black;
+  }
+  .NtosWindow__header {
+    background-color: $dark-gray;
+  }
+}

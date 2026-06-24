@@ -1,0 +1,196 @@
+/* Filing cabinets!
+ * Contains:
+ * * Filing Cabinets
+ * * Security Record Cabinets
+ * * Medical Record Cabinets
+ */
+
+
+/*
+ * Filing Cabinets
+ */
+/obj/structure/filingcabinet
+	name = "filing cabinet"
+	desc = "A large cabinet with drawers."
+	icon = 'icons/obj/bureaucracy.dmi'
+	icon_state = "filingcabinet"
+	density = 1
+	anchored = 1
+	maxhealth = OBJECT_HEALTH_VERY_LOW
+	armor = list(MELEE = ARMOR_MELEE_SMALL, BULLET = ARMOR_BALLISTIC_MINOR)
+
+	var/static/list/accepted_items = list(
+		/obj/item/paper,
+		/obj/item/folder,
+		/obj/item/photo,
+		/obj/item/paper_bundle,
+		/obj/item/sample,
+		/obj/item/book,
+		/obj/item/card,
+		/obj/item/forensics/slide,
+		/obj/item/forensics/swab,
+		/obj/item/storage/photo_album,
+		/obj/item/clipboard,
+		/obj/item/disk,
+		/obj/item/pen,
+		/obj/item/clothing/accessory/badge,
+		/obj/item/pack,
+		/obj/item/hand,
+		/obj/item/key,
+		/obj/item/paper_scanner
+)
+
+
+/obj/structure/filingcabinet/chestdrawer
+	name = "chest drawer"
+	icon_state = "chestdrawer"
+
+
+/obj/structure/filingcabinet/filingcabinet	//not changing the path to avoid unecessary map issues, but please don't name stuff like this in the future -Pete
+	icon_state = "tallcabinet"
+
+/obj/structure/filingcabinet/Initialize()
+	. = ..()
+	for(var/obj/item/I in loc)
+		if(is_type_in_list(I, accepted_items))
+			I.forceMove(src)
+
+/obj/structure/filingcabinet/attackby(obj/item/attacking_item, mob/user)
+	if(is_type_in_list(attacking_item, accepted_items))
+		to_chat(user, SPAN_NOTICE("You put [attacking_item] in [src]."))
+		user.drop_from_inventory(attacking_item, src)
+		flick("[initial(icon_state)]-open", src)
+		playsound(loc, 'sound/items/bureaucracy/filingcabinet.ogg', 50, 1)
+		sleep(40)
+		icon_state = initial(icon_state)
+		updateUsrDialog()
+	else if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		attacking_item.play_tool_sound(get_turf(src), 50)
+		anchored = !anchored
+		to_chat(user, SPAN_NOTICE("You [anchored ? "wrench" : "unwrench"] \the [src]."))
+	else
+		to_chat(user, SPAN_NOTICE("You can't put [attacking_item] in [src]!"))
+
+/obj/structure/filingcabinet/on_death(damage, damage_flags, damage_type, armor_penetration, obj/weapon)
+	for(var/obj/item/thing in src)
+		if(prob(25))
+			if(istype(thing, /obj/item/paper))
+				if(prob(50))
+					var/obj/item/paper/paper = thing
+					paper.crumple()
+			thing.forceMove(get_turf(src))
+	. = ..()
+
+/obj/structure/filingcabinet/attack_hand(mob/user as mob)
+	if(contents.len <= 0)
+		to_chat(user, SPAN_NOTICE("\The [src] is empty."))
+		return
+
+	user.set_machine(src)
+	var/dat = "<center><table>"
+	for(var/obj/item/P in src)
+		dat += "<tr><td><a href='byond://?src=[REF(src)];retrieve=[REF(P)]'>[P.name]</a></td></tr>"
+	dat += "</table></center>"
+	user << browse("<html><head><title>[name]</title></head><body>[dat]</body></html>", "window=filingcabinet;size=350x300")
+
+/obj/structure/filingcabinet/Topic(href, href_list)
+	if(href_list["retrieve"])
+		usr << browse("", "window=filingcabinet") // Close the menu)
+
+		//var/retrieveindex = text2num(href_list["retrieve"])
+		var/obj/item/P = locate(href_list["retrieve"])//contents[retrieveindex]
+		if(istype(P) && (P.loc == src) && src.Adjacent(usr))
+			usr.put_in_hands(P)
+			updateUsrDialog()
+			flick("[initial(icon_state)]-open",src)
+			playsound(loc, 'sound/items/bureaucracy/filingcabinet.ogg', 50, 1)
+			spawn(0)
+				sleep(20)
+				icon_state = initial(icon_state)
+
+
+/*
+ * Security Record Cabinets
+ */
+/obj/structure/filingcabinet/security
+	var/virgin = 1
+
+
+/obj/structure/filingcabinet/security/proc/populate()
+	if(virgin)
+		for(var/datum/record/general/R in SSrecords.records)
+			if(istype(R) && istype(R.security))
+				var/obj/item/paper/P = new /obj/item/paper(src)
+				P.info = "<CENTER><B>Security Record</B></CENTER><BR>"
+				P.info += {"
+Name: [R.name] ID: [R.id]<BR>
+Sex: [R.sex]<BR>
+Age: [R.age]<BR>
+Fingerprint: [R.fingerprint]<BR>
+Physical Status: [R.physical_status]<BR>
+Mental Status: [R.mental_status]<BR>
+<BR>
+<CENTER><B>Security Data</B></CENTER><BR>
+Criminal Status: [R.security.criminal]<BR><BR>
+Crimes: [R.security.crimes]<BR><BR>
+Important Notes:<BR>
+\t[replacetext(R.security.notes, "\n", "<BR>")]<BR>\n<BR>
+<CENTER><B>Comments/Log</B></CENTER><BR>
+"}
+				for(var/comment in R.security.comments)
+					P.info += "[comment]<BR>"
+				P.info += "</TT>"
+				P.name = "Security Record ([R.name])"
+				virgin = 0	//tabbing here is correct- it's possible for people to try and use it
+							//before the records have been generated, so we do this inside the loop.
+
+/obj/structure/filingcabinet/security/attack_hand()
+	populate()
+	..()
+
+/obj/structure/filingcabinet/security/do_simple_ranged_interaction(var/mob/user)
+	populate()
+	..()
+
+/*
+ * Medical Record Cabinets
+ */
+/obj/structure/filingcabinet/medical
+	var/virgin = 1
+
+/obj/structure/filingcabinet/medical/proc/populate()
+	if(virgin)
+		for(var/datum/record/general/R in SSrecords.records)
+			if(istype(R) && istype(R.medical))
+				var/obj/item/paper/P = new /obj/item/paper(src)
+				var/info = "<CENTER><B>Medical Record</B></CENTER><BR>"
+				info += {"
+Name: [R.name] ID: [R.id]<BR>
+Sex: [R.sex]<BR>
+Age: [R.age]<BR>
+Fingerprint: [R.fingerprint]<BR>
+Physical Status: [R.physical_status]<BR>
+Mental Status: [R.mental_status]<BR>
+<BR>
+<CENTER><B>Medical Data</B></CENTER><BR>
+Blood Type: [R.medical.blood_type]<BR>
+DNA: [R.medical.blood_dna]<BR><BR>
+Important Notes:<BR>
+[replacetext(R.medical.notes, "\n", "<BR>")]<BR><BR>
+<CENTER><B>Comments/Log</B></CENTER><BR>
+"}
+				for(var/comment in R.medical.comments)
+					info += "[comment]<BR>"
+				info += "</TT>"
+				var/pname = "Medical Record ([R.name])"
+				P.set_content_unsafe(pname, info)
+			virgin = 0	//tabbing here is correct- it's possible for people to try and use it
+						//before the records have been generated, so we do this inside the loop.
+
+/obj/structure/filingcabinet/medical/attack_hand()
+	populate()
+	..()
+
+/obj/structure/filingcabinet/medical/do_simple_ranged_interaction(var/mob/user)
+	populate()
+	..()

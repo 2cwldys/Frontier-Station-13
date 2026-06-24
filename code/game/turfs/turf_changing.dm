@@ -1,0 +1,262 @@
+/turf
+	var/tmp/changing_turf
+	var/openspace_override_type	// If defined, this type is spawned instead of openturfs.
+
+/turf/proc/ReplaceWithLattice()
+	ChangeTurf(baseturf)
+	new /obj/structure/lattice(src)
+
+// Removes all signs of lattice on the pos of the turf -Donkieyo
+/turf/proc/RemoveLattice()
+	var/obj/structure/lattice/L = locate(/obj/structure/lattice, src)
+	if(L)
+		qdel(L)
+
+// Called after turf replaces old one
+/turf/proc/post_change(queue_neighbors = TRUE)
+	levelupdate()
+	if (above)
+		above.update_mimic()
+
+	if(queue_neighbors)
+		QUEUE_SMOOTH_NEIGHBORS(src)
+	else if(smoothing_flags && !(smoothing_flags & SMOOTH_QUEUED)) // we check here because proc overhead
+		QUEUE_SMOOTH(src)
+
+	if (SSatlas.current_map.use_overmap)
+		// exoplanet
+		var/obj/effect/overmap/visitable/sector/exoplanet/exoplanet = GLOB.map_sectors["[z]"]
+		if (istype(exoplanet) && istype(exoplanet.theme))
+			exoplanet.theme.on_turf_generation(src, exoplanet.planetary_area, exoplanet)
+		// away site
+		var/datum/map_template/ruin/away_site/away_site = GLOB.map_templates["[z]"]
+		if (istype(away_site) && istype(away_site.exoplanet_theme_base))
+			away_site.exoplanet_theme_base.on_turf_generation(src, null, away_site)
+
+// Helper to change this turf into an appropriate openturf type, generally you should use this instead of ChangeTurf(/turf/simulated/open).
+/turf/proc/ChangeToOpenturf()
+	. = ChangeTurf(/turf/space)
+
+//Creates a new turf
+/turf/proc/ChangeTurf(path, tell_universe = TRUE, force_lighting_update = FALSE, ignore_override = FALSE, mapload = FALSE)
+	if (!path)
+		return
+
+	// This makes sure that turfs are not changed to space when there's a multi-z turf below
+	if(ispath(path, /turf/space) && GET_TURF_BELOW(src) && !ignore_override)
+		path = openspace_override_type || /turf/simulated/open/airless
+
+	var/old_hotspot = hotspot
+	var/old_turf_fire = turf_fire
+	var/old_baseturf = baseturf
+	var/old_above = above
+	var/list/old_blueprints = blueprints
+	var/list/old_decals = decals
+	var/old_outside = is_outside
+	var/old_is_open = is_open()
+	var/list/old_resources = resources ? resources.Copy() : null
+
+	SEND_SIGNAL(src, COMSIG_TURF_CHANGE, path)
+
+	//static lighting
+	var/old_lighting_object = static_lighting_object
+	var/old_lighting_corner_NE = lighting_corner_NE
+	var/old_lighting_corner_SE = lighting_corner_SE
+	var/old_lighting_corner_SW = lighting_corner_SW
+	var/old_lighting_corner_NW = lighting_corner_NW
+	//hybrid lighting
+	var/list/old_hybrid_lights_affecting = hybrid_lights_affecting?.Copy()
+	var/old_directional_opacity = directional_opacity
+
+	changing_turf = TRUE
+
+	if(isspaceturf(path) || isopenspace(path))
+		QDEL_NULL(turf_fire)
+	else
+		old_turf_fire = turf_fire
+
+	if(connections)
+		connections.erase_all()
+
+	// So we call destroy.
+	qdel(src)
+
+	//We do this here so anything that doesn't want to persist can clear itself
+	var/list/old_listen_lookup = _listen_lookup?.Copy()
+	var/list/old_signal_procs = _signal_procs?.Copy()
+
+	var/turf/new_turf = new path(src)
+
+	if(!density)
+		turf_fire = old_turf_fire
+	else if (old_turf_fire)
+		QDEL_NULL(old_turf_fire)
+
+	// If the area requires starlight, we need to fill it back in with starlight after the change.
+	// Particularly necessary so shuttles don't leave dark patches after undocking with starlit turfs.
+	update_starlight()
+
+	// WARNING WARNING
+	// Turfs DO NOT lose their signals when they get replaced, REMEMBER THIS
+	// It's possible because turfs are fucked, and if you have one in a list and it's replaced with another one, the list ref points to the new turf
+	if(old_listen_lookup)
+		LAZYOR(new_turf._listen_lookup, old_listen_lookup)
+	if(old_signal_procs)
+		LAZYOR(new_turf._signal_procs, old_signal_procs)
+
+	new_turf.hybrid_lights_affecting = old_hybrid_lights_affecting
+	new_turf.dynamic_lumcount = dynamic_lumcount
+
+	lighting_corner_NE = old_lighting_corner_NE
+	lighting_corner_SE = old_lighting_corner_SE
+	lighting_corner_SW = old_lighting_corner_SW
+	lighting_corner_NW = old_lighting_corner_NW
+
+	//static Update
+	if(SSlighting.initialized)
+		recalculate_directional_opacity()
+
+		new_turf.static_lighting_object = old_lighting_object
+
+		if(static_lighting_object && !static_lighting_object.needs_update)
+			static_lighting_object.update()
+
+	//Since the old turf was removed from hybrid_lights_affecting, readd the new turf here
+	if(new_turf.hybrid_lights_affecting)
+		for(var/atom/movable/lighting_mask/mask as anything in new_turf.hybrid_lights_affecting)
+			LAZYADD(mask.affecting_turfs, new_turf)
+
+	if(new_turf.directional_opacity != old_directional_opacity)
+		new_turf.reconsider_lights()
+
+	var/area/thisarea = get_area(new_turf)
+	if(thisarea.lighting_effect)
+		new_turf.AddOverlays(thisarea.lighting_effect)
+
+	if(GLOB.config.starlight)
+		for(var/turf/space/S in RANGE_TURFS(1, src))
+			S.update_starlight()
+
+	new_turf.above = old_above
+
+	if(ispath(path, /turf/simulated))
+		if(old_hotspot)
+			hotspot = old_hotspot
+		if (istype(new_turf, /turf/simulated/floor))
+			new_turf.RemoveLattice()
+	else if(hotspot)
+		qdel(hotspot)
+
+	if(tell_universe)
+		GLOB.universe.OnTurfChange(new_turf)
+
+	// we check the var rather than the proc, because area outside values usually shouldn't be set on turfs
+	new_turf.last_outside_check = OUTSIDE_UNCERTAIN
+	if(new_turf.is_outside != old_outside)
+		new_turf.set_outside(old_outside, skip_weather_update = TRUE)
+
+	SSair.mark_for_update(src) //handle the addition of the new turf.
+
+	if(!new_turf.baseturf)
+		new_turf.baseturf = old_baseturf
+
+	new_turf.blueprints = old_blueprints
+	for(var/image/I as anything in new_turf.blueprints)
+		I.loc = new_turf
+		I.plane = 0
+
+	new_turf.decals = old_decals
+
+	new_turf.post_change(!mapload)
+
+	new_turf.update_weather(force_update_below = new_turf.is_open() != old_is_open)
+
+	new_turf.resources = old_resources
+
+	. = new_turf
+
+	for(var/turf/T in RANGE_TURFS(1, src))
+		T.update_icon()
+
+	updateVisibility(src, FALSE)
+
+/turf/proc/transport_properties_from(turf/other)
+	if(!istype(other, src.type))
+		return 0
+
+	src.set_dir(other.dir)
+	src.icon_state = other.icon_state
+	src.icon = other.icon
+	src.overlays = other.overlays.Copy()
+	if(other.decals)
+		src.decals = other.decals.Copy()
+		other.decals.Cut()
+		other.update_icon()
+		src.update_icon()
+	return 1
+
+//I would name this copy_from() but we remove the other turf from their air zone for some reason
+/turf/simulated/transport_properties_from(turf/simulated/other)
+	if(!..())
+		return 0
+
+	if(other.zone)
+		if(!src.air)
+			src.make_air()
+		src.air.copy_from(other.zone.air)
+		other.zone.remove(other)
+	return 1
+
+// Copies this turf to other, overwriting it.
+// Returns a ref to the other turf post-change.
+/turf/proc/copy_turf(turf/other)
+	if (other.type != type)
+		. = other.ChangeTurf(type)
+	else
+		. = other
+
+	if (dir != other.dir)
+		other.set_dir(dir)
+
+	other.icon = icon
+	other.icon_state = icon_state
+	other.name = name
+	other.layer = layer
+	other.decals = decals
+	other.roof_flags = roof_flags
+	other.roof_type = roof_type
+
+	if (atom_overlay_cache)
+		other.atom_overlay_cache = atom_overlay_cache
+
+	if (atom_protected_overlay_cache)
+		other.atom_protected_overlay_cache = atom_protected_overlay_cache
+
+	other.overlays = overlays.Copy()
+
+/turf/simulated/copy_turf(turf/simulated/other, ignore_air = FALSE)
+	. = ..()
+
+	if (ignore_air || !zone || !istype(other))
+		return
+
+	if (!other.air)
+		other.make_air()
+
+	other.air.copy_from(zone.air)
+
+	SSair.mark_for_update(other)
+
+	other.update_icon()
+
+/turf/simulated/wall/copy_turf(turf/simulated/wall/other, ignore_air = FALSE)
+	.=..()
+	other.health = health
+
+/turf/simulated/floor/copy_turf(turf/simulated/floor/other, ignore_air = FALSE)
+	.=..()
+	other.flooring = flooring
+
+/turf/simulated/wall/shuttle/dark/corner/underlay/copy_turf(turf/simulated/wall/shuttle/dark/corner/underlay/other, ignore_air = FALSE)
+	.=..()
+	other.underlay_dir = underlay_dir

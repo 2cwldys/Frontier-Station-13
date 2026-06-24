@@ -1,0 +1,164 @@
+import {
+  AnimatedNumber,
+  Button,
+  LabeledList,
+  NumberInput,
+  ProgressBar,
+  Section,
+} from 'tgui-core/components';
+import type { BooleanLike } from 'tgui-core/react';
+import { useBackend } from '../backend';
+import { Window } from '../layouts';
+
+type Data = {
+  on: BooleanLike;
+  max_rate: number;
+  rate: number;
+  pressure: number;
+  max_pressure: number;
+  power_draw: number;
+  max_power_draw: number;
+  flow_rate: number;
+  flow_rate_normal: number;
+  liters_pumped: number;
+  measure_enabled: BooleanLike;
+};
+
+export const AtmosPump = (props) => {
+  const { act, data } = useBackend<Data>();
+  const {
+    on,
+    max_rate,
+    max_pressure,
+    max_power_draw,
+    rate,
+    pressure,
+    power_draw,
+    flow_rate,
+    flow_rate_normal,
+    liters_pumped,
+    measure_enabled,
+  } = data;
+
+  return (
+    <Window width={320} height={255}>
+      <Window.Content>
+        <Section>
+          <LabeledList>
+            <LabeledList.Item label="Power">
+              <Button
+                icon={on ? 'power-off' : 'times'}
+                content={on ? 'On' : 'Off'}
+                selected={on}
+                onClick={() => act('power')}
+              />
+            </LabeledList.Item>
+            {max_rate ? (
+              <LabeledList.Item label="Transfer Rate">
+                <NumberInput
+                  animated
+                  value={rate}
+                  width="63px"
+                  unit="L/s"
+                  minValue={0}
+                  maxValue={max_rate}
+                  onChange={(value) =>
+                    act('rate', {
+                      rate: value,
+                    })
+                  }
+                />
+                <Button
+                  ml={1}
+                  icon="maximize"
+                  content="Max"
+                  disabled={rate === max_rate}
+                  onClick={() =>
+                    act('rate', {
+                      rate: 'max',
+                    })
+                  }
+                />
+              </LabeledList.Item>
+            ) : (
+              <LabeledList.Item label="Output Pressure">
+                <NumberInput
+                  animated
+                  value={pressure}
+                  unit="kPa"
+                  width="75px"
+                  minValue={0}
+                  maxValue={max_pressure}
+                  step={10}
+                  onChange={(value) =>
+                    act('pressure', {
+                      pressure: value,
+                    })
+                  }
+                />
+                <Button
+                  ml={1}
+                  icon="maximize"
+                  content="Max"
+                  disabled={pressure === max_pressure}
+                  onClick={() =>
+                    act('pressure', {
+                      pressure: 'max',
+                    })
+                  }
+                />
+              </LabeledList.Item>
+            )}
+            {max_power_draw ? (
+              <LabeledList.Item label="Load">
+                <ProgressBar
+                  color={(() => {
+                    if (power_draw > (max_power_draw / 3) * 2) {
+                      return 'red';
+                    } else if (power_draw > max_power_draw / 3) {
+                      return 'yellow';
+                    } else {
+                      return 'green';
+                    }
+                  })()}
+                  minValue={0}
+                  maxValue={max_power_draw}
+                  value={power_draw}
+                >
+                  <AnimatedNumber value={power_draw} />
+                  {power_draw} W
+                </ProgressBar>
+              </LabeledList.Item>
+            ) : (
+              ''
+            )}
+            <LabeledList.Item label="Flow">{flow_rate} L/s</LabeledList.Item>
+            <LabeledList.Item label="Flow (normalized)">
+              {flow_rate_normal} L/s
+            </LabeledList.Item>
+          </LabeledList>
+        </Section>
+        <Section title="Measurement">
+          <LabeledList>
+            <LabeledList.Item label="Liters Pumped">
+              {liters_pumped} L
+              <Button
+                ml={1}
+                icon={measure_enabled ? 'pause' : 'play'}
+                content={measure_enabled ? 'Stop' : 'Start'}
+                selected={!!measure_enabled}
+                onClick={() => act('toggle_measure')}
+              />
+              <Button
+                ml={1}
+                icon="rotate-left"
+                content="Reset"
+                onClick={() => act('reset_measure')}
+              />
+            </LabeledList.Item>
+          </LabeledList>
+        </Section>
+      </Window.Content>
+    </Window>
+  );
+};

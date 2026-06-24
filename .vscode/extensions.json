@@ -1,0 +1,14 @@
+{
+	"recommendations": [
+		"ss13.byond",
+		"github.vscode-github-actions",
+		"github.vscode-pull-request-github",
+		"dbaeumer.vscode-eslint",
+		"vscode.typescript-language-features",
+		"redhat.vscode-yaml",
+		"rome.rome",
+		"dbaeumer.vscode-eslint",
+		"editorconfig.editorconfig",
+		"biomejs.biome"
+	]
+}
