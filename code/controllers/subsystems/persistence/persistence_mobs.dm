@@ -199,7 +199,7 @@ GLOBAL_LIST_EMPTY(persistence_identity_cache)
 		return
 
 	var/datum/db_query/query = SSdbcore.NewQuery(
-		"SELECT ckey, char_name, citizenship, special_voice, flavor_texts FROM ss13_char_identity",
+		"SELECT ckey, char_name, citizenship, special_voice, flavor_texts, languages_json FROM ss13_char_identity",
 		list()
 	)
 	query.Execute()
@@ -214,7 +214,8 @@ GLOBAL_LIST_EMPTY(persistence_identity_cache)
 		GLOB.persistence_identity_cache[key] = list(
 			"citizenship"   = query.item[3],
 			"special_voice" = query.item[4],
-			"flavor_texts"  = query.item[5]
+			"flavor_texts"  = query.item[5],
+			"languages_json" = query.item[6]
 		)
 		loaded++
 	qdel(query)
@@ -242,19 +243,21 @@ GLOBAL_LIST_EMPTY(persistence_identity_cache)
 	if(!databaseCheckConnection("charIdentitySaveOne"))
 		return
 
-	var/flavor_json = length(H.flavor_texts) ? json_encode(H.flavor_texts) : null
+	var/flavor_json   = length(H.flavor_texts) ? json_encode(H.flavor_texts) : null
+	var/language_json = length(H.languages)   ? json_encode(H.languages)   : null
 
 	var/datum/db_query/ins = SSdbcore.NewQuery(
-		{"INSERT INTO ss13_char_identity (ckey, char_name, citizenship, special_voice, flavor_texts)
-		VALUES (:ckey, :char_name, :citizenship, :special_voice, :flavor_texts)
+		{"INSERT INTO ss13_char_identity (ckey, char_name, citizenship, special_voice, flavor_texts, languages_json)
+		VALUES (:ckey, :char_name, :citizenship, :special_voice, :flavor_texts, :languages_json)
 		ON DUPLICATE KEY UPDATE citizenship = VALUES(citizenship), special_voice = VALUES(special_voice),
-		flavor_texts = VALUES(flavor_texts), saved_at = NOW()"},
+		flavor_texts = VALUES(flavor_texts), languages_json = VALUES(languages_json), saved_at = NOW()"},
 		list(
-			"ckey"          = H.ckey,
-			"char_name"     = H.real_name,
-			"citizenship"   = H.citizenship || null,
-			"special_voice" = H.special_voice || null,
-			"flavor_texts"  = flavor_json
+			"ckey"           = H.ckey,
+			"char_name"      = H.real_name,
+			"citizenship"    = H.citizenship || null,
+			"special_voice"  = H.special_voice || null,
+			"flavor_texts"   = flavor_json,
+			"languages_json" = language_json
 		)
 	)
 	ins.Execute()
@@ -280,6 +283,11 @@ GLOBAL_LIST_EMPTY(persistence_identity_cache)
 		var/list/ft = json_decode(entry["flavor_texts"])
 		if(ft && islist(ft))
 			flavor_texts = ft
+
+	if(length(entry["languages_json"]))
+		var/list/langs = json_decode(entry["languages_json"])
+		if(langs && islist(langs))
+			languages = langs
 
 	log_subsystem_persistence_info("CharIdentity: Restored identity for [real_name] ([ckey]).")
 
@@ -637,6 +645,16 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		var/obj/item/stack/ST = I
 		data["stack_amount"] = ST.amount
 
+	// Fingerprints/forensics
+	if(length(I.fingerprints))
+		data["fingerprints"] = json_encode(I.fingerprints)
+	if(I.fingerprintshidden)
+		data["fingerprintshidden"] = I.fingerprintshidden
+	if(I.fingerprintslast)
+		data["fingerprintslast"] = I.fingerprintslast
+	if(I.suit_fibers)
+		data["suit_fibers"] = I.suit_fibers
+
 	return data
 
 /**
@@ -739,5 +757,13 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		var/obj/item/stack/ST = I
 		ST.amount = text2num(data["stack_amount"]) || ST.amount
 		ST.update_icon()
+
+	// Fingerprints/forensics
+	if(data["fingerprints"])
+		var/list/fp = json_decode(data["fingerprints"])
+		if(islist(fp)) I.fingerprints = fp
+	if(data["fingerprintshidden"]) I.fingerprintshidden = data["fingerprintshidden"]
+	if(data["fingerprintslast"])   I.fingerprintslast   = data["fingerprintslast"]
+	if(data["suit_fibers"])        I.suit_fibers        = data["suit_fibers"]
 
 	return I

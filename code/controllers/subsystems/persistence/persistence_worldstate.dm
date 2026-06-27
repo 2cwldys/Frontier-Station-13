@@ -195,6 +195,20 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 /obj/structure/machinery/door/airlock
 	worldstate_vars = list("welded", "locked", "ai_disabled_id_scanner")
 
+/obj/structure/machinery/door/airlock/worldstate_get_content()
+	var/list/content = ..()
+	if(!content) content = list()
+	if(wires && length(wires.cut_wires))
+		content["cut_wires"] = json_encode(wires.cut_wires)
+	return content
+
+/obj/structure/machinery/door/airlock/worldstate_apply_content(list/content)
+	..()
+	if(content && content["cut_wires"] && wires)
+		var/list/cut = json_decode(content["cut_wires"])
+		if(islist(cut))
+			wires.cut_wires = cut
+
 /obj/structure/machinery/door/blast
 	worldstate_vars = list("density")
 

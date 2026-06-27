@@ -12,6 +12,9 @@ jobs:
   check-conflicts:
     name: Check PR Conflicts
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
     steps:
       - name: check if prs are dirty
         uses: eps1lon/actions-label-merge-conflict@v3
