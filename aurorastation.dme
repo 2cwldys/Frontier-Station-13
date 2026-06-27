@@ -458,6 +458,7 @@
 #include "code\controllers\subsystems\persistence\persistence_research.dm"
 #include "code\controllers\subsystems\persistence\persistence_templates.dm"
 #include "code\controllers\subsystems\persistence\persistence_turfs.dm"
+#include "code\controllers\subsystems\persistence\persistence_removed_structures.dm"
 #include "code\controllers\subsystems\persistence\persistence_worldstate.dm"
 #include "code\controllers\subsystems\processing\airflow.dm"
 #include "code\controllers\subsystems\processing\calamity.dm"

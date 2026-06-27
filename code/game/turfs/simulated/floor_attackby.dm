@@ -146,7 +146,6 @@
 		return 0
 	burnt = 1
 	update_icon()
-	mark_persistence_dirty()
 	return 1
 
 /turf/simulated/floor/can_lay_cable()

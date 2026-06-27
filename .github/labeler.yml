@@ -1,0 +1,44 @@
+# Folder Rules
+Database:
+- '**/*.sql'
+
+'🗺️ Mapping - Away Ship/Away Site':
+- maps/away/**
+
+'🗺️ Mapping - Dungeon':
+- maps/dungeon_spawns/**
+
+'🗺️ Mapping - Event':
+- maps/event/**
+
+'🗺️ Mapping - Random Ruins':
+- maps/random_ruins/**
+
+'🗺️ Mapping - Runtime':
+- maps/runtime/**
+
+'🗺️ Mapping - Horizon':
+- maps/sccv_horizon/**
+
+'🗺️ Mapping - Templates':
+- maps/templates/**
+
+Sounds:
+- sound/**
+
+TGUI:
+- tgui/**
+
+Tools:
+- tools/**
+- .github/**
+
+# File Type Rules
+Javascript:
+- '**/*.js'
+
+Python:
+- '**/*.py'
+
+Sprites:
+- '**/*.dmi'

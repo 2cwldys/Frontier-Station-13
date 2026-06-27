@@ -174,19 +174,10 @@
 		INVOKE_ASYNC(src, TYPE_PROC_REF(/obj/effect/plant, update_neighbors))
 
 /turf/simulated/wall/ChangeTurf(path, tell_universe = TRUE, force_lighting_update = FALSE, ignore_override = FALSE, mapload = FALSE)
-	if(!mapload) mark_persistence_dirty()
 	SEND_SIGNAL(src, COMSIG_ATOM_DECONSTRUCTED)
 	clear_plants()
 	clear_bulletholes()
 	return ..()
-
-/turf/simulated/wall/add_damage(damage, damage_flags, damage_type, armor_penetration, obj/weapon)
-	. = ..()
-	if(.) mark_persistence_dirty()
-
-/turf/simulated/wall/add_health(repair_amount)
-	. = ..()
-	if(.) mark_persistence_dirty()
 
 //Damage
 

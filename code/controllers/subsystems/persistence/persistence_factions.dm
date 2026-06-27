@@ -141,7 +141,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	PRIVATE_PROC(TRUE)
 	GLOB.persistence_faction_research_cache = list()
 
-	if(!SSatlas.current_map || !databaseCheckConnection("factionResearchInitialize"))
+	if(!databaseCheckConnection("factionResearchInitialize"))
 		return
 
 	var/datum/db_query/q = SSdbcore.NewQuery(
@@ -162,7 +162,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 /datum/controller/subsystem/persistence/proc/factionResearchFinalize()
 	PRIVATE_PROC(TRUE)
 
-	if(!SSatlas.current_map || !databaseCheckConnection("factionResearchFinalize"))
+	if(!databaseCheckConnection("factionResearchFinalize"))
 		return
 
 	var/saved = 0
@@ -171,12 +171,12 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	for(var/obj/structure/machinery/r_n_d/server/server in world)
 		if(!server.files)
 			continue
-		// employer_faction is not defined on all R&D server subtypes — use try/catch
+		// employer_faction is not defined on all R&D server subtypes  use try/catch
 		var/fuid = null
 		try
 			fuid = server.vars["employer_faction"]
 		catch
-			continue  // var not defined on this server type — skip it
+			continue  // var not defined on this server type  skip it
 		if(!fuid || !istext(fuid))
 			continue
 		if(!(fuid in faction_tech))
@@ -236,12 +236,12 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	var/job_title = null
 	var/list/job_access = list()
 	if(length(jobs))
-		var/list/job_names = list("(Blank — no job assigned)")
+		var/list/job_names = list("(Blank  no job assigned)")
 		for(var/list/j in jobs)
 			job_names += "[j["title"]] (rank [j["rank"]], [j["pay_rate"]] cr)"
 		var/chosen_job_label = tgui_input_list(usr, "Choose job:", "Give Faction ID", job_names)
 		if(!chosen_job_label) return
-		if(chosen_job_label != "(Blank — no job assigned)")
+		if(chosen_job_label != "(Blank  no job assigned)")
 			for(var/list/j in jobs)
 				if(findtext(chosen_job_label, j["title"]) == 1)
 					job_title    = j["title"]
@@ -280,7 +280,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	var/top = tgui_input_list(usr, "What would you like to do?", "Manage Factions", top_actions)
 	if(!top) return
 
-	// ── Create ────────────────────────────────────────────────────────────
+	//  Create 
 	if(top == "Create New Faction")
 		var/new_uid = tgui_input_text(usr, "Enter a unique faction ID (lowercase, no spaces, e.g. 'zavodskoi'):", "Create Faction", max_length = 32)
 		if(!new_uid) return
@@ -327,7 +327,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		to_chat(usr, SPAN_GOOD("Faction '[new_name]' ([new_uid]) created with [starting] credits."))
 		log_and_message_admins("created faction '[new_uid]' ([new_name])", usr)
 
-	// ── Modify Balance ────────────────────────────────────────────────────
+	//  Modify Balance 
 	else if(top == "Modify Faction Balance")
 		if(!islist(GLOB.persistence_faction_cache) || !length(GLOB.persistence_faction_cache))
 			to_chat(usr, SPAN_WARNING("No factions exist yet. Create one first."))
@@ -336,7 +336,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		var/list/faction_options = list()
 		for(var/uid in GLOB.persistence_faction_cache)
 			var/list/data = GLOB.persistence_faction_cache[uid]
-			faction_options["[data["name"]] ([uid]) — [data["balance"]] cr"] = uid
+			faction_options["[data["name"]] ([uid])  [data["balance"]] cr"] = uid
 
 		var/chosen_label = tgui_input_list(usr, "Select a faction:", "Modify Balance", faction_options)
 		if(!chosen_label) return
@@ -361,7 +361,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 
 		log_and_message_admins("[action] [amount] credits for faction [chosen_uid]", usr)
 
-	// ── Remove ────────────────────────────────────────────────────────────
+	//  Remove 
 	else if(top == "Remove Faction")
 		if(!islist(GLOB.persistence_faction_cache) || !length(GLOB.persistence_faction_cache))
 			to_chat(usr, SPAN_WARNING("No factions exist."))

@@ -6,7 +6,7 @@
  * Health key:     ckey + char_name
  * Inventory key:  ckey + char_name
  *
- * Restore hook: /mob/living/carbon/human/LateInitialize() — fires after mob spawns and
+ * Restore hook: /mob/living/carbon/human/LateInitialize()  fires after mob spawns and
  * job gear is issued, so we overlay saved inventory on top of default equips.
  *
  * Only runs on the SCCV Horizon map.
@@ -27,15 +27,11 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
 	PRIVATE_PROC(TRUE)
 	GLOB.persistence_health_cache = list()
 
-	if(!SSatlas.current_map)
-		log_subsystem_persistence_info("MobHealth: Map is not SCCV Horizon, skipping health persistence init.")
-		return
-
 	if(!databaseCheckConnection("mobsHealthInitialize"))
 		return
 
 	var/datum/db_query/query = SSdbcore.NewQuery(
-		"SELECT ckey, char_name, organ_damage_json, stamina, bodytemperature, on_fire, fire_stacks FROM ss13_char_health",
+		"SELECT ckey, char_name, organ_damage_json, stamina, bodytemperature, on_fire, fire_stacks, nutrition, hydration FROM ss13_char_health",
 		list()
 	)
 	query.Execute()
@@ -52,7 +48,9 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
 			"stamina"           = text2num(query.item[4]),
 			"bodytemperature"   = text2num(query.item[5]),
 			"on_fire"           = text2num(query.item[6]),
-			"fire_stacks"       = text2num(query.item[7])
+			"fire_stacks"       = text2num(query.item[7]),
+			"nutrition"         = text2num(query.item[8]),
+			"hydration"         = text2num(query.item[9])
 		)
 		loaded++
 
@@ -65,10 +63,6 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
  */
 /datum/controller/subsystem/persistence/proc/mobsHealthFinalize()
 	PRIVATE_PROC(TRUE)
-
-	if(!SSatlas.current_map)
-		log_subsystem_persistence_info("MobHealth: Map is not SCCV Horizon, skipping health persistence save.")
-		return
 
 	if(!databaseCheckConnection("mobsHealthFinalize"))
 		return
@@ -100,10 +94,11 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
 			organ_damage[O.limb_name] = limb
 
 		var/datum/db_query/insert = SSdbcore.NewQuery(
-			{"INSERT INTO ss13_char_health (ckey, char_name, organ_damage_json, stamina, bodytemperature, on_fire, fire_stacks, saved_at)
-			VALUES (:ckey, :char_name, :organ_damage_json, :stamina, :bodytemperature, :on_fire, :fire_stacks, NOW())
+			{"INSERT INTO ss13_char_health (ckey, char_name, organ_damage_json, stamina, bodytemperature, on_fire, fire_stacks, nutrition, hydration, saved_at)
+			VALUES (:ckey, :char_name, :organ_damage_json, :stamina, :bodytemperature, :on_fire, :fire_stacks, :nutrition, :hydration, NOW())
 			ON DUPLICATE KEY UPDATE organ_damage_json = VALUES(organ_damage_json), stamina = VALUES(stamina),
-			bodytemperature = VALUES(bodytemperature), on_fire = VALUES(on_fire), fire_stacks = VALUES(fire_stacks), saved_at = NOW()"},
+			bodytemperature = VALUES(bodytemperature), on_fire = VALUES(on_fire), fire_stacks = VALUES(fire_stacks),
+			nutrition = VALUES(nutrition), hydration = VALUES(hydration), saved_at = NOW()"},
 			list(
 				"ckey"             = H.ckey,
 				"char_name"        = H.real_name,
@@ -111,7 +106,9 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
 				"stamina"          = H.stamina,
 				"bodytemperature"  = H.bodytemperature,
 				"on_fire"          = H.on_fire ? 1 : 0,
-				"fire_stacks"      = H.fire_stacks
+				"fire_stacks"      = H.fire_stacks,
+				"nutrition"        = H.nutrition,
+				"hydration"        = H.hydration
 			)
 		)
 		insert.Execute()
@@ -145,8 +142,8 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
 				if(!O)
 					continue
 				var/list/limb = organ_data[limb_name]
-				var/brute_amt = text2num(limb["brute"]) || 0
-				var/burn_amt  = text2num(limb["burn"]) || 0
+				var/brute_amt = isnull(limb["brute"]) ? 0 : (limb["brute"] + 0)
+				var/burn_amt  = isnull(limb["burn"])  ? 0 : (limb["burn"]  + 0)
 				if(brute_amt > 0 || burn_amt > 0)
 					O.take_damage(brute_amt, burn_amt)
 				// Restore robolimb state
@@ -167,14 +164,20 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
 								break
 						if(!already_installed)
 							try
-								// new path(loc, mapload, internal) — internal=TRUE hooks the augment into parent_organ automatically
+								// new path(loc, mapload, internal)  internal=TRUE hooks the augment into parent_organ automatically
 								new aug_path(src, FALSE, TRUE)
 							catch(var/exception/aug_e)
 								log_subsystem_persistence_error("MobHealth: Failed to restore augment [aug_type_str] for [real_name]: [aug_e]")
 
 	// Apply systemic stats
-	bodytemperature = text2num(entry["bodytemperature"]) || bodytemperature
-	stamina         = text2num(entry["stamina"]) || stamina
+	if(!isnull(entry["bodytemperature"]))
+		bodytemperature = text2num(entry["bodytemperature"])
+	if(!isnull(entry["stamina"]))
+		stamina = text2num(entry["stamina"])
+	if(!isnull(entry["nutrition"]))
+		nutrition  = entry["nutrition"] + 0
+	if(!isnull(entry["hydration"]))
+		hydration  = entry["hydration"] + 0
 
 	if(entry["on_fire"] && text2num(entry["on_fire"]))
 		IgniteMob(text2num(entry["fire_stacks"]) || 1)
@@ -192,8 +195,6 @@ GLOBAL_LIST_EMPTY(persistence_identity_cache)
 	PRIVATE_PROC(TRUE)
 	GLOB.persistence_identity_cache = list()
 
-	if(!SSatlas.current_map)
-		return
 	if(!databaseCheckConnection("charIdentityInitialize"))
 		return
 
@@ -222,8 +223,6 @@ GLOBAL_LIST_EMPTY(persistence_identity_cache)
 /datum/controller/subsystem/persistence/proc/charIdentityFinalize()
 	PRIVATE_PROC(TRUE)
 
-	if(!SSatlas.current_map)
-		return
 	if(!databaseCheckConnection("charIdentityFinalize"))
 		return
 
@@ -277,7 +276,7 @@ GLOBAL_LIST_EMPTY(persistence_identity_cache)
 		citizenship = entry["citizenship"]
 	if(entry["special_voice"])
 		special_voice = entry["special_voice"]
-	if(entry["flavor_texts"])
+	if(length(entry["flavor_texts"]))
 		var/list/ft = json_decode(entry["flavor_texts"])
 		if(ft && islist(ft))
 			flavor_texts = ft
@@ -320,10 +319,6 @@ GLOBAL_LIST_INIT(persistence_inventory_slots, list(
 	PRIVATE_PROC(TRUE)
 	GLOB.persistence_inventory_cache = list()
 
-	if(!SSatlas.current_map)
-		log_subsystem_persistence_info("MobInventory: Map is not SCCV Horizon, skipping inventory persistence init.")
-		return
-
 	if(!databaseCheckConnection("mobsInventoryInitialize"))
 		return
 
@@ -352,10 +347,6 @@ GLOBAL_LIST_INIT(persistence_inventory_slots, list(
  */
 /datum/controller/subsystem/persistence/proc/mobsInventoryFinalize()
 	PRIVATE_PROC(TRUE)
-
-	if(!SSatlas.current_map)
-		log_subsystem_persistence_info("MobInventory: Map is not SCCV Horizon, skipping inventory persistence save.")
-		return
 
 	if(!databaseCheckConnection("mobsInventoryFinalize"))
 		return
@@ -404,9 +395,6 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 /datum/controller/subsystem/persistence/proc/mobPositionInitialize()
 	PRIVATE_PROC(TRUE)
 	GLOB.persistence_position_cache = list()
-
-	if(!SSatlas.current_map)
-		return
 
 	if(!databaseCheckConnection("mobPositionInitialize"))
 		return
@@ -462,8 +450,6 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
  */
 /datum/controller/subsystem/persistence/proc/mobsPositionFinalizeAll()
 	PRIVATE_PROC(TRUE)
-	if(!SSatlas.current_map)
-		return
 	if(!databaseCheckConnection("mobsPositionFinalizeAll"))
 		return
 	var/saved = 0
@@ -622,7 +608,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		return null
 	var/list/data = list("type" = "[I.type]")
 
-	// Storage contents — recursive
+	// Storage contents  recursive
 	if(istype(I, /obj/item/storage))
 		var/obj/item/storage/S = I
 		var/list/contents = list()
@@ -679,10 +665,10 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		var/slot_id = GLOB.persistence_inventory_slots[slot_name]
 		var/list/item_data = inv[slot_name]
 
-		// Drop whatever is currently in this slot
+		// Qdel whatever is currently in this slot -- saved state is authoritative for persistent world
 		var/obj/item/existing = get_equipped_item(slot_id)
 		if(existing)
-			existing.forceMove(get_turf(src))
+			qdel(existing)
 
 		// Null entry means saved as empty; leave slot empty
 		if(!item_data)
@@ -696,7 +682,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		else
 			log_subsystem_persistence_error("MobInventory: Failed to restore item in slot [slot_name] ([item_data["type"] || "unknown type"]) for [real_name].")
 
-	// Strip any QDELETED items — prevents ghost items stuck in HUD slots
+	// Strip any QDELETED items  prevents ghost items stuck in HUD slots
 	for(var/slot_name in GLOB.persistence_inventory_slots)
 		var/slot_id = GLOB.persistence_inventory_slots[slot_name]
 		var/obj/item/equipped = get_equipped_item(slot_id)
@@ -725,6 +711,9 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	// Storage contents
 	if(data["contents"] && istype(I, /obj/item/storage))
 		var/obj/item/storage/S = I
+		// Clear any default items the storage placed during Initialize before restoring saved contents
+		while(length(S.contents))
+			qdel(S.contents[1])
 		for(var/list/child_data in data["contents"])
 			var/obj/item/child = deserializePersistentItem(child_data, I)
 			if(child)

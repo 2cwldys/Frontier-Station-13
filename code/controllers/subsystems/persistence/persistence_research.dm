@@ -19,10 +19,6 @@ GLOBAL_VAR(persistence_research_cache)
 	PRIVATE_PROC(TRUE)
 	GLOB.persistence_research_cache = null
 
-	if(SSatlas.current_map.path != "sccv_horizon")
-		log_subsystem_persistence_info("Research: Map is not SCCV Horizon, skipping research persistence init.")
-		return
-
 	if(!databaseCheckConnection("researchInitialize"))
 		return
 
@@ -56,14 +52,10 @@ GLOBAL_VAR(persistence_research_cache)
 /datum/controller/subsystem/persistence/proc/researchFinalize()
 	PRIVATE_PROC(TRUE)
 
-	if(SSatlas.current_map.path != "sccv_horizon")
-		log_subsystem_persistence_info("Research: Map is not SCCV Horizon, skipping research persistence save.")
-		return
-
 	if(!databaseCheckConnection("researchFinalize"))
 		return
 
-	// Aggregate tech levels across all R&D servers — take the highest level per tech
+	// Aggregate tech levels across all R&D servers  take the highest level per tech
 	var/list/aggregated_tech = list()
 
 	for(var/obj/structure/machinery/r_n_d/server/server in world)

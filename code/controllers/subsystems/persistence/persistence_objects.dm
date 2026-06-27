@@ -6,10 +6,6 @@
 	PRIVATE_PROC(TRUE)
 	GLOB.persistence_object_track_register = list()
 
-	if(!SSatlas.current_map) // The persistence system only supports objects from the main map levels for multiple reasons, e.g. Z level value, mapping support
-		log_subsystem_persistence_info("Persistent objects: Current map did not match SCCV Horizon, skipping persistent object initialization.")
-		return
-
 	// Delete all persistent objects in the database that have expired and have passed the cleanup grace period (PERSISTENT_EXPIRATION_CLEANUP_DELAY_DAYS)
 	objectsDatabaseCleanEntries()
 
@@ -21,17 +17,63 @@
 	// Assign persistence related vars found in /obj, apply content and add to live tracking list.
 	for (var/data in persistent_data)
 		CHECK_TICK
-		var/typepath = text2path(data["type"])
-		if (!ispath(typepath)) // Type checking
-			continue
-		// Note that the object here is instantiated without init args.
-		// Objects that require init args should fall back to INITALIZE_HINT_LATELOAD during Init,
-		// as this will give the subsystem the chance to apply the content and
-		// the object to continue with init logic after the subsystem is done in LateInitialize.
-		var/obj/instance = new typepath()
-		instance.persistent_objects_track_id = data["id"]
-		objectsApplyTrackContent(instance, data["content"], data["x"], data["y"], data["z"])
-		objectsRegisterTrack(instance, data["author_ckey"])
+		try
+			var/typepath = text2path(data["type"])
+			if (!ispath(typepath)) // Type checking
+				continue
+			// Create at saved location so Initialize() has a valid turf (avoids null.is_hole on cables etc.)
+			var/nx = text2num(data["x"])
+			var/ny = text2num(data["y"])
+			var/nz = text2num(data["z"])
+			var/turf/spawn_turf = (nx && ny && nz) ? locate(nx, ny, nz) : null
+			if(!spawn_turf)
+				log_subsystem_persistence_error("Persistent objects: Cannot locate saved position for [data["type"]] (id=[data["id"]]) at ([data["x"]],[data["y"]],[data["z"]]) -- skipping.")
+				continue
+			var/obj/instance
+			if(ispath(typepath, /obj/structure/lattice))
+				// Create in null space to bypass check_for_duplicates, then move to position.
+				instance = new typepath()
+				if(!instance || QDELETED(instance))
+					objectsDatabaseExpireEntry(data["id"])
+					continue
+				var/obj/structure/lattice/existing_lattice = null
+				for(var/obj/structure/lattice/L in spawn_turf)
+					if(L.type == typepath) { existing_lattice = L; break }
+				if(existing_lattice)
+					qdel(instance)
+					instance = existing_lattice
+				else
+					instance.forceMove(spawn_turf)
+			else
+				instance = new typepath(spawn_turf)
+				if(!instance || QDELETED(instance))
+					var/obj/existing = null
+					for(var/obj/O in spawn_turf)
+						if(O.type == typepath) { existing = O; break }
+					if(existing)
+						existing.persistent_objects_track_id = text2num(data["id"])
+						objectsRegisterTrack(existing, data["author_ckey"])
+					else
+						objectsDatabaseExpireEntry(data["id"])
+					continue
+			instance.persistent_objects_track_id = data["id"]
+			objectsApplyTrackContent(instance, data["content"], data["x"], data["y"], data["z"])
+			objectsRegisterTrack(instance, data["author_ckey"])
+		catch(var/exception/e)
+			log_subsystem_persistence_error("Persistent objects: Failed to instantiate [data["type"]] (id=[data["id"]]): [e]")
+
+	for(var/obj/structure/ladder/L in world)
+		if(!(L.allowed_directions & DOWN)) continue
+		if(L.target_down) continue
+		var/turf/LT = get_turf(L)
+		if(!LT) continue
+		var/turf/below = GET_TURF_BELOW(LT)
+		if(!below) continue
+		for(var/obj/structure/ladder/BL in below)
+			if(BL.allowed_directions & UP)
+				L.target_down = BL
+				BL.target_up = L
+				break
 
 /**
  * Finalize persistent object tracking.
@@ -39,12 +81,6 @@
  */
 /datum/controller/subsystem/persistence/proc/objectsFinalize()
 	PRIVATE_PROC(TRUE)
-
-	if(!SSatlas.current_map) // The persistence system only supports objects from the main map levels for multiple reasons, e.g. Z level value, mapping support
-		log_subsystem_persistence_info("Persistent objects: Current map did not match SCCV Horizon, skipping persistent object finalization.")
-		if(length(GLOB.persistence_object_track_register) > 0)
-			log_subsystem_persistence_warning("Persistent objects: There are [length(GLOB.persistence_object_track_register)] tracked objects at finalization, while the map is not supported! These track will not be saved! Verify that SSatlas.current_map.path has not changed during the round!")
-		return
 
 	// Subsystem shutdown:
 	// Create new persistent records for objects that have been created in the round
@@ -108,11 +144,14 @@
  */
 /datum/controller/subsystem/persistence/proc/objectsGetTrackContent(obj/track)
 	PRIVATE_PROC(TRUE)
-	var/result = json_encode(list())
+	var/result = json_encode(list("__dir" = track.dir, "__anchored" = track.anchored))
 	try
 		var/list/content = track.persistent_objects_get_content()
-		if(length(content))
-			result = json_encode(content)
+		if(!islist(content))
+			content = list()
+		content["__dir"]      = track.dir
+		content["__anchored"] = track.anchored
+		result = json_encode(content)
 	catch(var/exception/e)
 		log_subsystem_persistence_error("Error during json serialization for persistent object. Failed to get/encode track content: [e]")
 	return result
@@ -127,6 +166,65 @@
 /datum/controller/subsystem/persistence/proc/objectsApplyTrackContent(obj/track, json, x, y, z)
 	PRIVATE_PROC(TRUE)
 	try
-		track.persistent_objects_apply_content(json_decode(json), x, y, z)
+		var/list/content = json_decode(json)
+		track.persistent_objects_apply_content(content, x, y, z)
+		if(islist(content) && ("__dir" in content))
+			track.dir = text2num(content["__dir"])
+		if(islist(content) && ("__anchored" in content))
+			track.anchored = content["__anchored"]
 	catch(var/exception/e)
 		log_subsystem_persistence_error("Error during json deserialization for persistent object. Failed to apply/decode track content: [e]")
+
+// ============================================================
+// CABLE -- save and restore d1/d2/icon_state so wire direction is preserved
+// ============================================================
+
+/obj/structure/cable/persistent_objects_get_content()
+	return list("d1" = d1, "d2" = d2, "icon_state" = icon_state, "color" = color)
+
+/obj/structure/cable/persistent_objects_apply_content(list/content, x, y, z)
+	..()  // base: forceMove to saved position
+	if(!content)
+		return
+	if("d1" in content)         d1         = text2num(content["d1"])
+	if("d2" in content)         d2         = text2num(content["d2"])
+	if("icon_state" in content) icon_state = content["icon_state"]
+	if("color" in content)      color      = content["color"]
+	update_icon()
+	// Reconnect with correct d1/d2 -- Initialize built connections with wrong default d1=0,d2=1
+	if(powernet)
+		cut_cable_from_powernet()
+	mergeConnectedNetworksOnTurf()
+	mergeConnectedNetworks(d1)
+	mergeConnectedNetworks(d2)
+
+// ============================================================
+// CLOSET -- save and restore contents so fill() items are not duplicated
+// ============================================================
+
+/obj/structure/closet/persistent_objects_get_content()
+	var/list/content = list("opened" = opened)
+	var/list/items = list()
+	for(var/obj/item/I in src.contents)
+		items += list(serializePersistentItem(I))
+	content["items"] = items
+	return content
+
+/obj/structure/closet/persistent_objects_apply_content(list/content, x, y, z)
+	..()  // base: forceMove to saved position
+	if(!content)
+		return
+	// Remove items that fill() placed on creation -- we restore from saved state instead
+	while(length(contents))
+		qdel(contents[1])
+	// Restore saved contents
+	if(islist(content["items"]))
+		for(var/list/item_data in content["items"])
+			if(islist(item_data))
+				deserializePersistentItem(item_data, src)
+	// Restore open/closed state
+	if(!isnull(content["opened"]))
+		if(content["opened"] && !opened)
+			open(TRUE)
+		else if(!content["opened"] && opened)
+			close(TRUE)

@@ -36,7 +36,7 @@
 	// Clear any default map-placed contents before restoring saved state
 	for(var/atom/movable/AM in src)
 		if(istype(AM, /obj/item))
-			AM.forceMove(get_turf(src))
+			qdel(AM)
 
 	// Restore items
 	if(content["items"])
@@ -47,7 +47,7 @@
 			catch(var/exception/closet_e)
 				log_subsystem_persistence_error("Closets: Failed to restore item in [src] at [get_turf(src)]: [closet_e]")
 
-	// Restore closet state — set vars directly, NOT via open()/close() which call
+	// Restore closet state  set vars directly, NOT via open()/close() which call
 	// dump_contents() and eject the items we just restored inside the closet.
 	welded = content["welded"] ? TRUE : FALSE
 	locked = content["locked"] ? TRUE : FALSE

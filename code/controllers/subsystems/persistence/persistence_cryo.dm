@@ -22,7 +22,7 @@
 	if(!persistence_in_cryo || ckey)
 		return
 
-	// Find a hold turf — prefer player storage telepads, fall back to any latejoin point
+	// Find a hold turf  prefer player storage telepads, fall back to any latejoin point
 	var/turf/hold_turf = null
 	if(length(GLOB.player_storage_tepads))
 		var/obj/structure/machinery/player_storage_telepad/pad = pick(GLOB.player_storage_tepads)
@@ -38,7 +38,7 @@
 		status_flags |= GODMODE  // Prevent hunger/thirst/health damage while stored
 		// Stay in world until player reconnects (cleaned up in PersistentAutoSpawn)
 	else
-		log_subsystem_persistence_info("Cryo: [real_name] despawning — no offline hold configured.")
+		log_subsystem_persistence_info("Cryo: [real_name] despawning  no offline hold configured.")
 		qdel(src)
 
 /**
@@ -52,7 +52,7 @@
 		return
 	if(!H.ckey || !H.real_name)
 		return
-	// Use get_turf() rather than H.z directly — when H is inside a cryopod or other
+	// Use get_turf() rather than H.z directly  when H is inside a cryopod or other
 	// container, H.z is 0 (not on a turf directly). get_turf() resolves through containers.
 	var/turf/H_turf = get_turf(H)
 	if(!H_turf || !H_turf.z)
@@ -88,7 +88,7 @@
 /**
  * Intentional store: saves the character, immediately moves the mob to a player storage
  * telepad, and returns the client to the new_player lobby so they can Join again later.
- * Unlike persistCharacterOnLogout() this does NOT use a timer — storage is instant.
+ * Unlike persistCharacterOnLogout() this does NOT use a timer  storage is instant.
  */
 /datum/controller/subsystem/persistence/proc/persistStoreCharacter(mob/living/carbon/human/H)
 	if(!GLOB.config.sql_enabled)
@@ -112,6 +112,13 @@
 	H.persistence_stored_ckey = H.ckey
 	H.persistence_in_cryo     = TRUE
 
+	// If the mob is inside a cryopod, clear its occupant reference so the pod resets properly
+	if(istype(H.loc, /obj/structure/machinery/cryopod))
+		var/obj/structure/machinery/cryopod/cryo_pod = H.loc
+		if(cryo_pod.occupant == H)
+			cryo_pod.occupant = null
+			cryo_pod.update_icon()
+
 	// Move mob immediately to the player storage telepad (or latejoin fallback)
 	var/turf/hold_turf = null
 	if(length(GLOB.player_storage_tepads))
@@ -127,12 +134,12 @@
 		H.status_flags |= GODMODE  // Prevent hunger/thirst/health damage while stored
 		log_subsystem_persistence_info("Cryo: [H.real_name] stored at telepad ([hold_turf.x],[hold_turf.y],[hold_turf.z]).")
 	else
-		log_subsystem_persistence_info("Cryo: [H.real_name] stored — no telepad found, mob remains at current location.")
+		log_subsystem_persistence_info("Cryo: [H.real_name] stored  no telepad found, mob remains at current location.")
 
 	return TRUE
 
 // ============================================================
-// ENTER CRYOSLEEP VERB — manual logout via cryopod
+// ENTER CRYOSLEEP VERB  manual logout via cryopod
 // ============================================================
 
 /mob/living/carbon/human/verb/enter_cryosleep()
@@ -170,7 +177,7 @@
 	if(confirm != "Enter")
 		return
 
-	// Move to the tile in front of the pod (visual effect only — not inside the pod)
+	// Move to the tile in front of the pod (visual effect only  not inside the pod)
 	to_chat(src, SPAN_NOTICE("You climb into the cryopod and settle in for cryosleep..."))
 	var/turf/pod_front = get_step(nearest, nearest.dir)
 	if(!pod_front)
@@ -179,7 +186,7 @@
 
 	// Save character and immediately move mob to player storage telepad
 	if(!SSpersistence.persistStoreCharacter(src))
-		to_chat(src, SPAN_WARNING("Storage failed — could not save character data. Please try again."))
+		to_chat(src, SPAN_WARNING("Storage failed  could not save character data. Please try again."))
 		return
 
 	// Return the client to the lobby (new_player) so they can Join again later.
@@ -189,7 +196,7 @@
 	NP.key = stored_key  // Transfers the client from src to NP; src.ckey becomes null
 
 // ============================================================
-// CLIENT HOOK — save on disconnect
+// CLIENT HOOK  save on disconnect
 // ============================================================
 
 /client/Destroy(force)
@@ -207,12 +214,11 @@
 // New vars on cryopods for network/faction designation
 /obj/structure/machinery/cryopod
 	/// Network this pod belongs to. "public" = open to all. A faction UID restricts to that faction.
-	/// Defaults to "public" so map-placed pods work as spawn points from the very first server start.
-	/// Admins can restrict specific pods to factions via Configure Cryopod Network.
-	var/persistent_network = "public"
+	/// Empty string = unconfigured (not a spawn point). Must be set explicitly via Configure Cryopod Network.
+	var/persistent_network = ""
 	/// If TRUE and persistent_network == "public", this pod is a valid spawn point.
-	/// Defaults to TRUE so map-placed pods are immediately usable without configuration.
-	var/persistent_spawn   = TRUE
+	/// Defaults to FALSE -- must be explicitly enabled by an admin.
+	var/persistent_spawn   = FALSE
 	/// TRUE if this cryopod was placed on the original map (handled by worldstate). FALSE = admin-spawned (handled by persistent_objects).
 	var/persistence_map_placed = FALSE
 	/// Never expire spawned cryopods
@@ -233,7 +239,7 @@
 /// On load: if a map-placed cryopod already exists at this position, configure it and qdel self.
 /// Otherwise move to saved position and configure.
 /obj/structure/machinery/cryopod/persistent_objects_apply_content(list/content, x, y, z)
-	// x/y/z come from SQL as strings — convert to numbers for locate()
+	// x/y/z come from SQL as strings  convert to numbers for locate()
 	var/nx = text2num(x)
 	var/ny = text2num(y)
 	var/nz = text2num(z)
@@ -279,7 +285,7 @@
 		if(q.NextRow())
 			faction_uid = q.item[1]
 	catch
-		// Table may not exist yet — return null safely
+		// Table may not exist yet  return null safely
 	qdel(q)
 	return faction_uid
 
@@ -305,34 +311,27 @@
 
 	// Priority 2: public or unrestricted spawn pods (open to everyone)
 	// Accepts both persistent_network == "public" (explicitly public) and
-	// persistent_network == "" (unrestricted — no faction restriction set)
+	// persistent_network == "" (unrestricted  no faction restriction set)
 	var/list/public_pods = list()
 	var/total_pods = 0
 	for(var/obj/structure/machinery/cryopod/pod in world)
 		total_pods++
 		if(!pod.z)
-			log_subsystem_persistence_info("Cryo spawn: skipping [pod.type] at ([pod.x],[pod.y],[pod.z]) — z is 0")
+			log_subsystem_persistence_info("Cryo spawn: skipping [pod.type] at ([pod.x],[pod.y],[pod.z])  z is 0")
 			continue
 		if(pod.occupant)
-			log_subsystem_persistence_info("Cryo spawn: skipping [pod.type] at ([pod.x],[pod.y],[pod.z]) — occupied by [pod.occupant]")
+			log_subsystem_persistence_info("Cryo spawn: skipping [pod.type] at ([pod.x],[pod.y],[pod.z])  occupied by [pod.occupant]")
 			continue
-		var/is_open = (pod.persistent_network == "public" || pod.persistent_network == "")
+		var/is_open = (pod.persistent_network == "public")
 		if(is_open && pod.persistent_spawn)
 			public_pods += pod
 		else
-			log_subsystem_persistence_info("Cryo spawn: skipping [pod.type] at ([pod.x],[pod.y],[pod.z]) — network='[pod.persistent_network]' spawn=[pod.persistent_spawn]")
+			log_subsystem_persistence_info("Cryo spawn: skipping [pod.type] at ([pod.x],[pod.y],[pod.z])  network='[pod.persistent_network]' spawn=[pod.persistent_spawn]")
 	log_subsystem_persistence_info("Cryo spawn: checked [total_pods] pods, found [length(public_pods)] public/unrestricted.")
 	if(length(public_pods))
 		var/obj/structure/machinery/cryopod/chosen = pick(public_pods)
 		var/turf/step = get_step(chosen, chosen.dir)
 		return step ? step : get_turf(chosen)
-
-	// Fallback: any cryopod that exists and isn't occupied — ignore network/spawn config
-	for(var/obj/structure/machinery/cryopod/pod in world)
-		var/turf/pt = get_turf(pod)
-		if(!pt || !pt.z || pod.occupant) continue
-		var/turf/step = get_step(pod, pod.dir)
-		return step ? step : pt
 
 	// Last resort: any start landmark
 	for(var/obj/effect/landmark/start/L in world)
@@ -340,7 +339,7 @@
 	return null
 
 // ============================================================
-// GHOST VERB BLOCK — prevent ghosting while in/near cryopod
+// GHOST VERB BLOCK  prevent ghosting while in/near cryopod
 // ============================================================
 
 /// Override ghost verb on humans: block ghosting while inside a cryopod or already in cryo-storage.
@@ -386,10 +385,10 @@
 
 	// Save character and immediately move mob to player storage telepad
 	if(!SSpersistence.persistStoreCharacter(src))
-		to_chat(src, SPAN_WARNING("Storage failed — could not save character data. Please try again."))
+		to_chat(src, SPAN_WARNING("Storage failed  could not save character data. Please try again."))
 		return
 
-	to_chat(src, SPAN_NOTICE("Character stored. You will return to the main menu now — click Join to come back."))
+	to_chat(src, SPAN_NOTICE("Character stored. You will return to the main menu now  click Join to come back."))
 
 	// Return the client to the lobby (new_player) so they can Join again later.
 	var/stored_key = src.key
@@ -402,7 +401,7 @@
 
 /**
  * Returns a list of character names (strings) that have saved data for a given ckey.
- * Scans the in-memory caches loaded at startup — no DB call needed.
+ * Scans the in-memory caches loaded at startup  no DB call needed.
  */
 /proc/persistence_get_saved_characters(ckey)
 	var/list/chars = list()
@@ -432,7 +431,7 @@
 
 /**
  * Find an available cargo telepad for the given network.
- * Priority: faction telepad → public telepad → null (caller falls back to ship).
+ * Priority: faction telepad  public telepad  null (caller falls back to ship).
  */
 /proc/persistence_find_cargo_telepad(network = null)
 	if(network)
@@ -568,7 +567,7 @@
 	return PERSISTENCE_BASE_SLOTS
 
 // ============================================================
-// ADMIN VERB — set slot limit
+// ADMIN VERB  set slot limit
 // ============================================================
 
 /datum/admins/proc/set_player_character_slots()
@@ -582,7 +581,7 @@
 	if(!target_ckey)
 		return
 
-	var/new_limit = tgui_input_number(usr, "New slot limit for [target_ckey] (1–10):", "Set Character Slots", 1, 10, 1)
+	var/new_limit = tgui_input_number(usr, "New slot limit for [target_ckey] (110):", "Set Character Slots", 1, 10, 1)
 	if(!new_limit || new_limit < 1 || new_limit > 10)
 		return
 

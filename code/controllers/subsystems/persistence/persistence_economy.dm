@@ -182,5 +182,5 @@ GLOBAL_LIST_EMPTY(persistence_economy_cache)
 
 	SSeconomy.all_money_accounts["[account.account_number]"] = account
 
-	log_subsystem_persistence_info("Economy: Restored account for [mob.ckey] ([mob.real_name]), balance: [account.money]电")
+	log_subsystem_persistence_info("Economy: Restored account for [mob.ckey] ([mob.real_name]), balance: [account.money]")
 	return account

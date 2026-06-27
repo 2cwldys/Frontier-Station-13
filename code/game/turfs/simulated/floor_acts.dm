@@ -55,6 +55,5 @@
 			W.fire_act(adj_temp, adj_volume)
 
 /turf/simulated/floor/ChangeTurf(path, tell_universe, force_lighting_update, ignore_override, mapload)
-	if(!mapload) mark_persistence_dirty()
 	SEND_SIGNAL(src, COMSIG_ATOM_DECONSTRUCTED)
 	return ..()

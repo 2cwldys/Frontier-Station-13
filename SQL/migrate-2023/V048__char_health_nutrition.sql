@@ -1,0 +1,3 @@
+ALTER TABLE `ss13_char_health`
+  ADD COLUMN IF NOT EXISTS `nutrition` FLOAT NOT NULL DEFAULT 400 AFTER `fire_stacks`,
+  ADD COLUMN IF NOT EXISTS `hydration` FLOAT NOT NULL DEFAULT 400 AFTER `nutrition`;

@@ -471,10 +471,24 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 			if(pod_turf)
 				H.forceMove(pod_turf)
 			H.key = client.ckey
+			H.stat = CONSCIOUS
+			H.density = TRUE
+			H.status_flags &= ~GODMODE
 			to_chat(H, SPAN_NOTICE("You eject from cryosleep. Welcome back, [H.real_name]."))
 			log_subsystem_persistence_info("Cryo: [H.real_name] ([ckey_lower]) woke from cryosleep.")
 			qdel(src)
 			return
+
+	// Reconnect to any live (non-cryo) mob still in the world with this key
+	for(var/mob/living/carbon/human/H in GLOB.human_mob_list)
+		if(H.persistence_in_cryo) continue
+		if(ckey(H.ckey) != ckey_lower && ckey(H.persistence_stored_ckey) != ckey_lower) continue
+		if(H.client) continue
+		H.key = client.ckey
+		to_chat(H, SPAN_NOTICE("Connection restored. Welcome back, [H.real_name]."))
+		log_subsystem_persistence_info("Cryo: [H.real_name] ([ckey_lower]) reconnected to live mob.")
+		qdel(src)
+		return
 
 	// ── Character selection ──────────────────────────────────
 	var/list/saved_chars = persistence_get_saved_characters(client.ckey)
@@ -515,7 +529,7 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 	// Gear is already saved to DB by persistCharacterOnLogout() and will be
 	// restored by applyPersistentInventory() below — the hold mob is cosmetic only.
 	for(var/mob/living/carbon/human/H in world)
-		if(H.persistence_stored_ckey == client.ckey && H.persistence_in_cryo && !H.ckey)
+		if(H.persistence_stored_ckey == client.ckey && !H.ckey)
 			qdel(H)
 			break
 

@@ -6,7 +6,7 @@
  * The ckey is an optional argument and is used for tracking user generated content by adding an author to the persistent data.
  */
 /datum/controller/subsystem/persistence/proc/objectsRegisterTrack(obj/new_track, ckey)
-	if(QDELETED(new_track)) // Never register a deleted object — would cause its DB entry to be purged at finalize
+	if(QDELETED(new_track)) // Never register a deleted object  would cause its DB entry to be purged at finalize
 		return
 	if(new_track.persistent_objects_track_active) // Prevent multiple registers per object and removes the need to check the register if it's already in there
 		return

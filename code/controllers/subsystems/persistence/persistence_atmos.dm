@@ -15,15 +15,11 @@ GLOBAL_LIST_EMPTY(persistence_atmos_cache)
 
 /**
  * Load saved atmospheric zone data into the in-memory cache.
- * Called from SSpersistence.Initialize() — zones don't exist yet at this point.
+ * Called from SSpersistence.Initialize()  zones don't exist yet at this point.
  */
 /datum/controller/subsystem/persistence/proc/atmosInitialize()
 	PRIVATE_PROC(TRUE)
 	GLOB.persistence_atmos_cache = list()
-
-	if(!SSatlas.current_map)
-		log_subsystem_persistence_info("Atmos: Map is not SCCV Horizon, skipping atmos persistence init.")
-		return
 
 	if(!databaseCheckConnection("atmosInitialize"))
 		return
@@ -96,10 +92,6 @@ GLOBAL_LIST_EMPTY(persistence_atmos_cache)
 /datum/controller/subsystem/persistence/proc/atmosFinalize()
 	PRIVATE_PROC(TRUE)
 
-	if(!SSatlas.current_map)
-		log_subsystem_persistence_info("Atmos: Map is not SCCV Horizon, skipping atmos persistence save.")
-		return
-
 	if(!databaseCheckConnection("atmosFinalize"))
 		return
 
@@ -111,7 +103,7 @@ GLOBAL_LIST_EMPTY(persistence_atmos_cache)
 	databaseCheckQueryResult(delete_old, "atmosFinalize delete old")
 	qdel(delete_old)
 
-	// Collect all zone rows then bulk INSERT in chunks — avoids 487 round-trips
+	// Collect all zone rows then bulk INSERT in chunks  avoids 487 round-trips
 	var/list/value_rows = list()
 	var/map_path_escaped = replacetext("[SSatlas.current_map.path]", "'", "''")
 

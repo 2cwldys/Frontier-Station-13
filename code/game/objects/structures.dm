@@ -21,8 +21,13 @@
 	/// Amount that pulling mobs have their movement delayed by
 	var/slowdown = 0
 
+/obj/structure
+	var/persistence_was_mapload = FALSE
+
 /obj/structure/Initialize(mapload)
 	. = ..()
+	if(mapload)
+		persistence_was_mapload = TRUE
 	if(!isnull(material) && !istype(material))
 		material = SSmaterials.get_material_by_name(material)
 	if (!mapload)
@@ -32,14 +37,16 @@
 	if (smoothing_flags)
 		QUEUE_SMOOTH(src)
 		QUEUE_SMOOTH_NEIGHBORS(src)
-	// Auto-register admin-placed anchored structures for persistence so they survive restarts.
+	// Auto-register admin-placed structures for persistence so they survive restarts.
 	// mapload = map-file structures (handled by worldstate, not here).
 	// !GLOB.persistence_ready = objects being restored by objectsInitialize (avoid double-register).
-	// anchored = only intentionally-placed structures; non-anchored debris/temporary objects excluded.
-	if(!mapload && GLOB.config.sql_enabled && GLOB.persistence_ready && anchored)
+	if(!mapload && GLOB.config.sql_enabled && GLOB.persistence_ready)
 		SSpersistence.objectsRegisterTrack(src)
+		SSpersistence.clearStructureRemoval(src)
 
 /obj/structure/Destroy()
+	if(persistence_was_mapload && !persistent_objects_track_active && GLOB.persistence_ready && GLOB.config.sql_enabled)
+		SSpersistence.saveStructureRemoval(src)
 	if(parts)
 		new parts(loc)
 	if (smoothing_flags)

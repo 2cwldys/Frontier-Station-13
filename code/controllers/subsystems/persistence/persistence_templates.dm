@@ -7,11 +7,11 @@
  * damaged or cluttered, without touching player money/records/health/inventory.
  *
  * Admin verbs:
- *   - Capture World Template  — save current world state under a name
- *   - Load World Template     — queue a template for apply at next Initialize()
- *   - Load World Template (Immediate) — apply template to live world mid-game
- *   - Delete World Template   — remove a saved template from the database
- *   - List World Templates    — print all templates to admin chat
+ *   - Capture World Template   save current world state under a name
+ *   - Load World Template      queue a template for apply at next Initialize()
+ *   - Load World Template (Immediate)  apply template to live world mid-game
+ *   - Delete World Template    remove a saved template from the database
+ *   - List World Templates     print all templates to admin chat
  */
 
 /**
@@ -42,7 +42,7 @@
 	clear.Execute()
 	qdel(clear)
 
-	// template_id == 0 is the "reset to map default" sentinel — wipe tables, load nothing
+	// template_id == 0 is the "reset to map default" sentinel  wipe tables, load nothing
 	if(template_id == 0)
 		log_subsystem_persistence_info("Templates: Default map reset pending. Wiping live worldstate tables.")
 		templateWipeLiveTables()
@@ -102,7 +102,7 @@
 	del_decals.Execute()
 	qdel(del_decals)
 
-	// Copy template turfs → live turf table
+	// Copy template turfs  live turf table
 	var/datum/db_query/copy_turfs = SSdbcore.NewQuery(
 		{"INSERT INTO ss13_worldstate_turfs (map_path, x, y, z, turf_type, base_type, content, saved_at)
 		SELECT :map_path, x, y, z, turf_type, base_type, content, NOW()
@@ -113,7 +113,7 @@
 	databaseCheckQueryResult(copy_turfs, "templateApplyToLiveTables copy turfs")
 	qdel(copy_turfs)
 
-	// Copy template worldstate → live worldstate table
+	// Copy template worldstate  live worldstate table
 	var/datum/db_query/copy_ws = SSdbcore.NewQuery(
 		{"INSERT INTO ss13_worldstate_objects (type, x, y, z, content, saved_at)
 		SELECT type, x, y, z, content, NOW()
@@ -129,7 +129,7 @@
 /**
  * Apply a template directly to the live world mid-game.
  * Changes turfs and machinery state without waiting for a server restart.
- * Expensive — iterates entire world. Call from an admin verb with user confirmation.
+ * Expensive  iterates entire world. Call from an admin verb with user confirmation.
  */
 /datum/controller/subsystem/persistence/proc/templateApplyNow(template_id)
 	if(!databaseCheckConnection("templateApplyNow"))
@@ -139,7 +139,7 @@
 	templateApplyToLiveTables(template_id)
 
 	// Reset all non-default station turfs to their map-original type before applying the template.
-	// turfsInitialize() only applies entries that exist in the DB — without this pass, turfs
+	// turfsInitialize() only applies entries that exist in the DB  without this pass, turfs
 	// damaged AFTER the template was captured would not be restored (they have no template entry).
 	// For next-restart loads this is unnecessary: the .dmm re-loads fresh turf types from the map.
 	for(var/turf/T in world)
@@ -170,13 +170,13 @@
  * Wipes all worldstate/turf/atmos DB data, resets all station turfs to baseturf,
  * then re-runs worldstate and turf inits against the now-empty tables (so nothing is applied).
  * Result: machinery and turfs match the original .dmm map file.
- * Cannot rebuild physically deconstructed objects — use next-restart revert for a full reset.
+ * Cannot rebuild physically deconstructed objects  use next-restart revert for a full reset.
  */
 /datum/controller/subsystem/persistence/proc/templateRevertToDefault()
 	if(!databaseCheckConnection("templateRevertToDefault"))
 		return
 
-	// Wipe DB tables — init procs will find nothing to apply
+	// Wipe DB tables  init procs will find nothing to apply
 	templateWipeLiveTables()
 
 	// Reset all non-default station turfs to their map-original type
@@ -211,10 +211,6 @@
 	set category = "Persistence"
 
 	if(!check_rights(R_ADMIN))
-		return
-
-	if(SSatlas.current_map.path != "sccv_horizon")
-		to_chat(usr, SPAN_WARNING("World templates only supported on SCCV Horizon."))
 		return
 
 	var/tname = tgui_input_text(usr, "Enter a name for this template (e.g. 'clean_start'):", "Capture World Template", max_length = 64)
@@ -266,7 +262,7 @@
 		q.Execute()
 		qdel(q)
 
-	// Snapshot turfs — reuse turfsSerializeAndInsert equivalent inline for template table
+	// Snapshot turfs  reuse turfsSerializeAndInsert equivalent inline for template table
 	var/turf_count = 0
 	for(var/turf/simulated/floor/F in world)
 		if(!is_station_level(F.z))
@@ -437,7 +433,7 @@
 	var/output = "World Templates for [SSatlas.current_map.path]:\n"
 	var/count = 0
 	while(q.NextRow())
-		output += "  [q.item[2]] (ID [q.item[1]]) — [q.item[4]] — [q.item[3] || "(no description)"]\n"
+		output += "  [q.item[2]] (ID [q.item[1]])  [q.item[4]]  [q.item[3] || "(no description)"]\n"
 		count++
 	qdel(q)
 
@@ -452,10 +448,6 @@
 	if(!check_rights(R_ADMIN))
 		return
 
-	if(SSatlas.current_map.path != "sccv_horizon")
-		to_chat(usr, SPAN_WARNING("Map default revert only supported on SCCV Horizon."))
-		return
-
 	if(!GLOB.config.sql_enabled)
 		to_chat(usr, SPAN_WARNING("SQL is not enabled."))
 		return
@@ -465,7 +457,7 @@
 		return
 
 	var/mode = tgui_alert(usr,
-		"Reset the station to its original map state?\n\nThis wipes all worldstate, turf changes, atmos zones, and decals. Player data (credits, records, health, inventory) is NOT affected.\n\n• Next Restart — wipes DB now; map reloads fresh on next server boot (safest, rebuilds deconstructed structures).\n• Immediate — resets turfs and machinery mid-game (fast but cannot rebuild deconstructed structures/objects).",
+		"Reset the station to its original map state?\n\nThis wipes all worldstate, turf changes, atmos zones, and decals. Player data (credits, records, health, inventory) is NOT affected.\n\n Next Restart  wipes DB now; map reloads fresh on next server boot (safest, rebuilds deconstructed structures).\n Immediate  resets turfs and machinery mid-game (fast but cannot rebuild deconstructed structures/objects).",
 		"Revert to Map Default",
 		list("Next Restart", "Immediate", "Cancel")
 	)

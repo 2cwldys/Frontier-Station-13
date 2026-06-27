@@ -150,7 +150,8 @@ GLOBAL_LIST_INIT(admin_verbs_fun, list(
 	/datum/admins/proc/ccannoucment,
 	/datum/admins/proc/set_odyssey,
 	/datum/admins/proc/set_odyssey_canonicity,
-	/datum/admins/proc/toggle_persistence
+	/datum/admins/proc/toggle_persistence,
+	/datum/admins/proc/toggle_autosave_pause
 	))
 
 GLOBAL_LIST_INIT(admin_verbs_spawn, list(

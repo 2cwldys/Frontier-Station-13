@@ -23,10 +23,6 @@
 /datum/controller/subsystem/persistence/proc/floorItemsInitialize()
 	PRIVATE_PROC(TRUE)
 
-	if(!SSatlas.current_map)
-		log_subsystem_persistence_info("Floor items: Map is not SCCV Horizon, skipping floor item restore.")
-		return
-
 	if(!databaseCheckConnection("floorItemsInitialize"))
 		return
 
@@ -62,9 +58,8 @@
 		return
 
 	// Wipe all existing untracked floor items so we start from a clean state.
-	// Ammo casings are skipped here as well as in the save — guns may still hold refs to them,
-	// and force-qdeling them before their owning gun causes GC leak warnings.
-	// They are transient debris and will be cleaned up by normal game mechanics.
+	// Ammo casings are skipped -- guns may still hold refs to them and force-qdeling
+	// them before their owning gun causes GC leak warnings.
 	for(var/obj/item/I in world)
 		CHECK_TICK
 		if(!isturf(I.loc))
@@ -89,6 +84,16 @@
 		var/turf/T = locate(data["x"], data["y"], data["z"])
 		if(!T || !T.z)
 			continue
+		// Skip turfs with closed closets -- their contents are handled by closet content serialization,
+		// and the closet LateInitialize would suck restored floor items in, causing duplication.
+		var/has_closed_closet = FALSE
+		for(var/obj/structure/closet/C in T)
+			if(!C.opened) { has_closed_closet = TRUE; break }
+		if(!has_closed_closet)
+			for(var/obj/structure/machinery/suit_storage_unit/SSU in T)
+				has_closed_closet = TRUE; break
+		if(has_closed_closet)
+			continue
 
 		var/obj/item/I
 		try
@@ -98,7 +103,7 @@
 				I = deserializePersistentItem(item_tree, T)
 			else
 				var/path = text2path(data["type"])
-				if(path)
+				if(path && ispath(path, /obj/item))
 					I = new path(T)
 		catch(var/exception/floor_e)
 			log_subsystem_persistence_error("Floor items: Failed to restore [data["type"]] at ([data["x"]],[data["y"]],[data["z"]]): [floor_e]")
@@ -122,10 +127,6 @@
  */
 /datum/controller/subsystem/persistence/proc/floorItemsFinalize()
 	PRIVATE_PROC(TRUE)
-
-	if(!SSatlas.current_map)
-		log_subsystem_persistence_info("Floor items: Map is not SCCV Horizon, skipping floor item save.")
-		return
 
 	if(!databaseCheckConnection("floorItemsFinalize"))
 		return

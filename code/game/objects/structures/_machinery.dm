@@ -211,6 +211,9 @@ Class Procs:
 		if(component_parts.len)
 			RefreshParts()
 
+	if(!mapload && !is_internal && GLOB.config.sql_enabled && GLOB.persistence_ready)
+		SSpersistence.objectsRegisterTrack(src)
+
 	return INITIALIZE_HINT_LATELOAD
 
 /obj/structure/machinery/Destroy()

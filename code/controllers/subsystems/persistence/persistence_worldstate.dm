@@ -7,7 +7,7 @@
  *   - Types declare /atom/movable/var/list/worldstate_vars = list("var1", "var2", ...)
  *   - Base procs read/write those vars using BYOND's runtime vars[] accessor automatically
  *   - Types with complex serialization (vending stock, closet contents, etc.) override the procs directly
- *   - worldstateInitialize / worldstateFinalize use blanket loops — no per-type loop needed
+ *   - worldstateInitialize / worldstateFinalize use blanket loops  no per-type loop needed
  *
  * Adding a new type: just set worldstate_vars on the type. No loop edits required.
  */
@@ -16,14 +16,14 @@
 GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 
 // =====================================================================
-// BASE PROCS — declarative var list drives automatic save/restore
+// BASE PROCS  declarative var list drives automatic save/restore
 // =====================================================================
 
 /// Set this list on any type to have worldstate save/restore those vars automatically.
 /// Leave null (default) to opt out of worldstate entirely.
 /atom/movable/var/list/worldstate_vars = null
 
-/// Generic get — reads each var in worldstate_vars via BYOND runtime src.vars[] accessor.
+/// Generic get  reads each var in worldstate_vars via BYOND runtime src.vars[] accessor.
 /// Types with complex state (nested objects, list-encoded fields) override this proc directly.
 /atom/movable/proc/worldstate_get_content()
 	if(!worldstate_vars) return null
@@ -32,7 +32,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		content[v] = src.vars[v]
 	return content
 
-/// Generic apply — writes each var from the saved content dict back to the object.
+/// Generic apply  writes each var from the saved content dict back to the object.
 /// Calls update_icon() afterward; types needing different post-apply hooks override this proc.
 /atom/movable/proc/worldstate_apply_content(list/content)
 	if(!worldstate_vars) return
@@ -53,10 +53,6 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 /datum/controller/subsystem/persistence/proc/worldstateInitialize()
 	PRIVATE_PROC(TRUE)
 	GLOB.persistence_worldstate_cache = list()
-
-	if(!SSatlas.current_map)
-		log_subsystem_persistence_info("Worldstate: Map is not SCCV Horizon, skipping worldstate init.")
-		return
 
 	if(!databaseCheckConnection("worldstateInitialize"))
 		return
@@ -85,7 +81,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 
 	var/applied = 0
 
-	// Single blanket loop — covers all /obj/structure subtypes (machinery, closets, tables, grilles, etc.)
+	// Single blanket loop  covers all /obj/structure subtypes (machinery, closets, tables, grilles, etc.)
 	// Only types with worldstate_vars set or explicit proc overrides will actually save/load.
 	for(var/obj/structure/S in world)
 		applied += worldstateApplyToMachine(S)
@@ -127,14 +123,10 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 /datum/controller/subsystem/persistence/proc/worldstateFinalize()
 	PRIVATE_PROC(TRUE)
 
-	if(!SSatlas.current_map)
-		log_subsystem_persistence_info("Worldstate: Map is not SCCV Horizon, skipping worldstate save.")
-		return
-
 	if(!databaseCheckConnection("worldstateFinalize"))
 		return
 
-	// Delete all previous worldstate data — destroyed objects won't be re-inserted
+	// Delete all previous worldstate data  destroyed objects won't be re-inserted
 	var/datum/db_query/delete_all = SSdbcore.NewQuery("DELETE FROM ss13_worldstate_objects")
 	delete_all.Execute()
 	databaseCheckQueryResult(delete_all, "worldstateFinalize delete all")
@@ -284,8 +276,17 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 /obj/structure/machinery/alarm
 	worldstate_vars = list("mode", "target_temperature", "breach_detection", "locked", "aidisabled", "highpower", "frequency")
 
+/obj/structure/machinery/power/portgen/basic
+	worldstate_vars = list("active", "open", "power_output", "sheets", "sheet_left", "anchored")
+
+/obj/structure/machinery/power/solar_control
+	worldstate_vars = list("track", "trackrate")
+
+/obj/structure/machinery/power/generator
+	worldstate_vars = list("anchored")
+
 // =====================================================================
-// EXPLICIT PROCS — complex serialization that needs custom logic
+// EXPLICIT PROCS  complex serialization that needs custom logic
 // =====================================================================
 
 // ------- APC (nested cell.charge) -------
@@ -352,7 +353,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	return list("persistent_network" = persistent_network, "persistent_spawn" = persistent_spawn)
 
 /obj/structure/machinery/cryopod/worldstate_apply_content(list/content)
-	// Only apply non-empty network strings — don't let a stale empty DB value wipe the "public" default
+	// Only apply non-empty network strings  don't let a stale empty DB value wipe the "public" default
 	if(!isnull(content["persistent_network"]) && length(content["persistent_network"]))
 		persistent_network = content["persistent_network"]
 	if(!isnull(content["persistent_spawn"]))
@@ -403,3 +404,64 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	should_be_broadcasting = content["should_be_broadcasting"]
 	should_be_listening    = content["should_be_listening"]
 	set_frequency(default_frequency)
+
+// ------- Suit storage unit (saves SUIT/HELMET/MASK item state) -------
+
+/obj/structure/machinery/suit_storage_unit/worldstate_get_content()
+	var/list/content = list()
+	if(SUIT)
+		var/list/s = serializePersistentItem(SUIT)
+		if(s) content["suit"] = json_encode(s)
+	if(HELMET)
+		var/list/h = serializePersistentItem(HELMET)
+		if(h) content["helmet"] = json_encode(h)
+	if(MASK)
+		var/list/m = serializePersistentItem(MASK)
+		if(m) content["mask"] = json_encode(m)
+	if(!length(content)) return list()
+	return content
+
+/obj/structure/machinery/suit_storage_unit/worldstate_apply_content(list/content)
+	if(SUIT)   { qdel(SUIT);   SUIT   = null }
+	if(HELMET) { qdel(HELMET); HELMET = null }
+	if(MASK)   { qdel(MASK);   MASK   = null }
+	if(content["suit"])
+		SUIT   = deserializePersistentItem(json_decode(content["suit"]),   src)
+	if(content["helmet"])
+		HELMET = deserializePersistentItem(json_decode(content["helmet"]), src)
+	if(content["mask"])
+		MASK   = deserializePersistentItem(json_decode(content["mask"]),   src)
+	update_icon()
+
+// ------- Solar control (trigger panel scan after apply) -------
+
+/obj/structure/machinery/power/solar_control/worldstate_apply_content(list/content)
+	..()
+	if(track > 0)
+		search_for_connected()
+
+// ------- Ladder (save/restore target_up and target_down by position) -------
+
+/obj/structure/ladder/worldstate_get_content()
+	var/list/content = list("allowed_directions" = allowed_directions)
+	if(target_down)
+		var/turf/TL = get_turf(target_down)
+		if(TL) { content["td_x"] = TL.x; content["td_y"] = TL.y; content["td_z"] = TL.z }
+	if(target_up)
+		var/turf/TU = get_turf(target_up)
+		if(TU) { content["tu_x"] = TU.x; content["tu_y"] = TU.y; content["tu_z"] = TU.z }
+	if(length(content) <= 1 && !target_up && !target_down) return list()
+	return content
+
+/obj/structure/ladder/worldstate_apply_content(list/content)
+	if(content["allowed_directions"])
+		allowed_directions = text2num(content["allowed_directions"])
+	if(content["td_x"])
+		var/turf/T = locate(text2num(content["td_x"]), text2num(content["td_y"]), text2num(content["td_z"]))
+		if(T) for(var/obj/structure/ladder/BL in T)
+			if(BL.allowed_directions & UP) { target_down = BL; BL.target_up = src; break }
+	if(content["tu_x"])
+		var/turf/T = locate(text2num(content["tu_x"]), text2num(content["tu_y"]), text2num(content["tu_z"]))
+		if(T) for(var/obj/structure/ladder/BL in T)
+			if(BL.allowed_directions & DOWN) { target_up = BL; BL.target_down = src; break }
+	update_icon()

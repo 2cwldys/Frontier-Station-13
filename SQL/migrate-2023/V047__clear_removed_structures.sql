@@ -1,0 +1,1 @@
+TRUNCATE TABLE ss13_removed_structures;

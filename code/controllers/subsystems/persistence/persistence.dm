@@ -9,7 +9,7 @@
  * - persistence_objects_public.dm		- Persistent objects public procs.
  */
 
-/// Set to TRUE once SSpersistence.Initialize() fully completes — gates PersistentAutoSpawn().
+/// Set to TRUE once SSpersistence.Initialize() fully completes  gates PersistentAutoSpawn().
 GLOBAL_VAR_INIT(persistence_ready, FALSE)
 
 SUBSYSTEM_DEF(persistence)
@@ -17,23 +17,30 @@ SUBSYSTEM_DEF(persistence)
 	init_order = INIT_ORDER_PERSISTENCE // The order is tied with the init and maploading subsystem.
 	wait = 30 MINUTES // Fires every 30 minutes; saves all persistence data including turfs and atmos.
 	var/prevent_saving = FALSE // Toggle to prevent saving at round end, changed by toggle_persistence proc, used for admin purposes.
+	var/save_in_progress = FALSE // Set TRUE while a save is running to prevent concurrent saves.
+	var/autosave_paused = FALSE
+	var/autosave_pause_remaining = 0
 
 /**
  * Subsystem info stub message generation.
  */
 /datum/controller/subsystem/persistence/stat_entry(msg)
-	msg = ("Register: [length(GLOB.persistence_object_track_register)] | Prevent saving: [SSpersistence.prevent_saving ? "TRUE" : "FALSE"]")
+	msg = ("Register: [length(GLOB.persistence_object_track_register)] | Prevent saving: [SSpersistence.prevent_saving ? "TRUE" : "FALSE"] | Saving: [SSpersistence.save_in_progress ? "YES" : "NO"] | Autosave: [SSpersistence.autosave_paused ? "PAUSED" : "active"]")
 	return msg
 
 /**
- * Periodic save — fires every 30 minutes and saves all persistence data.
+ * Periodic save  fires every 30 minutes and saves all persistence data.
  * Since the world runs continuously with no round end, this is the primary save mechanism.
  * Shutdown() also runs all saves for graceful server restarts.
  */
 /datum/controller/subsystem/persistence/fire()
 	if(prevent_saving || !GLOB.config.sql_enabled)
 		return
+	if(save_in_progress)
+		log_subsystem_persistence_warning("Persistence: Periodic save skipped -- save already in progress.")
+		return
 
+	save_in_progress = TRUE
 	log_subsystem_persistence_info("Persistence: Running periodic save.")
 	to_world(SPAN_NOTICE(SPAN_BOLD("Automatic world save in progress. This may take 1-2 minutes.")))
 
@@ -42,6 +49,7 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/e)
 		log_subsystem_persistence_error("Periodic save failed: [e]")
 
+	save_in_progress = FALSE
 	log_subsystem_persistence_info("Persistence: Periodic save complete.")
 	to_world(SPAN_GOOD(SPAN_BOLD("World save complete.")))
 
@@ -85,14 +93,14 @@ SUBSYSTEM_DEF(persistence)
 			return
 		GLOB.config.enter_allowed = FALSE
 		to_world(FONT_LARGE(EXAMINE_BLOCK_RED("Joining has been [SPAN_BOLD(SPAN_WARNING("disabled"))] by an administrator. The server is now locked.")))
-		log_and_message_admins("has locked the server — joining is disabled", usr)
+		log_and_message_admins("has locked the server  joining is disabled", usr)
 	else
 		var/confirm = tgui_alert(usr, "Allow players to join the server again?", "Toggle Server Joining", list("Unlock", "Cancel"))
 		if(confirm != "Unlock")
 			return
 		GLOB.config.enter_allowed = TRUE
 		to_world(FONT_LARGE(EXAMINE_BLOCK_RED("Joining has been [SPAN_BOLD(SPAN_GOOD("re-enabled"))] by an administrator. The server is now open.")))
-		log_and_message_admins("has unlocked the server — joining is enabled", usr)
+		log_and_message_admins("has unlocked the server  joining is enabled", usr)
 
 	feedback_add_details("admin_verb", "TSJ")
 
@@ -126,6 +134,27 @@ SUBSYSTEM_DEF(persistence)
 
 	feedback_add_details("admin_verb","TP") //If you are copy-pasting this, ensure the 2nd parameter is unique to the new proc!
 
+/datum/admins/proc/toggle_autosave_pause()
+	set name = "Toggle Autosave Pause"
+	set category = "Persistence"
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	if(SSpersistence.autosave_paused)
+		SSpersistence.next_fire = world.time + max(0, SSpersistence.autosave_pause_remaining)
+		SSpersistence.autosave_paused = FALSE
+		to_world(FONT_LARGE(SPAN_GOOD("Autosave RESUMED. Next save in approximately [round(max(0, SSpersistence.autosave_pause_remaining) / (1 MINUTE))] minute(s).")))
+		log_and_message_admins("resumed the autosave timer", usr)
+	else
+		SSpersistence.autosave_pause_remaining = max(0, SSpersistence.next_fire - world.time)
+		SSpersistence.next_fire = world.time + (999 MINUTES)
+		SSpersistence.autosave_paused = TRUE
+		to_world(FONT_LARGE(SPAN_WARNING("Autosave PAUSED by an administrator. Manual saves still work.")))
+		log_and_message_admins("paused the autosave timer", usr)
+
+	feedback_add_details("admin_verb","TAP")
+
 /datum/admins/proc/force_persistence_save()
 	set name = "Force Persistence Save"
 	set category = "Persistence"
@@ -145,6 +174,11 @@ SUBSYSTEM_DEF(persistence)
 		to_chat(usr, SPAN_WARNING("Database connection failed. Cannot save."))
 		return
 
+	if(SSpersistence.save_in_progress)
+		to_chat(usr, SPAN_WARNING("A save is already in progress. Please wait for it to complete before forcing another."))
+		return
+
+	SSpersistence.save_in_progress = TRUE
 	to_world(SPAN_NOTICE(SPAN_BOLD("World state save in progress.")))
 	log_and_message_admins("initiated a world persistence save", usr)
 
@@ -169,6 +203,7 @@ SUBSYSTEM_DEF(persistence)
 	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("8/8")] Saving floor items..."))
 	SSpersistence.floorItemsFinalize()
 
+	SSpersistence.save_in_progress = FALSE
 	log_and_message_admins("forced a mid-round persistence save", usr)
 	to_chat(usr, SPAN_GOOD("Persistence save complete."))
 
@@ -214,6 +249,18 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/objs_e)
 		log_subsystem_persistence_panic("Unhandled exception during persistent objects initialization: [objs_e]")
 		return SS_INIT_FAILURE
+
+	// Floor items runs immediately after objects so machines/structures are recreated
+	// before worldstateInitialize applies their saved state vars.
+	try
+		floorItemsInitialize()
+	catch(var/exception/floor_e)
+		log_subsystem_persistence_panic("Unhandled exception during floor item persistence initialization: [floor_e]")
+
+	try
+		removedStructuresInitialize()
+	catch(var/exception/rs_e)
+		log_subsystem_persistence_panic("Unhandled exception during removed structures initialization: [rs_e]")
 
 	try
 		economyInitialize()
@@ -276,19 +323,14 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_panic("Unhandled exception during character identity persistence initialization: [id_e]")
 
 	try
-		floorItemsInitialize()
-	catch(var/exception/floor_e)
-		log_subsystem_persistence_panic("Unhandled exception during floor item persistence initialization: [floor_e]")
-
-	try
 		mobPositionInitialize()
 	catch(var/exception/pos_e)
 		log_subsystem_persistence_panic("Unhandled exception during mob position persistence initialization: [pos_e]")
 
 	// GLOB.persistence_ready is set by SSpersistence_world_ready.Initialize()
-	// which runs at init_order = 1 (last of all subsystems) — after atoms, mapping, etc.
+	// which runs at init_order = 1 (last of all subsystems)  after atoms, mapping, etc.
 
-	// Prevent an immediate fire() right after init — first autosave should be 30 min after startup
+	// Prevent an immediate fire() right after init  first autosave should be 30 min after startup
 	next_fire = world.time + wait
 	return SS_INIT_SUCCESS
 
@@ -305,7 +347,7 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_panic("SQL error during persistence subsystem shutdown. Cannot finalise persistence of the round.")
 		return
 
-	// ── PRIORITY 1: Player data — must survive even if server is killed mid-shutdown ──
+	//  PRIORITY 1: Player data  must survive even if server is killed mid-shutdown 
 	try
 		mobsHealthFinalize()
 	catch(var/exception/health_e)
@@ -326,7 +368,7 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/pos_e)
 		log_subsystem_persistence_panic("Unhandled exception during mob position persistence finalization: [pos_e]")
 
-	// ── PRIORITY 2: World items — floor items first (fast), then persistent objects (can be slow) ──
+	//  PRIORITY 2: World items  floor items first (fast), then persistent objects (can be slow) 
 	try
 		floorItemsFinalize()
 	catch(var/exception/floor_e)
@@ -337,7 +379,7 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/objs_e)
 		log_subsystem_persistence_panic("Unhandled exception during persistent objects finalization: [objs_e]")
 
-	// ── PRIORITY 3: World state — machinery, turfs, atmos ──
+	//  PRIORITY 3: World state  machinery, turfs, atmos 
 	try
 		worldstateFinalize()
 	catch(var/exception/ws_e)
@@ -353,7 +395,7 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/atmos_e)
 		log_subsystem_persistence_panic("Unhandled exception during atmos persistence finalization: [atmos_e]")
 
-	// ── PRIORITY 4: Administrative data ──
+	//  PRIORITY 4: Administrative data 
 	try
 		economyFinalize()
 	catch(var/exception/economy_e)

@@ -3,7 +3,7 @@
  * Piggybacks on the existing ss13_persistent_objects system to save blood,
  * filth, graffiti, and other cleanable decals across rounds.
  *
- * No new SQL table required — uses existing persistent_objects infrastructure.
+ * No new SQL table required  uses existing persistent_objects infrastructure.
  * Decals auto-register via Initialize() when created during a live round on station levels.
  * The existing objectsInitialize() / objectsFinalize() handles DB load/save automatically.
  */
@@ -58,4 +58,4 @@
 	src.z = z
 
 // Blood, oil, and gibs (/obj/effect/decal/cleanable/blood and all subtypes) are blacklisted.
-// The Initialize guard above prevents them from being registered — no content hooks needed.
+// The Initialize guard above prevents them from being registered  no content hooks needed.
