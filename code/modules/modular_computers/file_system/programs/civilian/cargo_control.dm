@@ -16,8 +16,7 @@
 	var/status_message //A status message that can be displayed
 	var/list/order_details = list() //Order Details for the order
 	var/list/shipment_details = list() //Shipment Details for a selected shipment
-	/// If set, approved orders from this console are routed to the matching faction cargo telepad instead of the supply shuttle.
-	var/persistent_network = null
+	// persistent_network is now on the machine (computer.persistent_network) -- no per-program var
 
 /datum/computer_file/program/civilian/cargocontrol/ui_data(mob/user)
 	var/list/data = initial_data()
@@ -74,6 +73,21 @@
 	data["handling_fee"] = SScargo.get_handlingfee()
 	data["bounties"] = SScargo.get_bounty_list()
 
+	// Faction export support
+	var/net = computer.persistent_network
+	data["faction_network"] = net
+	if(net)
+		data["faction_balance"] = get_faction_account_balance(net)
+		data["faction_name"]    = get_faction_name(net)
+		var/list/export_cat = list()
+		for(var/datum/export/E in SScargo.exports_list)
+			export_cat += list(list("name" = E:name, "price" = E.get_cost()))
+		data["export_catalog"] = export_cat
+	else
+		data["faction_balance"] = null
+		data["faction_name"]    = null
+		data["export_catalog"]  = list()
+
 	data["have_printer"] = !!computer.nano_printer
 
 	//Shuttle Stuff
@@ -126,9 +140,10 @@
 				if("settings")
 					page = "settings" //Settings page that allows to tweak various settings such as the cargo handling fee
 				if("bounties")
-					page = "bounties" //Page listing the currently available centcom bounties
-				else
-					page = "overview_main" //fall back to overview_main if a unknown page has been supplied
+					page = "bounties"
+				if("exports")
+					page = "exports" //Faction export page — sell items at the faction telepad for faction credits
+				// (no else — unknown pages fall through without changing; the switch handles the default)
 			return TRUE
 
 		//Approve a order
@@ -139,8 +154,8 @@
 				if(message)
 					status_message = message
 				// Tag order for faction telepad delivery if this console has a network configured
-				if(persistent_network && !co.delivery_network)
-					co.delivery_network = persistent_network
+				if(computer && computer.persistent_network && !co.delivery_network)
+					co.delivery_network = computer.persistent_network
 			return TRUE
 
 		//Reject a order
@@ -158,8 +173,47 @@
 				status_message = "Insufficient permissions to configure supply network."
 				return TRUE
 			var/new_net = params["network"]
-			persistent_network = (new_net && new_net != "") ? new_net : null
-			status_message = persistent_network ? "Supply network set to '[persistent_network]'. Approved orders will be routed to faction telepads." : "Supply network cleared. Orders will use the supply shuttle."
+			computer.persistent_network = (new_net && new_net != "") ? new_net : ""
+			status_message = computer.persistent_network ? "Supply network set to '[computer.persistent_network]'. Approved orders will be routed to faction telepads." : "Supply network cleared. Orders will use the supply shuttle."
+			return TRUE
+
+		// Export items at the faction telepad → credit faction account
+		if("export_faction")
+			var/exp_net = computer.persistent_network
+			if(!exp_net)
+				status_message = "This console is not linked to a faction network."
+				return TRUE
+			var/turf/exp_turf = persistence_find_cargo_telepad(exp_net)
+			if(!exp_turf)
+				status_message = "No faction telepad found for network '[exp_net]'."
+				return TRUE
+
+			// Reset all export datum totals before scanning
+			for(var/datum/export/E in SScargo.exports_list)
+				E.export_end()
+
+			// Process every movable on the telepad turf (skip machinery)
+			for(var/atom/movable/A in exp_turf)
+				if(istype(A, /obj/structure/machinery)) continue
+				SScargo.export_item_and_contents(A)
+
+			// Collect results
+			var/exp_total = 0
+			var/list/exp_lines = list()
+			for(var/datum/export/E in SScargo.exports_list)
+				if(E.total_cost <= 0) continue
+				exp_lines += "[E:name]: [E.total_amount] units — [E.total_cost] cr"
+				exp_total += E.total_cost
+				E.export_end()  // reset for next run
+
+			if(!exp_total)
+				status_message = "No exportable items found at the faction telepad."
+				return TRUE
+
+			faction_credit(exp_net, exp_total, "Export sale via cargo console by [usr.ckey]")
+			var/exp_summary = exp_lines.len ? jointext(exp_lines, "; ") : "unknown items"
+			status_message = "Exported for [exp_total] cr: [exp_summary]. Credited to [get_faction_name(exp_net)]."
+			log_game("[usr.ckey] exported [exp_total] cr of goods to faction [exp_net] via cargo console.")
 			return TRUE
 
 		//Send shuttle

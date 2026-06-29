@@ -123,21 +123,22 @@
 	)
 
 /datum/category_item/player_setup_item/general/basic/load_character_special()
-	pref.can_edit_name = TRUE
-	pref.can_edit_ipc_tag = TRUE
+	pref.can_edit_name      = TRUE
+	pref.can_edit_ipc_tag   = TRUE
+	pref.can_edit_character = TRUE
 
 	if (GLOB.config.sql_saves && pref.current_character)
 		if (!establish_db_connection(GLOB.dbcon))
 			return
 
-		// Called /after/ loading and /before/ sanitization.
-		// So we have pref.current_character. It's just in text format.
-		var/DBQuery/query = GLOB.dbcon.NewQuery("SELECT DATEDIFF(NOW(), created_at) AS DiffDate FROM ss13_characters WHERE id = :id:")
+		// Lock character preferences once first_spawned_at is set (character has entered the world).
+		var/DBQuery/query = GLOB.dbcon.NewQuery("SELECT first_spawned_at FROM ss13_characters WHERE id = :id:")
 		query.Execute(list("id" = text2num(pref.current_character)))
 
 		if (query.NextRow())
-			if (text2num(query.item[1]) > 5)
-				pref.can_edit_name = FALSE
+			if (query.item[1])  // non-null = has spawned at least once
+				pref.can_edit_name      = FALSE
+				pref.can_edit_character = FALSE
 				if(GLOB.config.ipc_timelock_active)
 					pref.can_edit_ipc_tag = FALSE
 		else
@@ -172,7 +173,11 @@
 			pref.speech_bubble_type = "normal"
 
 /datum/category_item/player_setup_item/general/basic/content(var/mob/user)
-	var/list/dat = list("<b>Name:</b> ")
+	var/list/dat = list()
+	if(!pref.can_edit_character)
+		dat += "<center><b>&#128274; This character has entered the world and is locked.</b><br>"
+		dat += "Delete this character to create a new one.</center><hr>"
+	dat += "<b>Name:</b> "
 	if (pref.can_edit_name)
 		dat += "<a href='byond://?src=[REF(src)];rename=1'><b>[pref.real_name]</b></a><br>"
 	else

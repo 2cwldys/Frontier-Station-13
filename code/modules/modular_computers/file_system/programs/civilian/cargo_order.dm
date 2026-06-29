@@ -9,6 +9,7 @@
 	available_on_ntnet = TRUE
 	usage_flags = PROGRAM_ALL
 	tgui_id = "CargoOrder"
+	ui_auto_update = TRUE  // keeps faction balance live
 
 	var/page = "main" //main - Main Menu, order - Order Page, item_details - Item Details Page, tracking - Tracking Page
 	var/selected_category = null // Category that is currently selected
@@ -24,6 +25,12 @@
 		co = crord
 
 	var/list/data = initial_data()
+
+	// Faction balance — show when computer is linked to a faction
+	var/co_net = computer ? computer.persistent_network : null
+	data["faction_network"] = co_net
+	data["faction_name"]    = co_net ? get_faction_name(co_net) : null
+	data["faction_balance"] = co_net ? get_faction_account_balance(co_net) : null
 
 	//Pass the ID Data
 	data["username"] = GetNameAndAssignmentFromId(user.GetIdCard())

@@ -53,22 +53,19 @@
 		configured++
 
 	for(var/obj/structure/machinery/telepad_cargo/pad in range(network_radius, src))
+		if(pad.faction_shackled && pad.persistent_network != faction_uid)
+			continue  // respect player shackle to a different faction
 		pad.persistent_network = faction_uid
 		pad.persistent_spawn   = TRUE
 		configured++
 
-	// Configure programs running on nearby modular computers
+	// Configure nearby modular computers directly (machine-level persistent_network)
+	// Skips computers already shackled to a different faction
 	for(var/obj/item/modular_computer/MC in range(network_radius, src))
-		if(!MC.hard_drive) continue
-		for(var/datum/computer_file/program/P in MC.hard_drive.stored_files)
-			if(istype(P, /datum/computer_file/program/card_mod))
-				var/datum/computer_file/program/card_mod/CM = P
-				CM.persistent_network = faction_uid
-				configured++
-			if(istype(P, /datum/computer_file/program/civilian/cargocontrol))
-				var/datum/computer_file/program/civilian/cargocontrol/CC = P
-				CC.persistent_network = faction_uid
-				configured++
+		if(MC.faction_shackled && MC.persistent_network != faction_uid)
+			continue  // respect player shackle to a different faction
+		MC.persistent_network = faction_uid
+		configured++
 
 	log_game("Faction beacon at ([x],[y],[z]): networked [configured] objects to faction '[faction_uid]'.")
 	update_icon()
@@ -108,7 +105,7 @@
 		if(!(new_uid in GLOB.persistence_faction_cache))
 			to_chat(usr, SPAN_WARNING("Warning: '[new_uid]' is not in the faction cache. Make sure to run db_update.bat and that the faction exists."))
 
-	var/new_radius = tgui_input_number(usr, "Network radius (tiles):", "Configure Faction Beacon", network_radius, 5, 200)
+	var/new_radius = tgui_input_number(usr, "Network radius (tiles):", "Configure Faction Beacon", network_radius, 200, 5)
 	if(isnull(new_radius))
 		return
 

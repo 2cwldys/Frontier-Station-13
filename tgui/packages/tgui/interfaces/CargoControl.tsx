@@ -223,13 +223,13 @@ export const CargoControl = (props) => {
                   : 'Unauthorised'}
               </LabeledList.Item>
               <LabeledList.Item label="Price">
-                {data.order_details.price.toFixed(2)}电
+                {(data.order_details.price ?? 0).toFixed(2)}电
               </LabeledList.Item>
               <LabeledList.Item label="Operations Expense">
-                {data.order_details.price_cargo.toFixed(2)}电
+                {(data.order_details.price_cargo ?? 0).toFixed(2)}电
               </LabeledList.Item>
               <LabeledList.Item label="Personal Expense">
-                {data.order_details.price_customer.toFixed(2)}电
+                {(data.order_details.price_customer ?? 0).toFixed(2)}电
               </LabeledList.Item>
               <LabeledList.Item label="Ordered At">
                 {data.order_details.time_submitted}
@@ -267,7 +267,7 @@ export const CargoControl = (props) => {
                   <Table.Row key={item.name}>
                     <Table.Cell>{item.name}</Table.Cell>
                     <Table.Cell>{item.supplier_name}</Table.Cell>
-                    <Table.Cell>{item.price.toFixed(2)}电</Table.Cell>
+                    <Table.Cell>{(item.price ?? 0).toFixed(2)}电</Table.Cell>
                   </Table.Row>
                 ))}
               </Table>
@@ -308,7 +308,7 @@ export const MainWindow = (props) => {
       <Box bold>Welcome, {data.username}.</Box>
       <LabeledList>
         <LabeledList.Item label="Operations Fund">
-          {data.cargo_money.toFixed(2)}电
+          {(data.cargo_money ?? 0).toFixed(2)}电
         </LabeledList.Item>
       </LabeledList>
       {data.shuttle_has_arrive_time ? (
@@ -341,7 +341,7 @@ export const OverviewSubmitted = (props) => {
           {data.order_approved_shuttle_time / 10} seconds
         </LabeledList.Item>
         <LabeledList.Item label="Estimated Elevator Fee">
-          {data.order_approved_shuttle_price.toFixed(2)}电
+          {(data.order_approved_shuttle_price ?? 0).toFixed(2)}电
         </LabeledList.Item>
       </LabeledList>
       <Table>
@@ -355,7 +355,7 @@ export const OverviewSubmitted = (props) => {
           <Table.Row key={order.order_id}>
             <Table.Cell>{order.order_id}</Table.Cell>
             <Table.Cell>{order.ordered_by}</Table.Cell>
-            <Table.Cell>{order.price_cargo.toFixed(2)}电</Table.Cell>
+            <Table.Cell>{(order.price_cargo ?? 0).toFixed(2)}电</Table.Cell>
             <Table.Cell>
               <Button
                 content="Approve"
@@ -414,7 +414,7 @@ export const OverviewApproved = (props) => {
           {data.order_approved_shuttle_time / 10} seconds
         </LabeledList.Item>
         <LabeledList.Item label="Estimated Elevator Fee">
-          {data.order_approved_shuttle_price.toFixed(2)}电
+          {(data.order_approved_shuttle_price ?? 0).toFixed(2)}电
         </LabeledList.Item>
       </LabeledList>
       <Table>
@@ -428,7 +428,7 @@ export const OverviewApproved = (props) => {
           <Table.Row key={order.order_id}>
             <Table.Cell>{order.order_id}</Table.Cell>
             <Table.Cell>{order.ordered_by}</Table.Cell>
-            <Table.Cell>{order.price_cargo.toFixed(2)}电</Table.Cell>
+            <Table.Cell>{(order.price_cargo ?? 0).toFixed(2)}电</Table.Cell>
             <Table.Cell>
               <Button
                 content="Reject"
@@ -486,7 +486,7 @@ export const OverviewShipped = (props) => {
           <Table.Row key={order.order_id}>
             <Table.Cell>{order.order_id}</Table.Cell>
             <Table.Cell>{order.ordered_by}</Table.Cell>
-            <Table.Cell>{order.price_cargo.toFixed(2)}电</Table.Cell>
+            <Table.Cell>{(order.price_cargo ?? 0).toFixed(2)}电</Table.Cell>
             <Table.Cell>
               <Button
                 content="Details"
@@ -535,7 +535,7 @@ export const OverviewDelivered = (props) => {
           <Table.Row key={order.order_id}>
             <Table.Cell>{order.order_id}</Table.Cell>
             <Table.Cell>{order.ordered_by}</Table.Cell>
-            <Table.Cell>{order.price_cargo.toFixed(2)}电</Table.Cell>
+            <Table.Cell>{(order.price_cargo ?? 0).toFixed(2)}电</Table.Cell>
             <Table.Cell>
               <Button
                 content="Details"

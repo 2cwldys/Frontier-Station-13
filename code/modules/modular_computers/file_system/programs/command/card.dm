@@ -13,8 +13,6 @@
 	tgui_id = "IDCardModification"
 	var/is_centcom = FALSE
 	var/show_assignments = FALSE
-	/// If set, this console issues faction IDs and shows faction jobs instead of Aurora's built-in jobs.
-	var/persistent_network = null
 
 /datum/computer_file/program/card_mod/ui_data(mob/user)
 	var/list/data = initial_data()
@@ -29,7 +27,6 @@
 
 	var/obj/item/card/id/id_card = computer.card_slot.stored_card
 	data["has_id"] = !!id_card
-	data["id_account_number"] = id_card ? id_card.associated_account_number : null
 	data["id_rank"] = id_card && id_card.assignment ? id_card.assignment : "Unassigned"
 	data["id_owner"] = id_card && id_card.registered_name ? id_card.registered_name : "-----"
 	data["id_name"] = id_card ? id_card.name : "-----"
@@ -63,27 +60,31 @@
 
 /datum/computer_file/program/card_mod/ui_static_data(mob/user)
 	var/list/data = list()
-	data["command_support_jobs"] = format_jobs(command_support_positions)
-	data["engineering_jobs"] = format_jobs(engineering_positions)
-	data["medical_jobs"] = format_jobs(medical_positions)
-	data["science_jobs"] = format_jobs(science_positions)
-	data["security_jobs"] = format_jobs(security_positions)
-	data["cargo_jobs"] = format_jobs(cargo_positions)
-	data["service_jobs"] = format_jobs(service_positions)
-	data["civilian_jobs"] = format_jobs(civilian_positions)
-	data["centcom_jobs"] = format_jobs(get_all_centcom_jobs())
 	// Faction jobs — populated when this console is networked to a faction
-	if(persistent_network)
+	if(computer && computer.persistent_network)
 		var/list/faction_jobs_formatted = list()
-		for(var/list/j in get_faction_jobs(persistent_network))
-			faction_jobs_formatted += list(list("job" = j["title"], "target_rank" = j["title"]))
+		for(var/list/j in get_faction_jobs(computer.persistent_network))
+			faction_jobs_formatted += list(list(
+				"job"      = j["title"],
+				"rank"     = j["rank"] || 0,
+				"pay_rate" = j["pay_rate"] || 0
+			))
 		data["faction_jobs"]    = faction_jobs_formatted
-		data["faction_network"] = persistent_network
-		data["faction_name"]    = get_faction_name(persistent_network)
+		data["faction_network"] = computer.persistent_network
+		data["faction_name"]    = get_faction_name(computer.persistent_network)
+		// Show dispense button when the user has no member record for this faction yet
+		var/mob/ui_user = usr
+		var/already_member = (ui_user && ui_user.ckey) ? !!get_faction_member(ui_user.ckey, computer.persistent_network) : FALSE
+		data["can_dispense_faction_id"] = !already_member
+		// Officer field: rank >= 1 in this faction, or admin -- gates job assignment UI
+		var/list/op_fmember = (ui_user && ui_user.ckey) ? get_faction_member(ui_user.ckey, computer.persistent_network) : null
+		data["faction_officer"] = (op_fmember && (op_fmember["rank"] || 0) >= 1) || check_rights(R_ADMIN, 0, ui_user)
 	else
 		data["faction_jobs"]    = list()
 		data["faction_network"] = null
 		data["faction_name"]    = null
+		data["can_dispense_faction_id"] = FALSE
+		data["faction_officer"] = FALSE
 	return data
 
 /datum/computer_file/program/card_mod/proc/format_jobs(list/jobs)
@@ -241,8 +242,8 @@
 			new_card.assignment = R.rank || "Civilian"
 			new_card.rank = R.rank || "Civilian"
 			new_card.name = "[user.real_name]'s ID Card ([new_card.assignment])"
-			if(persistent_network)
-				new_card.employer_faction = persistent_network
+			if(computer && computer.persistent_network)
+				new_card.employer_faction = computer.persistent_network
 
 			// Re-apply access for the job
 			var/datum/job/jobdatum
@@ -259,17 +260,162 @@
 				var/mob/living/carbon/human/H = user
 				H.set_id_info(new_card)
 
-			user.put_in_hands(new_card)
+			// Get or create personal bank account
+			var/rep_acct = 0
+			var/rep_is_new = FALSE
+			// 1. Check in-memory economy cache (populated at startup from DB)
+			var/list/rep_econ = GLOB.persistence_economy_cache["[user.ckey]|[user.real_name]"]
+			if(islist(rep_econ))
+				rep_acct = rep_econ["account_number"] || 0
+			// 2. Check mind.initial_account — set earlier this session by a previous ID operation
+			if(!rep_acct && user.mind && user.mind.initial_account)
+				rep_acct = user.mind.initial_account.account_number
+			// 3. Only if still nothing, create a brand-new account
+			if(!rep_acct)
+				SSeconomy.create_and_assign_account(user)
+				if(user.mind && user.mind.initial_account)
+					rep_acct = user.mind.initial_account.account_number
+					rep_is_new = TRUE
+			new_card.associated_account_number = rep_acct
+
+			// Place in ID slot so card is immediately readable by RFID scanners
+			var/placed_in_slot = FALSE
+			if(istype(user, /mob/living/carbon/human))
+				var/mob/living/carbon/human/H = user
+				// Remove any existing (revoked) card from the ID slot first
+				if(H.wear_id)
+					H.drop_from_inventory(H.wear_id)
+				placed_in_slot = H.equip_to_slot_if_possible(new_card, SLOT_ID, 0, 0, 0, 1)
+			if(!placed_in_slot)
+				user.put_in_hands(new_card)
+
+			if(rep_is_new && rep_acct)
+				tgui_alert(user, "A personal Idris bank account has been created.\n\nAccount Number: #[rep_acct]\n\nYou will be asked to set a PIN next. Write this number down.", "Account Created", list("Set PIN"))
+				var/rep_pin = tgui_input_text(user, "Set a PIN for ATM access (4-8 digits). Leave blank to skip.", "Set ATM PIN", "", max_length = 8)
+				var/pin_display = "(random -- set at ATM)"
+				if(rep_pin && length(rep_pin) >= 4 && text2num(rep_pin))
+					if(user.mind?.initial_account)
+						user.mind.initial_account.remote_access_pin = text2num(rep_pin)
+					pin_display = rep_pin
+				var/rep_note = "Idris Account: #[rep_acct] | PIN: [pin_display] | Insert ID at any Idris ATM."
+				if(GLOB.config.sql_enabled && SSdbcore.Connect())
+					var/datum/db_query/rn_q = SSdbcore.NewQuery(
+						{"INSERT INTO ss13_crew_records (ckey, char_name, ccia_notes, saved_at)
+						VALUES (:ckey, :name, :note, NOW())
+						ON DUPLICATE KEY UPDATE ccia_notes = VALUES(ccia_notes), saved_at = NOW()"},
+						list("ckey" = user.ckey, "name" = user.real_name, "note" = rep_note)
+					)
+					rn_q.Execute()
+					qdel(rn_q)
+				to_chat(usr, SPAN_GOOD("[icon2html(new_card, usr)] KEEP SAFE -- Account: #[rep_acct] | PIN: [pin_display]"))
+				to_chat(usr, SPAN_NOTICE("Saved in your crew record. Access at any Idris SelfServ Teller."))
+			else if(rep_acct)
+				to_chat(usr, SPAN_NOTICE("Existing bank account #[rep_acct] linked to this ID."))
+
 			to_chat(usr, SPAN_GOOD("Replacement ID card printed and revoked old card."))
 			log_admin("[user.key] printed a replacement ID card for [user.real_name] via [computer].")
 			. = TRUE
 
+		// ── Faction ID dispensing (no crew record required) ──────────────
+		if("dispense_faction_id")
+			if(!computer || !computer.persistent_network)
+				return
+			if(!user.real_name || !user.ckey)
+				to_chat(usr, SPAN_WARNING("You must be a living character to receive an ID."))
+				return
+			var/disp_net = computer.persistent_network
+			var/faction_name = get_faction_name(disp_net)
+			// If already a member, reprint instead
+			var/already_member = !!get_faction_member(user.ckey, disp_net)
+			// Revoke any existing faction ID cards for this person
+			for(var/obj/item/card/id/old_card in world)
+				if(!old_card.revoked && old_card.registered_name == user.real_name && old_card.employer_faction == disp_net)
+					old_card.revoked = TRUE
+					old_card.name = "[old_card.registered_name]'s ID Card (REVOKED)"
+			// Get or create personal Idris bank account (players spawn with none)
+			var/dispense_acct = 0
+			var/acct_is_new = FALSE
+			// 1. Check in-memory economy cache (populated at startup from DB)
+			var/list/econ_entry = GLOB.persistence_economy_cache["[user.ckey]|[user.real_name]"]
+			if(islist(econ_entry))
+				dispense_acct = econ_entry["account_number"] || 0
+			// 2. Check mind.initial_account — set earlier this session
+			if(!dispense_acct && user.mind && user.mind.initial_account)
+				dispense_acct = user.mind.initial_account.account_number
+			if(!dispense_acct)
+				// Not in cache — create a fresh unique account and save to DB via economy persistence
+				SSeconomy.create_and_assign_account(user)
+				if(user.mind && user.mind.initial_account)
+					dispense_acct = user.mind.initial_account.account_number
+					acct_is_new = TRUE
+
+			// Dispense new blank faction ID
+			var/obj/item/card/id/new_card = new /obj/item/card/id(get_turf(computer))
+			new_card.registered_name      = user.real_name
+			new_card.assignment           = "Unassigned"
+			new_card.rank                 = "Unassigned"
+			new_card.employer_faction     = disp_net
+			new_card.associated_account_number = dispense_acct
+			new_card.name = "[user.real_name]'s ID Card ([faction_name])"
+			if(istype(user, /mob/living/carbon/human))
+				var/mob/living/carbon/human/H = user
+				H.set_id_info(new_card)
+			user.put_in_hands(new_card)
+			// Register member record in DB and save account number for payroll
+			SSpersistence.factionRegisterMember(user.ckey, user.real_name, disp_net)
+			if(dispense_acct)
+				SSpersistence.factionUpdateMemberAccount(user.ckey, disp_net, dispense_acct)
+			if(acct_is_new && dispense_acct)
+				// Walk the player through setting their PIN and safekeeping their account info
+				tgui_alert(user,
+					"A personal Idris bank account has been created.\n\nAccount Number: #[dispense_acct]\n\nYou will be asked to set a PIN next. Write this number down.",
+					"Account Created", list("Set PIN"))
+
+				var/chosen_pin = tgui_input_text(user,
+					"Set a PIN for remote ATM access (4-8 digits).\nLeave blank to skip — a random PIN will be assigned.",
+					"Set ATM PIN", "", max_length = 8)
+
+				var/pin_display = "(random — set at ATM)"
+				if(chosen_pin && length(chosen_pin) >= 4 && text2num(chosen_pin))
+					if(user.mind?.initial_account)
+						user.mind.initial_account.remote_access_pin = text2num(chosen_pin)
+					pin_display = chosen_pin
+
+				// Save account info persistently to ss13_crew_records
+				var/acct_note = "Idris Account: #[dispense_acct] | PIN: [pin_display] | Use any Idris SelfServ Teller (insert ID, no PIN needed if card is present)."
+				if(GLOB.config.sql_enabled && SSdbcore.Connect())
+					var/datum/db_query/nq = SSdbcore.NewQuery(
+						{"INSERT INTO ss13_crew_records (ckey, char_name, ccia_notes, saved_at)
+						VALUES (:ckey, :name, :note, NOW())
+						ON DUPLICATE KEY UPDATE ccia_notes = VALUES(ccia_notes), saved_at = NOW()"},
+						list("ckey" = user.ckey, "name" = user.real_name, "note" = acct_note)
+					)
+					nq.Execute()
+					qdel(nq)
+				var/datum/record/general/R = SSrecords.find_record("name", user.real_name)
+				if(istype(R))
+					R.ccia_record = acct_note
+
+				to_chat(usr, SPAN_GOOD("Welcome to [faction_name]."))
+				to_chat(usr, SPAN_GOOD("[icon2html(new_card, usr)] KEEP SAFE — Account: #[dispense_acct] | PIN: [pin_display]"))
+				to_chat(usr, SPAN_NOTICE("Saved in your crew record. Access at any Idris SelfServ Teller."))
+
+			else if(already_member)
+				to_chat(usr, SPAN_GOOD("Replacement [faction_name] ID dispensed. Bank account: #[dispense_acct || "none"]"))
+			else
+				to_chat(usr, SPAN_GOOD("You have been registered with [faction_name]. Bank account #[dispense_acct] linked to this ID."))
+
+			var/area/dispense_area = get_area(computer)
+			log_admin("[user.key] received a [disp_net] faction ID from [computer] at [dispense_area ? dispense_area.name : "unknown"].")
+			. = TRUE
+
 		// ── Faction job assign ────────────────────────────────────────────
 		if("faction_assign")
-			if(!computer || !can_run(user, 1) || !id_card || !persistent_network)
+			if(!computer || !can_run(user, 1) || !id_card || !computer.persistent_network)
 				return
+			var/assign_net = computer.persistent_network
 			var/job_title = params["faction_job"]
-			var/list/faction_jobs = get_faction_jobs(persistent_network)
+			var/list/faction_jobs = get_faction_jobs(assign_net)
 			var/list/job_data = null
 			for(var/list/j in faction_jobs)
 				if(j["title"] == job_title)
@@ -278,12 +424,34 @@
 			if(!job_data)
 				to_chat(usr, SPAN_WARNING("Faction job '[job_title]' not found."))
 				return
+			// Rank gate: operator must be officer+ and cannot assign equal/higher rank
+			var/list/op_fm = get_faction_member(user.ckey, assign_net)
+			var/op_rank = op_fm ? (op_fm["rank"] || 0) : 0
+			var/fa_is_admin = check_rights(R_ADMIN, 0, user)
+			var/assign_rank = job_data["rank"] || 0
+			if(!fa_is_admin)
+				if(op_rank < 1)
+					to_chat(usr, SPAN_WARNING("You need officer access within [get_faction_name(assign_net)] to assign jobs."))
+					return
+				if(assign_rank >= op_rank)
+					to_chat(usr, SPAN_WARNING("You cannot assign jobs at or above your own rank."))
+					return
 			remove_nt_access(id_card)
 			if(islist(job_data["access"]))
 				id_card.access |= job_data["access"]
 			id_card.assignment = job_title
 			id_card.rank       = job_title
-			id_card.employer_faction = persistent_network
+			id_card.employer_faction = assign_net
+			// Update member record with new job
+			var/id_owner_ckey = null
+			for(var/mob/living/carbon/human/H in GLOB.human_mob_list)
+				if(H.real_name == id_card.registered_name && H.ckey)
+					id_owner_ckey = H.ckey
+					break
+			if(id_owner_ckey)
+				SSpersistence.factionRegisterMember(id_owner_ckey, id_card.registered_name, assign_net, job_title, job_data["rank"] || 0)
+				if(id_card.associated_account_number)
+					SSpersistence.factionUpdateMemberAccount(id_owner_ckey, assign_net, id_card.associated_account_number)
 			SSrecords.reset_manifest()
 			. = TRUE
 
@@ -320,8 +488,8 @@
 	new_card.assignment = R.rank || "Civilian"
 	new_card.rank = R.rank || "Civilian"
 	new_card.name = "[user.real_name]'s ID Card ([new_card.assignment])"
-	if(persistent_network)
-		new_card.employer_faction = persistent_network
+	if(computer && computer.persistent_network)
+		new_card.employer_faction = computer.persistent_network
 
 	var/datum/job/jobdatum
 	for(var/jobtype in typesof(/datum/job))

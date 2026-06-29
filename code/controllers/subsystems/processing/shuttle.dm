@@ -42,6 +42,10 @@ SUBSYSTEM_DEF(shuttle)
 	block_queue = FALSE
 	clear_init_queue()
 
+	// Restore saved shuttle positions from DB — must happen BEFORE SSpersistence loads
+	// objects so that persistent objects are placed at the correct (post-move) positions.
+	shuttleStateRestore()
+
 	return SS_INIT_SUCCESS
 
 /datum/controller/subsystem/shuttle/fire(resumed = FALSE)
@@ -95,7 +99,9 @@ SUBSYSTEM_DEF(shuttle)
 
 /datum/controller/subsystem/shuttle/proc/register_landmark(shuttle_landmark_tag, obj/effect/shuttle_landmark/shuttle_landmark)
 	if (registered_shuttle_landmarks[shuttle_landmark_tag])
-		CRASH("Attempted to register shuttle landmark with tag [shuttle_landmark_tag], but it is already registered!")
+		// Skip instead of crash — can happen on hot-reload or if persistence restores landmarks
+		log_world("SSshuttle: Duplicate landmark tag '[shuttle_landmark_tag]' ignored.")
+		return
 	if (istype(shuttle_landmark))
 		registered_shuttle_landmarks[shuttle_landmark_tag] = shuttle_landmark
 		last_landmark_registration_time = world.time

@@ -3,6 +3,8 @@
 	icon = 'icons/obj/doors/basic/single/generic/door.dmi'
 	icon_state = "preview"
 	power_channel = AREA_USAGE_ENVIRON
+	/// If set, access is resolved via faction member records for this faction UID rather than the flat access list.
+	var/req_access_faction = ""
 
 	explosion_resistance = 10
 	autoclose = TRUE
@@ -223,6 +225,7 @@
 		set_dir(assembly.dir)
 
 		unres_dir = electronics.unres_dir
+		req_access_faction = electronics.req_access_faction
 
 		bound_height = assembly.bound_height
 		bound_width = assembly.bound_width
@@ -2167,6 +2170,14 @@ About the new airlock wires panel:
 /obj/structure/machinery/door/airlock/emag_act(var/remaining_charges)
 	. = ..()
 	lock(1)
+
+/obj/structure/machinery/door/airlock/allowed(mob/M)
+	if(req_access_faction)
+		var/obj/item/card/id/I = M ? M.GetIdCard() : null
+		if(!I) return FALSE
+		var/list/faction_access = I.GetFactionAccess(req_access_faction)
+		return has_access(req_access, req_one_access, faction_access)
+	return ..()
 
 #undef AIRLOCK_CRUSH_DIVISOR
 #undef CYBORG_AIRLOCKCRUSH_RESISTANCE

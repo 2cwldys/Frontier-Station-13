@@ -8,11 +8,6 @@
 $Root    = Split-Path $PSScriptRoot -Parent
 $sqlDir  = Join-Path $Root "SQL\migrate-2023"
 
-# Clear stale turf rows saved before the flooring-exclusion fix (may be 26k+ rows)
-Write-Host "Clearing stale worldstate_turfs data..." -ForegroundColor Cyan
-"DELETE FROM ss13_worldstate_turfs;" | docker exec -i aurora-db mariadb -u aurora -paurora --force aurora_persist 2>&1 | Out-Null
-Write-Host "Stale turf data cleared." -ForegroundColor Green
-
 Write-Host "Scanning migrations in $sqlDir ..." -ForegroundColor Cyan
 
 $files = Get-ChildItem -Path $sqlDir -Filter "V*.sql" | Sort-Object Name

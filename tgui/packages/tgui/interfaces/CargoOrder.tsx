@@ -16,6 +16,9 @@ import { sanitizeText } from '../sanitize';
 import { SearchBar } from './common/SearchBar';
 
 export type CargoData = {
+  faction_network: string | null;
+  faction_name: string | null;
+  faction_balance: number | null;
   username: string;
   order_items: Item[];
   order_value: number;
@@ -124,6 +127,14 @@ export const MainPage = (props) => {
 
   return (
     <Stack vertical>
+      {data.faction_network && (
+        <Box mb={1} bold>
+          {data.faction_name ?? data.faction_network} Balance:{' '}
+          <Box as="span" color={data.faction_balance !== null ? 'good' : 'label'}>
+            {data.faction_balance !== null ? `${data.faction_balance} credits` : 'N/A'}
+          </Box>
+        </Box>
+      )}
       <Section title={`Welcome, ${data.username}`}>
         <Stack vertical>
           <Stack.Item fontSize={1.4} bold>

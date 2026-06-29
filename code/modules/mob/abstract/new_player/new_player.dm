@@ -521,6 +521,18 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		if(selected_char == "-- New Character --")
 			selected_char = null
 
+	// ── Lock character preferences on first spawn ────────────
+	// Sets first_spawned_at by ckey (1 active character per player).
+	// The IS NULL guard makes this a no-op for returning players.
+	if(client.ckey && GLOB.config.sql_saves && SSdbcore.Connect())
+		var/datum/db_query/fq = SSdbcore.NewQuery(
+			{"UPDATE ss13_characters SET first_spawned_at = NOW()
+			WHERE ckey = :ckey AND deleted_at IS NULL AND first_spawned_at IS NULL"},
+			list("ckey" = client.ckey)
+		)
+		fq.Execute()
+		qdel(fq)
+
 	// ── Spawn ────────────────────────────────────────────────
 	spawning = 1
 	close_spawn_windows()

@@ -16,6 +16,8 @@
 	/// No double-spending
 	var/is_installed = FALSE
 	var/unres_dir = null
+	/// If set, door uses faction-based access checking for this faction UID
+	var/req_access_faction = ""
 
 /obj/item/airlock_electronics/mechanics_hints(mob/user, distance, is_adjacent)
 	. += ..()
@@ -47,6 +49,14 @@
 				t1 += "<a href='byond://?src=[REF(src)];unres_dir=[direction]'>[capitalize(dir2text(direction))]</a><br>"
 
 		t1 += "<hr>"
+
+		// Faction linking
+		if(req_access_faction)
+			t1 += "<b>Faction Lock:</b> [get_faction_name(req_access_faction)] ([req_access_faction]) <a href='byond://?src=[REF(src)];clear_faction=1'>\[Clear\]</a><hr>"
+			var/dept_desc = (conf_access && conf_access.len) ? get_access_desc(conf_access[1]) : "None (all faction members)"
+			t1 += "<b>Department:</b> [dept_desc] <a href='byond://?src=[REF(src)];set_dept=1'>\[Set\]</a><hr>"
+		else
+			t1 += "<b>Faction Lock:</b> <i>None</i> -- swipe a faction ID to link<hr>"
 
 		t1 += "Access requirement is set to "
 		t1 += one_access ? "<a style='color:#00dd12' href='byond://?src=[REF(src)];one_access=1'>ONE</a><hr>" : "<a style='color:#f7066a' href='byond://?src=[REF(src)];one_access=1'>ALL</a><hr>"
@@ -84,6 +94,14 @@
 			if(istype(I) && src.check_access(I))
 				locked = FALSE
 				last_configurator = I.registered_name
+				// Auto-link to faction if the ID has one and no faction is set yet
+				if(!req_access_faction && I.employer_faction)
+					req_access_faction = I.employer_faction
+					to_chat(usr, SPAN_NOTICE("This electronics board has been linked to [get_faction_name(I.employer_faction)] ([I.employer_faction])."))
+
+	if(!locked && href_list["clear_faction"])
+		req_access_faction = ""
+		to_chat(usr, SPAN_NOTICE("Faction link cleared."))
 
 	if(locked)
 		return
@@ -100,6 +118,25 @@
 
 	if(href_list["access"])
 		toggle_access(href_list["access"])
+
+	if(href_list["set_dept"] && req_access_faction)
+		var/list/dept_jobs = get_faction_jobs(req_access_faction)
+		var/list/dept_codes = list()
+		dept_codes["(None -- all faction members)"] = 0
+		for(var/list/dept_fj in dept_jobs)
+			if(islist(dept_fj["access"]))
+				for(var/dept_acc in dept_fj["access"])
+					var/dept_acc_desc = get_access_desc(dept_acc)
+					if(!(dept_acc_desc in dept_codes))
+						dept_codes[dept_acc_desc] = dept_acc
+		var/dept_pick = tgui_input_list(usr, "Select required access for this door:", "Department Access", dept_codes)
+		if(dept_pick)
+			if(dept_pick == "(None -- all faction members)")
+				conf_access = null
+				to_chat(usr, SPAN_NOTICE("Department access cleared."))
+			else
+				conf_access = list(dept_codes[dept_pick])
+				to_chat(usr, SPAN_NOTICE("Door department set to [dept_pick]."))
 
 	attack_self(usr)
 

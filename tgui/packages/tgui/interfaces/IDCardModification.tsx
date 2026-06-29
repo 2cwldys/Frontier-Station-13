@@ -1,7 +1,6 @@
 import {
   Box,
   Button,
-  Collapsible,
   Divider,
   Flex,
   LabeledList,
@@ -14,34 +13,23 @@ import { NtosWindow } from '../layouts';
 
 export type IDData = {
   station_name: string;
-  assignments: BooleanLike;
   have_id_slot: BooleanLike;
   have_printer: BooleanLike;
   authenticated: BooleanLike;
   can_print_replacement: BooleanLike;
-  centcom_access: BooleanLike;
 
   has_id: BooleanLike;
-  id_account_number: number;
   id_rank: string;
   id_owner: string;
   id_name: string;
 
-  all_centcom_access: Access[];
   regions: Region[];
 
-  command_support_jobs: Job[];
-  engineering_jobs: Job[];
-  medical_jobs: Job[];
-  science_jobs: Job[];
-  security_jobs: Job[];
-  cargo_jobs: Job[];
-  service_jobs: Job[];
-  civilian_jobs: Job[];
-  centcom_jobs: Job[];
   faction_jobs: Job[];
   faction_network: string | null;
   faction_name: string | null;
+  faction_officer: BooleanLike;
+  can_dispense_faction_id: BooleanLike;
 };
 
 type Access = {
@@ -58,6 +46,8 @@ type Region = {
 type Job = {
   target_rank: string;
   job: string;
+  rank: number;
+  pay_rate: number;
 };
 
 export const IDCardModification = (props) => {
@@ -114,17 +104,6 @@ export const AccessModification = (props) => {
             onClick={() => act('edit', { name: 1 })}
           />
         </LabeledList.Item>
-        <LabeledList.Item label="Idris Bank Account Number">
-          <Button
-            content={
-              data.id_account_number === 0
-                ? 'Unregistered'
-                : data.id_account_number
-            }
-            icon="edit"
-            onClick={() => act('edit', { account: 1 })}
-          />
-        </LabeledList.Item>
         <LabeledList.Item label="Suspend">
           <Button
             icon="gavel"
@@ -135,27 +114,32 @@ export const AccessModification = (props) => {
         </LabeledList.Item>
       </LabeledList>
       <Section title="Assignments">
-        <Collapsible className="Collapse" open>
           <LabeledList>
             {data.faction_network && data.faction_jobs.length > 0 && (
               <LabeledList.Item
                 label={data.faction_name ?? data.faction_network}
                 labelColor="#4FC3F7"
               >
-                {data.faction_jobs.map((job) => (
-                  <Button
-                    key={job.job}
-                    content={job.job}
-                    color="light-blue"
-                    disabled={data.id_rank === job.job}
-                    onClick={() =>
-                      act('faction_assign', { faction_job: job.job })
-                    }
-                  />
-                ))}
+                {data.faction_officer ? (
+                  data.faction_jobs.map((job) => (
+                    <Button
+                      key={job.job}
+                      color="light-blue"
+                      disabled={data.id_rank === job.job}
+                      tooltip={`Pay: ${job.pay_rate} cr/cycle`}
+                      onClick={() =>
+                        act('faction_assign', { faction_job: job.job })
+                      }
+                    >
+                      {job.job}
+                    </Button>
+                  ))
+                ) : (
+                  <NoticeBox>Officer access required to assign jobs.</NoticeBox>
+                )}
               </LabeledList.Item>
             )}
-            <LabeledList.Item label="Custom" labelColor="white">
+            <LabeledList.Item label="Base" labelColor="white">
               <Button
                 content="Captain"
                 color="blue"
@@ -163,121 +147,24 @@ export const AccessModification = (props) => {
                 onClick={() => act('assign', { assign_target: 'Captain' })}
               />
               <Button
-                content="Custom"
+                content="Civilian"
+                color="grey"
+                disabled={data.id_rank === 'Civilian'}
+                onClick={() => act('assign', { assign_target: 'Civilian' })}
+              />
+            </LabeledList.Item>
+            <LabeledList.Item label="Custom" labelColor="white">
+              <Button
+                content="Custom Title..."
                 color="white"
                 onClick={() => act('assign', { assign_target: 'Custom' })}
               />
             </LabeledList.Item>
-            <LabeledList.Item label="Command Support" labelColor="#114DC1">
-              {data.command_support_jobs.map((job) => (
-                <Button
-                  key={job.job}
-                  content={job.job}
-                  color="blue"
-                  onClick={() => act('assign', { assign_target: job.job })}
-                  disabled={data.id_rank === job.job}
-                />
-              ))}
-            </LabeledList.Item>
-            <LabeledList.Item label="Engineering" labelColor="#FFA500">
-              {data.engineering_jobs.map((job) => (
-                <Button
-                  key={job.job}
-                  content={job.job}
-                  color="orange"
-                  onClick={() => act('assign', { assign_target: job.job })}
-                  disabled={data.id_rank === job.job}
-                />
-              ))}
-            </LabeledList.Item>
-            <LabeledList.Item label="Medical" labelColor="#008000">
-              {data.medical_jobs.map((job) => (
-                <Button
-                  key={job.job}
-                  content={job.job}
-                  color="green"
-                  onClick={() => act('assign', { assign_target: job.job })}
-                  disabled={data.id_rank === job.job}
-                />
-              ))}
-            </LabeledList.Item>
-            <LabeledList.Item label="Science" labelColor="#800080">
-              {data.science_jobs.map((job) => (
-                <Button
-                  key={job.job}
-                  content={job.job}
-                  color="purple"
-                  onClick={() => act('assign', { assign_target: job.job })}
-                  disabled={data.id_rank === job.job}
-                />
-              ))}
-            </LabeledList.Item>
-            <LabeledList.Item label="Security" labelColor="#DD0000">
-              {data.security_jobs.map((job) => (
-                <Button
-                  key={job.job}
-                  content={job.job}
-                  color="red"
-                  onClick={() => act('assign', { assign_target: job.job })}
-                  disabled={data.id_rank === job.job}
-                />
-              ))}
-            </LabeledList.Item>
-            <LabeledList.Item label="Cargo" labelColor="#cc6600">
-              {data.cargo_jobs.map((job) => (
-                <Button
-                  key={job.job}
-                  content={job.job}
-                  color="brown"
-                  onClick={() => act('assign', { assign_target: job.job })}
-                  disabled={data.id_rank === job.job}
-                />
-              ))}
-            </LabeledList.Item>
-            <LabeledList.Item label="Service" labelColor="olive">
-              {data.service_jobs.map((job) => (
-                <Button
-                  key={job.job}
-                  content={job.job}
-                  color="olive"
-                  onClick={() => act('assign', { assign_target: job.job })}
-                  disabled={data.id_rank === job.job}
-                />
-              ))}
-            </LabeledList.Item>
-            <LabeledList.Item label="Civilian" labelColor="#999999">
-              {data.civilian_jobs.map((job) => (
-                <Button
-                  key={job.job}
-                  content={job.job}
-                  color="grey"
-                  onClick={() => act('assign', { assign_target: job.job })}
-                  disabled={data.id_rank === job.job}
-                />
-              ))}
-            </LabeledList.Item>
-            {data.centcom_access ? (
-              <LabeledList.Item label="Central Command" labelColor="yellow">
-                {data.centcom_jobs.map((job) => (
-                  <Button
-                    key={job.job}
-                    content={job.job}
-                    color="yellow"
-                    onClick={() => act('assign', { assign_target: job.job })}
-                    disabled={data.id_rank === job.job}
-                  />
-                ))}
-              </LabeledList.Item>
-            ) : (
-              ''
-            )}
           </LabeledList>
-        </Collapsible>
       </Section>
       <Section title="Access Regions">
         <Flex wrap="wrap" justify="space-between" grow={1} align="end">
-          {!data.centcom_access &&
-            data.regions.map((region) => (
+          {data.regions.map((region) => (
               <Flex.Item key={region.name}>
                 <Box fontSize={1.5} bold>
                   {region.name}
@@ -298,29 +185,6 @@ export const AccessModification = (props) => {
                 <Divider />
               </Flex.Item>
             ))}
-          {data.centcom_access && data.all_centcom_access.length ? (
-            <Flex.Item>
-              {' '}
-              <Box fontSize={1.5} bold>
-                Central Command
-              </Box>
-              {data.all_centcom_access.map((access) => (
-                <Button
-                  key={access.ref}
-                  content={access.desc}
-                  selected={access.allowed}
-                  onClick={() =>
-                    act('access', {
-                      access_target: access.ref,
-                      allowed: access.allowed,
-                    })
-                  }
-                />
-              ))}
-            </Flex.Item>
-          ) : (
-            ''
-          )}
         </Flex>
       </Section>
     </Section>

@@ -87,6 +87,24 @@
 	return 1
 
 /datum/preferences/proc/save_character()
+	// Hard gate: live DB check — block saves once character has entered the world.
+	// Uses current_character (DB row ID) when available for precision; falls back to ckey.
+	if(GLOB.config.sql_saves && SSdbcore.Connect())
+		var/datum/db_query/sl_q
+		if(current_character)
+			sl_q = SSdbcore.NewQuery(
+				"SELECT first_spawned_at FROM ss13_characters WHERE id = :id AND deleted_at IS NULL LIMIT 1",
+				list("id" = text2num(current_character)))
+		else if(client?.ckey)
+			sl_q = SSdbcore.NewQuery(
+				"SELECT first_spawned_at FROM ss13_characters WHERE ckey = :ckey AND deleted_at IS NULL LIMIT 1",
+				list("ckey" = client.ckey))
+		if(sl_q)
+			sl_q.Execute()
+			if(sl_q.NextRow() && sl_q.item[1])
+				qdel(sl_q)
+				return 0  // character has entered the world — block all preference saves
+			qdel(sl_q)
 	var/savefile/S
 	if (!GLOB.config.sql_saves)
 		if(!path)

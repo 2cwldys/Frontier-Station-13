@@ -12,6 +12,11 @@
 /// Set to TRUE once SSpersistence.Initialize() fully completes  gates PersistentAutoSpawn().
 GLOBAL_VAR_INIT(persistence_ready, FALSE)
 
+/// Z levels whose numbers appear in this list are SKIPPED by turf/object/worldstate persistence.
+/// Populated from ss13_zlevel_persistence WHERE enabled = 0 at startup.
+/// Empty by default = all Z levels persist.
+GLOBAL_LIST_EMPTY(persistence_zlevel_skip)
+
 SUBSYSTEM_DEF(persistence)
 	name = "Persistence"
 	init_order = INIT_ORDER_PERSISTENCE // The order is tied with the init and maploading subsystem.
@@ -244,6 +249,16 @@ SUBSYSTEM_DEF(persistence)
 	if(!databaseCheckConnection("subsystem init"))
 		return SS_INIT_FAILURE
 
+	// Load Z-level persistence toggles FIRST — before any save/load so checks are in effect
+	var/datum/db_query/zlq = SSdbcore.NewQuery(
+		"SELECT z FROM ss13_zlevel_persistence WHERE enabled = 0", list())
+	zlq.Execute()
+	while(zlq.NextRow())
+		GLOB.persistence_zlevel_skip += text2num(zlq.item[1])
+	qdel(zlq)
+	if(length(GLOB.persistence_zlevel_skip))
+		log_subsystem_persistence_info("Z-Level skip list loaded: [GLOB.persistence_zlevel_skip.Join(", ")]")
+
 	try
 		objectsInitialize()
 	catch(var/exception/objs_e)
@@ -410,3 +425,8 @@ SUBSYSTEM_DEF(persistence)
 		researchFinalize()
 	catch(var/exception/research_e)
 		log_subsystem_persistence_panic("Unhandled exception during research persistence finalization: [research_e]")
+
+	try
+		shuttleStateFinalize()
+	catch(var/exception/shuttle_e)
+		log_subsystem_persistence_panic("Unhandled exception during shuttle state persistence finalization: [shuttle_e]")

@@ -84,13 +84,35 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	// Single blanket loop  covers all /obj/structure subtypes (machinery, closets, tables, grilles, etc.)
 	// Only types with worldstate_vars set or explicit proc overrides will actually save/load.
 	for(var/obj/structure/S in world)
+		if(S.z in GLOB.persistence_zlevel_skip) continue
 		applied += worldstateApplyToMachine(S)
 
 	// Items that need worldstate but aren't structures
 	for(var/obj/item/radio/intercom/IC in world)
+		if(IC.z in GLOB.persistence_zlevel_skip) continue
 		applied += worldstateApplyToMachine(IC)
 
 	log_subsystem_persistence_info("Worldstate: Applied saved state to [applied] machines.")
+
+	// Power resync — after worldstate restores APC/solar state, wait for the SMES
+	// and powernets to fully stabilize (they need ~10-15s after map load) before
+	// re-syncing. Only resync APCs that have external power but dead channels,
+	// to avoid disrupting working APCs mid-initialization.
+	// 20-second delay ensures SMES has fully stabilized before resync.
+	// By this point any APC that has power will be in a stable state;
+	// update(FALSE) re-evaluates channels without forcing a disruptive reset.
+	spawn(100)  // 10 seconds
+		var/apc_resynced = 0
+		for(var/obj/structure/machinery/power/apc/A in world)
+			if(!A.z) continue
+			A.update(FALSE)
+			apc_resynced++
+		var/solar_resynced = 0
+		for(var/obj/structure/machinery/power/solar_control/SC in world)
+			if(!SC.z) continue
+			SC.search_for_connected()
+			solar_resynced++
+		log_subsystem_persistence_info("Worldstate: Power resync — [apc_resynced] APC(s), [solar_resynced] solar controller(s).")
 
 /**
  * Looks up the cache entry for this machine and applies its saved content.
@@ -135,9 +157,11 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	var/saved = 0
 
 	for(var/obj/structure/S in world)
+		if(S.z in GLOB.persistence_zlevel_skip) continue
 		saved += worldstateSaveOneMachine(S)
 
 	for(var/obj/item/radio/intercom/IC in world)
+		if(IC.z in GLOB.persistence_zlevel_skip) continue
 		saved += worldstateSaveOneMachine(IC)
 
 	log_subsystem_persistence_info("Worldstate: Saved state for [saved] machines.")
@@ -192,8 +216,11 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 
 // ------- Machinery -------
 
+/obj/structure/machinery/telepad_cargo
+	worldstate_vars = list("persistent_network", "persistent_spawn", "faction_shackled")
+
 /obj/structure/machinery/door/airlock
-	worldstate_vars = list("welded", "locked", "ai_disabled_id_scanner")
+	worldstate_vars = list("welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access")
 
 /obj/structure/machinery/door/airlock/worldstate_get_content()
 	var/list/content = ..()

@@ -76,6 +76,13 @@
 		if(istype(skill))
 			pref.skills[skill.type] = value
 
+	// Default any unset skill to TRAINED -- players who haven't configured skills
+	// start fully functional on this server rather than unfamiliar with everything.
+	if(SSskills && length(SSskills.all_skills))
+		for(var/singleton/skill/sk as anything in SSskills.all_skills)
+			if(!(sk.type in pref.skills))
+				pref.skills[sk.type] = SKILL_LEVEL_PROFESSIONAL
+
 /datum/category_item/player_setup_item/skills/sanitize_character(var/sql_load = 0)
 	//todomatt
 	if(!istext(pref.education) || !ispath(text2path(pref.education), /singleton/education))
@@ -98,6 +105,10 @@
 
 // Skills HTML UI, along with a lot of other components here, lifted from Baystation 12. Credit goes to Afterthought12. Thank you for saving me from HTML hell!
 /datum/category_item/player_setup_item/skills/content(var/mob/user)
+	// Persistent world — skills are not manually configured.
+	// Everyone defaults to Professional in all skills automatically.
+	return "<center><br><b>Skills are not configured on this server.</b></center>"
+
 	if(!SSskills.initialized)
 		return "<center><large>Skills not initialized yet. Please wait a bit and reload this section.</large></center>"
 

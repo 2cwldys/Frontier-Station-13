@@ -1,3 +1,46 @@
+// ---- Shuttle Construction ----
+
+/singleton/cargo_item/shuttle_core
+	category = "engineering"
+	name = "shuttle core"
+	supplier = "hephaestus"
+	description = "A modular flight core. Place inside a hull structure, then activate to register the area as a persistent shuttle. Requires wrenching in place."
+	price = 2500
+	items = list(
+		/obj/structure/machinery/shuttle_core
+	)
+	access = 0
+	container_type = "crate"
+
+/singleton/cargo_item/docking_beacon
+	category = "engineering"
+	name = "docking beacon"
+	supplier = "hephaestus"
+	description = "Establishes a docking port at its installed location. Wrench to anchor and activate. Shuttles can navigate to any registered beacon."
+	price = 800
+	items = list(
+		/obj/structure/machinery/docking_beacon
+	)
+	access = 0
+	container_type = "crate"
+	groupable = TRUE
+
+/singleton/cargo_item/docking_beacon_3pack
+	category = "engineering"
+	name = "docking beacons (3-pack)"
+	supplier = "hephaestus"
+	description = "Three docking beacons. Establish multiple docking ports across different locations."
+	price = 2100
+	items = list(
+		/obj/structure/machinery/docking_beacon,
+		/obj/structure/machinery/docking_beacon,
+		/obj/structure/machinery/docking_beacon
+	)
+	access = 0
+	container_type = "crate"
+
+// ---- End Shuttle Construction ----
+
 /singleton/cargo_item/glasssheets
 	category = "engineering"
 	name = "glass sheets"

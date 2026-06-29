@@ -159,10 +159,7 @@
 
 /datum/category_item/player_setup_item/occupation/content(mob/user, limit = 16, list/splitJobs = list("Chief Engineer", "Head of Security"))
 	// Persistent world — occupations are not used. Characters spawn without job equipment.
-	return "<center><br><b>Occupations are not used on this server.</b><br><br>\
-		This is a persistent world. Your character spawns without a job.<br>\
-		Roles and equipment are earned through gameplay.<br><br>\
-		<i>You may still set your character's faction below if applicable.</i></center>"
+	return "<center><br><b>Occupations are not used on this server.</b></center>"
 
 	var/list/dat = list(
 		"<style>span.none{color: black} span.low{color: #DDD} span.med{color: yellow} span.high{color: lime} a:hover span{color: #40628a !important}</style>",

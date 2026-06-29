@@ -216,7 +216,10 @@
 	return
 
 /obj/item/card/id/proc/update_name()
-	name = "workplace ID card - [src.registered_name], [src.assignment]"
+	if(employer_faction)
+		name = "[src.registered_name]'s ID Card ([get_faction_name(employer_faction)]) ([src.assignment || "Civilian"])"
+	else
+		name = "[src.registered_name]'s ID Card ([src.assignment || "Civilian"])"
 	if(istype(chat_user))
 		chat_user.username = chat_user.generateUsernameIdCard(src)
 
@@ -364,11 +367,64 @@
 
 /obj/item/card/id/GetAccess()
 	if(revoked)
-		return list()  // Revoked cards grant no access
+		return list()
 	return access
+
+/obj/item/card/id/proc/GetFactionAccess(faction_uid)
+	if(revoked || !faction_uid)
+		return list()
+	var/ckey_owner = null
+	if(ismob(loc))
+		var/mob/M = loc
+		ckey_owner = M.ckey
+	if(!ckey_owner && registered_name)
+		for(var/mob/living/carbon/human/H in GLOB.human_mob_list)
+			if(H.real_name == registered_name && H.ckey)
+				ckey_owner = H.ckey
+				break
+	if(!ckey_owner)
+		return list()
+	var/list/member = get_faction_member(ckey_owner, faction_uid)
+	if(!member)
+		return list()
+	var/job = member["job_title"]
+	if(!job)
+		return list()
+	return get_faction_job_access(faction_uid, job)
 
 /obj/item/card/id/GetID()
 	return src
+
+/obj/item/card/id/persistent_objects_get_content()
+	var/list/content = list()
+	content["name"]                      = name
+	content["registered_name"]           = registered_name
+	content["assignment"]                = assignment
+	content["rank"]                      = rank
+	content["employer_faction"]          = employer_faction
+	content["associated_account_number"] = associated_account_number
+	content["blood_type"]                = blood_type
+	content["revoked"]                   = revoked
+	if(islist(access) && length(access))
+		content["access"] = json_encode(access)
+	return content
+
+/obj/item/card/id/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["name"]))               name                      = content["name"]
+	if(!isnull(content["registered_name"]))    registered_name           = content["registered_name"]
+	if(!isnull(content["assignment"]))         assignment                = content["assignment"]
+	if(!isnull(content["rank"]))               rank                      = content["rank"]
+	if(!isnull(content["employer_faction"]))   employer_faction          = content["employer_faction"]
+	if(!isnull(content["associated_account_number"])) associated_account_number = content["associated_account_number"] + 0
+	if(!isnull(content["blood_type"]))         blood_type                = content["blood_type"]
+	if(!isnull(content["revoked"]))            revoked                   = content["revoked"]
+	if(content["access"])
+		var/list/saved_access = json_decode(content["access"])
+		if(islist(saved_access))
+			access = saved_access
 
 /obj/item/card/id/proc/mob_icon_update()
 	if(ismob(src.loc))

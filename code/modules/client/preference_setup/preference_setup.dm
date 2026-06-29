@@ -335,6 +335,24 @@
 	return 1
 
 /datum/category_item/player_setup_item/proc/OnTopic(var/href,var/list/href_list, var/mob/user)
+	// Live DB check — prevent any preference change for characters that have entered the world
+	if(pref && GLOB.config.sql_saves && SSdbcore.Connect())
+		var/datum/db_query/ot_q
+		if(pref.current_character)
+			ot_q = SSdbcore.NewQuery(
+				"SELECT first_spawned_at FROM ss13_characters WHERE id = :id AND deleted_at IS NULL LIMIT 1",
+				list("id" = text2num(pref.current_character)))
+		else if(pref.client?.ckey)
+			ot_q = SSdbcore.NewQuery(
+				"SELECT first_spawned_at FROM ss13_characters WHERE ckey = :ckey AND deleted_at IS NULL LIMIT 1",
+				list("ckey" = pref.client.ckey))
+		if(ot_q)
+			ot_q.Execute()
+			if(ot_q.NextRow() && ot_q.item[1])
+				qdel(ot_q)
+				to_chat(user, SPAN_WARNING("This character has entered the world and cannot be modified. Delete the character to start fresh."))
+				return TOPIC_NOACTION
+			qdel(ot_q)
 	return TOPIC_NOACTION
 
 /datum/category_item/player_setup_item/proc/preference_mob()

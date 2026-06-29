@@ -44,11 +44,37 @@ $persistenceIncludes1 = @(
 )
 $persistenceIncludes2 = @(
     '#include "code\controllers\subsystems\persistence\persistence_records.dm"',
+    '#include "code\controllers\subsystems\persistence\persistence_shuttles.dm"',
     '#include "code\controllers\subsystems\persistence\persistence_research.dm"',
     '#include "code\controllers\subsystems\persistence\persistence_templates.dm"',
     '#include "code\controllers\subsystems\persistence\persistence_turfs.dm"',
     '#include "code\controllers\subsystems\persistence\persistence_removed_structures.dm"',
     '#include "code\controllers\subsystems\persistence\persistence_worldstate.dm"'
+)
+
+# After cryopod.dm: inject faction_beacon machinery
+$machineryIncludes = @(
+    '#include "code\game\objects\structures\machinery\faction_beacon.dm"'
+)
+
+# After modular_computer\damage.dm: inject faction shackling verbs
+$modularComputerIncludes = @(
+    '#include "code\modules\modular_computers\computers\modular_computer\faction.dm"'
+)
+
+# After shuttle_supply.dm: inject player-built shuttle core
+$shuttleCoreIncludes = @(
+    '#include "code\modules\shuttles\shuttle_core.dm"'
+)
+
+# After command\card.dm: inject faction management program
+$modularProgramIncludes = @(
+    '#include "code\modules\modular_computers\file_system\programs\command\faction_manage.dm"'
+)
+
+# After civilian\cargo_control.dm: inject cargo exports program
+$cargoExportsIncludes = @(
+    '#include "code\modules\modular_computers\file_system\programs\civilian\cargo_exports.dm"'
 )
 
 function IsConflict($rel) {
@@ -137,6 +163,21 @@ if (Test-Path $dmeSrc) {
         }
         if ($trimmed -eq '#include "code\controllers\subsystems\persistence\persistence_objects_sql.dm"') {
             foreach ($inc in $persistenceIncludes2) { $merged.Add($inc) }
+        }
+        if ($trimmed -eq '#include "code\game\objects\structures\machinery\cryopod.dm"') {
+            foreach ($inc in $machineryIncludes) { $merged.Add($inc) }
+        }
+        if ($trimmed -eq '#include "code\modules\modular_computers\computers\modular_computer\damage.dm"') {
+            foreach ($inc in $modularComputerIncludes) { $merged.Add($inc) }
+        }
+        if ($trimmed -eq '#include "code\modules\shuttles\shuttle_supply.dm"') {
+            foreach ($inc in $shuttleCoreIncludes) { $merged.Add($inc) }
+        }
+        if ($trimmed -eq '#include "code\modules\modular_computers\file_system\programs\command\card.dm"') {
+            foreach ($inc in $modularProgramIncludes) { $merged.Add($inc) }
+        }
+        if ($trimmed -eq '#include "code\modules\modular_computers\file_system\programs\civilian\cargo_control.dm"') {
+            foreach ($inc in $cargoExportsIncludes) { $merged.Add($inc) }
         }
     }
     if (-not $DryRun) {

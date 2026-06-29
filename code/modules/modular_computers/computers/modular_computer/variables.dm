@@ -57,6 +57,10 @@
 	var/initial_name
 	/// overmap sector the computer is linked to
 	var/obj/effect/overmap/visitable/linked
+	/// Faction UID this machine is networked to. Programs read this at runtime.
+	var/persistent_network = ""
+	/// TRUE when a player has claimed this machine for their faction; only officers+ can release.
+	var/faction_shackled = FALSE
 
 	/// Modular computers can run on various devices. Each DEVICE (Laptop, Console, Tablet,..)
 	/// must have it's own DMI file. Icon states must be called exactly the same in all files, but may look differently

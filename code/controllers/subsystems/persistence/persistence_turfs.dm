@@ -36,7 +36,9 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 		var/tx = text2num(query.item[1])
 		var/ty = text2num(query.item[2])
 		var/tz = text2num(query.item[3])
+		if(tz in GLOB.persistence_zlevel_skip) continue
 		var/turf_type = text2path(query.item[4])
+		var/base_type = text2path(query.item[5])  // restored base so next save doesn't see type==baseturf
 		var/content_json = query.item[6]
 
 		if(!turf_type)
@@ -52,6 +54,10 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 
 		try
 			T.ChangeTurf(turf_type)
+			// Restore original baseturf so the next turfsFinalize() doesn't treat this
+			// as "back to default" (type==baseturf) and delete it from the DB.
+			if(base_type)
+				T.baseturf = base_type
 			turfsApplyContent(T, content)
 		catch(var/exception/e)
 			log_subsystem_persistence_error("Turfs: Failed to restore turf at ([tx],[ty],[tz]): [e]")
@@ -106,6 +112,7 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 
 	for(var/turf/simulated/floor/F in world)
 		CHECK_TICK
+		if(F.z in GLOB.persistence_zlevel_skip) continue
 		if(!F.broken && !F.burnt && !F.color && F.type == F.baseturf)
 			delete_coords += "([F.x],[F.y],[F.z])"
 			continue
@@ -116,6 +123,7 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 
 	for(var/turf/simulated/wall/W in world)
 		CHECK_TICK
+		if(W.z in GLOB.persistence_zlevel_skip) continue
 		if(W.type == W.baseturf && W.health >= W.maxhealth)
 			delete_coords += "([W.x],[W.y],[W.z])"
 			continue
@@ -150,6 +158,7 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 	upsert_rows = list()
 	for(var/turf/simulated/T in world)
 		CHECK_TICK
+		if(T.z in GLOB.persistence_zlevel_skip) continue
 		if(istype(T, /turf/simulated/floor) || istype(T, /turf/simulated/wall))
 			continue
 		if(T.type == T.baseturf)

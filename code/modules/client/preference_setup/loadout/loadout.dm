@@ -175,6 +175,7 @@ GLOBAL_LIST_INIT(gear_datums, list())
 				total_cost += G.cost
 
 /datum/category_item/player_setup_item/loadout/content(var/mob/user)
+	return "<center><br><b>Loadout is not configured on this server.</b></center>"
 	var/total_cost = 0
 	if(pref.gear && pref.gear.len)
 		for(var/i = 1; i <= pref.gear.len; i++)
