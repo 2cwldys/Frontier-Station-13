@@ -328,10 +328,6 @@
 /datum/category_item/player_setup_item/occupation/proc/sanitize_faction()
 	if (!SSjobs.name_factions[pref.faction])
 		pref.faction = SSjobs.default_faction.name
-		to_client_chat(SPAN_DANGER("Your faction selection has been reset to [pref.faction]."))
-		to_client_chat(SPAN_DANGER("Your jobs have been reset due to this!"))
-		ResetJobs()
-		return TOPIC_REFRESH_UPDATE_PREVIEW
 
 	var/datum/species/S = pref.get_species_datum()
 	var/datum/faction/faction = SSjobs.name_factions[pref.faction]

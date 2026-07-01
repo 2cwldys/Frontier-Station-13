@@ -318,6 +318,43 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	to_chat(usr, SPAN_GOOD("Z=[z_pick] set to [state][new_notes != "" ? " ([new_notes])" : ""]. Takes effect on next save/load cycle."))
 	log_and_message_admins("set Z=[z_pick] persistence to [state][new_notes != "" ? " ([new_notes])" : ""]", usr)
 
+/datum/admins/proc/give_credits_to_player()
+	set name = "Give Credits"
+	set category = "Persistence"
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	var/target_ckey = tgui_input_text(usr, "Enter ckey (leave blank to use your own):", "Give Credits", usr.ckey, max_length = 32)
+	if(!target_ckey) return
+	target_ckey = ckey(target_ckey)
+
+	var/amount = tgui_input_number(usr, "Credits to add to [target_ckey]'s account:", "Give Credits", 1000, 10000000, 0)
+	if(isnull(amount) || amount <= 0) return
+
+	// Find account number from cache first, then DB
+	var/acct_num = 0
+	for(var/cache_key in GLOB.persistence_economy_cache)
+		if(findtext(cache_key, "[target_ckey]|") == 1)
+			acct_num = GLOB.persistence_economy_cache[cache_key]["account_number"] || 0
+			break
+	if(!acct_num && SSpersistence.databaseCheckConnection("give_credits"))
+		var/datum/db_query/aq = SSdbcore.NewQuery(
+			"SELECT account_number FROM ss13_money_accounts WHERE ckey = :ckey ORDER BY id DESC LIMIT 1",
+			list("ckey" = target_ckey)
+		)
+		aq.Execute()
+		if(aq.NextRow()) acct_num = text2num(aq.item[1]) || 0
+		qdel(aq)
+
+	if(!acct_num)
+		to_chat(usr, SPAN_WARNING("No bank account found for '[target_ckey]'. They need to get an ID first."))
+		return
+
+	SSeconomy.charge_to_account(acct_num, "Admin", "Admin credit gift by [usr.key]", null, amount)
+	to_chat(usr, SPAN_GOOD("Added [amount] credits to [target_ckey]'s account (#[acct_num])."))
+	log_and_message_admins("gave [amount] credits to [target_ckey] (account #[acct_num])", usr)
+
 /datum/admins/proc/reset_player_bank_account()
 	set name = "Reset Player Bank Account"
 	set category = "Persistence"

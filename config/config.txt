@@ -394,7 +394,7 @@ TIME_TO_CALL_EMERGENCY_SHUTTLE 36000
 # SQL_WHITELISTS
 
 ## Uncomment this to house player preferences and characters on the SQL database.
-# SQL_SAVES
+SQL_SAVES
 
 ## Uncomment this to enable SQL CCIA Logs
 # SQL_CCIA_LOGS

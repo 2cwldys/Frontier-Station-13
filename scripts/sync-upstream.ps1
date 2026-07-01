@@ -62,6 +62,11 @@ $modularComputerIncludes = @(
     '#include "code\modules\modular_computers\computers\modular_computer\faction.dm"'
 )
 
+# After new_player.dm: inject persistent menu
+$newPlayerIncludes = @(
+    '#include "code\modules\mob\abstract\new_player\persistent_menu.dm"'
+)
+
 # After shuttle_supply.dm: inject player-built shuttle core
 $shuttleCoreIncludes = @(
     '#include "code\modules\shuttles\shuttle_core.dm"'
@@ -169,6 +174,9 @@ if (Test-Path $dmeSrc) {
         }
         if ($trimmed -eq '#include "code\modules\modular_computers\computers\modular_computer\damage.dm"') {
             foreach ($inc in $modularComputerIncludes) { $merged.Add($inc) }
+        }
+        if ($trimmed -eq '#include "code\modules\mob\abstract\new_player\new_player.dm"') {
+            foreach ($inc in $newPlayerIncludes) { $merged.Add($inc) }
         }
         if ($trimmed -eq '#include "code\modules\shuttles\shuttle_supply.dm"') {
             foreach ($inc in $shuttleCoreIncludes) { $merged.Add($inc) }

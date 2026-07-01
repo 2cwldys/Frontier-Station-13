@@ -1,3 +1,6 @@
+/mob/abstract/new_player
+	var/datum/persistent_menu/persistent_menu_datum
+
 /mob/abstract/new_player/LateLogin()
 	..()
 
@@ -12,13 +15,15 @@
 	GLOB.player_list |= src
 
 	client.playtitlemusic()
-	addtimer(CALLBACK(src, PROC_REF(show_lobby_info)), 5 SECONDS, TIMER_STOPPABLE | TIMER_DELETE_ME)
-
-/mob/abstract/new_player/proc/show_lobby_info()
-	if(!client)
-		return
 
 	if(GLOB.motd)
 		to_chat(src, "<div class=\"motd\">[GLOB.motd]</div>")
-
 	to_chat(src, "<div class='info'>Game ID: </div><div class='danger'>[GLOB.round_id]</div>")
+
+	show_persistent_menu()
+
+/mob/abstract/new_player/proc/show_persistent_menu()
+	if(!client) return
+	if(!persistent_menu_datum || QDELETED(persistent_menu_datum))
+		persistent_menu_datum = new /datum/persistent_menu(src)
+	persistent_menu_datum.ui_interact(src)

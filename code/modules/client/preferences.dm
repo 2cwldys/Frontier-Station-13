@@ -273,15 +273,7 @@ GLOBAL_LIST_EMPTY_TYPED(preferences_datums, /datum/preferences)
 	if(!user || !user.client)	return
 	var/dat = "<center>"
 
-	if(path)
-		dat += "<a href='byond://?src=[REF(src)];load=1'>Load slot</a> - "
-		dat += "<a href='byond://?src=[REF(src)];save=1'>Save slot</a> - "
-		dat += "<a href='byond://?src=[REF(src)];reload=1'>Reload slot</a>"
-		if (GLOB.config.sql_saves)
-			dat += " - <a href='byond://?src=[REF(src)];delete=1'>Permanently delete slot</a>"
-
-	else
-		dat += "Please create an account to save your preferences."
+	dat += "<a href='byond://?src=[REF(src)];save=1'><b>Save Character</b></a>"
 
 	if(!char_render_holders)
 		update_preview_icon()
@@ -375,6 +367,13 @@ GLOBAL_LIST_EMPTY_TYPED(preferences_datums, /datum/preferences)
 	if(href_list["save"])
 		save_character()
 		save_preferences()
+		var/mob/abstract/new_player/NP = client.mob
+		if(NP && current_character)
+			clear_character_previews()
+			winshow(usr, "preferences_window", FALSE)
+			message_admins(SPAN_GOOD("PERSISTENCE: [client.ckey] created character <b>[real_name]</b>."))
+			NP.show_persistent_menu()
+			return 1
 	else if(href_list["reload"])
 		load_preferences()
 		load_character()
@@ -402,8 +401,10 @@ GLOBAL_LIST_EMPTY_TYPED(preferences_datums, /datum/preferences)
 			if(alert(usr, "Are you sure you want to PERMANENTLY delete your character?","Confirm Permanent Deletion","Yes","No") == "Yes")
 				delete_character_sql(usr.client)
 	else if(href_list["close"])
-		// User closed preferences window, cleanup anything we need to.
 		clear_character_previews()
+		if(istype(usr, /mob/abstract/new_player))
+			var/mob/abstract/new_player/NP = usr
+			NP.show_persistent_menu()
 		return 1
 	else
 		return

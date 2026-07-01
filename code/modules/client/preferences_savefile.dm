@@ -87,38 +87,55 @@
 	return 1
 
 /datum/preferences/proc/save_character()
-	// Hard gate: live DB check — block saves once character has entered the world.
-	// Uses current_character (DB row ID) when available for precision; falls back to ckey.
-	if(GLOB.config.sql_saves && SSdbcore.Connect())
-		var/datum/db_query/sl_q
-		if(current_character)
-			sl_q = SSdbcore.NewQuery(
-				"SELECT first_spawned_at FROM ss13_characters WHERE id = :id AND deleted_at IS NULL LIMIT 1",
-				list("id" = text2num(current_character)))
-		else if(client?.ckey)
-			sl_q = SSdbcore.NewQuery(
-				"SELECT first_spawned_at FROM ss13_characters WHERE ckey = :ckey AND deleted_at IS NULL LIMIT 1",
-				list("ckey" = client.ckey))
-		if(sl_q)
-			sl_q.Execute()
-			if(sl_q.NextRow() && sl_q.item[1])
-				qdel(sl_q)
-				return 0  // character has entered the world — block all preference saves
-			qdel(sl_q)
+	// Block saves only for characters that have already entered the world (first_spawned_at set).
+	// A new character has current_character > 0 but first_spawned_at NULL -- still editable.
+	if(GLOB.config.sql_saves && current_character && SSdbcore.Connect())
+		var/datum/db_query/lock_q = SSdbcore.NewQuery(
+			"SELECT first_spawned_at FROM ss13_characters WHERE id = :id AND deleted_at IS NULL LIMIT 1",
+			list("id" = current_character))
+		lock_q.Execute()
+		if(lock_q.NextRow() && lock_q.item[1])
+			qdel(lock_q)
+			return 0  // character has spawned -- locked
+		qdel(lock_q)
+
 	var/savefile/S
-	if (!GLOB.config.sql_saves)
+	if(!GLOB.config.sql_saves)
 		if(!path)
 			return 0
 		S = new /savefile(path)
 		if(!S)
 			return 0
 		S.cd = "/character[default_slot]"
-
 		S["version"] << SAVEFILE_VERSION_MAX
+
+	// For new characters (current_character == 0), create the DB row now via SSdbcore.
+	// This is deferred from ui_act("create") so the slot only appears AFTER Save is clicked.
+	if(!current_character && GLOB.config.sql_saves && SSdbcore.Connect())
+		var/ckey_val = client ? client.ckey : null
+		if(ckey_val && real_name)
+			var/datum/db_query/ins_q = SSdbcore.NewQuery(
+				"INSERT INTO ss13_characters (ckey, name, species) VALUES (:ckey, :name, :species)",
+				list("ckey" = ckey_val, "name" = real_name, "species" = species || SPECIES_HUMAN))
+			ins_q.Execute()
+			qdel(ins_q)
+			var/datum/db_query/id_q = SSdbcore.NewQuery(
+				{"SELECT id FROM ss13_characters WHERE ckey = :ckey AND name = :name
+				AND deleted_at IS NULL ORDER BY id DESC LIMIT 1"},
+				list("ckey" = ckey_val, "name" = real_name))
+			id_q.Execute()
+			if(id_q.NextRow())
+				current_character = text2num(id_q.item[1]) || 0
+			qdel(id_q)
+
+	// Force all groups dirty so handle_sql_saving runs UPDATE for all appearance columns
+	if(GLOB.config.sql_saves)
+		for(var/datum/category_group/player_setup_category/PS in player_setup.categories)
+			PS.modified = 1
 
 	player_setup.save_character(S)
 
-	if (!GLOB.config.sql_saves)
+	if(!GLOB.config.sql_saves)
 		loaded_character = S
 
 	return S

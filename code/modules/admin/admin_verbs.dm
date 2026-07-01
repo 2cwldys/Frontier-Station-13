@@ -203,6 +203,7 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/give_faction_id,
 	/datum/admins/proc/toggle_zlevel_persistence,
 	/datum/admins/proc/debug_character_spawn_lock,
+	/datum/admins/proc/give_credits_to_player,
 	/datum/admins/proc/reset_player_bank_account,
 	/datum/admins/proc/toggle_persistence,
 	/datum/admins/proc/toggle_autosave_pause,

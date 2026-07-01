@@ -9,52 +9,9 @@
 	hotkey_ui_hidden = FALSE
 
 /datum/hud/proc/new_player_hud(var/ui_style='icons/hud/mob/white.dmi', var/ui_color = "#fffffe", var/ui_alpha = 255)
-	SHOULD_NOT_SLEEP(TRUE)
-
-	adding = list()
-	var/atom/movable/screen/using
-
-	using = new /atom/movable/screen/new_player/title(src)
-	using.name = "Title"
-	using.hud = src
-	adding += using
-
-	using = new /atom/movable/screen/new_player/selection/join_game(src)
-	using.name = "Join Game"
-	using.hud = src
-	adding += using
-
-	using = new /atom/movable/screen/new_player/selection/settings(src)
-	using.name = "Setup Character"
-	adding += using
-
-	using = new /atom/movable/screen/new_player/selection/manifest(src)
-	using.name = "Crew Manifest"
-	adding += using
-
-	using = new /atom/movable/screen/new_player/selection/observe(src)
-	using.name = "Observe"
-	adding += using
-
-	using = new /atom/movable/screen/new_player/selection/changelog(src)
-	using.name = "Changelog"
-	adding += using
-
-	using = new /atom/movable/screen/new_player/selection/polls(src)
-	using.name = "Polls"
-	adding += using
-
-	using = new /atom/movable/screen/new_player/selection/lore_summary(src)
-	using.name = "Current Lore Summary"
-	adding += using
-
-	// using = new /atom/movable/screen/new_player/selection/server_logo(src)
-	// using.name = "Aurora"
-	// adding += using
-
 	mymob.client.screen = list()
-	mymob.client.screen += adding
-	src.adding += using
+	var/atom/movable/screen/new_player/title/T = new(src)
+	mymob.client.screen += T
 
 ABSTRACT_TYPE(/atom/movable/screen/new_player)
 	icon = 'icons/misc/hudmenu/hudmenu.dmi'
@@ -376,7 +333,7 @@ ABSTRACT_TYPE(/atom/movable/screen/new_player/selection)
 	player.setupcharacter()
 
 /mob/abstract/new_player/proc/setupcharacter()
-	client.prefs.ShowChoices(src)
+	to_chat(src, SPAN_WARNING("Character setup is only available when creating a new character from the main menu."))
 
 /**
  * # Changelog

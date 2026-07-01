@@ -177,14 +177,7 @@
 	if(!pref.can_edit_character)
 		dat += "<center><b>&#128274; This character has entered the world and is locked.</b><br>"
 		dat += "Delete this character to create a new one.</center><hr>"
-	dat += "<b>Name:</b> "
-	if (pref.can_edit_name)
-		dat += "<a href='byond://?src=[REF(src)];rename=1'><b>[pref.real_name]</b></a><br>"
-	else
-		dat += "<b>[pref.real_name]</b><br> (<a href='byond://?src=[REF(src)];namehelp=1'>?</a>)"
-	if (pref.can_edit_name)
-		dat += "(<a href='byond://?src=[REF(src)];random_name=1'>Random Name</A>)"
-	dat += "<br>"
+	dat += "<b>Name:</b> <b>[pref.real_name]</b><br>"
 	dat += "<b>Sex:</b> <a href='byond://?src=[REF(src)];gender=1'><b>[capitalize(lowertext(pref.gender))]</b></a><br>"
 	var/datum/species/S = GLOB.all_species[pref.species]
 	if(length(S.selectable_pronouns))
@@ -219,47 +212,9 @@
 	. = dat.Join()
 
 /datum/category_item/player_setup_item/general/basic/OnTopic(var/href,var/list/href_list, var/mob/user)
-	if(href_list["rename"])
-		if (!pref.can_edit_name)
-			alert(user, "You can no longer edit the name of your character.<br><br>If there is a legitimate need, please contact an administrator regarding the matter.")
-			return TOPIC_NOACTION
-
-		var/current_character = pref.current_character
-		var/raw_name = input(user, "Choose your character's name:", "Character Name")  as text|null
-		if(current_character != pref.current_character) //Without this, you can switch slots while the input menu is up to change your character's name past the grace period
-			return
-		if (!isnull(raw_name) && CanUseTopic(user))
-			var/new_name = sanitize_name(raw_name, pref.species)
-			if(new_name)
-				if(new_name == pref.real_name)
-					return TOPIC_NOACTION //If the name is the same do nothing
-				if(GLOB.config.sql_saves)
-					//Check if the player already has a character with the same name. (We dont have to account for the current char in that query, as that is already handled by the condition above)
-					var/DBQuery/query = GLOB.dbcon.NewQuery("SELECT COUNT(*) FROM ss13_characters WHERE ckey = :ckey: and name = :char_name:")
-					query.Execute(list("ckey" = user.client.ckey, "char_name" = new_name))
-					query.NextRow()
-					var/count = text2num(query.item[1])
-					if(count > 0)
-						to_chat(user, SPAN_WARNING("Invalid name. You have already used this name for another character. If you have deleted the character contact an admin to restore it."))
-						return TOPIC_NOACTION
-
-				pref.real_name = new_name
-				return TOPIC_REFRESH
-			else
-				to_chat(user, SPAN_WARNING("Invalid name. Your name should be at least 2 and at most [MAX_NAME_LEN] characters long. It may only contain the characters A-Z, a-z, -, ' and ."))
-				return TOPIC_NOACTION
-
-	else if(href_list["namehelp"])
-		alert(user, "Due to game mechanics, you are no longer able to edit this information for this character. The grace period offered is 5 days since the character's initial save.\n\nIf you have a need to change the character's information, or further questions regarding this policy, please contact an administrator.")
+	if(href_list["rename"] || href_list["random_name"] || href_list["namehelp"])
+		to_chat(user, SPAN_WARNING("Name is set when creating the character and cannot be changed here."))
 		return TOPIC_NOACTION
-
-	else if(href_list["random_name"])
-		if (!pref.can_edit_name)
-			alert(user, "You can no longer edit the name of your character.\n\nIf there is a legitimate need, please contact an administrator regarding the matter.")
-			return TOPIC_NOACTION
-
-		pref.real_name = random_name(pref.gender, pref.species)
-		return TOPIC_REFRESH
 
 	else if(href_list["select_floating_chat_color"])
 		var/new_fc_color = input(user, "Choose Floating Chat Color:", "Global Preference") as color|null

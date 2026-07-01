@@ -729,6 +729,9 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 /client/verb/character_setup()
 	set name = "Character Setup"
 	set category = "Preferences.Character"
+	if(istype(mob, /mob/abstract/new_player))
+		to_chat(usr, SPAN_WARNING("Character setup is only available when creating a new character from the main menu."))
+		return
 	if(prefs)
 		prefs.ShowChoices(usr)
 

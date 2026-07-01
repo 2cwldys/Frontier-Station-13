@@ -94,7 +94,7 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 	if(!client)	return 0
 
 	if(href_list["show_preferences"])
-		client.prefs.ShowChoices(src)
+		to_chat(src, SPAN_WARNING("Character setup is only available when creating a new character from the main menu."))
 		return 1
 
 	if(href_list["ready"])
@@ -431,7 +431,7 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
  * auto-selects for single-character players, and spawns fresh for first-timers.
  * Called in place of LateChoices() for all normal joins.
  */
-/mob/abstract/new_player/proc/PersistentAutoSpawn()
+/mob/abstract/new_player/proc/PersistentAutoSpawn(selected_from_menu = null)
 	if(!GLOB.persistence_ready)
 		to_chat(src, SPAN_WARNING("The server is still loading. Please wait a moment and try again."))
 		return
@@ -461,6 +461,9 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		if(!H.persistence_in_cryo)
 			continue
 		if(ckey(H.persistence_stored_ckey) == ckey_lower || ckey(H.ckey) == ckey_lower)
+			// Player explicitly selected a different character — skip this cryo'd mob
+			if(selected_from_menu && H.real_name != selected_from_menu)
+				continue
 			H.persistence_in_cryo = FALSE
 			if(H.persistence_cryo_timer)
 				deltimer(H.persistence_cryo_timer)
@@ -484,6 +487,9 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		if(H.persistence_in_cryo) continue
 		if(ckey(H.ckey) != ckey_lower && ckey(H.persistence_stored_ckey) != ckey_lower) continue
 		if(H.client) continue
+		// Player explicitly selected a different character — skip this live mob
+		if(selected_from_menu && H.real_name != selected_from_menu)
+			continue
 		H.key = client.ckey
 		to_chat(H, SPAN_NOTICE("Connection restored. Welcome back, [H.real_name]."))
 		log_subsystem_persistence_info("Cryo: [H.real_name] ([ckey_lower]) reconnected to live mob.")
@@ -491,45 +497,92 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		return
 
 	// ── Character selection ──────────────────────────────────
-	var/list/saved_chars = persistence_get_saved_characters(client.ckey)
-	var/slot_limit       = persistence_get_character_slots(client.ckey)
-	var/selected_char    = null  // null = spawn fresh from prefs
+	// When called from the TGUI persistent menu, selected_from_menu is the name
+	// the player explicitly clicked. Use it directly to bypass cache-based selection.
+	var/selected_char = selected_from_menu
 
-	// Cap the list to the player's slot limit (oldest entries beyond limit are ignored)
-	if(length(saved_chars) > slot_limit)
-		saved_chars = saved_chars.Copy(1, slot_limit + 1)
+	if(!selected_char)
+		// Cache-based fallback for callers that don't pass a name (e.g. join_game button)
+		var/list/saved_chars = persistence_get_saved_characters(client.ckey)
+		var/slot_limit       = persistence_get_character_slots(client.ckey)
+		if(length(saved_chars) > slot_limit)
+			saved_chars = saved_chars.Copy(1, slot_limit + 1)
 
-	if(!length(saved_chars))
-		// First-time player — spawn with their current preferences, no restore
-		selected_char = null
-
-	else if(length(saved_chars) == 1)
-		// Only one saved character — auto-select it (no menu needed)
-		// Note: no "Welcome back" here — the cryopod spawn message handles that
-		selected_char = saved_chars[1]
-
-	else
-		// Multiple characters — show selection menu (sleeps until player picks)
-		var/list/options = saved_chars.Copy()
-		if(length(saved_chars) < slot_limit)
-			options += "-- New Character --"
-
-		selected_char = tgui_input_list(src, "Choose a character to play:", "Character Selection", options)
-		if(!selected_char || QDELETED(src))
-			return  // Player closed the dialog or disconnected
-
-		if(selected_char == "-- New Character --")
+		if(!length(saved_chars))
 			selected_char = null
+		else if(length(saved_chars) == 1)
+			selected_char = saved_chars[1]
+		else
+			var/list/options = saved_chars.Copy()
+			if(length(saved_chars) < slot_limit)
+				options += "-- New Character --"
+			selected_char = tgui_input_list(src, "Choose a character to play:", "Character Selection", options)
+			if(!selected_char || QDELETED(src))
+				return
+			if(selected_char == "-- New Character --")
+				selected_char = null
 
-	// ── Lock character preferences on first spawn ────────────
-	// Sets first_spawned_at by ckey (1 active character per player).
-	// The IS NULL guard makes this a no-op for returning players.
-	if(client.ckey && GLOB.config.sql_saves && SSdbcore.Connect())
+	// ── Load this character's full SQL data into prefs before spawning ──────
+	// create_character() uses client.prefs to build appearance/species/DNA.
+	// Loading by character ID ensures the correct character's data is used,
+	// regardless of which character was last edited in this session.
+	if(selected_char && GLOB.config.sql_saves && SSdbcore.Connect())
+		var/datum/db_query/idq = SSdbcore.NewQuery(
+			"SELECT id FROM ss13_characters WHERE ckey = :ckey AND name = :name AND deleted_at IS NULL LIMIT 1",
+			list("ckey" = client.ckey, "name" = selected_char))
+		idq.Execute()
+		if(idq.NextRow())
+			client.prefs.current_character = text2num(idq.item[1]) || 0
+		qdel(idq)
+		if(client.prefs.current_character && SSdbcore.Connect())
+			var/datum/db_query/cq = SSdbcore.NewQuery(
+				{"SELECT name, gender, pronouns, age, metadata, spawnpoint, species, height,
+				floating_chat_color, speech_bubble_type,
+				hair_colour, facial_colour, grad_colour, skin_tone, skin_colour, eyes_colour,
+				hair_style, facial_style, gradient_style, tail_style, b_type,
+				disabilities, organs_data, organs_robotic, body_markings, bgstate
+				FROM ss13_characters WHERE id = :id AND deleted_at IS NULL LIMIT 1"},
+				list("id" = client.prefs.current_character))
+			cq.Execute()
+			if(cq.NextRow())
+				var/datum/preferences/P = client.prefs
+				P.real_name           = cq.item[1]
+				P.gender              = cq.item[2]
+				P.pronouns            = cq.item[3]
+				P.age                 = text2num(cq.item[4]) || 30
+				P.metadata            = cq.item[5]
+				P.spawnpoint          = cq.item[6]
+				P.species             = cq.item[7]
+				P.height              = text2num(cq.item[8]) || 170
+				P.floating_chat_color = cq.item[9]
+				P.speech_bubble_type  = cq.item[10]
+				P.hair_colour         = cq.item[11]
+				P.facial_colour       = cq.item[12]
+				P.grad_colour         = cq.item[13]
+				P.s_tone              = cq.item[14]
+				P.skin_colour         = cq.item[15]
+				P.eyes_colour         = cq.item[16]
+				P.h_style             = cq.item[17]
+				P.f_style             = cq.item[18]
+				P.g_style             = cq.item[19]
+				P.tail_style          = cq.item[20]
+				P.b_type              = cq.item[21]
+				P.disabilities        = cq.item[22]
+				P.organ_data          = cq.item[23]
+				P.rlimb_data          = cq.item[24]
+				P.body_markings       = cq.item[25]
+				P.bgstate             = cq.item[26]
+				// sanitize_setup(TRUE) parses hex colors → r/g/b, json_decode, params2list
+				client.prefs.player_setup.sanitize_setup(TRUE)
+			qdel(cq)
+
+	// ── Lock character preferences on first spawn (by specific character ID) ────
+	// Targets only the character being spawned, not all unspawned characters by ckey.
+	if(client.prefs.current_character && GLOB.config.sql_saves && SSdbcore.Connect())
 		var/datum/db_query/fq = SSdbcore.NewQuery(
 			{"UPDATE ss13_characters SET first_spawned_at = NOW()
-			WHERE ckey = :ckey AND deleted_at IS NULL AND first_spawned_at IS NULL"},
-			list("ckey" = client.ckey)
-		)
+			WHERE id = :id AND deleted_at IS NULL AND first_spawned_at IS NULL"},
+			list("id" = client.prefs.current_character))
 		fq.Execute()
 		qdel(fq)
 
@@ -546,13 +599,8 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 			break
 
 	// Create mob from character preferences (appearance, species, DNA)
+	// prefs are now populated with the selected character's specific row data
 	var/mob/living/carbon/human/character = create_character()
-
-	// If loading an existing character, override the name so persistence
-	// procs find the right cache entry keyed by "[ckey]|[char_name]"
-	if(selected_char)
-		character.real_name = selected_char
-		character.name      = selected_char
 
 	// Restore saved state — each call is isolated so one failure can't crash the others
 	if(GLOB.config.sql_enabled)

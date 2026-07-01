@@ -81,16 +81,13 @@
 
 	var/singleton/origin_item/origin/our_origin = GET_SINGLETON(text2path(pref.origin))
 	if(!(pref.citizenship in our_origin.possible_citizenships))
-		to_client_chat(SPAN_WARNING("Your previous citizenship is invalid for this origin! Resetting."))
 		pref.citizenship = our_origin.possible_citizenships[1]
 
 	if(!(pref.religion in our_origin.possible_religions))
-		to_client_chat(SPAN_WARNING("Your previous religion is invalid for this origin! Resetting."))
 		pref.religion = our_origin.possible_religions[1]
 
 	if(!(pref.accent in our_origin.possible_accents))
-		to_client_chat(SPAN_WARNING("Your previous accent is invalid for this origin! Resetting."))
-		pref.accent	= our_origin.possible_accents[1]
+		pref.accent = our_origin.possible_accents[1]
 
 	pref.economic_status = sanitize_inlist(pref.economic_status, ECONOMIC_POSITIONS, initial(pref.economic_status))
 
