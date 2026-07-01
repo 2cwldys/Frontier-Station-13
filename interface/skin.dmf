@@ -924,6 +924,7 @@ window "mainwindow"
 		size = 640x440
 		anchor1 = 0,0
 		anchor2 = 100,100
+		background-color = #202020
 		saved-params = "splitter"
 		left = "mapwindow"
 		right = "info_and_buttons"
@@ -995,13 +996,14 @@ window "info_and_buttons"
 		anchor2 = 100,100
 		saved-params = "pos;size;is-minimized;is-maximized"
 		is-pane = true
+		background-color = #202020
 	elem "info_button_child"
 		type = CHILD
 		pos = 0,0
 		size = 640x477
 		anchor1 = 0,0
 		anchor2 = 100,100
-		background-color = #ffc41f
+		background-color = #202020
 		saved-params = "splitter"
 		left = "infobuttons"
 		right = "infowindow"
@@ -1106,12 +1108,14 @@ window "infowindow"
 		anchor2 = -1,-1
 		saved-params = "pos;size;is-minimized;is-maximized"
 		is-pane = true
+		background-color = #202020
 	elem "info"
 		type = CHILD
 		pos = 0,5
 		size = 640x475
 		anchor1 = 0,0
 		anchor2 = 100,100
+		background-color = #202020
 		saved-params = "splitter"
 		left = "statwindow"
 		right = "outputwindow"
@@ -1126,13 +1130,14 @@ window "outputwindow"
 		anchor2 = -1,-1
 		saved-params = "pos;size;is-minimized;is-maximized"
 		is-pane = true
+		background-color = #202020
 	elem "output_input_child"
 		type = CHILD
 		pos = 0,0
 		size = 640x475
 		anchor1 = 0,0
 		anchor2 = 100,100
-		background-color = #ffc41f
+		background-color = #202020
 		saved-params = "splitter"
 		left = "output_selector"
 		right = "input_and_buttons"
@@ -1149,6 +1154,7 @@ window "output_selector"
 		anchor2 = -1,-1
 		saved-params = "pos;size;is-minimized;is-maximized"
 		is-pane = true
+		background-color = #202020
 	elem "legacy_output_selector"
 		type = CHILD
 		pos = 0,0
@@ -1174,7 +1180,7 @@ window "input_and_buttons"
 		size = 640x20
 		anchor1 = 0,0
 		anchor2 = 100,100
-		background-color = #ffc41f
+		background-color = #202020
 		saved-params = "splitter"
 		left = "inputwindow"
 		right = "inputbuttons"
