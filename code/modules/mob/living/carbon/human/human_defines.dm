@@ -1,4 +1,16 @@
 /mob/living/carbon/human
+	// Vision cone screen objects
+	var/atom/movable/screen/fov
+	var/atom/movable/screen/fov_mask
+	var/atom/movable/screen/fov_mask_two
+
+	// Film grain screen object
+	var/atom/movable/screen/film_grain
+
+	// Eye disability flags — change cone shape
+	var/right_eye_fucked = FALSE
+	var/left_eye_fucked  = FALSE
+
 	// Tail Style
 	var/tail_style = null
 

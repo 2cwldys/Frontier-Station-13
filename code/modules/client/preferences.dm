@@ -183,7 +183,7 @@ GLOBAL_LIST_EMPTY_TYPED(preferences_datums, /datum/preferences)
 	var/neural_lace = TRUE
 
 	// SPAAAACE
-	var/toggles_secondary = SEE_ITEM_OUTLINES | PROGRESS_BARS | FLOATING_MESSAGES | HOTKEY_DEFAULT
+	var/toggles_secondary = SEE_ITEM_OUTLINES | PROGRESS_BARS | FLOATING_MESSAGES | HOTKEY_DEFAULT | FILM_GRAIN
 	var/clientfps = 100
 	var/floating_chat_color
 	var/speech_bubble_type = "default"

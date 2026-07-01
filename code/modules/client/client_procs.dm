@@ -433,7 +433,7 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 		fps = prefs.clientfps
 
 	if(prefs.toggles_secondary & FULLSCREEN_MODE)
-		addtimer(CALLBACK(src, VERB_REF(toggle_fullscreen), 1 SECONDS))
+		spawn(10) toggle_fullscreen()
 
 	if(prefs.toggles_secondary & CLIENT_PREFERENCE_HIDE_MENU)
 		addtimer(CALLBACK(src, VERB_REF(toggle_menu), 1 SECONDS))
@@ -729,21 +729,21 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 /client/verb/character_setup()
 	set name = "Character Setup"
 	set category = "Preferences.Character"
-	if(istype(mob, /mob/abstract/new_player))
-		to_chat(usr, SPAN_WARNING("Character setup is only available when creating a new character from the main menu."))
-		return
-	if(prefs)
-		prefs.ShowChoices(usr)
+	to_chat(usr, SPAN_WARNING("Character setup is not available after a character has been created."))
+
 
 /client/verb/toggle_fullscreen_preference()
 	set name = "Toggle Fullscreen Preference"
 	set category = "Preferences.Menu"
-	set desc = "Toggles whether the game window will be true fullscreen or normal."
+	set desc = "Toggles whether the game window will be borderless fullscreen or normal. Applies on login."
 
 	prefs.toggles_secondary ^= FULLSCREEN_MODE
 	prefs.save_preferences()
 	if(prefs.toggles_secondary & FULLSCREEN_MODE)
 		toggle_fullscreen()
+		to_chat(usr, SPAN_NOTICE("Fullscreen preference: <b>ON</b> (borderless fullscreen active, will apply on login)."))
+	else
+		to_chat(usr, SPAN_NOTICE("Fullscreen preference: <b>OFF</b> (windowed mode, will apply on login)."))
 
 /client/verb/toggle_hide_menu_preference()
 	set name = "Toggle Hide Menu Preference"
@@ -771,8 +771,34 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 
 	fullscreen = !fullscreen
 
-	winset(src, "mainwindow", "menu=[fullscreen ? "" : "menu"];is-fullscreen=[fullscreen ? "true" : "false"];titlebar=[fullscreen ? "false" : "true"]")
+	// Borderless windowed fullscreen: remove all chrome and maximize the window.
+	// Avoids exclusive fullscreen so alt-tab stays instant.
+	if(fullscreen)
+		winset(src, "mainwindow", "menu=;titlebar=false;button_maximize=false;button_minimize=false;button_close=false;is-maximized=true")
+	else
+		winset(src, "mainwindow", "menu=menu;titlebar=true;button_maximize=true;button_minimize=true;button_close=true;is-maximized=false")
 	attempt_auto_fit_viewport()
+
+/client/verb/toggle_film_grain()
+	set name = "Toggle Film Grain"
+	set category = "Preferences.Menu"
+	set desc = "Toggles the film grain visual overlay. On by default."
+
+	prefs.toggles_secondary ^= FILM_GRAIN
+	prefs.save_preferences()
+
+	var/mob/living/carbon/human/H = mob
+	if(!istype(H)) return
+
+	if(prefs.toggles_secondary & FILM_GRAIN)
+		if(!H.film_grain)
+			H.film_grain = new /atom/movable/screen/film_grain()
+			H.film_grain.icon_state = "[rand(1,9)]"
+		src.screen |= H.film_grain
+		to_chat(usr, SPAN_NOTICE("Film grain: <b>ON</b>"))
+	else
+		src.screen -= H.film_grain
+		to_chat(usr, SPAN_NOTICE("Film grain: <b>OFF</b>"))
 
 /client/verb/toggle_status_bar()
 	set name = "Toggle Status Bar"

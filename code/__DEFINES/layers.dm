@@ -16,8 +16,11 @@
 	FLOAT_PLANE = -32767
 */
 
+/// Used by the FOV cone mask system to render invisible mask objects below everything else
+#define HIDDEN_SHIT_PLANE -499
+
 /// NEVER HAVE ANYTHING BELOW THIS PLANE ADJUST IF YOU NEED MORE SPACE
-#define LOWEST_EVER_PLANE -200
+#define LOWEST_EVER_PLANE -499
 
 #define CLICKCATCHER_PLANE -92
 

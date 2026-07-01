@@ -380,8 +380,24 @@
 
 	mymob.client.screen += hud_elements
 	mymob.client.screen += src.adding + src.hotkeybuttons
-	inventory_shown = 0;
 
+	// ── Vision cone + film grain (requires typed cast) ────────────────────
+	var/mob/living/carbon/human/H = mymob
+	if(istype(H))
+		H.fov          = new /atom/movable/screen/fov()
+		H.fov_mask     = new /atom/movable/screen/fov_mask()
+		H.fov_mask_two = new /atom/movable/screen/fov_mask_two()
+		H.client.screen += H.fov
+		H.client.screen += H.fov_mask
+		H.client.screen += H.fov_mask_two
+		H.update_vision_cone()
+
+		// Film grain — on by default; Toggle Film Grain verb removes it
+		H.film_grain = new /atom/movable/screen/film_grain()
+		H.film_grain.icon_state = "[rand(1,9)]"
+		H.client.screen += H.film_grain
+
+	inventory_shown = 0
 	return
 
 

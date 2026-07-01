@@ -174,9 +174,6 @@
 
 /datum/category_item/player_setup_item/general/basic/content(var/mob/user)
 	var/list/dat = list()
-	if(!pref.can_edit_character)
-		dat += "<center><b>&#128274; This character has entered the world and is locked.</b><br>"
-		dat += "Delete this character to create a new one.</center><hr>"
 	dat += "<b>Name:</b> <b>[pref.real_name]</b><br>"
 	dat += "<b>Sex:</b> <a href='byond://?src=[REF(src)];gender=1'><b>[capitalize(lowertext(pref.gender))]</b></a><br>"
 	var/datum/species/S = GLOB.all_species[pref.species]
