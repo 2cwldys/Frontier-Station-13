@@ -37,31 +37,8 @@
 			pref.be_special_role -= role
 
 /datum/category_item/player_setup_item/antagonism/candidacy/content(var/mob/user)
-	var/list/dat = list(
-		"<b>Special Role Availability:</b><br>",
-		"<table>"
-	)
-	var/is_global_banned = jobban_isbanned(preference_mob(), "Antagonist")
-	for(var/antag_type in GLOB.all_antag_types)
-		var/datum/antagonist/antag = GLOB.all_antag_types[antag_type]
-		if(antag.flags & ANTAG_NO_ROUNDSTART_SPAWN)
-			continue
-		dat += "<tr><td>[antag.role_text]: </td><td>"
-		var/ban_reason = jobban_isbanned(preference_mob(), antag.bantype)
-		if(ban_reason == "AGE WHITELISTED")
-			dat += SPAN_DANGER("\[IN [player_old_enough_for_role(preference_mob(), antag.bantype)] DAYS\]<br>")
-		else if(is_global_banned || ban_reason)
-			dat += SPAN_DANGER("\[<a href='byond://?src=[REF(user.client)];view_jobban=[is_global_banned ? "Antagonist" : "[antag.bantype]"];'>BANNED</a>\]<br>")
-		else if(establish_db_connection(GLOB.dbcon) && antag.required_age && antag.required_age > user.client?.player_age)
-			dat += "<span class='notice'>ACC TOO YOUNG</span><br>"
-		else if(antag.role_type in pref.be_special_role)
-			dat += "<b>Yes</b> / <a href='byond://?src=[REF(src)];del_special=[antag.role_type]'>No</a></br>"
-		else
-			dat += "<a href='byond://?src=[REF(src)];add_special=[antag.role_type]'>Yes</a> / <b>No</b></br>"
-		dat += "</td></tr>"
-	dat += "</table>"
+	return "<center><br><b>Roles are disabled on this server.</b></center>"
 
-	. = dat.Join()
 
 /datum/category_item/player_setup_item/antagonism/candidacy/OnTopic(var/href,var/list/href_list, var/mob/user)
 	if(href_list["add_special"])

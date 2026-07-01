@@ -2732,6 +2732,7 @@
 #include "code\modules\mining\drilling\drill.dm"
 #include "code\modules\mining\drilling\scanner.dm"
 #include "code\modules\mob\animations.dm"
+#include "code\modules\mob\vision_cone.dm"
 #include "code\modules\mob\death.dm"
 #include "code\modules\mob\emote.dm"
 #include "code\modules\mob\examinations.dm"
