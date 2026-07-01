@@ -119,6 +119,9 @@
 	var/equipment_prescription				// Eye prescription granted by equipped items
 	var/list/equipment_overlays = list()	// Extra overlays from equipped items
 
+	// Serenity hovertext — shows element name on HUD mouseover
+	var/atom/movable/screen/hovertext = null
+
 	var/is_noisy = FALSE		// if TRUE, movement should make sound.
 	var/bodyfall_sound = SFX_BODYFALL
 	var/footsound = SFX_FOOTSTEP_BLANK

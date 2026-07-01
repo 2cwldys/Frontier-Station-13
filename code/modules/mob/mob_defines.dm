@@ -69,6 +69,19 @@
 	*/
 	var/atom/movable/screen/zone_sel/zone_sel = null
 
+	// Serenity HUD elements
+	var/atom/movable/screen/stamina_icon    = null
+	var/atom/movable/screen/kick_icon       = null
+	var/atom/movable/screen/jump_icon       = null
+	var/atom/movable/screen/combat_icon     = null
+	var/atom/movable/screen/dodge_intent_icon = null
+	var/atom/movable/screen/surrender       = null
+	var/atom/movable/screen/wield_icon      = null
+	var/atom/movable/screen/fixeye          = null
+	var/atom/movable/screen/noise           = null
+	var/atom/movable/screen/rest_icon       = null
+	var/atom/movable/screen/happiness_icon  = null
+
 	var/use_me = 1 //Allows all mobs to use the me verb by default, will have to manually specify they cannot
 	var/damageoverlaytemp = 0
 	var/computer_id = null
@@ -157,7 +170,8 @@
 	var/weakened = 0
 	var/losebreath = 0 //Carbon
 	var/shakecamera = 0
-	var/a_intent = I_HELP//Living
+	var/a_intent = I_HELP  //Living
+	var/c_intent = I_STRONG  //Combat intent (Serenity HUD)
 	var/m_intent = M_WALK //Living
 	var/lastKnownIP = null
 	var/obj/item/l_hand = null//Living

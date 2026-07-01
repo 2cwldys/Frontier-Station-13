@@ -1,25 +1,35 @@
 /mob/living/carbon/human/instantiate_hud(datum/hud/HUD, ui_style, ui_color, ui_alpha)
 	HUD.human_hud(ui_style, ui_color, ui_alpha, src)
 
-/datum/hud/proc/human_hud(var/ui_style='icons/hud/mob/white.dmi', var/ui_color = "#ffffff", var/ui_alpha = 255, var/mob/living/carbon/human/target)
+// Complete Serenity HUD port — screen/dark.dmi icons (blue recolored), puppet_new.dmi (silver)
+/datum/hud/proc/human_hud(var/ui_style='icons/hud/mob/screen/dark.dmi', var/ui_color = "#ffffff", var/ui_alpha = 255, var/mob/living/carbon/human/target)
 	var/datum/hud_data/hud_data
 	if(!istype(target))
 		hud_data = new()
 	else
 		hud_data = target.species.hud
 
-	if(hud_data.icon)
-		ui_style = hud_data.icon
+	// Serenity forces screen/dark.dmi for all HUD elements regardless of species
+	ui_style = 'icons/hud/mob/screen/dark.dmi'
 
 	src.adding = list()
 	src.other = list()
-	src.hotkeybuttons = list() //These can be disabled for hotkey usersx
+	src.hotkeybuttons = list()
 
 	var/list/hud_elements = list()
 	var/atom/movable/screen/using
 	var/atom/movable/screen/inventory/inv_box
 
-	// Draw the various inventory equipment slots.
+	// ── Hovertext (blue glow on mouseover) ────────────────────────────────────
+	if(istype(target))
+		target.hovertext = new /atom/movable/screen/text()
+		target.hovertext.maptext = ""
+		target.hovertext.maptext_height = 100
+		target.hovertext.maptext_width = 480
+		target.hovertext.screen_loc = ui_hovertext
+		hud_elements |= target.hovertext
+
+	// ── Gear slots ────────────────────────────────────────────────────────────
 	var/has_hidden_gear
 	for(var/gear_slot in hud_data.gear)
 		var/list/slot_data = hud_data.gear[gear_slot]
@@ -56,111 +66,19 @@
 		using.alpha = ui_alpha
 		src.adding += using
 
-	// Draw the attack intent dialogue.
-	if(hud_data.has_a_intent)
-
-		using = new /atom/movable/screen()
-		using.name = "act_intent"
-		using.icon = ui_style
-		using.icon_state = "intent_"+mymob.a_intent
-		using.screen_loc = ui_acti
-		using.color = ui_color
-		using.alpha = ui_alpha
-		src.adding += using
-		action_intent = using
-
-		hud_elements |= using
-
-		//intent small hud objects
-		var/icon/ico
-
-		ico = new(ui_style, "black")
-		ico.MapColors(0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, -1,-1,-1,-1)
-		ico.DrawBox(rgb(255,255,255,1),1,ico.Height()/2,ico.Width()/2,ico.Height())
-		using = new /atom/movable/screen( src )
-		using.name = I_HELP
-		using.icon = ico
-		using.screen_loc = ui_acti
-		using.alpha = ui_alpha
-		src.adding += using
-		help_intent = using
-
-		ico = new(ui_style, "black")
-		ico.MapColors(0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, -1,-1,-1,-1)
-		ico.DrawBox(rgb(255,255,255,1),ico.Width()/2,ico.Height()/2,ico.Width(),ico.Height())
-		using = new /atom/movable/screen( src )
-		using.name = I_DISARM
-		using.icon = ico
-		using.screen_loc = ui_acti
-		using.alpha = ui_alpha
-		src.adding += using
-		disarm_intent = using
-
-		ico = new(ui_style, "black")
-		ico.MapColors(0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, -1,-1,-1,-1)
-		ico.DrawBox(rgb(255,255,255,1),ico.Width()/2,1,ico.Width(),ico.Height()/2)
-		using = new /atom/movable/screen( src )
-		using.name = I_GRAB
-		using.icon = ico
-		using.screen_loc = ui_acti
-		using.alpha = ui_alpha
-		src.adding += using
-		grab_intent = using
-
-		ico = new(ui_style, "black")
-		ico.MapColors(0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, -1,-1,-1,-1)
-		ico.DrawBox(rgb(255,255,255,1),1,1,ico.Width()/2,ico.Height()/2)
-		using = new /atom/movable/screen( src )
-		using.name = I_HURT
-		using.icon = ico
-		using.screen_loc = ui_acti
-		using.alpha = ui_alpha
-		src.adding += using
-		hurt_intent = using
-		//end intent small hud objects
-
-	if(hud_data.has_m_intent)
-		using = new /atom/movable/screen/movement_intent()
-		using.icon = ui_style
-		using.icon_state = (mymob.m_intent == M_RUN ? "running" : "walking")
-		using.color = ui_color
-		using.alpha = ui_alpha
-		src.adding += using
-		move_intent = using
-
-	if(hud_data.has_drop)
-		using = new /atom/movable/screen()
-		using.name = "drop"
-		using.icon = ui_style
-		using.icon_state = "act_drop"
-		using.screen_loc = ui_drop_throw
-		using.color = ui_color
-		using.alpha = ui_alpha
-		src.hotkeybuttons += using
-
+	// ── Hands — R/L inventory slots + swap button ────────────────────────────
 	if(hud_data.has_hands)
-
-		using = new /atom/movable/screen()
-		using.name = "equip"
-		using.icon = ui_style
-		using.icon_state = "act_equip"
-		using.screen_loc = ui_equip
-		using.color = ui_color
-		using.alpha = ui_alpha
-		src.adding += using
-
 		inv_box = new /atom/movable/screen/inventory/hand()
 		inv_box.hud = src
 		inv_box.name = "right hand"
 		inv_box.icon = ui_style
 		inv_box.icon_state = "r_hand_inactive"
-		if(mymob && !mymob.hand)	//This being 0 or null means the right hand is in use
+		if(mymob && !mymob.hand)
 			inv_box.icon_state = "r_hand_active"
 		inv_box.screen_loc = ui_rhand
 		inv_box.slot_id = slot_r_hand
 		inv_box.color = ui_color
 		inv_box.alpha = ui_alpha
-
 		src.r_hand_hud_object = inv_box
 		src.adding += inv_box
 
@@ -169,7 +87,7 @@
 		inv_box.name = "left hand"
 		inv_box.icon = ui_style
 		inv_box.icon_state = "l_hand_inactive"
-		if(mymob && mymob.hand)	//This being 1 means the left hand is in use
+		if(mymob && mymob.hand)
 			inv_box.icon_state = "l_hand_active"
 		inv_box.screen_loc = ui_lhand
 		inv_box.slot_id = slot_l_hand
@@ -180,208 +98,24 @@
 
 		target.update_hud_hands()
 
-		using = new /atom/movable/screen/inventory()
-		using.name = "hand"
-		using.icon = ui_style
-		using.icon_state = "hand1"
-		using.screen_loc = ui_swaphand1
-		using.color = ui_color
-		using.alpha = ui_alpha
-		using.hud = src
-		src.adding += using
-
-		using = new /atom/movable/screen/inventory()
-		using.name = "hand"
-		using.icon = ui_style
-		using.icon_state = "hand2"
-		using.screen_loc = ui_swaphand2
-		using.color = ui_color
-		using.alpha = ui_alpha
-		using.hud = src
-		src.adding += using
-
-	if(hud_data.has_resist)
-		using = new /atom/movable/screen()
-		using.name = "resist"
-		using.icon = ui_style
-		using.icon_state = "act_resist"
-		using.screen_loc = ui_pull_resist
-		using.color = ui_color
-		using.alpha = ui_alpha
-		src.hotkeybuttons += using
-
-	if(hud_data.has_throw)
-		mymob.throw_icon = new /atom/movable/screen()
-		mymob.throw_icon.icon = ui_style
-		mymob.throw_icon.icon_state = "act_throw_off"
-		mymob.throw_icon.name = "throw"
-		mymob.throw_icon.screen_loc = ui_drop_throw
-		mymob.throw_icon.color = ui_color
-		mymob.throw_icon.alpha = ui_alpha
-		src.hotkeybuttons += mymob.throw_icon
-		hud_elements |= mymob.throw_icon
-
-		mymob.pullin = new /atom/movable/screen()
-		mymob.pullin.icon = ui_style
-		mymob.pullin.icon_state = "pull0"
-		mymob.pullin.name = "pull"
-		mymob.pullin.screen_loc = ui_pull_resist
-		src.hotkeybuttons += mymob.pullin
-		hud_elements |= mymob.pullin
-
-	if(hud_data.has_internals)
-		mymob.internals = new /atom/movable/screen/internals()
-		mymob.internals.icon = ui_style
-		hud_elements |= mymob.internals
-		if(!isnull(target.internal))
-			mymob.internals.icon_state = "internal1"
-
-	if(hud_data.has_warnings)
-		mymob.oxygen = new /atom/movable/screen/oxygen()
-		mymob.oxygen.icon = 'icons/hud/mob/status_indicators.dmi'
-		mymob.oxygen.icon_state = "oxy0"
-		mymob.oxygen.name = "oxygen"
-		mymob.oxygen.screen_loc = ui_temp
-		hud_elements |= mymob.oxygen
-
-		mymob.toxin = new /atom/movable/screen/toxins()
-		mymob.toxin.icon = 'icons/hud/mob/status_indicators.dmi'
-		mymob.toxin.icon_state = "tox0"
-		mymob.toxin.name = "toxin"
-		mymob.toxin.screen_loc = ui_temp
-		hud_elements |= mymob.toxin
-
-		mymob.paralysis_indicator = new /atom/movable/screen/paralysis()
-		mymob.paralysis_indicator.icon = 'icons/hud/mob/status_indicators.dmi'
-		mymob.paralysis_indicator.icon_state = "paralysis0"
-		mymob.paralysis_indicator.name = "paralysis"
-		mymob.paralysis_indicator.screen_loc = ui_paralysis
-		hud_elements |= mymob.paralysis_indicator
-
-		mymob.healths = new /atom/movable/screen()
-		mymob.healths.icon = ui_style
-		mymob.healths.icon_state = "health0"
-		mymob.healths.name = "health"
-		mymob.healths.screen_loc = ui_health
-		if(target.species.healths_x)
-			var/ui_health_loc = replacetext(ui_health, ui_health_east_loc, "[ui_health_east_template][target.species.healths_x]")
-			mymob.healths.screen_loc = ui_health_loc
-		hud_elements |= mymob.healths
-
-	if(hud_data.has_pressure)
-		mymob.pressure = new /atom/movable/screen/pressure()
-		mymob.pressure.icon = 'icons/hud/mob/status_indicators.dmi'
-		mymob.pressure.icon_state = "pressure0"
-		mymob.pressure.name = "pressure"
-		mymob.pressure.screen_loc = ui_temp
-		hud_elements |= mymob.pressure
-
-	if(hud_data.has_bodytemp)
-		mymob.bodytemp = new /atom/movable/screen/bodytemp()
-		mymob.bodytemp.icon = 'icons/hud/mob/status_indicators.dmi'
-		mymob.bodytemp.icon_state = "temp1"
-		mymob.bodytemp.name = "body temperature"
-		mymob.bodytemp.screen_loc = ui_temp
-		hud_elements |= mymob.bodytemp
-
-	if(hud_data.has_cell)
-		mymob.cells = new /atom/movable/screen()
-		mymob.cells.icon = 'icons/hud/mob/robot.dmi'
-		mymob.cells.icon_state = "charge-empty"
-		mymob.cells.name = "cell"
-		mymob.cells.screen_loc = ui_nutrition
-		hud_elements |= target.cells
-
-	if(hud_data.has_nutrition)
-		mymob.nutrition_icon = new /atom/movable/screen/food()
-		mymob.nutrition_icon.icon = 'icons/hud/mob/status_hunger.dmi'
-		mymob.nutrition_icon.pixel_w = 8
-		mymob.nutrition_icon.icon_state = "nutrition0"
-		mymob.nutrition_icon.name = "nutrition"
-		mymob.nutrition_icon.screen_loc = ui_nutrition
-		hud_elements |= mymob.nutrition_icon
-
-	if(hud_data.has_hydration)
-		mymob.hydration_icon = new /atom/movable/screen/thirst()
-		mymob.hydration_icon.icon = 'icons/hud/mob/status_hunger.dmi'
-		mymob.hydration_icon.icon_state = "thirst0"
-		mymob.hydration_icon.name = "thirst"
-		mymob.hydration_icon.screen_loc = ui_nutrition
-		hud_elements |= mymob.hydration_icon
-
-	if(hud_data.has_up_hint)
-		mymob.up_hint = new /atom/movable/screen()
-		mymob.up_hint.icon = ui_style
-		mymob.up_hint.icon_state = "uphint0"
-		mymob.up_hint.name = "up hint"
-		mymob.up_hint.screen_loc = ui_up_hint
-		hud_elements |= mymob.up_hint
-
-	if(hud_data.has_robot_pain)
-		mymob.robot_pain = new /atom/movable/screen/fullscreen/robot_pain()
-		hud_elements |= mymob.robot_pain
-
-	mymob.pain = new /atom/movable/screen/fullscreen/pain(null)
-	hud_elements |= mymob.pain
-
-	mymob.instability_display = new /atom/movable/screen/instability()
-	mymob.instability_display.screen_loc = ui_instability_display
-	mymob.instability_display.icon_state = "wiz_instability_none"
-	hud_elements |= mymob.instability_display
-
-	mymob.energy_display = new /atom/movable/screen/energy()
-	mymob.energy_display.screen_loc = ui_energy_display
-	mymob.energy_display.icon_state = "wiz_energy"
-	hud_elements |= mymob.energy_display
-
-	mymob.zone_sel = new /atom/movable/screen/zone_sel(null)
-	mymob.zone_sel.icon = ui_style
-	mymob.zone_sel.color = ui_color
-	mymob.zone_sel.alpha = ui_alpha
-	mymob.zone_sel.ClearOverlays()
-	mymob.zone_sel.AddOverlays(image('icons/hud/mob/zone_sel.dmi', "[mymob.zone_sel.selecting]"))
-	hud_elements |= mymob.zone_sel
-
-	//Handle the gun settings buttons
+	// ── Gun mode icons (Aurora's own icon files) ──────────────────────────────
 	mymob.gun_setting_icon = new /atom/movable/screen/gun/mode(null)
-	mymob.gun_setting_icon.icon = ui_style
-	mymob.gun_setting_icon.color = ui_color
-	mymob.gun_setting_icon.alpha = ui_alpha
-	hud_elements |= mymob.gun_setting_icon
-
-	mymob.item_use_icon = new /atom/movable/screen/gun/item(null)
-	mymob.item_use_icon.icon = ui_style
-	mymob.item_use_icon.color = ui_color
-	mymob.item_use_icon.alpha = ui_alpha
-
-	mymob.gun_move_icon = new /atom/movable/screen/gun/move(null)
-	mymob.gun_move_icon.icon = ui_style
-	mymob.gun_move_icon.color = ui_color
-	mymob.gun_move_icon.alpha = ui_alpha
-
-	mymob.radio_use_icon = new /atom/movable/screen/gun/radio(null)
-	mymob.radio_use_icon.icon = ui_style
-	mymob.radio_use_icon.color = ui_color
-	mymob.radio_use_icon.alpha = ui_alpha
-
+	mymob.item_use_icon    = new /atom/movable/screen/gun/item(null)
+	mymob.gun_move_icon    = new /atom/movable/screen/gun/move(null)
+	mymob.radio_use_icon   = new /atom/movable/screen/gun/radio(null)
 	mymob.toggle_firing_mode = new /atom/movable/screen/gun/burstfire(null)
-	mymob.toggle_firing_mode.icon = ui_style
-	mymob.toggle_firing_mode.color = ui_color
-	mymob.toggle_firing_mode.alpha = ui_alpha
-	hud_elements |= mymob.toggle_firing_mode
-
 	mymob.unique_action_icon = new /atom/movable/screen/gun/uniqueaction(null)
-	mymob.unique_action_icon.icon = ui_style
-	mymob.unique_action_icon.color = ui_color
-	mymob.unique_action_icon.alpha = ui_alpha
+	hud_elements |= mymob.gun_setting_icon
+	hud_elements |= mymob.toggle_firing_mode
 	hud_elements |= mymob.unique_action_icon
 
-	mymob.client.screen = null
-
+	// ── Apply to screen ───────────────────────────────────────────────────────
+	mymob.client.screen = list()
 	mymob.client.screen += hud_elements
 	mymob.client.screen += src.adding + src.hotkeybuttons
+	inventory_shown = 0
 
-	// ── Vision cone + film grain (requires typed cast) ────────────────────
+	// ── Aurora: vision cone + film grain ─────────────────────────────────────
 	var/mob/living/carbon/human/H = mymob
 	if(istype(H))
 		H.fov          = new /atom/movable/screen/fov()
@@ -392,13 +126,9 @@
 		H.client.screen += H.fov_mask_two
 		H.update_vision_cone()
 
-		// Film grain — on by default; Toggle Film Grain verb removes it
 		H.film_grain = new /atom/movable/screen/film_grain()
 		H.film_grain.icon_state = "[rand(1,9)] moderate"
 		H.client.screen += H.film_grain
-
-	inventory_shown = 0
-	return
 
 
 /mob/living/carbon/human/verb/toggle_hotkey_verbs()
@@ -552,4 +282,3 @@
 	var/list/modifiers = params2list(params)
 	if(status_message && modifiers["shift"])
 		to_chat(usr, status_message)
-

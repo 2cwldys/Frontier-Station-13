@@ -925,10 +925,11 @@ window "mainwindow"
 		anchor1 = 0,0
 		anchor2 = 100,100
 		background-color = #202020
-		saved-params = "splitter"
 		left = "mapwindow"
 		right = "info_and_buttons"
 		is-vert = true
+		splitter = 60
+		show-splitter = false
 	elem "asset_cache_browser"
 		type = BROWSER
 		pos = 0,0

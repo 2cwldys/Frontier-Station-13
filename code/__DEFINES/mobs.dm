@@ -86,6 +86,12 @@
 #define I_GRAB		"grab"
 #define I_HURT		"harm"
 
+// Combat intents (Serenity HUD)
+#define I_STRONG	"strong"
+#define I_DEFEND	"defend"
+#define I_QUICK		"quick"
+#define I_AIM		"aim"
+
 //movement intents
 #define M_WALK "walk"
 #define M_RUN  "run"
@@ -112,6 +118,7 @@
 //Generic organs
 #define BP_MOUTH    "mouth"
 #define BP_EYES     "eyes"
+#define BP_THROAT   "throat"
 #define BP_HEART    "heart"
 #define BP_LUNGS    "lungs"
 #define BP_BRAIN    "brain"

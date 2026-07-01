@@ -187,8 +187,10 @@
 		usr.ClickOn(master)
 	return TRUE
 
+// Character doll zone selector — uses puppet_new.dmi from Serenity
 /atom/movable/screen/zone_sel
 	name = "damage zone"
+	icon = 'icons/hud/mob/puppet_new.dmi'
 	icon_state = "zone_sel"
 	screen_loc = ui_zonesel
 	var/selecting = BP_CHEST
@@ -235,7 +237,7 @@
 
 
 /obj/effect/overlay/zone_sel
-	icon = 'icons/hud/mob/zone_sel.dmi'
+	icon = 'icons/hud/mob/zone_sel_newer.dmi'
 	mouse_opacity = MOUSE_OPACITY_TRANSPARENT
 	alpha = 128
 	anchored = TRUE
@@ -246,49 +248,53 @@
 		remove_vis_contents(hover_overlays_cache[hovering_choice])
 		hovering_choice = null
 
+// Pixel coordinate map calibrated for puppet_new.dmi (Serenity character doll)
 /atom/movable/screen/zone_sel/proc/get_zone_at(icon_x, icon_y)
 	switch(icon_y)
-		if(1 to 3) //Feet
+		if(5 to 8) //Feet
 			switch(icon_x)
-				if(10 to 15)
+				if(7 to 15)
 					return BP_R_FOOT
-				if(17 to 22)
+				if(18 to 26)
 					return BP_L_FOOT
-		if(4 to 9) //Legs
+		if(9 to 27) //Legs
 			switch(icon_x)
-				if(10 to 15)
+				if(10 to 16)
 					return BP_R_LEG
-				if(17 to 22)
+				if(18 to 23)
 					return BP_L_LEG
-		if(10 to 13) //Hands and groin
+		if(28 to 34) //Hands and groin
 			switch(icon_x)
-				if(8 to 11)
+				if(4 to 8)
 					return BP_R_HAND
-				if(12 to 20)
+				if(12 to 21)
 					return BP_GROIN
-				if(21 to 24)
+				if(24 to 29)
 					return BP_L_HAND
-		if(14 to 22) //Chest and arms to shoulders
+		if(31 to 49) //Chest and arms to shoulders
 			switch(icon_x)
-				if(8 to 11)
+				if(7 to 11)
 					return BP_R_ARM
-				if(12 to 20)
+				if(12 to 21)
 					return BP_CHEST
-				if(21 to 24)
+				if(22 to 26)
 					return BP_L_ARM
-		if(23 to 30) //Head, but we need to check for eye or mouth
-			if(icon_x in 12 to 20)
-				switch(icon_y)
-					if(23 to 24)
-						if(icon_x in 15 to 17)
-							return BP_MOUTH
-					if(26) //Eyeline, eyes are on 15 and 17
-						if(icon_x in 14 to 18)
-							return BP_EYES
-					if(25 to 27)
-						if(icon_x in 15 to 17)
-							return BP_EYES
-				return BP_HEAD
+		if(50 to 52) //Neck
+			switch(icon_x)
+				if(14 to 19)
+					return BP_THROAT
+		if(53 to 60) //Head
+			switch(icon_x)
+				if(10 to 23)
+					return BP_HEAD
+		if(69 to 72) //Mouth
+			switch(icon_x)
+				if(13 to 20)
+					return BP_MOUTH
+		if(77 to 81) //Eyes
+			switch(icon_x)
+				if(11 to 22)
+					return BP_EYES
 
 /atom/movable/screen/zone_sel/proc/set_selected_zone(choice, mob/user)
 	if(isobserver(user))
@@ -300,8 +306,38 @@
 
 /atom/movable/screen/zone_sel/update_icon()
 	ClearOverlays()
-	selecting_appearance = mutable_appearance('icons/hud/mob/zone_sel.dmi', "[selecting]")
+	selecting_appearance = mutable_appearance('icons/hud/mob/zone_sel_newer.dmi', "[selecting]")
 	AddOverlays(selecting_appearance)
+
+// Intent is handled by Aurora's DrawBox system in human.dm — no custom type needed
+
+// Combat intent — strong/defend/quick/aim
+/atom/movable/screen/combat_intent
+	name = "combat_intent"
+	icon = 'icons/hud/mob/screen/dark.dmi'
+	icon_state = "aim"
+	screen_loc = ui_atk_intents
+	var/intent = I_STRONG
+
+/atom/movable/screen/combat_intent/Click(location, control, params)
+	var/list/P = params2list(params)
+	var/icon_x = text2num(P["icon-x"])
+	var/icon_y = text2num(P["icon-y"])
+	intent = I_STRONG
+	if(icon_x <= world.icon_size / 2)
+		if(icon_y <= world.icon_size / 2)
+			intent = I_DEFEND
+		else
+			intent = I_AIM
+	else if(icon_y <= world.icon_size / 2)
+		intent = I_QUICK
+	update_icon()
+	if(istype(usr, /mob/living))
+		var/mob/living/L = usr
+		L.c_intent = intent
+
+/atom/movable/screen/combat_intent/update_icon()
+	icon_state = "[intent]"
 
 /atom/movable/screen/Click(location, control, params)
 	if(!usr)
@@ -446,6 +482,11 @@
 					return
 				R.uneq_active()
 
+		if("rest")
+			if(isliving(usr))
+				var/mob/living/L = usr
+				L.lay_down()
+
 		else
 			return 0
 	return 1
@@ -545,6 +586,9 @@
 			if(M_WALK)
 				if(!(usr.get_species() in BLACKLIST_SPECIES_RUNNING))
 					usr.m_intent = M_RUN
+
+		// Update the walk/run icon immediately after toggling
+		src.update_move_icon(istype(usr, /mob/living) ? usr : null)
 
 		if(modifiers["button"] == "middle")
 			C.lay_down()

@@ -3,6 +3,10 @@
 	var/icon
 	/// Set to draw intent box.
 	var/has_a_intent = TRUE
+	/// Set to draw combat intent box.
+	var/has_c_intent = TRUE
+	/// Set to draw skills/family button.
+	var/has_skills_family = FALSE
 	/// Set to draw move intent box.
 	var/has_m_intent = TRUE
 	/// Set to draw environment warnings.
@@ -47,8 +51,8 @@
 		"r_ear" =        list("loc" = ui_r_ear,     "name" = "right ear",    "slot" = slot_r_ear,     "state" = "r_ear",  "toggle" = 1),
 		"head" =         list("loc" = ui_head,      "name" = "hat",          "slot" = slot_head,      "state" = "hair",   "toggle" = 1),
 		"shoes" =        list("loc" = ui_shoes,     "name" = "shoes",        "slot" = slot_shoes,     "state" = "shoes",  "toggle" = 1),
-		"wrists" =       list("loc" = ui_wrists,    "name" = "wrists",       "slot" = slot_wrists,    "state" = "wrists", "toggle" = 1),
-		"pants" =        list("loc" = ui_pants,     "name" = "pants",        "slot" = slot_pants,     "state" = "pants",  "toggle" = 1),
+		"wrists" =       list("loc" = ui_wrists,    "name" = "wrists",       "slot" = slot_wrists,    "state" = "gloves", "toggle" = 1),
+		"pants" =        list("loc" = ui_pants,     "name" = "pants",        "slot" = slot_pants,     "state" = "center", "toggle" = 1),
 		"suit storage" = list("loc" = ui_sstore1,   "name" = "suit storage", "slot" = slot_s_store,   "state" = "suitstore"),
 		"back" =         list("loc" = ui_back,      "name" = "back",         "slot" = slot_back,      "state" = "back", "slot_type" = /atom/movable/screen/inventory/back),
 		"id" =           list("loc" = ui_id,        "name" = "id",           "slot" = slot_wear_id,   "state" = "id"),
@@ -89,9 +93,9 @@
 		"eyes" =         list("loc" = ui_glasses,  	"name" = "glasses",      "slot" = slot_glasses,   "state" = "glasses","toggle" = 1),
 		"l_ear" =        list("loc" = ui_l_ear,   	"name" = "left ear",     "slot" = slot_l_ear,     "state" = "l_ear",  "toggle" = 1),
 		"r_ear" =        list("loc" = ui_r_ear,		"name" = "right ear",    "slot" = slot_r_ear,     "state" = "r_ear",  "toggle" = 1),
-		"wrists" =       list("loc" = ui_wrists,    "name" = "wrists",       "slot" = slot_wrists,    "state" = "wrists", "toggle" = 1),
+		"wrists" =       list("loc" = ui_wrists,    "name" = "wrists",       "slot" = slot_wrists,    "state" = "gloves", "toggle" = 1),
 		"head" =         list("loc" = ui_head, 		"name" = "hat",          "slot" = slot_head,      "state" = "hair",   "toggle" = 1),
-		"pants" =        list("loc" = ui_pants,     "name" = "pants",        "slot" = slot_pants,     "state" = "pants",  "toggle" = 1),
+		"pants" =        list("loc" = ui_pants,     "name" = "pants",        "slot" = slot_pants,     "state" = "center", "toggle" = 1),
 		"suit storage" = list("loc" = ui_sstore1,   "name" = "suit storage", "slot" = slot_s_store,   "state" = "suitstore"),
 		"back" =         list("loc" = ui_back,      "name" = "back",         "slot" = slot_back,      "state" = "back"),
 		"id" =           list("loc" = ui_id,        "name" = "id",           "slot" = slot_wear_id,   "state" = "id"),

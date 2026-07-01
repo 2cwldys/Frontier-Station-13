@@ -271,6 +271,45 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 		return
 	..()	//redirect to hsrc.Topic()
 
+// Dynamic view resize — makes client.view match the full map window size (Serenity port)
+// This allows Serenity's coordinate system (-2/-1/0 for left panel, EAST+1 for right) to work
+/client/verb/OnResize()
+	set hidden = 1
+	var/divisor = text2num(winget(src, "mapwindow.map", "icon-size")) || world.icon_size
+	var/winsize_string = winget(src, "mapwindow.map", "size")
+	if(!winsize_string || !length(winsize_string))
+		return
+	var/map_px_x = text2num(winsize_string)
+	var/map_px_y = text2num(copytext(winsize_string, findtext(winsize_string, "x") + 1, 0))
+	// Leave 3 tiles of letterbox on each side for the HUD panels (left gear, right status/doll)
+	// Left/right: subtract 6 tiles total; top/bottom: subtract 2 tiles total
+	var/new_x = round((map_px_x - 6 * divisor) / divisor)
+	var/new_y = round((map_px_y - 2 * divisor) / divisor)
+	if(new_x > 5 && new_y > 5)
+		view = "[new_x]x[new_y]"
+	// Reset eye perspective
+	var/last_eye = eye
+	eye = mob
+	if(eye != last_eye)
+		eye = last_eye
+	if(mob)
+		mob.reload_fullscreen()
+
+// Hovertext — show blue glowing label on HUD element mouseover (Serenity port)
+/client/MouseEntered(atom/a)
+	if(mob && ishuman(mob) && a.mouse_opacity)
+		var/mob/living/carbon/human/H = mob
+		if(H.hovertext)
+			H.hovertext.maptext = "<center><span style=\"color:#535AB2;font-weight:bold;text-shadow:0 0 15px #535AB2;font-family:'Bahnschrift',Constantia,sans-serif;\">[uppertext(a.name)]</span></center>"
+	return ..()
+
+/client/MouseExited(atom/a)
+	if(mob && ishuman(mob))
+		var/mob/living/carbon/human/H = mob
+		if(H.hovertext)
+			H.hovertext.maptext = ""
+	return ..()
+
 ///dumb workaround because byond doesnt seem to recognize the Topic() typepath for /datum/proc/Topic() from the client Topic,
 ///so we cant queue it without this
 /client/proc/_Topic(datum/hsrc, href, list/href_list)
@@ -463,6 +502,7 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 		inline_css = file("html/statbrowser.css"),
 	)
 	addtimer(CALLBACK(src, PROC_REF(check_panel_loaded)), 30 SECONDS)
+
 
 /client/proc/InitClient()
 	SHOULD_NOT_SLEEP(TRUE)
