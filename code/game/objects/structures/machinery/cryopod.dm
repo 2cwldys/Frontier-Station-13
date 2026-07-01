@@ -536,6 +536,16 @@
 		occupant.client.eye = src
 		time_entered = world.time
 		occupant.set_respawn_time()
+	else if(istype(occupant, /mob/living/carbon/human) && GLOB.config.sql_enabled)
+		var/mob/living/carbon/human/H = occupant
+		if(H.persistence_stored_ckey)
+			// Uninhabited mob with persistence data placed into cryopod — auto-store immediately.
+			// Cancel any pending despawn timer so it doesn't fire redundantly afterward.
+			if(H.persistence_cryo_timer)
+				deltimer(H.persistence_cryo_timer)
+				H.persistence_cryo_timer = null
+			SSpersistence.persistStoreCharacter(H)
+			// persistStoreCharacter clears src.occupant and moves mob to hold area
 	update_icon()
 
 /obj/structure/machinery/cryopod/update_icon()
