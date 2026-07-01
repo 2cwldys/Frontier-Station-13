@@ -50,6 +50,7 @@
 
 // Other
 	var/datum/preferences/prefs
+	var/datum/chatOutput/chatOutput = null
 	var/datum/tooltip/tooltips
 	var/move_delay		= 1
 	var/moving			= null

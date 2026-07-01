@@ -35,7 +35,13 @@
 	if(text) message["text"] = text
 	if(html) message["html"] = html
 	if(avoid_highlighting) message["avoidHighlighting"] = avoid_highlighting
-	// send it immediately
+
+	// Route to goonchat if active, otherwise use TGUI panel
+	if(GLOB.config.goonchat && html)
+		goonchat_send_immediate(target, html)
+		return
+
+	// send it immediately via TGUI panel
 	SSchat.send_immediate(target, message)
 
 /**
@@ -80,4 +86,10 @@
 	if(text) message["text"] = text
 	if(html) message["html"] = html
 	if(avoid_highlighting) message["avoidHighlighting"] = avoid_highlighting
+
+	// When goonchat active, ALWAYS route here — never SSchat (it would overwrite goonchat window)
+	if(GLOB.config.goonchat && html)
+		goonchat_send_immediate(target, html)
+		return
+
 	SSchat.queue(target, message)

@@ -39,8 +39,7 @@ export function setClientTheme(name): void | Promise<void> {
     'info_and_buttons.background-color': themeColor.BG_BASE,
     'info.background-color': themeColor.BG_BASE,
     'info.text-color': themeColor.TEXT,
-    'browseroutput.background-color': themeColor.BG_BASE,
-    'browseroutput.text-color': themeColor.TEXT,
+    // browseroutput omitted — winset on a BROWSER element reloads it, wiping goonchat
     'outputwindow.background-color': themeColor.BG_BASE,
     'outputwindow.text-color': themeColor.TEXT,
     'mainwindow.background-color': themeColor.BG_BASE,

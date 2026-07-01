@@ -46,6 +46,9 @@ BAN_LEGACY_SYSTEM
 # What to subtract power by when crossing Z-levels.
 #EXPLOSION_Z_SUB 2
 
+## Goon Chat (disables TGUI chat)
+GOONCHAT
+
 ## sql switching
 SQL_ENABLED
 

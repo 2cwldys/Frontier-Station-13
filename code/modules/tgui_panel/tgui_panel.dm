@@ -85,6 +85,9 @@
 				),
 			),
 		))
+		// If goonchat is active, load goonchat HTML into browseroutput and keep the pane visible
+		if(GLOB.config.goonchat && client.chatOutput && !client.chatOutput.broken)
+			winset(client, "output_selector.legacy_output_selector", "left=output_browser")
 		return TRUE
 	if(type == "audio/setAdminMusicVolume")
 		client.admin_music_volume = payload["volume"]

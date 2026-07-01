@@ -394,7 +394,7 @@
 
 		// Film grain — on by default; Toggle Film Grain verb removes it
 		H.film_grain = new /atom/movable/screen/film_grain()
-		H.film_grain.icon_state = "[rand(1,9)]"
+		H.film_grain.icon_state = "[rand(1,9)] moderate"
 		H.client.screen += H.film_grain
 
 	inventory_shown = 0

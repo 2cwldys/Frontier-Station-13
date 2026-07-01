@@ -15,10 +15,12 @@ body {
   margin: 0 !important;
   padding: 0 !important;
   overflow: hidden;
+  background-color: #151515;
+  color: #b2c4dd;
 }
 
 a {
-  color: #003399;
+  color: #6699ff;
   text-decoration: none;
 }
 
@@ -63,6 +65,7 @@ img {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  background-color: #151515;
 }
 
 #menu {
@@ -70,7 +73,7 @@ img {
   overflow-x: auto;
   overflow-y: hidden;
   padding: 0.25em 0.25em 0;
-  background-color: #ffffff;
+  background-color: #151515;
 }
 
 .menu-wrap {
@@ -104,21 +107,21 @@ img {
   min-width: 2.9em;
   padding: 0.5em 0.5em 0.4em;
   background-color: transparent;
-  color: rgba(0, 0, 0, 0.5);
+  color: rgba(255, 255, 255, 0.5);
   border: 0;
   border-bottom: 0.1667em solid transparent;
   border-radius: 0.25em 0.25em 0 0;
 }
 
 .button:hover {
-  background-color: #ececec;
+  background-color: #252525;
 }
 
 .button.active {
   cursor: default;
-  background-color: #dfdfdf;
-  color: black;
-  border-bottom-color: #000000;
+  background-color: #313131;
+  color: #d4dfec;
+  border-bottom-color: #d4dfec;
 }
 
 .statcontent {
@@ -126,6 +129,7 @@ img {
   padding: 0.75em 0.5em;
   overflow-y: auto;
   overflow-x: hidden;
+  background-color: #151515;
 }
 
 .mcstatcontent {
@@ -134,6 +138,7 @@ img {
   overflow-y: auto;
   overflow-x: auto;
   white-space: pre;
+  background-color: #151515;
 }
 
 .mcstatcontent td {
@@ -146,12 +151,12 @@ img {
 
 #under-menu {
   height: 0.5em;
-  background-color: #eeeeee;
+  background-color: #202020;
 }
 
 #under-content {
   height: calc(0.5em - 4px);
-  background-color: #eeeeee;
+  background-color: #202020;
 }
 
 .grid-container {
@@ -167,7 +172,7 @@ img {
   max-height: 1.85em;
   text-decoration: none;
   background-color: transparent;
-  color: black;
+  color: #b2c4dd;
 }
 
 .grid-item:hover,

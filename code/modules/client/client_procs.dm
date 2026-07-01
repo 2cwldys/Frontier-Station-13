@@ -30,6 +30,10 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 	if(!usr || usr != mob)	//stops us calling Topic for somebody else's client. Also helps prevent usr=null
 		return
 
+	// Route goonchat Topic callbacks to chatOutput datum
+	if(GLOB.config.goonchat && chatOutput && href_list["_src_"] == "\ref[chatOutput]")
+		return chatOutput.Topic(href, href_list)
+
 	// asset_cache
 	var/asset_cache_job
 	if(href_list["asset_cache_confirm_arrival"])
@@ -352,6 +356,10 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 /client/New(TopicData)
 	TopicData = null							//Prevent calls to client.Topic from connect
 
+	// Create chatOutput immediately so all subsequent messages can be queued (mirrors Serenity)
+	if(GLOB.config.goonchat)
+		chatOutput = new /datum/chatOutput(src)
+
 	if(!(connection in list("seeker", "web")))					//Invalid connection type.
 		return null
 	if(byond_version < MIN_CLIENT_VERSION)		//Out of date client.
@@ -441,8 +449,11 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 /client/proc/InitUI()
 	INVOKE_ASYNC(src, PROC_REF(acquire_dpi))
 
-	// Initialize tgui panel
+	// Always init tgui_panel — dark mode CSS, then goonchat swaps in its own pane via winset
 	tgui_panel.initialize()
+
+	if(GLOB.config.goonchat && chatOutput)
+		chatOutput.start()
 	tgui_say.initialize()
 
 	// Initialize stat panel

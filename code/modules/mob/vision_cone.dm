@@ -61,7 +61,7 @@
 	mouse_opacity = MOUSE_OPACITY_TRANSPARENT
 	plane         = FULLSCREEN_PLANE
 	layer         = FULLSCREEN_LAYER
-	alpha         = 255
+	alpha         = 140
 
 // ── Cone geometry ──────────────────────────────────────────────────────────
 
