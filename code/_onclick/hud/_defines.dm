@@ -40,9 +40,9 @@
 
 //Lower right, persistant menu
 #define ui_dropbutton "EAST-4:22,SOUTH:5"
-#define ui_drop_throw "EAST-1:28,SOUTH+1:7"
-#define ui_pull_resist "EAST-2:26,SOUTH+1:7"
-#define ui_pull "EAST-2:26,SOUTH+1:7"
+#define ui_pull_resist "EAST-1:28,SOUTH:5"
+#define ui_drop_throw  "EAST-1:28,SOUTH+1:5"
+#define ui_pull        "EAST-1:28,SOUTH+2:5"
 #define ui_morph_resist "EAST-2:26,SOUTH:5"
 #define ui_acti "EAST-2:26,SOUTH:5"
 #define ui_movi "EAST-3:24,SOUTH:5"
@@ -50,8 +50,8 @@
 #define ui_uniqueaction "EAST-4:20,SOUTH:5"
 #define ui_zonesel "EAST-1:28,SOUTH+3:7"
 #define ui_acti_alt "EAST-1:28,SOUTH:5"
-#define ui_resist "EAST-3:24,SOUTH+2:7"
-#define ui_rest   "EAST-2:26,SOUTH+2:7"
+#define ui_resist "EAST-1:28,SOUTH:5"
+#define ui_rest   "EAST-1:28,SOUTH+3:5"
 
 // vampire
 #define ui_suck "EAST-3:24,SOUTH+1:7"

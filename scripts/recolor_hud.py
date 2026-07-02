@@ -57,6 +57,30 @@ def save_recolored(src_path: Path, dst_path: Path, result_img: Image.Image):
     print(f"  -> {dst_path}")
 
 
+def frame_grayscale_recolor(src_path: Path, dst_path: Path):
+    """
+    Keep blue/cool pixels (already converted by R<->B swap), convert warm/neutral
+    frame pixels to grayscale. This removes the orange frame tint while keeping
+    the blue indicator icons inside slots intact.
+    """
+    img = Image.open(src_path).convert('RGBA')
+    pixels = img.load()
+    w, h = img.size
+    result = Image.new('RGBA', (w, h))
+    out = result.load()
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = pixels[x, y]
+            if a == 0:
+                out[x, y] = (0, 0, 0, 0)
+            elif b > r + 30:  # clearly blue pixel — keep as-is
+                out[x, y] = (r, g, b, a)
+            else:             # warm/neutral frame pixel — convert to grayscale
+                lum = int(0.299 * r + 0.587 * g + 0.114 * b)
+                out[x, y] = (lum, lum, lum, a)
+    save_recolored(src_path, dst_path, result)
+
+
 def blue_recolor(src_path: Path, dst_path: Path):
     """R↔B swap: orange→blue, white stays white, green stays green."""
     img = Image.open(src_path).convert('RGBA')
@@ -129,6 +153,9 @@ if __name__ == '__main__':
     print("Creating blue screen/dark.dmi ...")
     blue_recolor(orig_dark, blue_dark)
 
+    print("Applying frame grayscale to screen/dark.dmi (keeps blue icons, grays frames) ...")
+    frame_grayscale_recolor(blue_dark, blue_dark)
+
     print("Creating silver screen/silver.dmi ...")
     silver_recolor(orig_dark, silver_dark)
 
@@ -140,10 +167,22 @@ if __name__ == '__main__':
         shutil.copy2(silver_puppet, orig_puppet)
         print(f"Backed up: {orig_puppet}")
 
-    print("Creating silver puppet_new.dmi ...")
-    silver_recolor(orig_puppet, silver_puppet)
+    print("Creating blue puppet_new.dmi (R<->B swap to match UI) ...")
+    blue_recolor(orig_puppet, silver_puppet)
+
+    # ── generic.dmi → blue gun mode buttons ───────────────────────────────────
+    gen_orig = AURORA / 'generic_original.dmi'
+    gen_dst  = AURORA / 'generic.dmi'
+
+    if not gen_orig.exists():
+        shutil.copy2(gen_dst, gen_orig)
+        print(f"Backed up: {gen_orig}")
+
+    print("Creating blue generic.dmi (gun mode buttons blue) ...")
+    blue_recolor(gen_orig, gen_dst)
 
     print("\nDone.")
     print("  screen/dark.dmi   = blue UI buttons")
-    print("  screen/silver.dmi = silver status icons (green/red vitals preserved)")
-    print("  puppet_new.dmi    = silver/white character doll")
+    print("  screen/silver.dmi = silver status icons")
+    print("  puppet_new.dmi    = blue character doll")
+    print("  generic.dmi       = blue gun mode buttons")

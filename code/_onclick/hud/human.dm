@@ -50,6 +50,8 @@
 		if(slot_data["dir"])
 			inv_box.set_dir(slot_data["dir"])
 
+		// Slot frame colors handled at source in screen/dark.dmi via recolor script
+
 		if(slot_data["toggle"])
 			src.other += inv_box
 			has_hidden_gear = 1
@@ -98,6 +100,69 @@
 
 		target.update_hud_hands()
 
+	// ── Movement intent (WALK/RUN toggle) ────────────────────────────────────
+	if(hud_data.has_m_intent)
+		using = new /atom/movable/screen/movement_intent()
+		using.icon = ui_style
+		using.icon_state = (mymob.m_intent == M_RUN ? "running" : "walking")
+		src.adding += using
+		move_intent = using
+
+	// ── Attack intent — uses dark_original.dmi to preserve green/yellow/red colors ──
+	if(hud_data.has_a_intent)
+		using = new /atom/movable/screen()
+		using.name = "act_intent"
+		using.icon = 'icons/hud/mob/screen/dark_original.dmi'
+		using.icon_state = "intent_"+mymob.a_intent
+		using.screen_loc = ui_acti
+		using.color = ui_color
+		using.alpha = ui_alpha
+		src.adding += using
+		action_intent = using
+		hud_elements |= using
+
+	// ── Drop / throw / resist ────────────────────────────────────────────────
+	if(hud_data.has_drop)
+		using = new /atom/movable/screen()
+		using.name = "drop"
+		using.icon = ui_style
+		using.icon_state = "act_drop"
+		using.screen_loc = ui_drop_throw
+		src.hotkeybuttons += using
+
+	if(hud_data.has_throw)
+		mymob.throw_icon = new /atom/movable/screen()
+		mymob.throw_icon.name = "throw"
+		mymob.throw_icon.icon = ui_style
+		mymob.throw_icon.icon_state = "act_throw_off"
+		mymob.throw_icon.screen_loc = ui_drop_throw
+		src.hotkeybuttons += mymob.throw_icon
+		hud_elements |= mymob.throw_icon
+
+	if(hud_data.has_resist)
+		using = new /atom/movable/screen()
+		using.name = "resist"
+		using.icon = ui_style
+		using.icon_state = "act_resist"
+		using.screen_loc = ui_pull_resist
+		src.hotkeybuttons += using
+
+	// ── Health figure (G↔B swap turns green→blue while keeping white "100" text) ─
+	if(hud_data.has_warnings)
+		mymob.healths = new /atom/movable/screen()
+		mymob.healths.icon = ui_style
+		mymob.healths.icon_state = "health0"
+		mymob.healths.screen_loc = ui_health
+		mymob.healths.color = list(1,0,0,0, 0,0,1,0, 0,1,0,0, 0,0,0,1, 0,0,0,0)
+		hud_elements |= mymob.healths
+
+	// ── Character doll (zone selector) — visible with puppet_new.dmi ─────────
+	mymob.zone_sel = new /atom/movable/screen/zone_sel(null)
+	mymob.zone_sel.icon = 'icons/hud/mob/puppet_new.dmi'
+	mymob.zone_sel.ClearOverlays()
+	mymob.zone_sel.AddOverlays(image('icons/hud/mob/zone_sel_newer.dmi', "[mymob.zone_sel.selecting]"))
+	hud_elements |= mymob.zone_sel
+
 	// ── Gun mode icons (Aurora's own icon files) ──────────────────────────────
 	mymob.gun_setting_icon = new /atom/movable/screen/gun/mode(null)
 	mymob.item_use_icon    = new /atom/movable/screen/gun/item(null)
@@ -105,6 +170,13 @@
 	mymob.radio_use_icon   = new /atom/movable/screen/gun/radio(null)
 	mymob.toggle_firing_mode = new /atom/movable/screen/gun/burstfire(null)
 	mymob.unique_action_icon = new /atom/movable/screen/gun/uniqueaction(null)
+	// Gun cluster — use Aurora's built-in positions (gun_mode.dm defaults), only tint blue
+	mymob.gun_setting_icon.color = "#aaccff"
+	mymob.item_use_icon.color = "#aaccff"
+	mymob.gun_move_icon.color = "#aaccff"
+	mymob.radio_use_icon.color = "#aaccff"
+	mymob.toggle_firing_mode.color = "#aaccff"
+	mymob.unique_action_icon.color = "#aaccff"
 	hud_elements |= mymob.gun_setting_icon
 	hud_elements |= mymob.toggle_firing_mode
 	hud_elements |= mymob.unique_action_icon
