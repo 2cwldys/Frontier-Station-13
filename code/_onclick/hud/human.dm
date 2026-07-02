@@ -127,15 +127,16 @@
 		using.name = "drop"
 		using.icon = ui_style
 		using.icon_state = "act_drop"
-		using.screen_loc = ui_drop_throw
+		using.screen_loc = ui_drop
 		src.hotkeybuttons += using
+		hud_elements |= using
 
 	if(hud_data.has_throw)
 		mymob.throw_icon = new /atom/movable/screen()
 		mymob.throw_icon.name = "throw"
 		mymob.throw_icon.icon = ui_style
 		mymob.throw_icon.icon_state = "act_throw_off"
-		mymob.throw_icon.screen_loc = ui_drop_throw
+		mymob.throw_icon.screen_loc = ui_throw
 		src.hotkeybuttons += mymob.throw_icon
 		hud_elements |= mymob.throw_icon
 
@@ -146,6 +147,16 @@
 		using.icon_state = "act_resist"
 		using.screen_loc = ui_pull_resist
 		src.hotkeybuttons += using
+		hud_elements |= using
+
+	// ── REST button
+	mymob.rest_icon = new /atom/movable/screen()
+	mymob.rest_icon.name = "rest"
+	mymob.rest_icon.icon = ui_style
+	mymob.rest_icon.icon_state = "rest0"
+	mymob.rest_icon.screen_loc = ui_rest
+	src.hotkeybuttons += mymob.rest_icon
+	hud_elements |= mymob.rest_icon
 
 	// ── Health figure (G↔B swap turns green→blue while keeping white "100" text) ─
 	if(hud_data.has_warnings)
@@ -155,6 +166,16 @@
 		mymob.healths.screen_loc = ui_health
 		mymob.healths.color = list(1,0,0,0, 0,0,1,0, 0,1,0,0, 0,0,0,1, 0,0,0,0)
 		hud_elements |= mymob.healths
+
+		mymob.oxygen = new /atom/movable/screen/oxygen()
+		mymob.oxygen.icon = 'icons/hud/mob/status_indicators.dmi'
+		mymob.oxygen.icon_state = "oxy0"
+		mymob.oxygen.screen_loc = ui_oxygen
+		hud_elements |= mymob.oxygen
+
+		mymob.internals = new /atom/movable/screen/internals()
+		mymob.internals.icon = 'icons/hud/mob/status_indicators.dmi'
+		hud_elements |= mymob.internals
 
 	// ── Character doll (zone selector) — visible with puppet_new.dmi ─────────
 	mymob.zone_sel = new /atom/movable/screen/zone_sel(null)
@@ -170,13 +191,20 @@
 	mymob.radio_use_icon   = new /atom/movable/screen/gun/radio(null)
 	mymob.toggle_firing_mode = new /atom/movable/screen/gun/burstfire(null)
 	mymob.unique_action_icon = new /atom/movable/screen/gun/uniqueaction(null)
-	// Gun cluster — use Aurora's built-in positions (gun_mode.dm defaults), only tint blue
+	// Gun cluster — EAST-2 column, tightly stacked above intent wheel, 20px steps
 	mymob.gun_setting_icon.color = "#aaccff"
-	mymob.item_use_icon.color = "#aaccff"
-	mymob.gun_move_icon.color = "#aaccff"
-	mymob.radio_use_icon.color = "#aaccff"
+	mymob.gun_setting_icon.screen_loc = "EAST-2:26,SOUTH+1:5"
 	mymob.toggle_firing_mode.color = "#aaccff"
+	mymob.toggle_firing_mode.screen_loc = "EAST-2:26,SOUTH+2:5"
 	mymob.unique_action_icon.color = "#aaccff"
+	mymob.unique_action_icon.screen_loc = "EAST-2:26,SOUTH+2:13"
+	// Aiming-only (shown when aiming gun): EAST-3 column, same rows
+	mymob.item_use_icon.color = "#aaccff"
+	mymob.item_use_icon.screen_loc = "EAST-3:24,SOUTH+1:5"
+	mymob.gun_move_icon.color = "#aaccff"
+	mymob.gun_move_icon.screen_loc = "EAST-3:24,SOUTH+1:25"
+	mymob.radio_use_icon.color = "#aaccff"
+	mymob.radio_use_icon.screen_loc = "EAST-3:24,SOUTH+2:13"
 	hud_elements |= mymob.gun_setting_icon
 	hud_elements |= mymob.toggle_firing_mode
 	hud_elements |= mymob.unique_action_icon

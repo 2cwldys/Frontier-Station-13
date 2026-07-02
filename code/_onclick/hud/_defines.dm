@@ -40,9 +40,11 @@
 
 //Lower right, persistant menu
 #define ui_dropbutton "EAST-4:22,SOUTH:5"
-#define ui_pull_resist "EAST-1:28,SOUTH:5"
-#define ui_drop_throw  "EAST-1:28,SOUTH+1:5"
-#define ui_pull        "EAST-1:28,SOUTH+2:5"
+#define ui_drop        "EAST-1:28,SOUTH+1:8"
+#define ui_throw       "EAST-1:28,SOUTH+2:5"
+#define ui_drop_throw  "EAST-1:28,SOUTH+2:5"
+#define ui_pull_resist "EAST-1:28,SOUTH+2:8"
+#define ui_pull        "EAST-1:28,SOUTH+4:5"
 #define ui_morph_resist "EAST-2:26,SOUTH:5"
 #define ui_acti "EAST-2:26,SOUTH:5"
 #define ui_movi "EAST-3:24,SOUTH:5"
@@ -50,8 +52,8 @@
 #define ui_uniqueaction "EAST-4:20,SOUTH:5"
 #define ui_zonesel "EAST-1:28,SOUTH+3:7"
 #define ui_acti_alt "EAST-1:28,SOUTH:5"
-#define ui_resist "EAST-1:28,SOUTH:5"
-#define ui_rest   "EAST-1:28,SOUTH+3:5"
+#define ui_resist "EAST-1:28,SOUTH:+2:8"
+#define ui_rest   "EAST-1:28,SOUTH+1:5"
 
 // vampire
 #define ui_suck "EAST-3:24,SOUTH+1:7"
@@ -117,14 +119,14 @@
 #define ui_shoes "WEST+1:8,SOUTH:5"
 #define ui_gloves "WEST:6,SOUTH+1:7"
 #define ui_pants "WEST+1:8,SOUTH+1:7"
-#define ui_wrists "WEST:6,SOUTH+2:9"
-#define ui_iclothing "WEST+1:8,SOUTH+2:9"
-#define ui_oclothing "WEST+2:10,SOUTH+2:9"
-#define ui_mask "WEST+1:8,SOUTH+3:11"
-#define ui_glasses "WEST:6,SOUTH+3:11"
-#define ui_r_ear "WEST:6,SOUTH+4:13"
-#define ui_head "WEST+1:8,SOUTH+4:13"
-#define ui_l_ear "WEST+2:10,SOUTH+4:13"
+#define ui_wrists "WEST:6,SOUTH+1:9"
+#define ui_iclothing "WEST+1:8,SOUTH+1:9"
+#define ui_oclothing "WEST+2:10,SOUTH+1:9"
+#define ui_mask "WEST+1:8,SOUTH+2:11"
+#define ui_glasses "WEST:6,SOUTH+2:11"
+#define ui_r_ear "WEST:6,SOUTH+3:13"
+#define ui_head "WEST+1:8,SOUTH+3:13"
+#define ui_l_ear "WEST+2:10,SOUTH+3:13"
 
 //Intent small buttons
 #define ui_help_small "EAST-3:8,SOUTH:1"
