@@ -174,7 +174,6 @@
 		hud_elements |= mymob.oxygen
 
 		mymob.internals = new /atom/movable/screen/internals()
-		mymob.internals.icon = 'icons/hud/mob/status_indicators.dmi'
 		hud_elements |= mymob.internals
 
 	// ── Character doll (zone selector) — visible with puppet_new.dmi ─────────
