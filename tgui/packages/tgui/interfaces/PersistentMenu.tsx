@@ -22,7 +22,7 @@ export const PersistentMenu = (props) => {
 
   return (
     <Window title="Character Select" width={420} height={520}>
-      <Window.Content>
+      <Window.Content className="PersistentMenu">
         {characters.map((char) => (
           <Section
             key={char.name}

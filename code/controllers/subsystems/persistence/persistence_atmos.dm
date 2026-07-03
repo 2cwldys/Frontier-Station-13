@@ -3,9 +3,11 @@
  * Saves and restores per-zone gas composition and temperature across rounds.
  * Uses the first turf in each zone as the representative coordinate key.
  *
- * Timing: SSair (INIT_ORDER_AIR = -1) builds zones after SSpersistence (INIT_ORDER = 31).
- * atmosInitialize() caches DB data early; atmosApply() is called from SSair.Initialize()
- * after geometry is processed and zones exist.
+ * Timing: SSair (INIT_ORDER_AIR = -1) initializes BEFORE SSpersistence
+ * (INIT_ORDER_PERSISTENCE = -10). SSpersistence.Initialize() restores turfs,
+ * loads the atmos cache (atmosInitialize), settles the ZAS updates the turf
+ * restore queued (SSair.fire), then calls atmosApply() to re-pressurize zones
+ * from the saved state.
  *
  * Only runs on the SCCV Horizon map.
  */
@@ -15,7 +17,7 @@ GLOBAL_LIST_EMPTY(persistence_atmos_cache)
 
 /**
  * Load saved atmospheric zone data into the in-memory cache.
- * Called from SSpersistence.Initialize()  zones don't exist yet at this point.
+ * Called from SSpersistence.Initialize(), right before atmosApply().
  */
 /datum/controller/subsystem/persistence/proc/atmosInitialize()
 	PRIVATE_PROC(TRUE)
@@ -48,7 +50,7 @@ GLOBAL_LIST_EMPTY(persistence_atmos_cache)
 
 /**
  * Apply cached atmos data to live zones after SSair has built them.
- * Called from SSair.Initialize() after geometry processing completes.
+ * Called from SSpersistence.Initialize() after the turf restore and air settle.
  */
 /datum/controller/subsystem/persistence/proc/atmosApply()
 	if(!GLOB.config.sql_enabled || !length(GLOB.persistence_atmos_cache))

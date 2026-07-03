@@ -38,7 +38,8 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 	q.Execute()
 	if(databaseCheckQueryResult(q, "factionInitialize factions"))
 		while(q.NextRow())
-			GLOB.persistence_faction_cache[q.item[1]] = list(
+			// Normalize keys on load -- legacy rows may carry raw display-name uids
+			GLOB.persistence_faction_cache[normalize_faction_uid(q.item[1])] = list(
 				"name"         = q.item[2],
 				"abbreviation" = q.item[3],
 				"balance"      = text2num(q.item[4]) || 0
@@ -53,7 +54,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 	jq.Execute()
 	if(databaseCheckQueryResult(jq, "factionInitialize jobs"))
 		while(jq.NextRow())
-			var/fuid = jq.item[2]
+			var/fuid = normalize_faction_uid(jq.item[2])
 			if(!(fuid in GLOB.persistence_faction_jobs_cache))
 				GLOB.persistence_faction_jobs_cache[fuid] = list()
 			GLOB.persistence_faction_jobs_cache[fuid] += list(list(
@@ -73,7 +74,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 	mq.Execute()
 	if(databaseCheckQueryResult(mq, "factionInitialize members"))
 		while(mq.NextRow())
-			var/mkey = "[mq.item[1]]|[mq.item[2]]"
+			var/mkey = "[mq.item[1]]|[normalize_faction_uid(mq.item[2])]"
 			GLOB.persistence_faction_members_cache[mkey] = list(
 				"real_name"      = mq.item[3],
 				"job_title"      = mq.item[4],
@@ -117,12 +118,22 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 // ACCOUNT OPERATIONS
 // ============================================================
 
+/// Canonical faction uid form: lowercase, underscores for spaces. Faction cache
+/// and DB rows are keyed this way (see admin create at manage_faction_account),
+/// but ID cards carry display names -- normalize every lookup and every write.
+/proc/normalize_faction_uid(uid)
+	if(!istext(uid) || !length(uid))
+		return uid
+	return lowertext(replacetext(uid, " ", "_"))
+
 /proc/get_faction_account_balance(uid)
+	uid = normalize_faction_uid(uid)
 	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
 		return null
 	return GLOB.persistence_faction_cache[uid]["balance"]
 
 /proc/faction_debit(uid, amount, reason = "transaction")
+	uid = normalize_faction_uid(uid)
 	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
 		return FALSE
 	if(amount <= 0)
@@ -137,6 +148,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 	return TRUE
 
 /proc/faction_credit(uid, amount, reason = "transaction")
+	uid = normalize_faction_uid(uid)
 	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
 		return FALSE
 	if(amount <= 0)
@@ -149,6 +161,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 
 /// Log a faction transaction (debit negative, credit positive). Fire-and-forget.
 /proc/_faction_transaction_log(uid, amount, reason)
+	uid = normalize_faction_uid(uid)
 	if(!GLOB.config.sql_enabled || !SSdbcore.Connect())
 		return
 	var/datum/db_query/tq = SSdbcore.NewQuery(
@@ -160,6 +173,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 
 /// Write a faction's balance to DB immediately. Called after every balance mutation.
 /proc/_faction_balance_write(uid, balance)
+	uid = normalize_faction_uid(uid)
 	if(!GLOB.config.sql_enabled || !SSdbcore.Connect())
 		return
 	var/datum/db_query/bq = SSdbcore.NewQuery(
@@ -175,11 +189,13 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 // ============================================================
 
 /proc/get_faction_jobs(uid)
+	uid = normalize_faction_uid(uid)
 	if(!islist(GLOB.persistence_faction_jobs_cache))
 		return list()
 	return GLOB.persistence_faction_jobs_cache[uid] || list()
 
 /proc/get_faction_name(uid)
+	uid = normalize_faction_uid(uid)
 	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
 		return uid
 	return GLOB.persistence_faction_cache[uid]["name"]
@@ -870,11 +886,13 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 // ============================================================
 
 /proc/get_faction_member(ckey, faction_uid)
+	faction_uid = normalize_faction_uid(faction_uid)
 	if(!islist(GLOB.persistence_faction_members_cache))
 		return null
 	return GLOB.persistence_faction_members_cache["[ckey]|[faction_uid]"]
 
 /datum/controller/subsystem/persistence/proc/factionRegisterMember(ckey, real_name, faction_uid, job_title = null, rank = 0)
+	faction_uid = normalize_faction_uid(faction_uid)
 	if(!databaseCheckConnection("factionRegisterMember"))
 		return FALSE
 	var/datum/db_query/q = SSdbcore.NewQuery(
@@ -896,6 +914,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	return ok
 
 /proc/get_faction_job_access(faction_uid, job_title)
+	faction_uid = normalize_faction_uid(faction_uid)
 	if(!islist(GLOB.persistence_faction_jobs_cache)) return list()
 	var/list/jobs = GLOB.persistence_faction_jobs_cache[faction_uid]
 	if(!islist(jobs)) return list()
@@ -918,6 +937,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 // ============================================================
 
 /datum/controller/subsystem/persistence/proc/factionUpdateMemberAccount(ckey, faction_uid, account_number)
+	faction_uid = normalize_faction_uid(faction_uid)
 	if(!databaseCheckConnection("factionUpdateMemberAccount"))
 		return FALSE
 	var/datum/db_query/q = SSdbcore.NewQuery(

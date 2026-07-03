@@ -25,7 +25,7 @@
 			var/nx = text2num(data["x"])
 			var/ny = text2num(data["y"])
 			var/nz = text2num(data["z"])
-			if(nz in GLOB.persistence_zlevel_skip) continue
+			if(persistence_z_excluded(nz)) continue
 			var/turf/spawn_turf = (nx && ny && nz) ? locate(nx, ny, nz) : null
 			if(!spawn_turf)
 				log_subsystem_persistence_error("Persistent objects: Cannot locate saved position for [data["type"]] (id=[data["id"]]) at ([data["x"]],[data["y"]],[data["z"]]) -- skipping.")
@@ -92,7 +92,7 @@
 	for (var/obj/track as anything in GLOB.persistence_object_track_register)
 		CHECK_TICK
 		var/turf/T = get_turf(track)
-		if(!T || !T.z || (T.z in GLOB.persistence_zlevel_skip)) // Skip invalid or non-persistent Z levels
+		if(!T || !T.z || persistence_z_excluded(T.z)) // Skip invalid or non-persistent Z levels
 			objectsDeregisterTrack(track)
 
 	var/created = 0

@@ -1,6 +1,8 @@
 /datum/persistent_menu
 	var/mob/abstract/new_player/new_player_mob
 	var/spawning = FALSE  // set TRUE when Play is clicked; prevents ui_close() from reopening
+	var/opening = FALSE   // guards the window between ui.open() start and open_uis registration;
+	                      // ui_data's blocking DB query defeats try_update_ui during that gap
 
 /datum/persistent_menu/New(mob/abstract/new_player/NP)
 	src.new_player_mob = NP
@@ -17,8 +19,15 @@
 /datum/persistent_menu/ui_interact(mob/user, datum/tgui/ui)
 	ui = SStgui.try_update_ui(user, src, ui)
 	if(!ui)
-		ui = new /datum/tgui(user, src, "PersistentMenu", "Character Select", 420, 520)
-		ui.open()
+		if(opening)
+			return
+		opening = TRUE
+		try
+			ui = new /datum/tgui(user, src, "PersistentMenu", "Character Select", 420, 520)
+			ui.open()
+		catch(var/exception/menu_e)
+			log_debug("persistent_menu: ui open failed: [menu_e]")
+		opening = FALSE
 
 /datum/persistent_menu/ui_data(mob/user)
 	var/list/data = list()

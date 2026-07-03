@@ -432,6 +432,13 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
  * Called in place of LateChoices() for all normal joins.
  */
 /mob/abstract/new_player/proc/PersistentAutoSpawn(selected_from_menu = null)
+	set waitfor = FALSE
+	// This is a long, fully synchronous chain (record generation, inventory/
+	// identity restore, DB lookups) called directly from ui_act("play") --
+	// without waitfor=FALSE, any slow step in it (worse under DB/connection
+	// contention) blocks the ENTIRE server for every player, not just this
+	// one, until it returns. The caller doesn't use the return value or touch
+	// NP/character afterward, so running this async is safe here.
 	if(!GLOB.persistence_ready)
 		to_chat(src, SPAN_WARNING("The server is still loading. Please wait a moment and try again."))
 		return
@@ -479,6 +486,8 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 			H.status_flags &= ~GODMODE
 			to_chat(H, SPAN_NOTICE("You eject from cryosleep. Welcome back, [H.real_name]."))
 			log_subsystem_persistence_info("Cryo: [H.real_name] ([ckey_lower]) woke from cryosleep.")
+			if(H.client)
+				addtimer(CALLBACK(H.client, /client/proc/start_ambient_playlist), 5 SECONDS)
 			qdel(src)
 			return
 
@@ -493,6 +502,8 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		H.key = client.ckey
 		to_chat(H, SPAN_NOTICE("Connection restored. Welcome back, [H.real_name]."))
 		log_subsystem_persistence_info("Cryo: [H.real_name] ([ckey_lower]) reconnected to live mob.")
+		if(H.client)
+			addtimer(CALLBACK(H.client, /client/proc/start_ambient_playlist), 5 SECONDS)
 		qdel(src)
 		return
 
@@ -609,6 +620,15 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		catch(var/exception/health_e)
 			log_subsystem_persistence_error("PersistentAutoSpawn: health restore failed: [health_e]")
 		try
+			// Materialize this character's saved bank account into SSeconomy so ATMs
+			// can find it. Restores only -- never mints; accounts are created at the
+			// ID console. Runs before inventory restore so the ID relink sees it.
+			var/datum/money_account/restored_account = SSeconomy.restoreAccountFromPersistence(character)
+			if(restored_account && character.mind)
+				character.mind.initial_account = restored_account
+		catch(var/exception/acct_e)
+			log_subsystem_persistence_error("PersistentAutoSpawn: account restore failed: [acct_e]")
+		try
 			character.applyPersistentInventory()
 		catch(var/exception/inv_e)
 			log_subsystem_persistence_error("PersistentAutoSpawn: inventory restore failed: [inv_e]")
@@ -691,6 +711,10 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		SSrecords.generate_record(character)
 		SSticker.minds += character.mind
 		AnnounceArrival(character, null, null)
+
+	// Start the in-round ambient music playlist once prefs have settled
+	if(character.client)
+		addtimer(CALLBACK(character.client, /client/proc/start_ambient_playlist), 5 SECONDS)
 
 	qdel(src)
 

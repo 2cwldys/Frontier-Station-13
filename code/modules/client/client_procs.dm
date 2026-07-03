@@ -503,6 +503,10 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 	)
 	addtimer(CALLBACK(src, PROC_REF(check_panel_loaded)), 30 SECONDS)
 
+	// Window title: "Frontier Station 13 - Mapname"
+	var/map_title = (SSatlas?.current_map?.full_name) ? SSatlas.current_map.full_name : "Unknown Sector"
+	winset(src, "mainwindow", "title=\"Frontier Station 13 - [map_title]\"")
+
 
 /client/proc/InitClient()
 	SHOULD_NOT_SLEEP(TRUE)

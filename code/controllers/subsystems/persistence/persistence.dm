@@ -17,6 +17,25 @@ GLOBAL_VAR_INIT(persistence_ready, FALSE)
 /// Empty by default = all Z levels persist.
 GLOBAL_LIST_EMPTY(persistence_zlevel_skip)
 
+/// Z levels that received a map template at runtime (away sites via load_new_z,
+/// ruins/landmark loads via template.load on non-station levels). Never persisted.
+GLOBAL_LIST_EMPTY(persistence_template_loaded_z)
+
+/// TRUE if this z-level must not be saved/loaded by turf/object/worldstate persistence:
+/// manually disabled via ss13_zlevel_persistence, a procedurally loaded away-site z
+/// (tagged ZTRAIT_AWAY), an asteroid/mining level (regenerated each round), or any z
+/// a map template was loaded onto at runtime.
+/proc/persistence_z_excluded(z)
+	if(z in GLOB.persistence_zlevel_skip)
+		return TRUE
+	if(is_away_level(z))
+		return TRUE
+	if(is_mining_level(z))
+		return TRUE
+	if(z in GLOB.persistence_template_loaded_z)
+		return TRUE
+	return FALSE
+
 SUBSYSTEM_DEF(persistence)
 	name = "Persistence"
 	init_order = INIT_ORDER_PERSISTENCE // The order is tied with the init and maploading subsystem.
@@ -318,7 +337,22 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_panic("Unhandled exception during turf persistence initialization: [turfs_e]")
 
 	try
+		// Restored cables/turfs above may have left segments on isolated powernets
+		// (SSmachinery built the grid long before persistence ran). Rebuild from
+		// GLOB.cable_list -- same proc the admin "Make Powernets" debug verb uses.
+		SSmachinery.makepowernets()
+		log_subsystem_persistence_info("Powernets rebuilt after persistence restore.")
+	catch(var/exception/pn_e)
+		log_subsystem_persistence_panic("Unhandled exception during powernet rebuild: [pn_e]")
+
+	try
 		atmosInitialize()
+		// The turf restore above queued ZAS updates -- settle them so zone geometry
+		// is final, then re-apply the saved zone gases. This must happen here:
+		// SSair initializes BEFORE SSpersistence, so any air vented while restored
+		// turfs rebuilt zones is replenished from the saved state, and alarms clear.
+		SSair.fire(FALSE, TRUE)
+		atmosApply()
 	catch(var/exception/atmos_e)
 		log_subsystem_persistence_panic("Unhandled exception during atmos persistence initialization: [atmos_e]")
 

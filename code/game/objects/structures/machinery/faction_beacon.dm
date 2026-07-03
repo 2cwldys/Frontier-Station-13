@@ -40,6 +40,7 @@
 
 /// Scan nearby objects and set their persistent_network to our faction_uid
 /obj/structure/machinery/faction_beacon/proc/_apply_network()
+	faction_uid = normalize_faction_uid(faction_uid)
 	if(!faction_uid)
 		active = FALSE
 		return
@@ -91,6 +92,7 @@
 	var/new_uid = tgui_input_text(usr, "Enter faction UID (e.g. 'nanotrasen', 'zavodskoi') or leave blank to clear:", "Configure Faction Beacon", faction_uid, max_length = 32)
 	if(new_uid == null)
 		return
+	new_uid = normalize_faction_uid(new_uid)
 
 	if(new_uid == "")
 		faction_uid = ""

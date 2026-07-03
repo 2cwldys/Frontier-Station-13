@@ -21,7 +21,7 @@
 	view = "15x15"
 	hub = "Exadv1.spacestation13"
 	hub_password = "kMZy3U5jJHSiBQjr"
-	name = "Space Station 13"
+	name = "Frontier Station 13"
 	fps = 20
 	cache_lifespan = 0	//stops player uploaded stuff from being kept in the rsc past the current session
 	// map_format = SIDE_MAP //Possibly makes the sprites flicker and thus the clients lag

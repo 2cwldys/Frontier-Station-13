@@ -21,7 +21,9 @@
 
 /datum/computer_file/program/faction_manage/ui_data(mob/user)
 	var/list/data = initial_data()
-	var/net = computer.persistent_network
+	// Normalize defensively: consoles shackled before uid normalization carry
+	// raw display names in their saved worldstate
+	var/net = normalize_faction_uid(computer.persistent_network)
 
 	data["faction_uid"]        = net
 	data["faction_name"]       = net ? get_faction_name(net) : null
@@ -101,7 +103,7 @@
 		return
 
 	var/mob/user = usr
-	var/net = computer.persistent_network
+	var/net = normalize_faction_uid(computer.persistent_network)
 	if(!net) return
 
 	var/list/op_member = user.ckey ? get_faction_member(user.ckey, net) : null
@@ -445,4 +447,18 @@
 			if(op_rank < 2) return
 			SSpersistence.factionPayroll(net)
 			to_chat(user, SPAN_GOOD("Payroll triggered for [get_faction_name(net)]."))
+			. = TRUE
+
+		// ---- Print Faction Charge Card --------------------------------------
+		if("print_charge_card")
+			if(op_rank < 2) return
+			var/confirm = tgui_alert(user, "Print a charge card that draws directly on [get_faction_name(net)]'s bank account? Anyone holding it can spend faction funds.", "Print Charge Card", list("Print", "Cancel"))
+			if(confirm != "Print") return
+			var/obj/item/spacecash/ewallet/faction_charge_card/FC = new(get_turf(computer))
+			FC.faction_uid = net
+			FC.name = "[get_faction_name(net)] charge card"
+			FC.owner_name = get_faction_name(net)
+			user.put_in_hands(FC)
+			to_chat(user, SPAN_GOOD("Printed \a [FC]."))
+			log_game("[key_name(user)] printed a faction charge card for '[net]' via faction_manage.")
 			. = TRUE

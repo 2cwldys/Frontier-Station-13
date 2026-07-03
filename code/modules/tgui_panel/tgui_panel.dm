@@ -85,9 +85,13 @@
 				),
 			),
 		))
-		// If goonchat is active, load goonchat HTML into browseroutput and keep the pane visible
+		// If goonchat is active, (re)assert its HTML into browseroutput now that
+		// tgui_panel's own init into that same shared pane is confirmed done --
+		// this guarantees goonchat is the last writer regardless of which side's
+		// init was slower (see assert_chat_html() in browserOutput.dm).
 		if(GLOB.config.goonchat && client.chatOutput && !client.chatOutput.broken)
 			winset(client, "output_selector.legacy_output_selector", "left=output_browser")
+			client.chatOutput.assert_chat_html()
 		return TRUE
 	if(type == "audio/setAdminMusicVolume")
 		client.admin_music_volume = payload["volume"]

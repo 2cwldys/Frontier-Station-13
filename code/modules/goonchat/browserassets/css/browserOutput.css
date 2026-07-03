@@ -8,6 +8,7 @@ html, body {
 	margin: 0;
 	height: 100%;
 	color: #CCCCE2;
+	cursor: url("cursor.cur"), auto;
 }
 body {
 	background-image: url("chatbg.png");

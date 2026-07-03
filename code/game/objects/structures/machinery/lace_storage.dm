@@ -60,7 +60,7 @@
 	var/new_network = tgui_input_text(usr, "Enter network ID ('public', a faction UID, or leave blank to clear):", "Configure Lace Storage", persistent_network, max_length = 32)
 	if(new_network == null) return
 
-	persistent_network = new_network
+	persistent_network = (new_network == "public") ? new_network : normalize_faction_uid(new_network)
 	to_chat(usr, SPAN_GOOD("Lace storage network set to: [persistent_network ? persistent_network : "(unmanaged)"]"))
 	log_admin("[key_name(usr)] configured lace storage at ([x],[y],[z]) network='[persistent_network]'")
 

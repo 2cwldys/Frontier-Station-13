@@ -8,6 +8,7 @@ html, body {
 	margin: 0;
 	height: 100%;
 	color: #000000;
+	cursor: url("cursor.cur"), auto;
 }
 body {
 	background: #fff;

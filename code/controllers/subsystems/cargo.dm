@@ -575,8 +575,21 @@ SUBSYSTEM_DEF(cargo)
 		if(!co)
 			continue
 
+		// Resolve faction telepad routing FIRST -- billing and placement differ.
+		// Faction orders bill the faction bank (not operations) and land on the
+		// telepad, so they neither consume elevator space nor shuttle budget.
+		var/turf/telepad_turf = null
+		if(co.delivery_network)
+			co.delivery_network = normalize_faction_uid(co.delivery_network)
+			if(!islist(GLOB.persistence_faction_cache) || !(co.delivery_network in GLOB.persistence_faction_cache))
+				log_subsystem_cargo("Warning: order [co.order_id] delivery_network '[co.delivery_network]' not in faction cache -- falling back to shuttle.")
+			else
+				telepad_turf = persistence_find_cargo_telepad(co.delivery_network)
+				if(!telepad_turf)
+					log_subsystem_cargo("Warning: order [co.order_id] found no delivery-enabled telepad for '[co.delivery_network]' -- falling back to shuttle.")
+
 		// Check if theres space to place the order.
-		if(!clear_turfs.len)
+		if(!telepad_turf && !clear_turfs.len)
 			log_subsystem_cargo("Order [co.order_id] could not be placed on the cargo elevator because it is full.")
 			break
 
@@ -586,13 +599,26 @@ SUBSYSTEM_DEF(cargo)
 				log_subsystem_cargo("Order [co.order_id] could not be placed on the cargo elevator because supplier [coi.ci.supplier_data.name] for item [coi.ci.name] is unavailable.")
 				continue
 
-		// Check if there is enough money to ship the order.
-		if(!ship_order(co))
+		if(telepad_turf)
+			// Faction pays BEFORE anything spawns -- a failed debit leaves no
+			// orphaned crate and no operations charge
+			if(!faction_debit(co.delivery_network, co.price, "Cargo order [co.order_id]"))
+				co.status = "rejected"
+				log_subsystem_cargo("Order [co.order_id] rejected: faction '[co.delivery_network]' has insufficient funds.")
+				continue
+			co.set_shipped()
+			current_shipment.orders.Add(co) // tracked in the shipment, but NOT added to shipment_cost_purchase (operations does not pay)
+			co.set_paid(get_faction_name(co.delivery_network), 0, "faction:[co.delivery_network]")
+		else if(!ship_order(co)) // Check if there is enough money to ship the order.
 			continue
 
-		var/i = rand(1,clear_turfs.len)
-		var/turf/pickedloc = clear_turfs[i]
-		clear_turfs.Cut(i,i+1)
+		var/turf/pickedloc
+		if(telepad_turf)
+			pickedloc = telepad_turf
+		else
+			var/i = rand(1,clear_turfs.len)
+			pickedloc = clear_turfs[i]
+			clear_turfs.Cut(i,i+1)
 
 		// Spawn the crate.
 		var/containertype = co.get_container_type()
@@ -619,24 +645,10 @@ SUBSYSTEM_DEF(cargo)
 		var/obj/item/paper/P = new(crate)
 		P.set_content_unsafe("[co.order_id] - [co.ordered_by]", co.get_report_delivery_order())
 
-		// Faction telepad delivery — if the order has a network, route it there instead of the shuttle
-		if(co.delivery_network)
-			if(!islist(GLOB.persistence_faction_cache) || !(co.delivery_network in GLOB.persistence_faction_cache))
-				// Faction not yet in cache (edge case) — fall back to shuttle
-				log_subsystem_cargo("Warning: order [co.order_id] delivery_network '[co.delivery_network]' not in faction cache — falling back to shuttle.")
-			else
-				var/turf/T = persistence_find_cargo_telepad(co.delivery_network)
-				if(T)
-					if(faction_debit(co.delivery_network, co.price, "Cargo order [co.order_id]"))
-						persistence_telepad_deliver(list(crate), T)
-						co.status = "shipped"
-						log_subsystem_cargo("Order [co.order_id] delivered via telepad to '[co.delivery_network]' at ([T.x],[T.y],[T.z]).")
-						clear_turfs.Cut(i, i+1)
-						continue
-					else
-						co.status = "rejected"
-						log_subsystem_cargo("Order [co.order_id] rejected: faction '[co.delivery_network]' has insufficient funds.")
-						continue
+		// Faction telepad delivery -- already billed above; announce arrival on the pad
+		if(telepad_turf)
+			persistence_telepad_deliver(list(crate), telepad_turf)
+			log_subsystem_cargo("Order [co.order_id] delivered via telepad to '[co.delivery_network]' at ([telepad_turf.x],[telepad_turf.y],[telepad_turf.z]).")
 
 	// Shuttle is loaded now, charge operations for it.
 	charge_cargo("Shipment #[current_shipment.shipment_num] - Expense", current_shipment.shipment_cost_purchase)

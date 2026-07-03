@@ -318,6 +318,40 @@
 /obj/item/spacecash/ewallet/c10000
 	worth = 10000
 
+// Faction charge card -- NOT stored-value: spending it debits the owning
+// faction's live bank balance. Printed from the Faction Management terminal.
+/obj/item/spacecash/ewallet/faction_charge_card
+	name = "faction charge card"
+	desc = "A corporate charge card that draws directly on a faction's bank account."
+	icon_state = "efundcard_special"
+	worth = 0 // unused; funds come from the faction account
+	persistant_objects_expiration_time_days = 360
+	var/faction_uid = ""
+
+/obj/item/spacecash/ewallet/faction_charge_card/Initialize()
+	. = ..()
+	SSpersistence.objectsRegisterTrack(src)
+
+/obj/item/spacecash/ewallet/faction_charge_card/get_examine_text(mob/user, distance, is_adjacent, infix, suffix)
+	. = ..()
+	if(distance <= 2 && faction_uid)
+		. += SPAN_NOTICE("It draws on the account of [get_faction_name(faction_uid)]. Current balance: [get_faction_account_balance(faction_uid) || 0] credits.")
+
+/obj/item/spacecash/ewallet/faction_charge_card/persistent_objects_get_content()
+	var/list/content = list()
+	content["name"] = name
+	content["faction_uid"] = faction_uid
+	content["owner_name"] = owner_name
+	return content
+
+/obj/item/spacecash/ewallet/faction_charge_card/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["name"]))        name = content["name"]
+	if(!isnull(content["faction_uid"])) faction_uid = normalize_faction_uid(content["faction_uid"])
+	if(!isnull(content["owner_name"]))  owner_name = content["owner_name"]
+
 // Persistent ewallet that keeps it's value across rounds.
 // When spawned, using VV, set "worth", "initial_worth", "owner_name" and "name".
 /obj/item/spacecash/ewallet/persistent_charge_card

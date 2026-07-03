@@ -4,6 +4,7 @@
 
 /client
 	parent_type = /datum
+	mouse_pointer_icon = 'icons/hud/cursor/normal.dmi'
 
 // Admin
 	var/datum/admins/holder = null

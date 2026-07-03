@@ -152,6 +152,12 @@ GLOBAL_LIST_EMPTY(persistence_economy_cache)
 	if(!saved)
 		return null
 
+	// Already materialized this session (e.g. rejoining the same round) --
+	// return the live datum instead of overwriting it with stale cached data
+	var/datum/money_account/existing = SSeconomy.all_money_accounts["[saved["account_number"]]"]
+	if(existing)
+		return existing
+
 	var/datum/money_account/account = new()
 	account.ckey             = mob.ckey
 	account.owner_name       = mob.real_name

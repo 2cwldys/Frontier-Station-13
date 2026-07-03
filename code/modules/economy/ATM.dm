@@ -170,7 +170,7 @@
 			))
 		// Show faction account if the card holder belongs to a faction
 		if(held_card && (istype(held_card, /obj/item/card/id) ? (held_card:employer_faction) : null))
-			var/fuid = (istype(held_card, /obj/item/card/id) ? (held_card:employer_faction) : null)
+			var/fuid = normalize_faction_uid(istype(held_card, /obj/item/card/id) ? (held_card:employer_faction) : null)
 			if(islist(GLOB.persistence_faction_cache) && (fuid in GLOB.persistence_faction_cache))
 				data["faction_uid"]     = fuid
 				data["faction_name"]    = get_faction_name(fuid)
@@ -317,6 +317,7 @@
 		if("faction_deposit")
 			// Transfer from personal account → faction account
 			if(authenticated_account && istype(held_card, /obj/item/card/id) && held_card:employer_faction)
+				var/fuid = normalize_faction_uid(held_card:employer_faction)
 				var/amount = max(round(text2num(params["funds_amount"]), 0.01), 0)
 				if(amount <= 0)
 					to_chat(usr, SPAN_WARNING("Invalid amount."))
@@ -324,26 +325,28 @@
 					to_chat(usr, SPAN_WARNING("[icon2html(src, usr)] Insufficient personal funds."))
 				else
 					authenticated_account.money -= amount
-					faction_credit((istype(held_card, /obj/item/card/id) ? (held_card:employer_faction) : null), amount, "ATM deposit by [authenticated_account.owner_name] on terminal [machine_id]")
+					faction_credit(fuid, amount, "ATM deposit by [authenticated_account.owner_name] on terminal [machine_id]")
 					playsound(src, 'sound/machines/chime.ogg', 50, 1)
-					to_chat(usr, SPAN_NOTICE("[icon2html(src, usr)] Deposited [amount] credits to [get_faction_name((istype(held_card, /obj/item/card/id) ? (held_card:employer_faction) : null))] account."))
+					to_chat(usr, SPAN_NOTICE("[icon2html(src, usr)] Deposited [amount] credits to [get_faction_name(fuid)] account."))
+
+					//create an entry in the account transaction log
+					var/datum/transaction/T = new()
+					T.target_name = "[get_faction_name(fuid)] (Faction)"
+					T.purpose = "Faction deposit"
+					T.amount = "([amount])"
+					T.source_terminal = machine_id
+					T.date = worlddate2text()
+					T.time = worldtime2text()
+					SSeconomy.add_transaction_log(authenticated_account,T)
 					. = TRUE
 
 		if("faction_withdraw")
 			// Transfer from faction account → personal account (officer+ only)
 			if(authenticated_account && istype(held_card, /obj/item/card/id) && held_card:employer_faction)
-				var/fuid = (istype(held_card, /obj/item/card/id) ? (held_card:employer_faction) : null)
-				// Rank check via faction members cache (rank >= 1 = officer)
-				var/player_rank = 0
-				if(GLOB.config.sql_enabled && SSdbcore.Connect())
-					var/datum/db_query/rq = SSdbcore.NewQuery(
-						"SELECT rank FROM ss13_faction_members WHERE ckey = :ckey AND faction_uid = :fuid LIMIT 1",
-						list("ckey" = usr.ckey, "fuid" = fuid)
-					)
-					rq.Execute()
-					if(rq.NextRow())
-						player_rank = text2num(rq.item[1]) || 0
-					qdel(rq)
+				var/fuid = normalize_faction_uid(held_card:employer_faction)
+				// Rank check via the normalized members cache (rank >= 1 = officer)
+				var/list/rank_member = get_faction_member(usr.ckey, fuid)
+				var/player_rank = rank_member ? (rank_member["rank"] || 0) : 0
 				if(player_rank < 1)
 					to_chat(usr, SPAN_WARNING("[icon2html(src, usr)] Only faction officers can withdraw from the faction account."))
 				else
@@ -356,6 +359,16 @@
 						authenticated_account.money += amount
 						playsound(src, 'sound/machines/chime.ogg', 50, 1)
 						to_chat(usr, SPAN_NOTICE("[icon2html(src, usr)] Withdrew [amount] credits from [get_faction_name(fuid)] account."))
+
+						//create an entry in the account transaction log
+						var/datum/transaction/T = new()
+						T.target_name = "[get_faction_name(fuid)] (Faction)"
+						T.purpose = "Faction withdrawal"
+						T.amount = amount
+						T.source_terminal = machine_id
+						T.date = worlddate2text()
+						T.time = worldtime2text()
+						SSeconomy.add_transaction_log(authenticated_account,T)
 						. = TRUE
 
 		if("balance_statement")

@@ -173,7 +173,7 @@
 				status_message = "Insufficient permissions to configure supply network."
 				return TRUE
 			var/new_net = params["network"]
-			computer.persistent_network = (new_net && new_net != "") ? new_net : ""
+			computer.persistent_network = (new_net && new_net != "") ? normalize_faction_uid(new_net) : ""
 			status_message = computer.persistent_network ? "Supply network set to '[computer.persistent_network]'. Approved orders will be routed to faction telepads." : "Supply network cleared. Orders will use the supply shuttle."
 			return TRUE
 
@@ -261,6 +261,8 @@
 
 		if("order_details")
 			var/datum/cargo_order/co = SScargo.get_order_by_id(text2num(params["order_details"]))
+			if(!co)
+				return TRUE
 			order_details = co.get_list()
 			return TRUE
 

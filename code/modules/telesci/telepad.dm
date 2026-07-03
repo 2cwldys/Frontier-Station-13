@@ -82,7 +82,7 @@
 		to_chat(user, SPAN_WARNING("Your ID is not issued by a faction."))
 		return
 
-	var/card_faction = I.employer_faction
+	var/card_faction = normalize_faction_uid(I.employer_faction)
 
 	if(faction_shackled && persistent_network != card_faction)
 		to_chat(user, SPAN_WARNING("This telepad is claimed by [get_faction_name(persistent_network)]. Only their officers can release it."))
@@ -148,7 +148,7 @@
 	if(new_network == null)
 		return
 
-	persistent_network = new_network
+	persistent_network = normalize_faction_uid(new_network)
 
 	if(new_network)
 		var/spawn_choice = tgui_alert(usr, "Accept deliveries on this pad for network '[new_network]'?", "Configure Supply Network", list("Yes", "No"))
@@ -167,7 +167,7 @@
 		if(!I.employer_faction)
 			to_chat(user, SPAN_WARNING("This ID is not issued by a faction."))
 			return TRUE
-		var/card_faction = I.employer_faction
+		var/card_faction = normalize_faction_uid(I.employer_faction)
 
 		if(faction_shackled && persistent_network == card_faction)
 			// Same faction — offer to release if officer+

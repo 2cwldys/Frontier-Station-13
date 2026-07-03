@@ -27,6 +27,9 @@ export type ATMData = {
   number_incorrect_tries: number;
   emagged: BooleanLike;
   transactions: Transaction[];
+  faction_uid?: string;
+  faction_name?: string;
+  faction_balance?: number;
 };
 
 type Transaction = {
@@ -132,6 +135,10 @@ export const AuthenticatedWindow = (props) => {
     'Funds transfer',
   );
   const [logs, setLogs] = useLocalState<boolean>('logs', false);
+  const [factionFunds, setFactionFunds] = useLocalState<number>(
+    'factionFunds',
+    0,
+  );
 
   return (
     <Section>
@@ -170,6 +177,51 @@ export const AuthenticatedWindow = (props) => {
         </LabeledList.Item>
       </LabeledList>
       <Divider />
+      {!!data.faction_uid && (
+        <Section
+          title={`Faction Account: ${data.faction_name || data.faction_uid}`}
+        >
+          Faction balance:{' '}
+          <Box as="span" bold>
+            {(data.faction_balance ?? 0).toFixed(2)}
+          </Box>
+          电.
+          <LabeledList>
+            <LabeledList.Item label="Amount">
+              <NumberInput
+                value={factionFunds}
+                minValue={1}
+                width={4}
+                maxValue={Math.max(data.money, data.faction_balance ?? 0)}
+                animated
+                unit="电"
+                step={1}
+                stepPixelSize={5}
+                onChange={(value) => setFactionFunds(value)}
+              />
+              &nbsp;
+              <Button
+                content="Deposit"
+                tooltip="Move credits from your personal account into the faction account."
+                icon="arrow-up"
+                color="green"
+                onClick={() =>
+                  act('faction_deposit', { funds_amount: factionFunds })
+                }
+              />
+              <Button
+                content="Withdraw"
+                tooltip="Move credits from the faction account into your personal account. Officers only."
+                icon="arrow-down"
+                color="average"
+                onClick={() =>
+                  act('faction_withdraw', { funds_amount: factionFunds })
+                }
+              />
+            </LabeledList.Item>
+          </LabeledList>
+        </Section>
+      )}
       <Stack vertical>
         <Stack.Item>
           <Button

@@ -8,6 +8,7 @@
 #define ZTRAIT_OVERMAP "Overmap"
 #define ZTRAIT_EXPLANET "Exoplanet"
 #define ZTRAIT_PORTOFCALL "Port of Call"
+#define ZTRAIT_MINING "Mining"
 
 
 // Whether this z level is linked up/down. Bool.

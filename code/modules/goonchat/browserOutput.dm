@@ -21,6 +21,8 @@ GLOBAL_DATUM_INIT(iconCache, /savefile, new("tmp/iconCache.sav")) //Cache of ico
 	var/cookieSent   = FALSE // Has the client sent a cookie for analysis
 	var/broken       = FALSE
 	var/list/connectionHistory //Contains the connection history passed from chat cookie
+	var/loading_fallback_timer_id // Cancelled if the real JS doneLoading() ack arrives first
+	var/degraded     = FALSE // Set TRUE only when the fallback timer had to force completion
 
 /datum/chatOutput/New(client/C)
 	owner = C
@@ -47,22 +49,45 @@ GLOBAL_DATUM_INIT(iconCache, /savefile, new("tmp/iconCache.sav")) //Cache of ico
 	owner << browse_rsc(file('code/modules/goonchat/browserassets/css/browserOutput_white.css'), "browserOutput_white.css")
 	owner << browse_rsc(file('icons/misc/chatbg.png'), "chatbg.png")
 	owner << browse_rsc(file('code/modules/goonchat/browserassets/html/tchatshadow.png'), "tchatshadow.png")
+	owner << browse_rsc(file('code/modules/goonchat/browserassets/css/cursor.cur'), "cursor.cur")
 
-	// Wait for tgui_panel's sleep(1 TICKS) + async init to complete before we overwrite
-	sleep(3)
-	if(!owner) return
+	// tgui_panel targets the SAME physical "browseroutput" window/pane as we
+	// do (see /datum/tgui_panel/New -> window = new(client, "browseroutput")).
+	// A fixed sleep here to "go after tgui_panel" is a guess that can lose the
+	// race under load, letting tgui_panel's later browse() silently overwrite
+	// our HTML after it already rendered ("loaded, then unloaded itself").
+	// So: paint immediately for the fast-path case, AND let tgui_panel's own
+	// ready-handler (on_message() in tgui_panel.dm, which fires only once its
+	// init has genuinely finished) re-assert us afterward as the guaranteed
+	// final write -- see assert_chat_html().
+	assert_chat_html()
 
-	// Browse goonchat HTML directly to browseroutput (the actual visible browser element in the layout)
+/// (Re)browses the goonchat HTML into the shared "browseroutput" pane and
+/// arms the load-completion fallback. Safe to call more than once: called
+/// once immediately from load() for the fast path, and again from
+/// tgui_panel's on_message() "ready" handler once its own init is confirmed
+/// done, so goonchat's content is guaranteed to be the last thing written to
+/// the shared pane regardless of which side's init was slower.
+/datum/chatOutput/proc/assert_chat_html()
+	if(!owner)
+		return
+
 	owner << browse(file('code/modules/goonchat/browserassets/html/browserOutput.html'), "window=browseroutput")
 	showChat()
 
-	// Show immediately and mark loaded — don't wait for JS doneLoading() callback
-	if(!loaded)
-		loaded = TRUE
-		for(var/message in messageQueue)
-			send_output(owner, url_encode(url_encode(message)), "browseroutput:output")
-		messageQueue = null
-		pingLoop()
+	// A re-assert after an earlier successful load means something (tgui_panel)
+	// just overwrote us -- treat it as a fresh load so the real doneLoading()
+	// ack drives completion again instead of leaving loaded stuck TRUE against
+	// a pane that was just replaced out from under it.
+	loaded = FALSE
+
+	// The JS sends a real doneLoading() ack once it has actually finished
+	// rendering (browserOutput.js ~line 1173) -- that's what should drain the
+	// message queue, not an optimistic guess made right after browse(). Under
+	// resource contention (slow asset downloads, etc.) the browser control can
+	// still be mid-render here. Only a fallback timer forces completion, in
+	// case the ack genuinely never arrives.
+	loading_fallback_timer_id = addtimer(CALLBACK(src, PROC_REF(loading_fallback)), 8 SECONDS, TIMER_UNIQUE | TIMER_OVERRIDE | TIMER_STOPPABLE)
 
 /datum/chatOutput/Topic(href, list/href_list)
 	if(usr.client != owner)
@@ -106,10 +131,12 @@ GLOBAL_DATUM_INIT(iconCache, /savefile, new("tmp/iconCache.sav")) //Cache of ico
 /datum/chatOutput/proc/doneLoading()
 	if(loaded)
 		return
+	if(loading_fallback_timer_id)
+		deltimer(loading_fallback_timer_id)
+		loading_fallback_timer_id = null
 
 	loaded = TRUE
 	showChat()
-
 
 	for(var/message in messageQueue)
 		// whitespace has already been handled by the original to_chat
@@ -120,10 +147,20 @@ GLOBAL_DATUM_INIT(iconCache, /savefile, new("tmp/iconCache.sav")) //Cache of ico
 
 	syncRegex()
 
-	//do not convert to to_chat()
-	legacy_chat(owner, "<span class=\"userdanger\">Failed to load fancy chat, reverting to old chat. Certain features won't work.</span>")
+	if(degraded)
+		//do not convert to to_chat()
+		legacy_chat(owner, "<span class=\"userdanger\">Failed to load fancy chat, reverting to old chat. Certain features won't work.</span>")
 
 	pingLoop()
+
+/// Safety net only -- fires if the JS never sent its real doneLoading() ack
+/// within a reasonable window, so chat can't get stuck forever waiting on it.
+/datum/chatOutput/proc/loading_fallback()
+	loading_fallback_timer_id = null
+	if(loaded)
+		return
+	degraded = TRUE
+	doneLoading()
 
 /datum/chatOutput/proc/showChat()
 	// Swap to output_browser pane (where our HTML now lives) — same winset tgui_panel uses

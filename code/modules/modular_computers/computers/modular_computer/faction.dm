@@ -21,7 +21,8 @@
 	if(!islist(content))
 		return
 	if("persistent_network" in content)
-		persistent_network = content["persistent_network"] || ""
+		// Normalize on restore: older saves may carry raw display names
+		persistent_network = normalize_faction_uid(content["persistent_network"]) || ""
 	if("faction_shackled" in content)
 		faction_shackled = !!content["faction_shackled"]
 
@@ -36,7 +37,9 @@
 		to_chat(user, SPAN_WARNING("Your ID is not issued by a faction."))
 		return
 
-	var/card_faction = I.employer_faction
+	// IDs carry the faction display name; the faction cache/DB key is the
+	// normalized uid -- convert before storing or comparing
+	var/card_faction = normalize_faction_uid(I.employer_faction)
 
 	if(faction_shackled && persistent_network != card_faction)
 		to_chat(user, SPAN_WARNING("This computer is shackled to [get_faction_name(persistent_network)] ([persistent_network]). Only an officer of that faction can release it."))
@@ -115,7 +118,7 @@
 	if(action == "Force-Set Network")
 		var/new_uid = tgui_input_text(user, "Enter faction UID:", "Force-Set Network", persistent_network, max_length = 32)
 		if(!new_uid) return
-		persistent_network = new_uid
+		persistent_network = normalize_faction_uid(new_uid)
 		faction_shackled   = TRUE
 		to_chat(user, SPAN_GOOD("Network force-set to '[new_uid]' and shackled."))
 		log_admin("[key_name(user)] force-set faction network on [src] at ([x],[y],[z]) to '[new_uid]' (shackled).")

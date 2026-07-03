@@ -27,7 +27,9 @@
 
 /datum/computer_file/program/civilian/cargoexports/ui_data(mob/user)
 	var/list/data = initial_data()
-	var/net = computer ? computer.persistent_network : ""
+	// Normalize defensively: consoles shackled before uid normalization carry
+	// raw display names in their saved worldstate
+	var/net = computer ? normalize_faction_uid(computer.persistent_network) : ""
 
 	data["faction_uid"]     = net
 	data["faction_name"]    = net ? get_faction_name(net) : null
@@ -54,7 +56,7 @@
 		return
 
 	var/mob/user = usr
-	var/net = computer.persistent_network
+	var/net = normalize_faction_uid(computer.persistent_network)
 
 	switch(action)
 		if("link_faction")
@@ -66,7 +68,7 @@
 			if(!I || !I.employer_faction)
 				status_message = "Your ID is not issued by a faction. Get a faction ID first."
 				return TRUE
-			var/card_faction = I.employer_faction
+			var/card_faction = normalize_faction_uid(I.employer_faction)
 			if(computer.faction_shackled && computer.persistent_network != card_faction)
 				status_message = "This console is already linked to [get_faction_name(computer.persistent_network)]. Only their officers can release it."
 				return TRUE

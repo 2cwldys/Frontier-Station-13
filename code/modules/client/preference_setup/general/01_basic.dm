@@ -281,6 +281,7 @@
 		)
 		if(new_metadata && CanUseTopic(user))
 			pref.metadata = new_metadata
+			save_metadata_to_db(pref)
 		return TOPIC_REFRESH
 
 	else if(href_list["ipc_tag"])
@@ -347,6 +348,18 @@
 				return TOPIC_NOACTION
 
 			pref.metadata = ""
+			save_metadata_to_db(pref)
 			return TOPIC_REFRESH
 
 	return ..()
+
+// OOC notes are not locked character-creation data -- write them directly so
+// in-round edits persist even after first_spawned_at blocks save_character().
+/datum/category_item/player_setup_item/general/basic/proc/save_metadata_to_db(datum/preferences/pref)
+	if(!GLOB.config.sql_saves || !pref.current_character || !SSdbcore.Connect())
+		return
+	var/datum/db_query/mq = SSdbcore.NewQuery(
+		"UPDATE ss13_characters SET metadata = :metadata WHERE id = :id AND deleted_at IS NULL",
+		list("metadata" = pref.metadata, "id" = pref.current_character))
+	mq.Execute()
+	qdel(mq)

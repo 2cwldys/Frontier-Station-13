@@ -204,6 +204,11 @@
 					id_card.assignment = t1
 					id_card.rank = t1
 
+				// Consoles tied to a faction network stamp their faction on assignment,
+				// matching faction_assign -- otherwise the spawn default (e.g. NanoTrasen) sticks
+				if(computer.persistent_network)
+					id_card.employer_faction = computer.persistent_network
+
 				SSrecords.reset_manifest()
 				callHook("reassign_employee", list(id_card))
 				. = TRUE
@@ -233,7 +238,8 @@
 			for(var/obj/item/card/id/old_card in world)
 				if(!old_card.revoked && old_card.registered_name == user.real_name)
 					old_card.revoked = TRUE
-					old_card.name = "[old_card.registered_name]'s ID Card (REVOKED)"
+					old_card.access = list()
+					old_card.update_name()
 					to_chat(usr, SPAN_NOTICE("Previous ID card ([old_card.assignment]) has been revoked."))
 
 			// Print new card
@@ -241,9 +247,9 @@
 			new_card.registered_name = user.real_name
 			new_card.assignment = R.rank || "Civilian"
 			new_card.rank = R.rank || "Civilian"
-			new_card.name = "[user.real_name]'s ID Card ([new_card.assignment])"
 			if(computer && computer.persistent_network)
 				new_card.employer_faction = computer.persistent_network
+			new_card.update_name()
 
 			// Re-apply access for the job
 			var/datum/job/jobdatum
@@ -278,14 +284,13 @@
 					rep_is_new = TRUE
 			new_card.associated_account_number = rep_acct
 
-			// Place in ID slot so card is immediately readable by RFID scanners
+			// Place in ID slot if empty; otherwise hand it over -- the old
+			// (revoked) card stays equipped until the player swaps it themselves
 			var/placed_in_slot = FALSE
 			if(istype(user, /mob/living/carbon/human))
 				var/mob/living/carbon/human/H = user
-				// Remove any existing (revoked) card from the ID slot first
-				if(H.wear_id)
-					H.drop_from_inventory(H.wear_id)
-				placed_in_slot = H.equip_to_slot_if_possible(new_card, SLOT_ID, 0, 0, 0, 1)
+				if(!H.wear_id)
+					placed_in_slot = H.equip_to_slot_if_possible(new_card, SLOT_ID, 0, 0, 0, 1)
 			if(!placed_in_slot)
 				user.put_in_hands(new_card)
 
@@ -307,6 +312,9 @@
 					)
 					rn_q.Execute()
 					qdel(rn_q)
+				// Mirror onto the live record too, or recordsFinalize() overwrites
+				// the DB note with the record's stale default at round end
+				R.ccia_record = rep_note
 				to_chat(usr, SPAN_GOOD("[icon2html(new_card, usr)] KEEP SAFE -- Account: #[rep_acct] | PIN: [pin_display]"))
 				to_chat(usr, SPAN_NOTICE("Saved in your crew record. Access at any Idris SelfServ Teller."))
 			else if(rep_acct)
@@ -331,7 +339,8 @@
 			for(var/obj/item/card/id/old_card in world)
 				if(!old_card.revoked && old_card.registered_name == user.real_name && old_card.employer_faction == disp_net)
 					old_card.revoked = TRUE
-					old_card.name = "[old_card.registered_name]'s ID Card (REVOKED)"
+					old_card.access = list()
+					old_card.update_name()
 			// Get or create personal Idris bank account (players spawn with none)
 			var/dispense_acct = 0
 			var/acct_is_new = FALSE
@@ -356,7 +365,7 @@
 			new_card.rank                 = "Unassigned"
 			new_card.employer_faction     = disp_net
 			new_card.associated_account_number = dispense_acct
-			new_card.name = "[user.real_name]'s ID Card ([faction_name])"
+			new_card.update_name()
 			if(istype(user, /mob/living/carbon/human))
 				var/mob/living/carbon/human/H = user
 				H.set_id_info(new_card)
@@ -456,7 +465,7 @@
 			. = TRUE
 
 	if(id_card)
-		id_card.name = "[id_card.registered_name]'s ID Card ([id_card.assignment])"
+		id_card.update_name()
 		. = TRUE
 
 /datum/computer_file/program/card_mod/proc/remove_nt_access(var/obj/item/card/id/id_card)
@@ -479,7 +488,8 @@
 	for(var/obj/item/card/id/old_card in world)
 		if(!old_card.revoked && old_card.registered_name == user.real_name)
 			old_card.revoked = TRUE
-			old_card.name = "[old_card.registered_name]'s ID Card (REVOKED)"
+			old_card.access = list()
+			old_card.update_name()
 			to_chat(user, SPAN_NOTICE("Previous ID ([old_card.assignment]) has been revoked."))
 
 	// Create new card — no blank card required
@@ -487,9 +497,9 @@
 	new_card.registered_name = user.real_name
 	new_card.assignment = R.rank || "Civilian"
 	new_card.rank = R.rank || "Civilian"
-	new_card.name = "[user.real_name]'s ID Card ([new_card.assignment])"
 	if(computer && computer.persistent_network)
 		new_card.employer_faction = computer.persistent_network
+	new_card.update_name()
 
 	var/datum/job/jobdatum
 	for(var/jobtype in typesof(/datum/job))
@@ -503,6 +513,19 @@
 	if(istype(user, /mob/living/carbon/human))
 		var/mob/living/carbon/human/H = user
 		H.set_id_info(new_card)
+
+	// Link existing bank account -- only mint a new one if the player has none anywhere
+	var/verb_acct = 0
+	var/list/verb_econ = GLOB.persistence_economy_cache["[user.ckey]|[user.real_name]"]
+	if(islist(verb_econ))
+		verb_acct = verb_econ["account_number"] || 0
+	if(!verb_acct && user.mind && user.mind.initial_account)
+		verb_acct = user.mind.initial_account.account_number
+	if(!verb_acct)
+		SSeconomy.create_and_assign_account(user)
+		if(user.mind && user.mind.initial_account)
+			verb_acct = user.mind.initial_account.account_number
+	new_card.associated_account_number = verb_acct
 
 	user.put_in_hands(new_card)
 	to_chat(user, SPAN_GOOD("Replacement ID card printed. Previous card(s) revoked."))

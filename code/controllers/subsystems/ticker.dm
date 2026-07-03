@@ -51,11 +51,7 @@ SUBSYSTEM_DEF(ticker)
 	var/atom/movable/screen/cinematic = null
 
 	var/list/default_lobby_tracks = list(
-		'sound/music/lobby/yuki_satellites.xm',
-		'sound/music/lobby/snow.ogg',
-		'sound/music/lobby/saturn.ogg',
-		'sound/music/lobby/kaaistoep.ogg',
-		'sound/music/lobby/saturn.ogg'
+		'sound/music/lobby/mainmenu.mp3',
 	)
 
 	var/lobby_ready = FALSE
@@ -78,6 +74,14 @@ SUBSYSTEM_DEF(ticker)
 	// by SSpersistence.Initialize() once all saved data has loaded.
 	mode = new /datum/game_mode/extended
 	current_state = GAME_STATE_PLAYING
+	// The persistent flow never runs pregame(), which is normally what fills
+	// login_music -- without this, playtitlemusic() waits on it forever and
+	// lobby music never plays.
+	if(!login_music)
+		if(SSatlas.current_sector?.lobby_tracks)
+			login_music = SSatlas.current_sector.lobby_tracks
+		else
+			login_music = default_lobby_tracks
 	return SS_INIT_SUCCESS
 
 /**

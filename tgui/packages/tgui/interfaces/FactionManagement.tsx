@@ -155,6 +155,15 @@ export const FactionManagement = (props) => {
               >
                 Pay Player...
               </Button>
+              <Button
+                icon="credit-card"
+                color="average"
+                ml={1}
+                tooltip="Print a charge card that draws directly on the faction account. Anyone holding it can spend faction funds."
+                onClick={() => act('print_charge_card')}
+              >
+                Print Charge Card
+              </Button>
             </Box>
           )}
           {canManage && known_factions.length > 0 && (

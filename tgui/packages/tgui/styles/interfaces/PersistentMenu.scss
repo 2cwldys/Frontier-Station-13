@@ -1,0 +1,8 @@
+// Dark blue-gray fill, matching the rest of the game's cool-toned interfaces
+// without introducing a full theme. This sits directly on .Window__content,
+// which has no background of its own -- a translucent wash here would just
+// be invisible against the near-black .Window backdrop behind it, so this
+// is an actual opaque-ish fill rather than an overlay.
+.PersistentMenu {
+  background: linear-gradient(180deg, #1a222c, #141b24);
+}

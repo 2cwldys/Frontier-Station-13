@@ -38,7 +38,11 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	if(!worldstate_vars) return
 	for(var/v in worldstate_vars)
 		if((v in content) && !isnull(content[v]))
-			src.vars[v] = content[v]
+			// Faction uids saved before normalization may be raw display names
+			if(v == "persistent_network")
+				src.vars[v] = normalize_faction_uid(content[v])
+			else
+				src.vars[v] = content[v]
 	update_icon()
 
 // =====================================================================
@@ -84,13 +88,17 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	// Single blanket loop  covers all /obj/structure subtypes (machinery, closets, tables, grilles, etc.)
 	// Only types with worldstate_vars set or explicit proc overrides will actually save/load.
 	for(var/obj/structure/S in world)
-		if(S.z in GLOB.persistence_zlevel_skip) continue
+		if(persistence_z_excluded(S.z)) continue
 		applied += worldstateApplyToMachine(S)
 
 	// Items that need worldstate but aren't structures
 	for(var/obj/item/radio/intercom/IC in world)
-		if(IC.z in GLOB.persistence_zlevel_skip) continue
+		if(persistence_z_excluded(IC.z)) continue
 		applied += worldstateApplyToMachine(IC)
+
+	for(var/obj/item/modular_computer/MC in world)
+		if(persistence_z_excluded(MC.z)) continue
+		applied += worldstateApplyToMachine(MC)
 
 	log_subsystem_persistence_info("Worldstate: Applied saved state to [applied] machines.")
 
@@ -157,12 +165,16 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	var/saved = 0
 
 	for(var/obj/structure/S in world)
-		if(S.z in GLOB.persistence_zlevel_skip) continue
+		if(persistence_z_excluded(S.z)) continue
 		saved += worldstateSaveOneMachine(S)
 
 	for(var/obj/item/radio/intercom/IC in world)
-		if(IC.z in GLOB.persistence_zlevel_skip) continue
+		if(persistence_z_excluded(IC.z)) continue
 		saved += worldstateSaveOneMachine(IC)
+
+	for(var/obj/item/modular_computer/MC in world)
+		if(persistence_z_excluded(MC.z)) continue
+		saved += worldstateSaveOneMachine(MC)
 
 	log_subsystem_persistence_info("Worldstate: Saved state for [saved] machines.")
 
@@ -218,6 +230,9 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 
 /obj/structure/machinery/telepad_cargo
 	worldstate_vars = list("persistent_network", "persistent_spawn", "faction_shackled")
+
+/obj/item/modular_computer
+	worldstate_vars = list("persistent_network", "faction_shackled")
 
 /obj/structure/machinery/door/airlock
 	worldstate_vars = list("welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access")
@@ -396,7 +411,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 /obj/structure/machinery/cryopod/worldstate_apply_content(list/content)
 	// Only apply non-empty network strings  don't let a stale empty DB value wipe the "public" default
 	if(!isnull(content["persistent_network"]) && length(content["persistent_network"]))
-		persistent_network = content["persistent_network"]
+		persistent_network = normalize_faction_uid(content["persistent_network"])
 	if(!isnull(content["persistent_spawn"]))
 		persistent_spawn = content["persistent_spawn"]
 

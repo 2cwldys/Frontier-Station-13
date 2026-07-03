@@ -16,7 +16,7 @@ GLOBAL_LIST_EMPTY(asset_datums)
 /proc/simple_asset_ensure_is_sent(client, type)
 	var/datum/asset/simple/asset = get_asset_datum(type)
 
-	asset.send(client)
+	return asset.send(client)
 
 /datum/asset
 	var/_abstract = /datum/asset

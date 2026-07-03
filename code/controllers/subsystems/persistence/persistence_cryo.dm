@@ -192,6 +192,8 @@
 	// Return the client to the lobby (new_player) so they can Join again later.
 	// We store the key first since detaching the client clears src.key.
 	var/stored_key = src.key
+	if(client)
+		client.stop_ambient_playlist()  // Otherwise it keeps playing over the lobby music
 	var/mob/abstract/new_player/NP = new /mob/abstract/new_player()
 	NP.key = stored_key  // Transfers the client from src to NP; src.ckey becomes null
 
@@ -205,6 +207,7 @@
 		var/mob/living/carbon/human/H = mob
 		if(H.ckey && H.real_name && !QDELETED(H))
 			SSpersistence.persistCharacterOnLogout(H)
+	stop_ambient_playlist()  // Cancel any pending timers before the client reference dies
 	. = ..()
 
 // ============================================================
@@ -392,6 +395,8 @@
 
 	// Return the client to the lobby (new_player) so they can Join again later.
 	var/stored_key = src.key
+	if(client)
+		client.stop_ambient_playlist()  // Otherwise it keeps playing over the lobby music
 	var/mob/abstract/new_player/NP = new /mob/abstract/new_player()
 	NP.key = stored_key  // Transfers the client from src to NP; src.ckey becomes null
 
@@ -434,17 +439,20 @@
  * Priority: faction telepad  public telepad  null (caller falls back to ship).
  */
 /proc/persistence_find_cargo_telepad(network = null)
+	// Normalize both sides -- pads restored from older saves or configured
+	// via beacons may carry raw display-name uids
+	network = normalize_faction_uid(network)
 	if(network)
 		for(var/obj/structure/machinery/telepad_cargo/pad in world)
 			if(!pad.z) continue
 			if(!pad.persistent_spawn)  continue
-			if(pad.persistent_network == network)
+			if(normalize_faction_uid(pad.persistent_network) == network)
 				return get_turf(pad)
 
 	// Public fallback
 	for(var/obj/structure/machinery/telepad_cargo/pad in world)
 		if(!pad.z) continue
-		if(pad.persistent_network == "public" && pad.persistent_spawn)
+		if(lowertext(pad.persistent_network) == "public" && pad.persistent_spawn)
 			return get_turf(pad)
 
 	return null
@@ -519,7 +527,7 @@
 	if(new_network == null)
 		return
 
-	persistent_network = new_network
+	persistent_network = (new_network == "public") ? new_network : normalize_faction_uid(new_network)
 
 	if(new_network == "public")
 		var/spawn_choice = tgui_alert(usr, "Mark this pod as a public spawn point (new arrivals emerge here)?", "Configure Cryopod", list("Yes", "No"))

@@ -640,6 +640,11 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		if(P.info)
 			data["paper_info"] = P.info
 
+	// ID cards -- registered name, assignment, access, bank account, revoked state
+	if(istype(I, /obj/item/card/id))
+		var/obj/item/card/id/ID = I
+		data["id_content"] = ID.persistent_objects_get_content()
+
 	// Stack material amounts
 	if(istype(I, /obj/item/stack))
 		var/obj/item/stack/ST = I
@@ -708,6 +713,13 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			equipped.forceMove(get_turf(src))
 			unEquip(equipped, TRUE)
 
+	// Heal saves made before ID serialization carried account numbers:
+	// re-link the worn ID to the restored bank account
+	var/obj/item/card/id/ID = wear_id ? wear_id.GetID() : null
+	if(istype(ID) && !ID.associated_account_number && mind?.initial_account)
+		ID.associated_account_number = mind.initial_account.account_number
+		log_subsystem_persistence_info("MobInventory: Relinked ID card to account #[ID.associated_account_number] for [real_name].")
+
 	log_subsystem_persistence_info("MobInventory: Restored inventory for [real_name] ([ckey]).")
 
 /**
@@ -751,6 +763,11 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	if(data["paper_info"] && istype(I, /obj/item/paper))
 		var/obj/item/paper/P = I
 		P.info = data["paper_info"]
+
+	// ID cards -- restore registered name, assignment, access, bank account, revoked state
+	if(data["id_content"] && istype(I, /obj/item/card/id))
+		var/obj/item/card/id/ID = I
+		ID.persistent_objects_apply_content(data["id_content"], null, null, null)
 
 	// Stack amount
 	if(!isnull(data["stack_amount"]) && istype(I, /obj/item/stack))

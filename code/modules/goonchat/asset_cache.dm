@@ -20,6 +20,7 @@
 		"browserOutput_white.css" = 'code/modules/goonchat/browserassets/css/browserOutput_white.css',
 		"chatbg.png"              = 'icons/misc/chatbg.png',
 		"tchatshadow.png"         = 'icons/misc/tchatshadow.png',
+		"cursor.cur"              = 'code/modules/goonchat/browserassets/css/cursor.cur',
 	)
 
 /datum/asset/simple/fontawesome_goonchat

@@ -391,6 +391,12 @@
 	else
 		stop_ambience(L)
 
+	// The global ambient playlist runs everywhere; play_ambience() ducks it
+	// only while an actual area stinger is sounding. Any area crossing can
+	// kick it off (internal guards prevent double-starts).
+	if(L && L.client && !L.ear_deaf)
+		L.client.start_ambient_playlist()
+
 	// The dreaded ship ambience hum.
 	// Explanation for the "if" clause: If the area has ambience, the mob exists, has a client, the client has the hum ASFX toggled on, the area the mob is in is a station area,
 	// the mob isn't deaf, and the client doesn't already have the ambient hum playing, then start playing the ambient hum.
@@ -436,6 +442,12 @@
 		var/picked_ambience = pick(ambience)
 		L << sound(picked_ambience, volume = VOLUME_AMBIENCE, channel = CHANNEL_AMBIENCE)
 		L.client.ambience_last_played_time = world.time
+		// An actual stinger is sounding -- fade the ambient playlist out for
+		// its duration, then fade back in
+		if(!L.client.ambient_playlist_ducked)
+			L.client.ambient_playlist_ducked = TRUE
+			L.client.duck_ambient_playlist()
+		L.client.ambient_playlist_resume_timer_id = addtimer(CALLBACK(L.client, /client/proc/resume_ambient_playlist), 90 SECONDS, TIMER_UNIQUE | TIMER_OVERRIDE | TIMER_STOPPABLE)
 
 /**
  * Stops ambiance for the provided mob.
