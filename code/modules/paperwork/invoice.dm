@@ -47,6 +47,37 @@ GLOBAL_LIST_EMPTY(used_invoice_ids)
 		invoice_id = generate_invoice_id()
 	update_icon()
 
+// Restores an invoice's identity/payee/paid state across a save -- without
+// this, a saved invoice comes back as a blank, unpaid, zero-amount invoice
+// with a freshly rolled ID (only the base paper text survives via paper_info).
+/obj/item/paper/invoice/persistent_objects_get_content()
+	var/list/content = list()
+	content["invoice_id"]            = invoice_id
+	content["amount"]                = amount
+	content["purpose"]               = purpose
+	content["payee_name"]            = payee_name
+	content["payee_type"]            = payee_type
+	content["payee_account_number"]  = payee_account_number
+	content["payee_faction_uid"]     = payee_faction_uid
+	content["paid"]                  = paid
+	content["payer_name"]            = payer_name
+	return content
+
+/obj/item/paper/invoice/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["invoice_id"]))           invoice_id           = content["invoice_id"]
+	if(!isnull(content["amount"]))               amount               = content["amount"]
+	if(!isnull(content["purpose"]))              purpose              = content["purpose"]
+	if(!isnull(content["payee_name"]))           payee_name           = content["payee_name"]
+	if(!isnull(content["payee_type"]))           payee_type           = content["payee_type"]
+	if(!isnull(content["payee_account_number"])) payee_account_number = content["payee_account_number"]
+	if(!isnull(content["payee_faction_uid"]))    payee_faction_uid    = normalize_faction_uid(content["payee_faction_uid"])
+	if(!isnull(content["paid"]))                 paid                 = content["paid"]
+	if(!isnull(content["payer_name"]))           payer_name           = content["payer_name"]
+	update_icon()
+
 /obj/item/paper/invoice/update_icon()
 	..()
 	// Payment state marker: small colored square in the lower-right corner
@@ -183,6 +214,9 @@ GLOBAL_LIST_EMPTY(used_invoice_ids)
 		return
 	if(!FC.faction_uid)
 		to_chat(user, SPAN_WARNING("\The [FC] is not linked to any faction."))
+		return
+	if(!is_faction_charge_card_valid(FC))
+		to_chat(user, SPAN_WARNING("\The [FC] has been voided and can no longer be used."))
 		return
 	if(payee_type == INVOICE_PAYEE_FACTION && payee_faction_uid == FC.faction_uid)
 		to_chat(user, SPAN_WARNING("This invoice is payable to the same faction that owns \the [FC]."))

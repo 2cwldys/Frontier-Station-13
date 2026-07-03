@@ -316,7 +316,9 @@ GLOBAL_LIST_INIT(persistence_inventory_slots, list(
 	"wrists"    = slot_wrists,
 	"l_hand"    = slot_l_hand,
 	"r_hand"    = slot_r_hand,
-	"s_store"   = slot_s_store
+	"s_store"   = slot_s_store,
+	"l_store"   = slot_l_store,
+	"r_store"   = slot_r_store
 ))
 
 /**
@@ -644,6 +646,14 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	if(istype(I, /obj/item/card/id))
 		var/obj/item/card/id/ID = I
 		data["id_content"] = ID.persistent_objects_get_content()
+	else
+		// Generic passthrough for any other item type with a
+		// persistent_objects_get_content() override (faction charge cards,
+		// modular computers, invoices, etc) -- catches state that would
+		// otherwise come back blank on a fresh /new item_type(holder).
+		var/list/generic_content = I.persistent_objects_get_content()
+		if(islist(generic_content) && length(generic_content))
+			data["obj_content"] = generic_content
 
 	// Stack material amounts
 	if(istype(I, /obj/item/stack))
@@ -768,6 +778,8 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	if(data["id_content"] && istype(I, /obj/item/card/id))
 		var/obj/item/card/id/ID = I
 		ID.persistent_objects_apply_content(data["id_content"], null, null, null)
+	else if(data["obj_content"])
+		I.persistent_objects_apply_content(data["obj_content"], null, null, null)
 
 	// Stack amount
 	if(!isnull(data["stack_amount"]) && istype(I, /obj/item/stack))

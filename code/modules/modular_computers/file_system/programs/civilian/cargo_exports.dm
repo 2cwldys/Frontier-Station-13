@@ -31,9 +31,11 @@
 	// raw display names in their saved worldstate
 	var/net = computer ? normalize_faction_uid(computer.persistent_network) : ""
 
+	var/raw_balance = net ? get_faction_account_balance(net) : null
+
 	data["faction_uid"]     = net
 	data["faction_name"]    = net ? get_faction_name(net) : null
-	data["faction_balance"] = net ? get_faction_account_balance(net) : null
+	data["faction_balance"] = isnull(raw_balance) ? 0 : raw_balance
 	data["has_telepad"]     = net ? !!persistence_find_cargo_telepad(net) : FALSE
 	data["status_message"]  = status_message
 

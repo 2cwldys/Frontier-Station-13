@@ -327,6 +327,11 @@
 	worth = 0 // unused; funds come from the faction account
 	persistant_objects_expiration_time_days = 360
 	var/faction_uid = ""
+	/// The faction's charge-card epoch at the moment this card was printed --
+	/// see invalidate_faction_charge_cards()/is_faction_charge_card_valid()
+	/// in persistence_factions.dm. Cards from before this feature existed
+	/// default to 0, matching a faction that has never invalidated cards.
+	var/issued_epoch = 0
 
 /obj/item/spacecash/ewallet/faction_charge_card/Initialize()
 	. = ..()
@@ -335,22 +340,41 @@
 /obj/item/spacecash/ewallet/faction_charge_card/get_examine_text(mob/user, distance, is_adjacent, infix, suffix)
 	. = ..()
 	if(distance <= 2 && faction_uid)
-		. += SPAN_NOTICE("It draws on the account of [get_faction_name(faction_uid)]. Current balance: [get_faction_account_balance(faction_uid) || 0] credits.")
+		if(is_faction_charge_card_valid(src))
+			. += SPAN_NOTICE("It draws on the account of [get_faction_name(faction_uid)]. Current balance: [get_faction_account_balance(faction_uid) || 0] credits.")
+		else
+			. += SPAN_WARNING("This card has been VOIDED and can no longer be used.")
 
 /obj/item/spacecash/ewallet/faction_charge_card/persistent_objects_get_content()
 	var/list/content = list()
 	content["name"] = name
 	content["faction_uid"] = faction_uid
 	content["owner_name"] = owner_name
+	content["issued_epoch"] = issued_epoch
 	return content
 
 /obj/item/spacecash/ewallet/faction_charge_card/persistent_objects_apply_content(content, x, y, z)
 	..()
 	if(!islist(content))
 		return
-	if(!isnull(content["name"]))        name = content["name"]
-	if(!isnull(content["faction_uid"])) faction_uid = normalize_faction_uid(content["faction_uid"])
-	if(!isnull(content["owner_name"]))  owner_name = content["owner_name"]
+	if(!isnull(content["name"]))         name = content["name"]
+	if(!isnull(content["faction_uid"]))  faction_uid = normalize_faction_uid(content["faction_uid"])
+	if(!isnull(content["owner_name"]))   owner_name = content["owner_name"]
+	if(!isnull(content["issued_epoch"])) issued_epoch = content["issued_epoch"]
+
+// Deregister while held/stored -- otherwise objectsFinalize() saves it as a
+// world floor object at the holder's last position (get_turf() resolves
+// through the holder), duplicating it every restart alongside the copy the
+// inventory/cryo system restores. Only a card actually sitting on a turf
+// should be tracked this way.
+/obj/item/spacecash/ewallet/faction_charge_card/pickup(mob/user)
+	SSpersistence.objectsDeregisterTrack(src)
+	..()
+
+/obj/item/spacecash/ewallet/faction_charge_card/dropped(mob/user)
+	..()
+	if(isturf(loc))
+		SSpersistence.objectsRegisterTrack(src)
 
 // Persistent ewallet that keeps it's value across rounds.
 // When spawned, using VV, set "worth", "initial_worth", "owner_name" and "name".
@@ -400,3 +424,13 @@
 /obj/item/spacecash/ewallet/persistent_charge_card/Destroy()
 	log_and_message_admins("Persistent charge card ([src.name]) at [src] was destroyed!", null, get_turf(src))
 	. = ..()
+
+// See faction_charge_card's pickup()/dropped() above -- same floor-duplication issue.
+/obj/item/spacecash/ewallet/persistent_charge_card/pickup(mob/user)
+	SSpersistence.objectsDeregisterTrack(src)
+	..()
+
+/obj/item/spacecash/ewallet/persistent_charge_card/dropped(mob/user)
+	..()
+	if(isturf(loc))
+		SSpersistence.objectsRegisterTrack(src)

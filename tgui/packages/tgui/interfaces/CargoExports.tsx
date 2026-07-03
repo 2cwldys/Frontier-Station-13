@@ -91,7 +91,7 @@ export const CargoExports = (props) => {
         >
           <Box mb={1}>
             Faction Balance:{' '}
-            <b>{faction_balance !== null ? `${faction_balance} credits` : 'N/A'}</b>
+            <b>{faction_balance != null ? `${faction_balance} credits` : 'N/A'}</b>
           </Box>
 
           {status_message && (

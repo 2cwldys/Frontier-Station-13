@@ -89,6 +89,11 @@ GLOBAL_LIST_INIT(ambient_playlist_tracks, list(
 				sleep(3)
 				SEND_SOUND(src, sound(null, status = SOUND_UPDATE, volume = prefs.ambient_playlist_vol, channel = CHANNEL_AMBIENT_PLAYLIST))
 		else
+			// Tracks are compile-time file refs and PRELOAD_RSC now fetches
+			// the whole .rsc (incl. every ambient track) before a client is
+			// let into the game -- see _compile_options.dm -- so this is no
+			// longer a client-side resource-transfer burst, just a queue of
+			// already-local sounds.
 			SEND_SOUND(src, sound(track, repeat = 0, wait = TRUE, volume = prefs.ambient_playlist_vol, channel = CHANNEL_AMBIENT_PLAYLIST))
 		first = FALSE
 	ambient_playlist_last_track = batch[length(batch)]

@@ -30,7 +30,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 
 	// Load faction info + balances
 	var/datum/db_query/q = SSdbcore.NewQuery(
-		{"SELECT f.uid, f.name, f.abbreviation, COALESCE(a.balance, 0)
+		{"SELECT f.uid, f.name, f.abbreviation, COALESCE(a.balance, 0), COALESCE(a.cards_epoch, 0)
 		FROM ss13_factions f
 		LEFT JOIN ss13_faction_accounts a ON a.faction_uid = f.uid"},
 		list()
@@ -42,7 +42,8 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 			GLOB.persistence_faction_cache[normalize_faction_uid(q.item[1])] = list(
 				"name"         = q.item[2],
 				"abbreviation" = q.item[3],
-				"balance"      = text2num(q.item[4]) || 0
+				"balance"      = text2num(q.item[4]) || 0,
+				"cards_epoch"  = text2num(q.item[5]) || 0
 			)
 	qdel(q)
 
@@ -131,6 +132,44 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
 		return null
 	return GLOB.persistence_faction_cache[uid]["balance"]
+
+/// Current charge-card epoch for a faction. Charge cards store the epoch they
+/// were printed under; a card is only valid while its epoch matches this.
+/proc/get_faction_cards_epoch(uid)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return 0
+	return GLOB.persistence_faction_cache[uid]["cards_epoch"] || 0
+
+/// Bumps a faction's charge-card epoch by 1, instantly invalidating every
+/// charge card printed under any older epoch -- online, offline in a
+/// cryo-serialized inventory, or sitting on the floor -- since validity is
+/// checked live at time of use (is_faction_charge_card_valid()), not tracked
+/// per-card.
+/proc/invalidate_faction_charge_cards(uid)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return FALSE
+	var/new_epoch = (GLOB.persistence_faction_cache[uid]["cards_epoch"] || 0) + 1
+	GLOB.persistence_faction_cache[uid]["cards_epoch"] = new_epoch
+	log_game("Faction [uid] invalidated all charge cards (epoch -> [new_epoch]).")
+	if(GLOB.config.sql_enabled && SSdbcore.Connect())
+		var/datum/db_query/eq = SSdbcore.NewQuery(
+			{"INSERT INTO ss13_faction_accounts (faction_uid, cards_epoch) VALUES (:uid, :epoch)
+			ON DUPLICATE KEY UPDATE cards_epoch = VALUES(cards_epoch), saved_at = NOW()"},
+			list("uid" = uid, "epoch" = new_epoch)
+		)
+		eq.Execute()
+		qdel(eq)
+	return TRUE
+
+/// A faction charge card is valid only if it was printed under the faction's
+/// current epoch. Cards printed before this feature existed (issued_epoch
+/// defaults to 0) count as invalid as soon as any cutoff has ever been set.
+/proc/is_faction_charge_card_valid(obj/item/spacecash/ewallet/faction_charge_card/FC)
+	if(!istype(FC) || !FC.faction_uid)
+		return FALSE
+	return FC.issued_epoch == get_faction_cards_epoch(FC.faction_uid)
 
 /proc/faction_debit(uid, amount, reason = "transaction")
 	uid = normalize_faction_uid(uid)
@@ -1000,4 +1039,65 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 
 	log_game("Faction [faction_uid] payroll: paid [paid] members, skipped [skipped].")
 	return TRUE
+
+// ============================================================
+// STAGED (OFFLINE) REVOKES
+// ============================================================
+
+/**
+ * Consumes any pending ID revokes staged for this character while they were
+ * offline (see "revoke_member_id" in faction_manage.dm). Called from
+ * PersistentAutoSpawn() after inventory is restored, so any ID card the
+ * character was carrying -- worn, held, or in a bag/pocket -- is present to
+ * be swept. Marks each row processed so it never re-applies.
+ */
+/mob/living/carbon/human/proc/applyPendingFactionRevokes()
+	if(!GLOB.config.sql_enabled || !ckey)
+		return
+	if(!SSpersistence.databaseCheckConnection("applyPendingFactionRevokes"))
+		return
+
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"SELECT id, faction_uid, target_name FROM ss13_faction_pending_revokes WHERE target_ckey = :ckey AND processed = 0",
+		list("ckey" = ckey)
+	)
+	q.Execute()
+	if(!SSpersistence.databaseCheckQueryResult(q, "applyPendingFactionRevokes"))
+		qdel(q)
+		return
+
+	var/list/pending = list()
+	while(q.NextRow())
+		pending += list(list(
+			"id"          = text2num(q.item[1]),
+			"faction_uid" = normalize_faction_uid(q.item[2]),
+			"target_name" = q.item[3]
+		))
+	qdel(q)
+
+	if(!length(pending))
+		return
+
+	for(var/list/revoke in pending)
+		var/revoked_count = 0
+		for(var/obj/item/card/id/ID in get_all_contents_of_type(/obj/item/card/id))
+			if(ID.revoked)
+				continue
+			if(ID.registered_name != revoke["target_name"])
+				continue
+			if(normalize_faction_uid(ID.employer_faction) != revoke["faction_uid"])
+				continue
+			ID.revoked = TRUE
+			ID.access = list()
+			ID.update_name()
+			revoked_count++
+
+		var/datum/db_query/uq = SSdbcore.NewQuery(
+			"UPDATE ss13_faction_pending_revokes SET processed = 1 WHERE id = :id",
+			list("id" = revoke["id"])
+		)
+		uq.Execute()
+		qdel(uq)
+
+		log_subsystem_persistence_info("Applied staged faction ID revoke for [real_name] ([ckey]), faction [revoke["faction_uid"]]: [revoked_count] card(s) revoked.")
 

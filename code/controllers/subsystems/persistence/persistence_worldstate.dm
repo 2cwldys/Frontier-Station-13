@@ -231,8 +231,24 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 /obj/structure/machinery/telepad_cargo
 	worldstate_vars = list("persistent_network", "persistent_spawn", "faction_shackled")
 
-/obj/item/modular_computer
-	worldstate_vars = list("persistent_network", "faction_shackled")
+// Full override instead of worldstate_vars -- also saves/restores downloaded
+// software via the shared helpers in modular_computer/faction.dm, so a
+// stationary shackled computer keeps its installed programs across restarts
+// the same way a dynamically-tracked one does via persistent_objects_*_content().
+/obj/item/modular_computer/worldstate_get_content()
+	var/list/content = list("persistent_network" = persistent_network, "faction_shackled" = faction_shackled)
+	var/list/programs = modcomp_save_programs()
+	if(length(programs))
+		content["programs"] = json_encode(programs)
+	return content
+
+/obj/item/modular_computer/worldstate_apply_content(list/content)
+	if(!isnull(content["persistent_network"]))
+		persistent_network = normalize_faction_uid(content["persistent_network"]) || ""
+	if(!isnull(content["faction_shackled"]))
+		faction_shackled = content["faction_shackled"]
+	if(content["programs"])
+		modcomp_restore_programs(json_decode(content["programs"]))
 
 /obj/structure/machinery/door/airlock
 	worldstate_vars = list("welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access")

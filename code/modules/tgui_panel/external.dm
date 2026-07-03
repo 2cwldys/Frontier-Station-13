@@ -30,6 +30,16 @@
 			context = "verb/fix_tgui_panel")
 		tgui_panel = new(src)
 	tgui_panel.initialize(force = TRUE)
+
+	// tgui_panel and goonchat share the same physical "browseroutput" pane
+	// (see browserOutput.dm) -- re-initializing only tgui_panel above leaves
+	// goonchat's half-loaded/broken state untouched, which is why this verb
+	// alone hasn't been enough to actually fix broken chat. Fully re-run
+	// goonchat's load sequence too (resends assets, re-flushes, re-asserts
+	// its HTML as the final writer) so this verb fixes the whole picture.
+	if(GLOB.config.goonchat && chatOutput && !chatOutput.broken)
+		chatOutput.load()
+
 	// Force show the panel to see if there are any errors
 	winset(src, "output_selector.legacy_output_selector", "left=output_browser")
 

@@ -94,6 +94,9 @@
 		var/turf/T = get_turf(track)
 		if(!T || !T.z || persistence_z_excluded(T.z)) // Skip invalid or non-persistent Z levels
 			objectsDeregisterTrack(track)
+			continue
+		if(isitem(track) && !isturf(track.loc)) // Items inside a mob/container are the inventory system's job, not a floor-object track
+			objectsDeregisterTrack(track)
 
 	var/created = 0
 	var/updated = 0

@@ -52,9 +52,67 @@
 			continue
 		for(var/obj/structure/S in T)
 			if(S.type == typepath && S.persistence_was_mapload)
+				log_subsystem_persistence_info("Removed structures: removing [typepath] at ([tx],[ty],[tz]) (tombstoned in a previous session).")
 				qdel(S)
 				removed++
 				break
 
 	qdel(q)
 	log_subsystem_persistence_info("Removed structures: Removed [removed] map-placed structures from previous session.")
+
+/// Admin tool: lists every tombstoned map-placed structure for the current
+/// map and lets an admin permanently un-tombstone one (it will reappear on
+/// the next boot -- the object itself was already qdel'd this round, this
+/// only clears the DB row that keeps it from being recreated).
+/client/proc/view_removed_structures()
+	set category = "Admin"
+	set name = "View Removed Structures"
+	if(!check_rights(R_ADMIN))
+		return
+	if(!SSpersistence.databaseCheckConnection("view_removed_structures"))
+		to_chat(usr, SPAN_WARNING("Database connection failed."))
+		return
+
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"SELECT id, type, x, y, z FROM ss13_removed_structures WHERE map_path = :mp ORDER BY id",
+		list("mp" = "[SSatlas.current_map.path]")
+	)
+	q.Execute()
+	if(!SSpersistence.databaseCheckQueryResult(q, "view_removed_structures"))
+		qdel(q)
+		return
+
+	var/list/rows = list()
+	while(q.NextRow())
+		rows += list(list(
+			"id"   = text2num(q.item[1]),
+			"type" = q.item[2],
+			"x"    = text2num(q.item[3]),
+			"y"    = text2num(q.item[4]),
+			"z"    = text2num(q.item[5])
+		))
+	qdel(q)
+
+	if(!length(rows))
+		to_chat(usr, SPAN_NOTICE("No removed structures recorded for this map."))
+		return
+
+	var/list/choices = list()
+	for(var/list/row in rows)
+		choices["#[row["id"]] [row["type"]] at ([row["x"]],[row["y"]],[row["z"]])"] = row
+
+	var/picked = tgui_input_list(usr, "Select a removed structure to restore (it will reappear next boot):", "View Removed Structures", choices)
+	if(!picked || !(picked in choices))
+		return
+	var/list/chosen = choices[picked]
+
+	var/datum/db_query/dq = SSdbcore.NewQuery(
+		"DELETE FROM ss13_removed_structures WHERE id = :id",
+		list("id" = chosen["id"])
+	)
+	dq.Execute()
+	SSpersistence.databaseCheckQueryResult(dq, "view_removed_structures delete")
+	qdel(dq)
+
+	to_chat(usr, SPAN_GOOD("Cleared removal record for [chosen["type"]] at ([chosen["x"]],[chosen["y"]],[chosen["z"]]) -- it will be recreated on the next server restart."))
+	log_admin("[key_name(usr)] restored a removed structure record: [chosen["type"]] at ([chosen["x"]],[chosen["y"]],[chosen["z"]]).")

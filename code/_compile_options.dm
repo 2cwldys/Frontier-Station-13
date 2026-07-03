@@ -10,8 +10,14 @@
 // If defined, the sunlight system is enabled. Caution: this uses a LOT of memory.
 //#define ENABLE_SUNLIGHT
 
-// We want to use external resources. Kthx.
-#define PRELOAD_RSC 0
+// Preload all compile-time referenced resources (icons/sounds) before a client
+// is let into the game, instead of fetching each one lazily on first use.
+// Was 0 (on-demand) -- with no external_rsc_urls CDN configured, on-demand
+// meant the ~20 ambient playlist tracks (~35MB total) all transferred in one
+// burst the instant ambient music first tried to play in the live world,
+// freezing the client for 20+ seconds. Lobby music never showed this because
+// it's a single track fetched during the masked black-title-screen phase.
+#define PRELOAD_RSC 1
 
 #ifndef PRELOAD_RSC				//set to:
 	#define PRELOAD_RSC 2		//  0 to allow using external resources or on-demand behaviour;

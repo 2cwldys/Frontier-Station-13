@@ -6,7 +6,15 @@
  *
  * Persistence: persistent_network and faction_shackled are saved via the persistent
  * objects content system so shackled machines survive server restarts without a beacon.
+ * Downloaded software (hard_drive.stored_files) is also saved here -- see
+ * modcomp_save_programs()/modcomp_restore_programs() below, shared with the
+ * worldstate persistence path (persistence_worldstate.dm) for stationary
+ * computers that never go through the persistent-objects track system.
  */
+
+/// Factory-default programs install_default_programs() always recreates on
+/// Initialize() -- redundant to save/restore.
+GLOBAL_LIST_INIT(modcomp_factory_default_programs, list("computerconfig", "clientmanager", "pai_access_lock"))
 
 /obj/item/modular_computer/persistent_objects_get_content()
 	var/list/content = list()
@@ -14,6 +22,9 @@
 		content["persistent_network"] = persistent_network
 	if(faction_shackled)
 		content["faction_shackled"] = TRUE
+	var/list/programs = modcomp_save_programs()
+	if(length(programs))
+		content["programs"] = programs
 	return content
 
 /obj/item/modular_computer/persistent_objects_apply_content(content, x, y, z)
@@ -25,6 +36,37 @@
 		persistent_network = normalize_faction_uid(content["persistent_network"]) || ""
 	if("faction_shackled" in content)
 		faction_shackled = !!content["faction_shackled"]
+	if("programs" in content)
+		modcomp_restore_programs(content["programs"])
+
+/// Returns the filenames of every non-factory-default program currently
+/// installed, suitable for saving and later passing to modcomp_restore_programs().
+/obj/item/modular_computer/proc/modcomp_save_programs()
+	var/list/saved = list()
+	if(hard_drive)
+		for(var/datum/computer_file/program/P in hard_drive.stored_files)
+			if(P.filename in GLOB.modcomp_factory_default_programs)
+				continue
+			saved += P.filename
+	return saved
+
+/// Re-installs programs by filename, looking them up in the NTNet downloadable
+/// software catalog and cloning a fresh instance (matches how the in-game
+/// download tool itself installs software -- see ntdownloader.dm's use of
+/// find_ntnet_file_by_name()+clone()). Filenames with no catalog match
+/// (e.g. a program removed from the codebase since the save was made) are
+/// silently skipped.
+/obj/item/modular_computer/proc/modcomp_restore_programs(list/filenames)
+	if(!islist(filenames) || !hard_drive)
+		return
+	for(var/fname in filenames)
+		if(hard_drive.find_file_by_name(fname))
+			continue // already present
+		var/datum/computer_file/program/template = GLOB.ntnet_global.find_ntnet_file_by_name(fname)
+		if(!template)
+			continue
+		var/datum/computer_file/program/copy = template.clone(FALSE, src)
+		hard_drive.store_file(copy)
 
 /obj/item/modular_computer/verb/link_faction_network()
 	set name = "Link to Faction"

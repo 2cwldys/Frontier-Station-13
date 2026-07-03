@@ -633,6 +633,12 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		catch(var/exception/inv_e)
 			log_subsystem_persistence_error("PersistentAutoSpawn: inventory restore failed: [inv_e]")
 		try
+			// Runs after inventory restore so any ID card the character was
+			// carrying is present to be swept -- see applyPendingFactionRevokes().
+			character.applyPendingFactionRevokes()
+		catch(var/exception/revoke_e)
+			log_subsystem_persistence_error("PersistentAutoSpawn: pending faction revoke apply failed: [revoke_e]")
+		try
 			character.applyPersistentIdentity()
 		catch(var/exception/id_e)
 			log_subsystem_persistence_error("PersistentAutoSpawn: identity restore failed: [id_e]")

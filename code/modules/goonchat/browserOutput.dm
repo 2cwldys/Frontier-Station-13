@@ -51,6 +51,19 @@ GLOBAL_DATUM_INIT(iconCache, /savefile, new("tmp/iconCache.sav")) //Cache of ico
 	owner << browse_rsc(file('code/modules/goonchat/browserassets/html/tchatshadow.png'), "tchatshadow.png")
 	owner << browse_rsc(file('code/modules/goonchat/browserassets/css/cursor.cur'), "cursor.cur")
 
+	// Wait for genuine confirmation the assets above actually arrived and were
+	// cached by the client's embedded browser control before loading HTML that
+	// references them by filename. Queuing browse_rsc() then browse()ing
+	// immediately after does NOT guarantee that -- issue-order on the
+	// connection isn't the same as "already received and cached locally,"
+	// especially under resource contention (this was the leading suspect for
+	// clients ending up with broken/half-loaded chat requiring a restart:
+	// the HTML's <script>/<link> tags would resolve against a local cache
+	// that hadn't finished catching up yet). browse_queue_flush() is the same
+	// primitive the generic asset-cache transport already uses for exactly
+	// this guarantee (asset_transport.dm's send_assets_slow()).
+	owner.browse_queue_flush()
+
 	// tgui_panel targets the SAME physical "browseroutput" window/pane as we
 	// do (see /datum/tgui_panel/New -> window = new(client, "browseroutput")).
 	// A fixed sleep here to "go after tgui_panel" is a guess that can lose the
@@ -71,6 +84,9 @@ GLOBAL_DATUM_INIT(iconCache, /savefile, new("tmp/iconCache.sav")) //Cache of ico
 /datum/chatOutput/proc/assert_chat_html()
 	if(!owner)
 		return
+
+	if(loaded)
+		log_world("goonchat: [key_name(owner)] re-asserting chat HTML after an earlier successful load (tgui_panel likely just wrote over the shared pane).")
 
 	owner << browse(file('code/modules/goonchat/browserassets/html/browserOutput.html'), "window=browseroutput")
 	showChat()
@@ -148,8 +164,11 @@ GLOBAL_DATUM_INIT(iconCache, /savefile, new("tmp/iconCache.sav")) //Cache of ico
 	syncRegex()
 
 	if(degraded)
+		log_world("goonchat: [key_name(owner)] hit the loading_fallback() timeout (no real doneLoading() ack arrived in time) -- degraded to old chat.")
 		//do not convert to to_chat()
 		legacy_chat(owner, "<span class=\"userdanger\">Failed to load fancy chat, reverting to old chat. Certain features won't work.</span>")
+	else
+		log_world("goonchat: [key_name(owner)] loaded successfully (real doneLoading() ack).")
 
 	pingLoop()
 

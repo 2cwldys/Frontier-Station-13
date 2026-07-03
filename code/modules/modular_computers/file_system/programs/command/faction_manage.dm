@@ -90,11 +90,34 @@
 				))
 			qdel(txq)
 		data["transactions"] = tx_out
+
+		// Member roster -- used by the revoke-ID / member management panel.
+		// Full roster only shown to officers+; rank-2-only actions are still
+		// separately gated in ui_act regardless of what the client sends.
+		var/list/members_out = list()
+		if(GLOB.config.sql_enabled && SSdbcore.Connect())
+			var/datum/db_query/mq = SSdbcore.NewQuery(
+				"SELECT ckey, real_name, job_title, rank FROM ss13_faction_members WHERE faction_uid = :uid ORDER BY rank DESC, real_name ASC",
+				list("uid" = net)
+			)
+			mq.Execute()
+			while(mq.NextRow())
+				members_out += list(list(
+					"ckey"      = mq.item[1],
+					"real_name" = mq.item[2],
+					"job_title" = mq.item[3],
+					"rank"      = text2num(mq.item[4]) || 0
+				))
+			qdel(mq)
+		data["members"] = members_out
+		data["cards_epoch"] = get_faction_cards_epoch(net)
 	else
 		data["balance"]        = null
 		data["jobs"]           = list()
 		data["known_factions"] = list()
 		data["last_payroll"]   = 0
+		data["members"]        = list()
+		data["cards_epoch"]    = 0
 
 	return data
 
@@ -458,7 +481,65 @@
 			FC.faction_uid = net
 			FC.name = "[get_faction_name(net)] charge card"
 			FC.owner_name = get_faction_name(net)
+			FC.issued_epoch = get_faction_cards_epoch(net)
 			user.put_in_hands(FC)
 			to_chat(user, SPAN_GOOD("Printed \a [FC]."))
 			log_game("[key_name(user)] printed a faction charge card for '[net]' via faction_manage.")
+			. = TRUE
+
+		// ---- Invalidate All Charge Cards -------------------------------------
+		// Bumps the faction's card epoch -- every charge card printed before
+		// this moment (online, offline in someone's cryo inventory, or on the
+		// floor) fails validity checks from now on. New prints pick up the
+		// new epoch and work normally.
+		if("invalidate_charge_cards")
+			if(op_rank < 2) return
+			var/confirm = tgui_alert(user, "Invalidate every charge card ever printed for [get_faction_name(net)]? This cannot be undone -- everyone holding one will need a replacement.", "Invalidate All Charge Cards", list("Invalidate", "Cancel"))
+			if(confirm != "Invalidate") return
+			invalidate_faction_charge_cards(net)
+			to_chat(user, SPAN_GOOD("All existing [get_faction_name(net)] charge cards have been voided."))
+			log_game("[key_name(user)] invalidated all charge cards for faction '[net]' via faction_manage.")
+			. = TRUE
+
+		// ---- Revoke Member ID -------------------------------------------------
+		// Immediately revokes any of the target's faction ID cards currently
+		// in the world, and stages a pending revoke in SQL so that if the
+		// target (or their stored ID) is offline right now, the revoke still
+		// applies the moment they -- or that ID -- next comes back into play.
+		// See PersistentAutoSpawn() for where pending revokes get consumed.
+		if("revoke_member_id")
+			if(op_rank < 2) return
+			var/target_ckey = ckey(params["target_ckey"])
+			if(!target_ckey) return
+			if(target_ckey == user.ckey)
+				to_chat(user, SPAN_WARNING("You cannot revoke your own ID."))
+				return
+			var/list/target_member = get_faction_member(target_ckey, net)
+			if(!target_member)
+				to_chat(user, SPAN_WARNING("That ckey is not a member of [get_faction_name(net)]."))
+				return
+			var/target_name = target_member["real_name"]
+
+			var/confirm = tgui_alert(user, "Revoke [target_name]'s [get_faction_name(net)] ID? This applies immediately if they're in the world, and will apply automatically the next time they (or their ID) show up otherwise.", "Revoke Member ID", list("Revoke", "Cancel"))
+			if(confirm != "Revoke") return
+
+			var/revoked_now = 0
+			for(var/obj/item/card/id/old_card in world)
+				if(!old_card.revoked && old_card.registered_name == target_name && normalize_faction_uid(old_card.employer_faction) == net)
+					old_card.revoked = TRUE
+					old_card.access = list()
+					old_card.update_name()
+					revoked_now++
+
+			if(GLOB.config.sql_enabled && SSdbcore.Connect())
+				var/datum/db_query/rq = SSdbcore.NewQuery(
+					{"INSERT INTO ss13_faction_pending_revokes (faction_uid, target_ckey, target_name, issued_by_ckey)
+					VALUES (:uid, :ckey, :name, :issuer)"},
+					list("uid" = net, "ckey" = target_ckey, "name" = target_name, "issuer" = user.ckey)
+				)
+				rq.Execute()
+				qdel(rq)
+
+			to_chat(user, SPAN_GOOD("Revoked [revoked_now] live ID card[revoked_now == 1 ? "" : "s"] for [target_name]. Any offline copies will be revoked automatically when [target_name] is next restored."))
+			log_game("[key_name(user)] revoked faction ID access for '[target_name]' (ckey: [target_ckey]) in faction '[net]' via faction_manage ([revoked_now] live cards caught).")
 			. = TRUE

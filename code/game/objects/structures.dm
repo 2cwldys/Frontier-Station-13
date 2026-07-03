@@ -23,6 +23,12 @@
 
 /obj/structure
 	var/persistence_was_mapload = FALSE
+	/// Set TRUE on types that should never be permanently removed by the
+	/// removed-structures tombstone system, even if Destroy() fires for a
+	/// reason unrelated to intentional player demolition (stray damage,
+	/// admin tooling, etc). Once tombstoned a structure never comes back on
+	/// its own -- reserve this for critical fixed infrastructure like ATMs.
+	var/persistence_never_tombstone = FALSE
 
 /obj/structure/Initialize(mapload)
 	. = ..()
@@ -45,7 +51,7 @@
 		SSpersistence.clearStructureRemoval(src)
 
 /obj/structure/Destroy()
-	if(persistence_was_mapload && !persistent_objects_track_active && GLOB.persistence_ready && GLOB.config.sql_enabled)
+	if(persistence_was_mapload && !persistent_objects_track_active && !persistence_never_tombstone && GLOB.persistence_ready && GLOB.config.sql_enabled)
 		SSpersistence.saveStructureRemoval(src)
 	if(parts)
 		new parts(loc)

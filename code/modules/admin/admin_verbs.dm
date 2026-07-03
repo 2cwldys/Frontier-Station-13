@@ -104,6 +104,7 @@ GLOBAL_LIST_INIT(admin_verbs_admin, list(
 	/client/proc/wipe_ai,	// allow admins to force-wipe AIs
 	/client/proc/fix_player_list,
 	/client/proc/reset_openturf,
+	/client/proc/view_removed_structures,
 	/client/proc/toggle_aooc,
 	/client/proc/force_away_mission,
 	/client/proc/alooc,
@@ -255,6 +256,7 @@ GLOBAL_LIST_INIT(admin_verbs_debug, list(
 	/client/proc/cmd_generate_lag,
 	/client/proc/cmd_ss_panic,
 	/client/proc/reset_openturf,
+	/client/proc/view_removed_structures,
 	/datum/admins/proc/capture_map,
 	/datum/admins/proc/map_template_load,
 	/datum/admins/proc/map_template_load_new_z,
@@ -406,6 +408,7 @@ GLOBAL_LIST_INIT(admin_verbs_hideable, list(
 	/client/proc/investigate_show,
 	/client/proc/cmd_admin_list_open_jobs,
 	/client/proc/reset_openturf,
+	/client/proc/view_removed_structures,
 	/client/proc/Debug2,
 	/client/proc/DebugToggle,
 	/client/proc/DebugToggleAll,

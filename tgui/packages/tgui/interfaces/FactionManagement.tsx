@@ -31,6 +31,13 @@ type FactionTransaction = {
   when: string;
 };
 
+type FactionMember = {
+  ckey: string;
+  real_name: string;
+  job_title: string | null;
+  rank: number;
+};
+
 type FactionData = {
   faction_uid: string | null;
   faction_name: string | null;
@@ -41,6 +48,8 @@ type FactionData = {
   jobs: FactionJob[];
   known_factions: KnownFaction[];
   transactions: FactionTransaction[];
+  members: FactionMember[];
+  cards_epoch: number;
 };
 
 const RANK_LABELS = ['Crew', 'Officer', 'Command'];
@@ -59,6 +68,8 @@ export const FactionManagement = (props) => {
     last_payroll,
     jobs,
     known_factions,
+    members,
+    cards_epoch,
   } = data;
 
   if (!faction_uid) {
@@ -163,6 +174,15 @@ export const FactionManagement = (props) => {
                 onClick={() => act('print_charge_card')}
               >
                 Print Charge Card
+              </Button>
+              <Button
+                icon="ban"
+                color="bad"
+                ml={1}
+                tooltip={`Voids every charge card ever printed for this faction (currently on epoch ${cards_epoch}). Cards printed after this will still work.`}
+                onClick={() => act('invalidate_charge_cards')}
+              >
+                Invalidate All Charge Cards
               </Button>
             </Box>
           )}
@@ -270,6 +290,52 @@ export const FactionManagement = (props) => {
                         }
                       >
                         Remove
+                      </Button>
+                    </Table.Cell>
+                  )}
+                </Table.Row>
+              ))}
+            </Table>
+          )}
+        </Section>
+
+        {/* Members Section */}
+        <Section title="Faction Members">
+          {!members || members.length === 0 ? (
+            <Box italic color="label">
+              No registered members found.
+            </Box>
+          ) : (
+            <Table>
+              <Table.Row header>
+                <Table.Cell>Name</Table.Cell>
+                <Table.Cell>Job</Table.Cell>
+                <Table.Cell>Rank</Table.Cell>
+                {canManage && <Table.Cell />}
+              </Table.Row>
+              {members.map((member) => (
+                <Table.Row key={member.ckey}>
+                  <Table.Cell bold>{member.real_name}</Table.Cell>
+                  <Table.Cell color="label">
+                    {member.job_title ?? 'Unassigned'}
+                  </Table.Cell>
+                  <Table.Cell>
+                    {RANK_LABELS[member.rank] ?? `Rank ${member.rank}`}
+                  </Table.Cell>
+                  {canManage && (
+                    <Table.Cell>
+                      <Button
+                        compact
+                        color="bad"
+                        icon="id-card"
+                        tooltip="Revokes this member's faction ID immediately if they're in the world, and automatically the next time they (or their ID) show up otherwise."
+                        onClick={() =>
+                          act('revoke_member_id', {
+                            target_ckey: member.ckey,
+                          })
+                        }
+                      >
+                        Revoke ID
                       </Button>
                     </Table.Cell>
                   )}

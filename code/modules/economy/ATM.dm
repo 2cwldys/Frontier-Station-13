@@ -8,6 +8,10 @@
 	anchored = 1
 	idle_power_usage = 10
 	obj_flags = OBJ_FLAG_MOVES_UNSUPPORTED
+	// Critical banking infrastructure -- if one is ever destroyed for any
+	// reason, it should be rebuildable/re-mappable rather than permanently
+	// wiped from the map on every future boot.
+	persistence_never_tombstone = TRUE
 	var/datum/money_account/authenticated_account
 	var/number_incorrect_tries = 0
 	var/previous_account_number = 0
