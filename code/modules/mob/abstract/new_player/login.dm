@@ -36,6 +36,13 @@
 	// more source of goonchat intermittently failing to load.
 	UNTIL(!GLOB.config.goonchat || client?.chatOutput?.loaded)
 	if(!client) return // client may have disconnected during the wait
+	// A stale reopen-timer (scheduled by ui_close() while spawning was still
+	// FALSE) can fire after the player has since clicked Play on the current
+	// menu datum -- without this check the menu reopens right on top of an
+	// in-progress or just-completed spawn, since client only goes null once
+	// the key transfer to the spawned character actually completes.
+	if(persistent_menu_datum && persistent_menu_datum.spawning)
+		return
 	if(!persistent_menu_datum || QDELETED(persistent_menu_datum))
 		persistent_menu_datum = new /datum/persistent_menu(src)
 	persistent_menu_datum.ui_interact(src)

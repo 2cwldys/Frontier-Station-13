@@ -1,3 +1,17 @@
+/// Skills excluded from the "default everyone to Professional" fill below --
+/// these are role-flavor skills (command speeches, chaplain blessings) that
+/// shouldn't be handed to every character just because they didn't manually
+/// configure skills. Left at whatever SSskills' own baseline default is
+/// (SKILL_LEVEL_UNFAMILIAR) unless a job/education explicitly grants them
+/// (leadership already gets a Trained grant via CMO education -- see
+/// code\modules\background\education\medical.dm). Nothing currently grants
+/// ministry to any role (e.g. Chaplain) -- add a proper education/job grant
+/// for it here later if "Offer Blessing" should come back for that role.
+GLOBAL_LIST_INIT(skill_default_fill_excluded, list(
+	/singleton/skill/leadership,
+	/singleton/skill/ministry,
+))
+
 /datum/category_item/player_setup_item/skills
 	name = "Skills"
 	sort_order = 1
@@ -76,10 +90,14 @@
 		if(istype(skill))
 			pref.skills[skill.type] = value
 
-	// Default any unset skill to TRAINED -- players who haven't configured skills
-	// start fully functional on this server rather than unfamiliar with everything.
+	// Default any unset skill to PROFESSIONAL -- players who haven't configured
+	// skills start fully functional on this server rather than unfamiliar with
+	// everything. Excludes a couple of role-flavor skills that shouldn't be
+	// handed to everyone by this blanket policy -- see skill_default_fill_excluded.
 	if(SSskills && length(SSskills.all_skills))
 		for(var/singleton/skill/sk as anything in SSskills.all_skills)
+			if(sk.type in GLOB.skill_default_fill_excluded)
+				continue
 			if(!(sk.type in pref.skills))
 				pref.skills[sk.type] = SKILL_LEVEL_PROFESSIONAL
 

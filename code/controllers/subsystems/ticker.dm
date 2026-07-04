@@ -51,7 +51,7 @@ SUBSYSTEM_DEF(ticker)
 	var/atom/movable/screen/cinematic = null
 
 	var/list/default_lobby_tracks = list(
-		'sound/music/lobby/mainmenu.mp3',
+		'sound/music/lobby/mainmenu.ogg',
 	)
 
 	var/lobby_ready = FALSE
@@ -772,6 +772,15 @@ SUBSYSTEM_DEF(ticker)
 /datum/controller/subsystem/ticker/proc/create_characters()
 	for(var/mob/abstract/new_player/player in GLOB.player_list)
 		if(player && player.ready && player.mind)
+			// Readied lobby players otherwise bypass every enter_allowed check
+			// entirely -- this is the only spawn path that doesn't route
+			// through PersistentAutoSpawn()/persistent_menu.dm, so a server
+			// locked via "Toggle Server Joining" moments before round start
+			// would still let them in without this.
+			if(!GLOB.config.enter_allowed && !check_rights(R_ADMIN, 0, player))
+				to_chat(player, SPAN_NOTICE("Joining is currently disabled by an administrator."))
+				CHECK_TICK
+				continue
 			if(player.mind.assigned_role=="AI")
 				player.close_spawn_windows()
 				player.AIize()

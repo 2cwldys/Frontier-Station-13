@@ -460,6 +460,7 @@
 #include "code\controllers\subsystems\persistence\persistence_templates.dm"
 #include "code\controllers\subsystems\persistence\persistence_turfs.dm"
 #include "code\controllers\subsystems\persistence\persistence_world_ready.dm"
+#include "code\controllers\subsystems\persistence\persistence_zlevel_reset.dm"
 #include "code\controllers\subsystems\persistence\persistence_worldstate.dm"
 #include "code\controllers\subsystems\processing\airflow.dm"
 #include "code\controllers\subsystems\processing\calamity.dm"

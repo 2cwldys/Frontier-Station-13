@@ -306,8 +306,17 @@ ABSTRACT_TYPE(/obj/structure/machinery/power/apc)
 
 	make_terminal()
 
-	if (!mapload)
-		addtimer(CALLBACK(src, PROC_REF(update)), 5, TIMER_UNIQUE)
+	// Always self-correct area.power_light/equip/environ shortly after init,
+	// map-loaded or not. /area/Initialize() unconditionally zeroes those vars
+	// at boot (no APC has assigned itself to its area yet at that point), and
+	// for a normal map-loaded APC nothing else was guaranteed to ever flip
+	// them back on -- the only other path was persistence_worldstate.dm's
+	// boot-time resync loop, which is gated behind a DB connection check and
+	// a "did any rows load" check that can silently no-op, intermittently
+	// leaving every light on the level stuck believing it has no power. This
+	// used to only run for dynamically-built (non-mapload) APCs on the
+	// assumption that resync would always handle the map-loaded case.
+	addtimer(CALLBACK(src, PROC_REF(update)), 5, TIMER_UNIQUE)
 
 /obj/structure/machinery/power/apc/get_examine_text(mob/user, distance, is_adjacent, infix, suffix)
 	. = ..()

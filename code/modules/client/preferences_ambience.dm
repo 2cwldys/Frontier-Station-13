@@ -93,7 +93,12 @@ GLOBAL_LIST_INIT(sfx_toggles, list(
 			// Volume of an already-baked sound() call doesn't update on its own --
 			// push a live update so a currently playing track responds immediately
 			// instead of waiting for the next queued track.
-			SEND_SOUND(src, sound(null, status = SOUND_UPDATE, volume = new_vol, channel = CHANNEL_AMBIENT_PLAYLIST))
+			// status is not a valid sound() constructor arg on this BYOND
+			// version -- construct then assign it as a property, otherwise
+			// this throws "bad arg name 'status'" at runtime every time.
+			var/sound/vol_update = sound(null, volume = new_vol, channel = CHANNEL_AMBIENT_PLAYLIST)
+			vol_update.status = SOUND_UPDATE
+			SEND_SOUND(src, vol_update)
 	else
 		to_chat(src, SPAN_INFO("You will no longer hear the ambient music playlist."))
 		stop_ambient_playlist()

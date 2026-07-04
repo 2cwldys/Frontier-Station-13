@@ -88,12 +88,20 @@
 	//Adds the component only once. We do it here & not in Initialize() because there are tons of walls & we don't want to add to their init times
 	LoadComponent(/datum/component/leanable, dropping)
 
-// Walls always hide the stuff below them.
+// Walls hide the stuff buried in them -- under-floor level objects like
+// pipes and cables -- NOT everything on the tile. The old blanket hide(1)
+// made any wall-mounted machinery sitting on a wall tile (e.g. an
+// admin-placed ATM) permanently invisible-but-alive: every boot,
+// turfsInitialize() ChangeTurf'd the saved wall over the already-restored
+// machine, and this proc set invisibility = INVISIBILITY_MAXIMUM on it.
+// The object stayed registered and its light kept glowing on the tile, but
+// it could not be seen or clicked by anyone. Match the base
+// /turf/levelupdate() contract instead: only hide what hides under flooring.
 /turf/simulated/wall/levelupdate(mapload)
 	if (mapload)
 		return 		// Don't hide stuff during mapload.
 	for(var/obj/O in src)
-		O.hide(1)
+		O.hide(O.hides_under_flooring())
 
 /turf/simulated/wall/Initialize(mapload, var/materialtype, var/rmaterialtype)
 	. = ..()

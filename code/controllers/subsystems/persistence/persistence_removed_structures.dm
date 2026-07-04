@@ -44,6 +44,21 @@
 		var/typepath = text2path(q.item[1])
 		if(!typepath)
 			continue
+		// Types flagged persistence_never_tombstone must ALWAYS load with the
+		// map, every session -- never delete them from stale removal rows
+		// (written before the flag existed). Also erase those rows so this
+		// permanently self-heals on the first boot after the flag is added.
+		if(ispath(typepath, /obj/structure))
+			var/obj/structure/probe = typepath
+			if(initial(probe.persistence_never_tombstone))
+				var/datum/db_query/cleanup_q = SSdbcore.NewQuery(
+					"DELETE FROM ss13_removed_structures WHERE map_path = :mp AND type = :type",
+					list("mp" = "[SSatlas.current_map.path]", "type" = q.item[1])
+				)
+				cleanup_q.Execute()
+				qdel(cleanup_q)
+				log_subsystem_persistence_info("Removed structures: purged stale removal row(s) for [typepath] -- this type always loads with the map.")
+				continue
 		var/tx = text2num(q.item[2])
 		var/ty = text2num(q.item[3])
 		var/tz = text2num(q.item[4])

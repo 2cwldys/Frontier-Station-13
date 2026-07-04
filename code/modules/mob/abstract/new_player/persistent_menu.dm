@@ -48,6 +48,12 @@
 	data["slot_limit"]        = slot_limit
 	data["can_create"]        = length(chars_out) < slot_limit
 	data["persistence_ready"] = GLOB.persistence_ready
+	// Admins can still Play while joining is locked -- matches PersistentAutoSpawn()'s
+	// own admin bypass. NOTE: with AUTO_LOCAL_ADMIN in the config, any connection
+	// from the host machine is silently full-admin, so the button will NOT grey
+	// out for a host-connected account even when the server is locked -- that is
+	// the bypass working as intended, not the lock failing.
+	data["enter_allowed"]     = GLOB.config.enter_allowed || check_rights(R_ADMIN, 0, user)
 
 	return data
 
@@ -58,6 +64,23 @@
 
 	switch(action)
 		if("play")
+			// Defense-in-depth: the frontend already greys the Play button out
+			// for these same conditions (ui_data()'s enter_allowed/persistence_ready),
+			// but never trust client-side disabling alone -- a bypassed/replayed
+			// action could still reach here. Checking before committing to
+			// spawning = TRUE / ui.close() means a blocked attempt leaves the
+			// menu open with a message instead of closing on a doomed spawn
+			// (closing it here with nothing to ever reset spawning back to
+			// FALSE would otherwise strand the player with no menu at all).
+			if(!GLOB.persistence_ready)
+				to_chat(NP, SPAN_WARNING("The server is still loading. Please wait a moment and try again."))
+				return TRUE
+			if(!GLOB.config.enter_allowed && !check_rights(R_ADMIN, 0, NP))
+				to_chat(NP, SPAN_NOTICE("Joining is currently disabled by an administrator."))
+				return TRUE
+			if(SSticker.current_state != GAME_STATE_PLAYING)
+				to_chat(NP, SPAN_WARNING("The round is not ready yet."))
+				return TRUE
 			var/char_name = params["name"]
 			spawning = TRUE
 			NP.PersistentAutoSpawn(char_name)

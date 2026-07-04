@@ -484,6 +484,7 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 			H.stat = CONSCIOUS
 			H.density = TRUE
 			H.status_flags &= ~GODMODE
+			H.stop_sound_channel(CHANNEL_LOBBYMUSIC) // Lobby music doesn't stop on its own when persistent-spawning into the world -- see create_character()'s equivalent call
 			to_chat(H, SPAN_NOTICE("You eject from cryosleep. Welcome back, [H.real_name]."))
 			log_subsystem_persistence_info("Cryo: [H.real_name] ([ckey_lower]) woke from cryosleep.")
 			if(H.client)
@@ -500,6 +501,7 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		if(selected_from_menu && H.real_name != selected_from_menu)
 			continue
 		H.key = client.ckey
+		H.stop_sound_channel(CHANNEL_LOBBYMUSIC) // Lobby music doesn't stop on its own when persistent-spawning into the world -- see create_character()'s equivalent call
 		to_chat(H, SPAN_NOTICE("Connection restored. Welcome back, [H.real_name]."))
 		log_subsystem_persistence_info("Cryo: [H.real_name] ([ckey_lower]) reconnected to live mob.")
 		if(H.client)
@@ -717,6 +719,13 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		SSrecords.generate_record(character)
 		SSticker.minds += character.mind
 		AnnounceArrival(character, null, null)
+
+	// Lobby music doesn't stop on its own when persistent-spawning into the
+	// world -- see create_character()'s equivalent call. Left running, it
+	// keeps actively playing on its own channel right through the moment
+	// start_ambient_playlist() below tries to start a second large chained
+	// track on a different channel.
+	character.stop_sound_channel(CHANNEL_LOBBYMUSIC)
 
 	// Start the in-round ambient music playlist once prefs have settled
 	if(character.client)

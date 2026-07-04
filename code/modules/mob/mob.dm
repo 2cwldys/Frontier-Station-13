@@ -1370,22 +1370,30 @@
 		throw_mode_on()
 
 #define THROW_MODE_ICON 'icons/hud/cursor/throw_mode.dmi'
+#define NORMAL_CURSOR_ICON 'icons/hud/cursor/normal.dmi'
 
 /mob/proc/throw_mode_off()
 	src.in_throw_mode = 0
 	if(src.throw_icon) //in case we don't have the HUD and we use the hotkey
 		src.throw_icon.icon_state = "act_throw_off"
-	if(client?.mouse_pointer_icon == THROW_MODE_ICON)
-		client.mouse_pointer_icon = initial(client.mouse_pointer_icon)
+	// Was `initial(client.mouse_pointer_icon)` -- that's declared as
+	// NORMAL_CURSOR_ICON on /client (client_defines.dm) and nothing else in
+	// the codebase touches or overrides it, so it should be equivalent, but
+	// in practice reverted to BYOND's engine-default cursor instead. Hardcode
+	// the literal directly so both directions of the swap are equally
+	// explicit, removing any ambiguity about what "initial" resolves to.
+	if(client)
+		client.mouse_pointer_icon = NORMAL_CURSOR_ICON
 
 /mob/proc/throw_mode_on()
 	src.in_throw_mode = 1
 	if(src.throw_icon)
 		src.throw_icon.icon_state = "act_throw_on"
-	if(client?.mouse_pointer_icon == initial(client.mouse_pointer_icon))
+	if(client)
 		client.mouse_pointer_icon = THROW_MODE_ICON
 
 #undef THROW_MODE_ICON
+#undef NORMAL_CURSOR_ICON
 
 /mob/proc/is_invisible_to(var/mob/viewer)
 	if(isAI(viewer))
