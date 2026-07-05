@@ -263,7 +263,7 @@ export const CargoControl = (props) => {
                   <Table.Cell>Supplier</Table.Cell>
                   <Table.Cell>Price</Table.Cell>
                 </Table.Row>
-                {data.order_details.items.map((item) => (
+                {(data.order_details.items || []).map((item) => (
                   <Table.Row key={item.name}>
                     <Table.Cell>{item.name}</Table.Cell>
                     <Table.Cell>{item.supplier_name}</Table.Cell>
@@ -351,7 +351,7 @@ export const OverviewSubmitted = (props) => {
           <Table.Cell>Price</Table.Cell>
           <Table.Cell>Actions</Table.Cell>
         </Table.Row>
-        {data.order_list.map((order) => (
+        {(data.order_list || []).map((order) => (
           <Table.Row key={order.order_id}>
             <Table.Cell>{order.order_id}</Table.Cell>
             <Table.Cell>{order.ordered_by}</Table.Cell>
@@ -424,7 +424,7 @@ export const OverviewApproved = (props) => {
           <Table.Cell>Price</Table.Cell>
           <Table.Cell>Actions</Table.Cell>
         </Table.Row>
-        {data.order_list.map((order) => (
+        {(data.order_list || []).map((order) => (
           <Table.Row key={order.order_id}>
             <Table.Cell>{order.order_id}</Table.Cell>
             <Table.Cell>{order.ordered_by}</Table.Cell>
@@ -482,7 +482,7 @@ export const OverviewShipped = (props) => {
           <Table.Cell>Price</Table.Cell>
           <Table.Cell>Actions</Table.Cell>
         </Table.Row>
-        {data.order_list.map((order) => (
+        {(data.order_list || []).map((order) => (
           <Table.Row key={order.order_id}>
             <Table.Cell>{order.order_id}</Table.Cell>
             <Table.Cell>{order.ordered_by}</Table.Cell>
@@ -531,7 +531,7 @@ export const OverviewDelivered = (props) => {
           <Table.Cell>Price</Table.Cell>
           <Table.Cell>Actions</Table.Cell>
         </Table.Row>
-        {data.order_list.map((order) => (
+        {(data.order_list || []).map((order) => (
           <Table.Row key={order.order_id}>
             <Table.Cell>{order.order_id}</Table.Cell>
             <Table.Cell>{order.ordered_by}</Table.Cell>
@@ -572,7 +572,7 @@ export const OverviewShipments = (props) => {
           <Table.Cell>Income</Table.Cell>
           <Table.Cell>Action</Table.Cell>
         </Table.Row>
-        {data.shipment_list.map((shipment) => (
+        {(data.shipment_list || []).map((shipment) => (
           <Table.Row key={shipment.shipment_num}>
             <Table.Cell>{shipment.shipment_num}</Table.Cell>
             <Table.Cell>{shipment.shipment_cost_purchase}</Table.Cell>
@@ -615,7 +615,7 @@ export const Bounties = (props) => {
           <Table.Cell>Completion</Table.Cell>
           <Table.Cell>Status</Table.Cell>
         </Table.Row>
-        {data.bounties.map((bounty) => (
+        {(data.bounties || []).map((bounty) => (
           <Table.Row key={bounty.name} m={5}>
             <Table.Cell textColor={bounty.claimed ? 'green' : 'red'}>
               {bounty.name}

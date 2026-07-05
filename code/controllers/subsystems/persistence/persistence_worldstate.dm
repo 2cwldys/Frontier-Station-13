@@ -333,6 +333,12 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 /obj/structure/machinery/floodlight
 	worldstate_vars = list("on", "unlocked", "open")
 
+/obj/structure/machinery/floodlight/worldstate_apply_content(list/content)
+	. = ..()
+	// The restore writes "on" as a raw var -- the dynamic light listens to
+	// set_light_on()'s signal, which a raw write never fires.
+	set_light_on(on)
+
 /obj/structure/machinery/hologram/holopad
 	worldstate_vars = list("long_range", "hacked")
 

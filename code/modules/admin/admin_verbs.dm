@@ -210,7 +210,8 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/reset_player_bank_account,
 	/datum/admins/proc/toggle_persistence,
 	/datum/admins/proc/toggle_autosave_pause,
-	/datum/admins/proc/install_neural_lace
+	/datum/admins/proc/install_neural_lace,
+	/datum/admins/proc/check_vitals
 	))
 
 GLOBAL_LIST_INIT(admin_verbs_debug, list(

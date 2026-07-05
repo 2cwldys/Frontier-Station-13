@@ -81,7 +81,18 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
 				continue
 			var/list/augments = list()
 			for(var/obj/item/organ/A in O.internal_organs)
-				if(A.is_augment)
+				if(!A.is_augment)
+					continue
+				if(istype(A, /obj/item/organ/internal/neural_lace))
+					var/obj/item/organ/internal/neural_lace/lace = A
+					augments += list(list(
+						"type"            = "[A.type]",
+						"lace_damage"     = lace.lace_damage,
+						"registered_name" = lace.registered_name,
+						"registered_ckey" = lace.registered_ckey,
+						"owner_faction"   = lace.owner_faction
+					))
+				else
 					augments += "[A.type]"
 			if(!O.brute_dam && !O.burn_dam && !O.robotic && !length(augments))
 				continue
@@ -153,7 +164,14 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
 						O.robotize(company)
 				// Restore augments
 				if(limb["augments"] && islist(limb["augments"]))
-					for(var/aug_type_str in limb["augments"])
+					for(var/aug_entry in limb["augments"])
+						var/aug_type_str
+						var/list/aug_data = null
+						if(islist(aug_entry))
+							aug_data = aug_entry
+							aug_type_str = aug_data["type"]
+						else
+							aug_type_str = aug_entry
 						var/aug_path = text2path(aug_type_str)
 						if(!aug_path || !ispath(aug_path, /obj/item/organ))
 							continue
@@ -164,8 +182,15 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
 								break
 						if(!already_installed)
 							try
-								// new path(loc, mapload, internal)  internal=TRUE hooks the augment into parent_organ automatically
-								new aug_path(src, FALSE, TRUE)
+								// new path(loc, mapload, internal)  internal=TRUE hooks the augment into
+								// parent_organ/internal_organs/internal_organs_by_name automatically (organ.dm)
+								var/obj/item/organ/new_aug = new aug_path(src, FALSE, TRUE)
+								if(aug_data && istype(new_aug, /obj/item/organ/internal/neural_lace))
+									var/obj/item/organ/internal/neural_lace/lace = new_aug
+									lace.lace_damage     = isnull(aug_data["lace_damage"]) ? 0 : aug_data["lace_damage"]
+									lace.registered_name = aug_data["registered_name"] || ""
+									lace.registered_ckey = aug_data["registered_ckey"] || ""
+									lace.owner_faction   = aug_data["owner_faction"] || ""
 							catch(var/exception/aug_e)
 								log_subsystem_persistence_error("MobHealth: Failed to restore augment [aug_type_str] for [real_name]: [aug_e]")
 
@@ -548,7 +573,18 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			continue
 		var/list/augments = list()
 		for(var/obj/item/organ/A in O.internal_organs)
-			if(A.is_augment)
+			if(!A.is_augment)
+				continue
+			if(istype(A, /obj/item/organ/internal/neural_lace))
+				var/obj/item/organ/internal/neural_lace/lace = A
+				augments += list(list(
+					"type"            = "[A.type]",
+					"lace_damage"     = lace.lace_damage,
+					"registered_name" = lace.registered_name,
+					"registered_ckey" = lace.registered_ckey,
+					"owner_faction"   = lace.owner_faction
+				))
+			else
 				augments += "[A.type]"
 		if(!O.brute_dam && !O.burn_dam && !O.robotic && !length(augments))
 			continue
@@ -578,6 +614,57 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	ins.Execute()
 	databaseCheckQueryResult(ins, "mobsHealthSaveOne")
 	qdel(ins)
+
+// ============================================================
+// VITALS ADMIN VERB
+// ============================================================
+
+/datum/admins/proc/check_vitals()
+	set name = "Check Vitals"
+	set category = "Persistence"
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	var/target_ckey = tgui_input_text(usr, "Enter the ckey to check:", "Check Vitals")
+	if(!target_ckey) return
+	target_ckey = ckey(target_ckey)
+
+	var/client/C = GLOB.directory[target_ckey]
+	if(!C || !C.mob)
+		to_chat(usr, SPAN_WARNING("No connected client found for ckey '[target_ckey]'."))
+		return
+
+	var/mob/living/carbon/human/H = C.mob
+	if(!istype(H))
+		to_chat(usr, SPAN_WARNING("[key_name(C)]'s current mob is not a living human ([C.mob.type])."))
+		return
+
+	to_chat(usr, SPAN_NOTICE("<b>Vitals for [H.real_name] ([target_ckey])</b>"))
+	to_chat(usr, SPAN_NOTICE("State: [H.stat == CONSCIOUS ? "Conscious" : (H.stat == UNCONSCIOUS ? "Unconscious" : "Dead")]"))
+	to_chat(usr, SPAN_NOTICE("Health: [H.health]/[H.maxhealth]"))
+	to_chat(usr, SPAN_NOTICE("Nutrition (hunger): [H.nutrition]"))
+	to_chat(usr, SPAN_NOTICE("Hydration (thirst): [H.hydration]"))
+	to_chat(usr, SPAN_NOTICE("Body temperature: [H.bodytemperature]K"))
+
+	var/obj/item/organ/internal/neural_lace/lace = H.internal_organs_by_name["neural_lace"]
+	if(!lace)
+		to_chat(usr, SPAN_WARNING("Neural lace: not installed."))
+	else
+		var/damage_desc
+		if(lace.lace_damage >= 100)
+			damage_desc = "DESTROYED"
+		else if(lace.lace_damage >= 76)
+			damage_desc = "SEVERE ([lace.lace_damage]/100)"
+		else if(lace.lace_damage >= 51)
+			damage_desc = "MODERATE ([lace.lace_damage]/100)"
+		else if(lace.lace_damage >= 26)
+			damage_desc = "MINOR ([lace.lace_damage]/100)"
+		else
+			damage_desc = "NOMINAL"
+		to_chat(usr, SPAN_NOTICE("Neural lace: installed. Integrity: [damage_desc][lace.lace_occupied ? " -- CONSCIOUSNESS STORED" : ""]"))
+
+	log_and_message_admins("checked vitals for [key_name(C)]", usr)
 
 /**
  * Save inventory state for a single mob immediately.

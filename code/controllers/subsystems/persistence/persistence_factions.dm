@@ -581,7 +581,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	if(top == "Create New Faction")
 		var/new_uid = tgui_input_text(usr, "Enter a unique faction ID (lowercase, no spaces, e.g. 'zavodskoi'):", "Create Faction", max_length = 32)
 		if(!new_uid) return
-		new_uid = lowertext(replacetext(new_uid, " ", "_"))
+		new_uid = normalize_faction_uid(new_uid)
 
 		if(islist(GLOB.persistence_faction_cache) && (new_uid in GLOB.persistence_faction_cache))
 			to_chat(usr, SPAN_WARNING("A faction with UID '[new_uid]' already exists."))
@@ -589,6 +589,14 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 
 		var/new_name  = tgui_input_text(usr, "Full faction name:", "Create Faction", max_length = 64)
 		if(!new_name) return
+		new_name = lowertext(new_name)
+
+		if(islist(GLOB.persistence_faction_cache))
+			for(var/existing_uid in GLOB.persistence_faction_cache)
+				var/list/existing = GLOB.persistence_faction_cache[existing_uid]
+				if(lowertext(existing["name"]) == new_name)
+					to_chat(usr, SPAN_WARNING("A faction named '[new_name]' already exists (uid '[existing_uid]')."))
+					return
 
 		var/new_abbr  = tgui_input_text(usr, "Abbreviation (2-4 letters, e.g. 'ZI'):", "Create Faction", max_length = 8)
 		if(!new_abbr) return

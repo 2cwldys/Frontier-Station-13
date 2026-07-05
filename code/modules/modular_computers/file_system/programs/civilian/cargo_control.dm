@@ -30,33 +30,43 @@
 
 	data["username"] = GetNameAndAssignmentFromId(user.GetIdCard())
 
-	var/list/submitted_orders = SScargo.get_orders_by_status("submitted",1)
+	// Always present as lists -- the frontend .map()s these unguarded, and a
+	// page/data desync (e.g. a runtime truncating this proc) must not crash
+	// the whole window.
+	data["order_list"] = list()
+	data["shipment_list"] = list()
+
+	// Faction instancing: this console only sees orders belonging to its own
+	// network. Unshackled consoles see only the station's network-less queue.
+	var/console_net = (computer && computer.persistent_network) ? normalize_faction_uid(computer.persistent_network) : ""
+
+	var/list/submitted_orders = SScargo.get_orders_by_status("submitted", 1, null, console_net, TRUE)
 	data["order_submitted_number"] = submitted_orders.len
-	data["order_submitted_value"] = SScargo.get_orders_value_by_status("submitted",1)
-	data["order_submitted_suppliers"] = SScargo.get_order_suppliers_by_status("submitted",1)
-	data["order_submitted_shuttle_time"] = SScargo.get_pending_shipment_time("submitted")
-	data["order_submitted_shuttle_price"] = SScargo.get_pending_shipment_cost("submitted")
+	data["order_submitted_value"] = SScargo.get_orders_value_by_status("submitted", 1, console_net, TRUE)
+	data["order_submitted_suppliers"] = SScargo.get_order_suppliers_by_status("submitted", 1, console_net, TRUE)
+	data["order_submitted_shuttle_time"] = SScargo.get_pending_shipment_time("submitted", console_net, TRUE)
+	data["order_submitted_shuttle_price"] = SScargo.get_pending_shipment_cost("submitted", console_net, TRUE)
 	if(page == "overview_submitted")
 		data["order_list"] = submitted_orders
 
-	var/list/approved_orders = SScargo.get_orders_by_status("approved",1)
+	var/list/approved_orders = SScargo.get_orders_by_status("approved", 1, null, console_net, TRUE)
 	data["order_approved_number"] = approved_orders.len
-	data["order_approved_value"] = SScargo.get_orders_value_by_status("approved",1)
-	data["order_approved_suppliers"] = SScargo.get_order_suppliers_by_status("approved",1)
-	data["order_approved_shuttle_time"] = SScargo.get_pending_shipment_time("approved")
-	data["order_approved_shuttle_price"] = SScargo.get_pending_shipment_cost("approved")
+	data["order_approved_value"] = SScargo.get_orders_value_by_status("approved", 1, console_net, TRUE)
+	data["order_approved_suppliers"] = SScargo.get_order_suppliers_by_status("approved", 1, console_net, TRUE)
+	data["order_approved_shuttle_time"] = SScargo.get_pending_shipment_time("approved", console_net, TRUE)
+	data["order_approved_shuttle_price"] = SScargo.get_pending_shipment_cost("approved", console_net, TRUE)
 	if(page == "overview_approved")
 		data["order_list"] = approved_orders
 
-	var/list/shipped_orders = SScargo.get_orders_by_status("shipped",1)
+	var/list/shipped_orders = SScargo.get_orders_by_status("shipped", 1, null, console_net, TRUE)
 	data["order_shipped_number"] = shipped_orders.len
-	data["order_shipped_value"] = SScargo.get_orders_value_by_status("shipped",1)
+	data["order_shipped_value"] = SScargo.get_orders_value_by_status("shipped", 1, console_net, TRUE)
 	if(page == "overview_shipped")
 		data["order_list"] = shipped_orders
 
-	var/list/delivered_orders = SScargo.get_orders_by_status("delivered",1)
+	var/list/delivered_orders = SScargo.get_orders_by_status("delivered", 1, null, console_net, TRUE)
 	data["order_delivered_number"] = shipped_orders.len
-	data["order_delivered_value"] = SScargo.get_orders_value_by_status("delivered",1)
+	data["order_delivered_value"] = SScargo.get_orders_value_by_status("delivered", 1, console_net, TRUE)
 	if(page == "overview_delivered")
 		data["order_list"] = delivered_orders
 
@@ -72,21 +82,6 @@
 	data["cargo_money"] = SScargo.get_cargo_money()
 	data["handling_fee"] = SScargo.get_handlingfee()
 	data["bounties"] = SScargo.get_bounty_list()
-
-	// Faction export support
-	var/net = computer.persistent_network
-	data["faction_network"] = net
-	if(net)
-		data["faction_balance"] = get_faction_account_balance(net)
-		data["faction_name"]    = get_faction_name(net)
-		var/list/export_cat = list()
-		for(var/datum/export/E in SScargo.exports_list)
-			export_cat += list(list("name" = E:name, "price" = E.get_cost()))
-		data["export_catalog"] = export_cat
-	else
-		data["faction_balance"] = null
-		data["faction_name"]    = null
-		data["export_catalog"]  = list()
 
 	data["have_printer"] = !!computer.nano_printer
 
@@ -116,11 +111,13 @@
 
 	var/obj/item/card/id/I = usr.GetIdCard()
 
-	var/datum/shuttle/autodock/ferry/supply/shuttle = SScargo.shuttle
-	if (!shuttle)
-		LOG_DEBUG("## ERROR: Eek. The supply/shuttle datum is missing somehow.")
-		return
+	// Faction instancing: order actions only apply to orders belonging to
+	// this console's network (empty = the station's network-less queue).
+	var/console_net = (computer && computer.persistent_network) ? normalize_faction_uid(computer.persistent_network) : ""
 
+	// No top-level shuttle guard here: only the three shuttle_* actions need
+	// SScargo.shuttle to exist. Maps without a supply shuttle must still be
+	// able to switch pages, approve/reject orders, and change settings.
 	switch(action)
 		//Page switch between main, submitted, approved and settings
 		if("page")
@@ -142,13 +139,15 @@
 				if("bounties")
 					page = "bounties"
 				if("exports")
-					page = "exports" //Faction export page — sell items at the faction telepad for faction credits
-				// (no else — unknown pages fall through without changing; the switch handles the default)
+					page = "exports" //Faction export page -- sell items at the faction telepad for faction credits
+				// (no else -- unknown pages fall through without changing; the switch handles the default)
 			return TRUE
 
 		//Approve a order
 		if("order_approve")
 			var/datum/cargo_order/co = SScargo.get_order_by_id(text2num(params["order_approve"]))
+			if(co && !SScargo.order_network_matches(co, console_net))
+				return TRUE
 			if(co)
 				var/message = co.set_approved(GetNameAndAssignmentFromId(I), usr.character_id)
 				if(message)
@@ -156,11 +155,22 @@
 				// Tag order for faction telepad delivery if this console has a network configured
 				if(computer && computer.persistent_network && !co.delivery_network)
 					co.delivery_network = computer.persistent_network
+				// Faction orders deliver instantly via the telepad -- no supply
+				// shuttle needed (shuttle-less maps have no other delivery path).
+				if(co.delivery_network && co.status == "approved")
+					if(SScargo.deliver_faction_order(co))
+						status_message = "Order [co.order_id] approved and delivered to the faction telepad."
+					else if(co.status == "rejected")
+						status_message = "Order [co.order_id] rejected: the faction account could not cover [co.price] credits."
+					else
+						status_message = "Order [co.order_id] approved, but no delivery-enabled telepad was found for '[co.delivery_network]'."
 			return TRUE
 
 		//Reject a order
 		if("order_reject")
 			var/datum/cargo_order/co = SScargo.get_order_by_id(text2num(params["order_reject"]))
+			if(co && !SScargo.order_network_matches(co, console_net))
+				return TRUE
 			if(co)
 				var/message = co.set_rejected()
 				if(message)
@@ -202,7 +212,7 @@
 			var/list/exp_lines = list()
 			for(var/datum/export/E in SScargo.exports_list)
 				if(E.total_cost <= 0) continue
-				exp_lines += "[E:name]: [E.total_amount] units — [E.total_cost] cr"
+				exp_lines += "[E.unit_name]: [E.total_amount] units -- [E.total_cost] cr"
 				exp_total += E.total_cost
 				E.export_end()  // reset for next run
 
@@ -218,6 +228,9 @@
 
 		//Send shuttle
 		if("shuttle_send")
+			if(!SScargo.shuttle)
+				status_message = "No supply shuttle is available on this installation."
+				return TRUE
 			var/message = SScargo.shuttle_call(GetNameAndAssignmentFromId(I))
 			if(message)
 				status_message = message
@@ -225,6 +238,9 @@
 
 		//Cancel shuttle
 		if("shuttle_cancel")
+			if(!SScargo.shuttle)
+				status_message = "No supply shuttle is available on this installation."
+				return TRUE
 			var/message = SScargo.shuttle_cancel()
 			if(message)
 				status_message = message
@@ -232,6 +248,9 @@
 
 		//Force shuttle
 		if("shuttle_force")
+			if(!SScargo.shuttle)
+				status_message = "No supply shuttle is available on this installation."
+				return TRUE
 			var/message = SScargo.shuttle_force()
 			if(message)
 				status_message = message
@@ -261,7 +280,7 @@
 
 		if("order_details")
 			var/datum/cargo_order/co = SScargo.get_order_by_id(text2num(params["order_details"]))
-			if(!co)
+			if(!co || !SScargo.order_network_matches(co, console_net))
 				return TRUE
 			order_details = co.get_list()
 			return TRUE
@@ -270,6 +289,8 @@
 		if("order_print")
 			//Get the order
 			var/datum/cargo_order/co = SScargo.get_order_by_id(text2num(params["order_print"]))
+			if(co && !SScargo.order_network_matches(co, console_net))
+				return TRUE
 			if(co && computer.nano_printer)
 				if(!computer.nano_printer.print_text(co.get_report_invoice(),"Order Invoice #[co.order_id]"))
 					to_chat(usr, SPAN_WARNING("Hardware error: Printer was unable to print the file. It may be out of paper."))

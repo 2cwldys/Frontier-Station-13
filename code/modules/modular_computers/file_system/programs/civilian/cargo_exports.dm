@@ -39,10 +39,12 @@
 	data["has_telepad"]     = net ? !!persistence_find_cargo_telepad(net) : FALSE
 	data["status_message"]  = status_message
 
-	// Export catalog — all exportable types and their current prices
+	// Export catalog -- all exportable types and their current prices
 	var/list/catalog = list()
 	for(var/datum/export/E in SScargo.exports_list)
-		catalog += list(list("name" = E:name, "price" = E.get_cost()))
+		if(!E.unit_name)
+			continue
+		catalog += list(list("name" = E.unit_name, "price" = E.get_cost()))
 	data["export_catalog"] = catalog
 
 	// Operator rank (officer+ required to export)
@@ -85,7 +87,7 @@
 				status_message = "This terminal is not linked to a faction network."
 				return TRUE
 
-			// Operator rank gate — officer+
+			// Operator rank gate -- officer+
 			var/list/op_member = user.ckey ? get_faction_member(user.ckey, net) : null
 			var/op_rank = op_member ? (isnull(op_member["rank"]) ? 0 : (op_member["rank"] + 0)) : -1
 			if(op_rank < 1 && !check_rights(R_ADMIN, 0, user))
@@ -112,7 +114,7 @@
 			var/list/exp_lines = list()
 			for(var/datum/export/E in SScargo.exports_list)
 				if(E.total_cost <= 0) continue
-				exp_lines += "[E:name]: [E.total_amount] units — [E.total_cost] cr"
+				exp_lines += "[E.unit_name]: [E.total_amount] units -- [E.total_cost] cr"
 				exp_total += E.total_cost
 				E.export_end()
 

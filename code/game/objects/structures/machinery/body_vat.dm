@@ -77,12 +77,12 @@
 	vat_body.real_name = "[stored_name]'s Clone"
 	vat_body.name = "[stored_name]'s Clone"
 	vat_body.set_stat(DEAD)  // Mindless — will be resleeved
-	if(stored_dna && istype(stored_dna, /datum/dna) && vat_body.dna)
-		// Apply stored DNA appearance where possible
-		try
-			vat_body.dna.b_type = stored_dna:b_type
-		catch(var/exception/dna_e)
-			log_debug("Body vat: DNA copy failed: [dna_e]")
+	if(stored_dna && istype(stored_dna, /datum/dna))
+		vat_body.dna = stored_dna
+		vat_body.UpdateAppearance()
+		vat_body.sync_organ_dna()
+		vat_body.set_cloned_appearance()
+		vat_body.regenerate_icons()
 
 	to_chat(user, SPAN_GOOD("Blank body extracted. Place in the resleever to transfer a consciousness."))
 	log_game("[user.real_name] extracted a vat body for '[stored_name]'.")

@@ -139,8 +139,20 @@
 		if("create_faction")
 			if(op_rank < 2) return
 			// Faction UID is computer.persistent_network (already set via shackling)
+			if(islist(GLOB.persistence_faction_cache) && (net in GLOB.persistence_faction_cache))
+				to_chat(user, SPAN_WARNING("This network is already registered to a faction."))
+				return
 			var/cf_name = tgui_input_text(user, "Full faction name (e.g. 'Hub Enterprises'):", "Create Faction", max_length = 64)
 			if(!cf_name) return
+			cf_name = lowertext(cf_name)
+
+			if(islist(GLOB.persistence_faction_cache))
+				for(var/existing_uid in GLOB.persistence_faction_cache)
+					var/list/existing = GLOB.persistence_faction_cache[existing_uid]
+					if(lowertext(existing["name"]) == cf_name)
+						to_chat(user, SPAN_WARNING("A faction named '[cf_name]' already exists."))
+						return
+
 			var/cf_abbr = tgui_input_text(user, "Abbreviation (2-4 letters, e.g. 'HUB'):", "Create Faction", max_length = 8)
 			if(!cf_abbr) return
 			var/cf_balance = tgui_input_number(user, "Starting balance (credits):", "Create Faction", 0, 10000000, 0)

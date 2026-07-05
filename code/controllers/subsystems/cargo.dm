@@ -111,6 +111,12 @@ SUBSYSTEM_DEF(cargo)
 
 	reset_cargo()
 
+	// One universal supplier for everything -- per-item supplier strings are
+	// ignored; every item binds to this supplier.
+	var/singleton/cargo_supplier/universal = SScargo.cargo_suppliers["generic_supplier"]
+	if(!universal)
+		log_subsystem_cargo("Error: Universal supplier 'generic_supplier' not found in cargo_suppliers. Items will have no supplier data.")
+
 	// Get the list of all valid cargo items.
 	for(var/singleton/cargo_item/I as anything in (GET_SINGLETON_SUBTYPE_LIST(/singleton/cargo_item)))
 		cargo_items[I.name] = I
@@ -118,25 +124,21 @@ SUBSYSTEM_DEF(cargo)
 		I.get_adjusted_price()
 
 		// Check if the category exists in "SScargo.cargo_categories".
-		if(!(I.category || SScargo.cargo_categories[I.category]))
+		if(!I.category || !SScargo.cargo_categories[I.category])
 			log_subsystem_cargo("Error: Unable to find category '[I.category]' for item '[I.name]. Skipping.")
 			continue
-		else
-			var/singleton/cargo_category/item_category = SScargo.cargo_categories[I.category]
-			if(!item_category.items)
-				item_category.items = list()
-			item_category.items += I
-			log_subsystem_cargo("Inserted item '[I.name]' into category '[I.category]' with ID '[I.id]'.")
+		var/singleton/cargo_category/item_category = SScargo.cargo_categories[I.category]
+		if(!item_category.items)
+			item_category.items = list()
+		item_category.items += I
+		log_subsystem_cargo("Inserted item '[I.name]' into category '[I.category]' with ID '[I.id]'.")
 
-		if(!(I.supplier || SScargo.cargo_suppliers[I.supplier]))
-			log_subsystem_cargo("Error: Unable to find supplier '[I.supplier]' for item '[I.name]. Skipping.")
-			continue
-		else
-			var/singleton/cargo_supplier/item_supplier = SScargo.cargo_suppliers[I.supplier]
-			if(!item_supplier.items)
-				item_supplier.items = list()
-			item_supplier.items += I
-			I.supplier_data = item_supplier
+		if(universal)
+			I.supplier = universal.short_name
+			if(!universal.items)
+				universal.items = list()
+			universal.items += I
+			I.supplier_data = universal
 
 	log_subsystem_cargo("Finished loading cargo items.")
 
@@ -284,8 +286,16 @@ SUBSYSTEM_DEF(cargo)
 /*
 	Submitting, Approving, Rejecting and Shipping Orders
 */
+/// Faction instancing: an order belongs to the network of the console that
+/// submitted it. Returns TRUE when the order's network matches the given one
+/// (both normalized; null/empty means the station's network-less queue).
+/datum/controller/subsystem/cargo/proc/order_network_matches(datum/cargo_order/co, network)
+	return normalize_faction_uid(co.delivery_network || "") == normalize_faction_uid(network || "")
+
 // Gets the orders based on their status (submitted, approved, shipped).
-/datum/controller/subsystem/cargo/proc/get_orders_by_status(status, data_list = FALSE, list/avoid)
+// With filter_network, only returns orders belonging to the given network
+// (empty/null network = the station's network-less queue).
+/datum/controller/subsystem/cargo/proc/get_orders_by_status(status, data_list = FALSE, list/avoid, network = null, filter_network = FALSE)
 	if(!status)
 		log_subsystem_cargo("get_orders_by_status has been called with a invalid status")
 		return list()
@@ -294,6 +304,8 @@ SUBSYSTEM_DEF(cargo)
 		if(co.status == status || co.get_payment_status() == status)
 			if(avoid && (avoid.Find(co.status) || avoid.Find(co.get_payment_status())))
 				continue
+			if(filter_network && !order_network_matches(co, network))
+				continue
 			if(data_list)
 				orders.Add(list(co.get_list()))
 			else
@@ -301,28 +313,34 @@ SUBSYSTEM_DEF(cargo)
 	return orders
 
 // Gets the value of orders based on their status, type is passed on to co.get_value.
-/datum/controller/subsystem/cargo/proc/get_orders_value_by_status(var/status, var/type=0)
+/datum/controller/subsystem/cargo/proc/get_orders_value_by_status(var/status, var/type=0, network = null, filter_network = FALSE)
 	if(!status)
 		log_subsystem_cargo("get_orders_value_by_status has been called with a invalid status")
 		return 0
 	var/value = 0
 	for (var/datum/cargo_order/co in all_orders)
 		if(co.status == status)
+			if(filter_network && !order_network_matches(co, network))
+				continue
 			value += co.get_value(type)
 	return value
 
 // Gets the suppliers of the orders of a specific type.
-/datum/controller/subsystem/cargo/proc/get_order_suppliers_by_status(var/status, var/pretty_names=0)
+/datum/controller/subsystem/cargo/proc/get_order_suppliers_by_status(var/status, var/pretty_names=0, network = null, filter_network = FALSE)
 	if(!status)
 		log_subsystem_cargo("get_order_suppliers_by_status has been called with a invalid status")
 		return list()
 	var/list/suppliers = list()
 	for(var/datum/cargo_order/co in all_orders)
 		if(co.status == status)
+			if(filter_network && !order_network_matches(co, network))
+				continue
 			// Get the list of supplirs and add it to the suppliers list.
 			for(var/supplier in co.get_supplier_list())
 				if(pretty_names)
 					var/singleton/cargo_supplier/cs = SScargo.cargo_suppliers[supplier]
+					if(!cs)
+						continue
 					suppliers[cs.short_name] = cs.name
 				else
 					suppliers[supplier] = supplier
@@ -395,9 +413,9 @@ SUBSYSTEM_DEF(cargo)
 	return SSeconomy.charge_to_account(supply_account.account_number, "[commstation_name()] - Operations", "[charge_text]", "[commstation_name()] - Banking System", -charge_credits)
 
 //Gets the pending shipment costs for the items that are about to be shipped to the station
-/datum/controller/subsystem/cargo/proc/get_pending_shipment_cost(var/status="approved")
+/datum/controller/subsystem/cargo/proc/get_pending_shipment_cost(var/status="approved", network = null, filter_network = FALSE)
 	//Loop through all the orders marked as shipped and get the suppliers into a list of involved suppliers
-	var/list/suppliers = get_order_suppliers_by_status(status)
+	var/list/suppliers = get_order_suppliers_by_status(status, 0, network, filter_network)
 	var/price = 0
 	for(var/supplier in suppliers)
 		var/singleton/cargo_supplier/cs = SScargo.cargo_suppliers[supplier]
@@ -405,9 +423,9 @@ SUBSYSTEM_DEF(cargo)
 			price += cs.shuttle_price
 	return price
 //Gets the pending shipment time for the items that are about to be shipped to the station
-/datum/controller/subsystem/cargo/proc/get_pending_shipment_time(var/status="approved")
+/datum/controller/subsystem/cargo/proc/get_pending_shipment_time(var/status="approved", network = null, filter_network = FALSE)
 	//Loop through all the orders marked as shipped and get the suppliers into a list of involved suppliers
-	var/list/suppliers = get_order_suppliers_by_status(status)
+	var/list/suppliers = get_order_suppliers_by_status(status, 0, network, filter_network)
 	var/time = 0
 	for(var/supplier in suppliers)
 		var/singleton/cargo_supplier/cs = SScargo.cargo_suppliers[supplier]
@@ -575,21 +593,18 @@ SUBSYSTEM_DEF(cargo)
 		if(!co)
 			continue
 
-		// Resolve faction telepad routing FIRST -- billing and placement differ.
-		// Faction orders bill the faction bank (not operations) and land on the
-		// telepad, so they neither consume elevator space nor shuttle budget.
-		var/turf/telepad_turf = null
+		// Faction-tagged orders bill the faction bank (not operations) and land
+		// on their telepad -- they neither consume elevator space nor shuttle
+		// budget. Falls through to the shuttle path when no telepad resolves.
 		if(co.delivery_network)
-			co.delivery_network = normalize_faction_uid(co.delivery_network)
-			if(!islist(GLOB.persistence_faction_cache) || !(co.delivery_network in GLOB.persistence_faction_cache))
-				log_subsystem_cargo("Warning: order [co.order_id] delivery_network '[co.delivery_network]' not in faction cache -- falling back to shuttle.")
-			else
-				telepad_turf = persistence_find_cargo_telepad(co.delivery_network)
-				if(!telepad_turf)
-					log_subsystem_cargo("Warning: order [co.order_id] found no delivery-enabled telepad for '[co.delivery_network]' -- falling back to shuttle.")
+			if(deliver_faction_order(co))
+				current_shipment.orders.Add(co) // tracked in the shipment, but NOT added to shipment_cost_purchase (operations does not pay)
+				continue
+			if(co.status == "rejected") // faction could not pay -- do not fall back to billing operations
+				continue
 
 		// Check if theres space to place the order.
-		if(!telepad_turf && !clear_turfs.len)
+		if(!clear_turfs.len)
 			log_subsystem_cargo("Order [co.order_id] could not be placed on the cargo elevator because it is full.")
 			break
 
@@ -599,61 +614,89 @@ SUBSYSTEM_DEF(cargo)
 				log_subsystem_cargo("Order [co.order_id] could not be placed on the cargo elevator because supplier [coi.ci.supplier_data.name] for item [coi.ci.name] is unavailable.")
 				continue
 
-		if(telepad_turf)
-			// Faction pays BEFORE anything spawns -- a failed debit leaves no
-			// orphaned crate and no operations charge
-			if(!faction_debit(co.delivery_network, co.price, "Cargo order [co.order_id]"))
-				co.status = "rejected"
-				log_subsystem_cargo("Order [co.order_id] rejected: faction '[co.delivery_network]' has insufficient funds.")
-				continue
-			co.set_shipped()
-			current_shipment.orders.Add(co) // tracked in the shipment, but NOT added to shipment_cost_purchase (operations does not pay)
-			co.set_paid(get_faction_name(co.delivery_network), 0, "faction:[co.delivery_network]")
-		else if(!ship_order(co)) // Check if there is enough money to ship the order.
+		if(!ship_order(co)) // Check if there is enough money to ship the order.
 			continue
 
-		var/turf/pickedloc
-		if(telepad_turf)
-			pickedloc = telepad_turf
-		else
-			var/i = rand(1,clear_turfs.len)
-			pickedloc = clear_turfs[i]
-			clear_turfs.Cut(i,i+1)
+		var/i = rand(1,clear_turfs.len)
+		var/turf/pickedloc = clear_turfs[i]
+		clear_turfs.Cut(i,i+1)
 
-		// Spawn the crate.
-		var/containertype = co.get_container_type()
-		var/obj/crate = new containertype(pickedloc)
-
-		// Label the crate.
-		crate.name_unlabel = crate.name
-		crate.name = "[crate.name] ([co.order_id] - [co.ordered_by])"
-		crate.verbs += /atom/proc/remove_label
-
-		// Set the access requirement.
-		if(co.required_access.len > 0)
-			crate.req_access = co.required_access.Copy()
-
-		// Loop through the items and spawn them.
-		for(var/datum/cargo_order_item/coi in co.items)
-			if(!coi)
-				continue
-			for(var/_ in 1 to coi.ci.spawn_amount)
-				for(var/item_typepath in coi.ci.items)
-					new item_typepath(crate)
-
-		// Spawn the paper inside.
-		var/obj/item/paper/P = new(crate)
-		P.set_content_unsafe("[co.order_id] - [co.ordered_by]", co.get_report_delivery_order())
-
-		// Faction telepad delivery -- already billed above; announce arrival on the pad
-		if(telepad_turf)
-			persistence_telepad_deliver(list(crate), telepad_turf)
-			log_subsystem_cargo("Order [co.order_id] delivered via telepad to '[co.delivery_network]' at ([telepad_turf.x],[telepad_turf.y],[telepad_turf.z]).")
+		spawn_order_crate(co, pickedloc)
 
 	// Shuttle is loaded now, charge operations for it.
 	charge_cargo("Shipment #[current_shipment.shipment_num] - Expense", current_shipment.shipment_cost_purchase)
 
 	return 1
+
+/**
+ * Spawns an order's crate, contents, and delivery paper at the given turf.
+ * Shared by the shuttle flow (buy) and faction telepad delivery.
+ */
+/datum/controller/subsystem/cargo/proc/spawn_order_crate(datum/cargo_order/co, turf/pickedloc)
+	var/containertype = co.get_container_type()
+	var/obj/crate = new containertype(pickedloc)
+
+	// Label the crate.
+	crate.name_unlabel = crate.name
+	crate.name = "[crate.name] ([co.order_id] - [co.ordered_by])"
+	crate.verbs += /atom/proc/remove_label
+
+	// Set the access requirement.
+	if(co.required_access.len > 0)
+		crate.req_access = co.required_access.Copy()
+
+	// Loop through the items and spawn them.
+	for(var/datum/cargo_order_item/coi in co.items)
+		if(!coi)
+			continue
+		for(var/_ in 1 to coi.ci.spawn_amount)
+			for(var/item_typepath in coi.ci.items)
+				new item_typepath(crate)
+
+	// Spawn the paper inside.
+	var/obj/item/paper/P = new(crate)
+	P.set_content_unsafe("[co.order_id] - [co.ordered_by]", co.get_report_delivery_order())
+
+	return crate
+
+/**
+ * Delivers a faction-tagged approved order via its faction's cargo telepad,
+ * billing the faction account. Returns TRUE when the crate landed on the pad.
+ * Returns FALSE when no telepad/faction resolves (caller may fall back to the
+ * shuttle) or when the faction cannot pay (order is marked rejected).
+ */
+/datum/controller/subsystem/cargo/proc/deliver_faction_order(datum/cargo_order/co)
+	if(!co || !co.delivery_network)
+		return FALSE
+
+	co.delivery_network = normalize_faction_uid(co.delivery_network)
+	if(!islist(GLOB.persistence_faction_cache) || !(co.delivery_network in GLOB.persistence_faction_cache))
+		log_subsystem_cargo("Warning: order [co.order_id] delivery_network '[co.delivery_network]' not in faction cache -- falling back to shuttle.")
+		return FALSE
+
+	var/turf/telepad_turf = persistence_find_cargo_telepad(co.delivery_network)
+	if(!telepad_turf)
+		log_subsystem_cargo("Warning: order [co.order_id] found no delivery-enabled telepad for '[co.delivery_network]' -- falling back to shuttle.")
+		return FALSE
+
+	// Faction pays BEFORE anything spawns -- a failed debit leaves no
+	// orphaned crate and no operations charge.
+	if(!faction_debit(co.delivery_network, co.price, "Cargo order [co.order_id]"))
+		co.status = "rejected"
+		log_subsystem_cargo("Order [co.order_id] rejected: faction '[co.delivery_network]' has insufficient funds.")
+		return FALSE
+
+	co.set_shipped()
+	co.set_paid(get_faction_name(co.delivery_network), 0, "faction:[co.delivery_network]")
+
+	var/obj/crate = spawn_order_crate(co, telepad_turf)
+
+	// The crate is already at its destination -- mark the order delivered.
+	co.set_delivered(get_faction_name(co.delivery_network), 0)
+
+	persistence_telepad_deliver(list(crate), telepad_turf)
+	log_subsystem_cargo("Order [co.order_id] delivered via telepad to '[co.delivery_network]' at ([telepad_turf.x],[telepad_turf.y],[telepad_turf.z]).")
+	return TRUE
 
 /// Dumps the cargo orders to the database when the round ends.
 /datum/controller/subsystem/cargo/Shutdown()

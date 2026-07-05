@@ -200,12 +200,11 @@
 		return TRUE
 
 	if(attacking_item.tool_behaviour == TOOL_WRENCH)
-		anchored = 0
 		attacking_item.play_tool_sound(get_turf(src), 50)
 		if(anchored)
 			anchored = 0
 			to_chat(user, "<span class='caution'>\The [src] can now be moved.</span>")
-		else if(!anchored)
+		else
 			anchored = 1
 			to_chat(user, "<span class='caution'>\The [src] is now secured.</span>")
 	if(attacking_item.tool_behaviour == TOOL_SCREWDRIVER)
