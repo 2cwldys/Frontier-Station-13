@@ -149,7 +149,7 @@ export const AuthenticatedWindow = (props) => {
       <Box as="span" bold>
         {data.money.toFixed(2)}
       </Box>
-      电.
+      ₵.
       <LabeledList>
         <LabeledList.Item label="Withdraw">
           <NumberInput
@@ -158,7 +158,7 @@ export const AuthenticatedWindow = (props) => {
             width={3}
             maxValue={data.money}
             animated
-            unit="电"
+            unit="₵"
             step={1}
             stepPixelSize={5}
             onChange={(value) => setWithdraw(value)}
@@ -185,7 +185,7 @@ export const AuthenticatedWindow = (props) => {
           <Box as="span" bold>
             {(data.faction_balance ?? 0).toFixed(2)}
           </Box>
-          电.
+          ₵.
           <LabeledList>
             <LabeledList.Item label="Amount">
               <NumberInput
@@ -194,7 +194,7 @@ export const AuthenticatedWindow = (props) => {
                 width={4}
                 maxValue={Math.max(data.money, data.faction_balance ?? 0)}
                 animated
-                unit="电"
+                unit="₵"
                 step={1}
                 stepPixelSize={5}
                 onChange={(value) => setFactionFunds(value)}
@@ -288,7 +288,7 @@ export const AuthenticatedWindow = (props) => {
                     width={3}
                     maxValue={data.money}
                     animated
-                    unit="电"
+                    unit="₵"
                     step={5}
                     stepPixelSize={5}
                     onChange={(value) => setFunds(value)}

@@ -22,6 +22,10 @@
 	if(!persistence_in_cryo || ckey)
 		return
 
+	if(stat == DEAD)
+		_persistence_dead_despawn()
+		return
+
 	// Find a hold turf  prefer player storage telepads, fall back to any latejoin point
 	var/turf/hold_turf = null
 	if(length(GLOB.player_storage_tepads))
@@ -42,14 +46,69 @@
 		qdel(src)
 
 /**
+ * A character who died and logged off (or timed out) before reaching cryo never
+ * got their lace routed anywhere -- capture only happens at surgical extraction.
+ * Extract now (works offline, the mind stays on the corpse per neural_lace.dm
+ * removed()) and route it through the same faction/public priority the manual
+ * 4-hour auto-transfer uses, then hold the corpse same as any dead body.
+ */
+/mob/living/carbon/human/proc/_persistence_dead_despawn()
+	var/obj/item/organ/internal/neural_lace/lace = internal_organs_by_name["neural_lace"]
+	if(istype(lace) && !QDELETED(lace))
+		lace.removed(src, null, TRUE, TRUE)
+		lace._auto_transfer_to_storage()
+		log_subsystem_persistence_info("Cryo: [real_name] found dead offline -- neural lace extracted and routed to storage.")
+
+	var/turf/hold_turf = null
+	if(length(GLOB.player_storage_tepads))
+		var/obj/structure/machinery/player_storage_telepad/pad = pick(GLOB.player_storage_tepads)
+		hold_turf = get_turf(pad)
+	else if(length(GLOB.latejoin))
+		hold_turf = pick(GLOB.latejoin)
+
+	if(hold_turf)
+		log_subsystem_persistence_info("Cryo: [real_name]'s corpse moved to offline hold at ([hold_turf.x],[hold_turf.y],[hold_turf.z]).")
+		forceMove(hold_turf)
+		density      = FALSE
+		status_flags |= GODMODE
+		// stat stays DEAD -- do not resurrect. Reconnecting finds the corpse via PersistentAutoSpawn.
+	else
+		log_subsystem_persistence_info("Cryo: [real_name]'s corpse despawning  no offline hold configured.")
+		qdel(src)
+
+/**
+ * Save the position of a disembodied consciousness at logout, keyed on the
+ * lace's registered identity. Nothing else needs saving -- health/inventory/
+ * identity belong to the body, not the consciousness, and the lace item
+ * itself is persisted separately (installed as an organ, or via the vault).
+ */
+/datum/controller/subsystem/persistence/proc/_persistLaceMobOnLogout(mob/living/carbon/lace_mob/LM)
+	if(!databaseCheckConnection("persistCharacterOnLogout lace"))
+		return
+	var/obj/item/organ/internal/neural_lace/lace = LM.neural_lace
+	if(!lace || !lace.registered_ckey || !lace.registered_name)
+		return
+	var/turf/T = get_turf(lace) || get_turf(LM)
+	if(!T)
+		return
+	lacePositionSave(lace.registered_ckey, lace.registered_name, T)
+	log_subsystem_persistence_info("Cryo: [lace.registered_name] ([lace.registered_ckey]) lace-consciousness saved at logout.")
+
+/**
  * Called from /client/Destroy() when a player disconnects.
  * Saves character state and starts the despawn countdown.
  */
-/datum/controller/subsystem/persistence/proc/persistCharacterOnLogout(mob/living/carbon/human/H)
+/datum/controller/subsystem/persistence/proc/persistCharacterOnLogout(mob/living/L)
 	if(!GLOB.config.sql_enabled)
 		return
-	if(!H || QDELETED(H))
+	if(!L || QDELETED(L))
 		return
+	if(istype(L, /mob/living/carbon/lace_mob))
+		_persistLaceMobOnLogout(L)
+		return
+	if(!istype(L, /mob/living/carbon/human))
+		return
+	var/mob/living/carbon/human/H = L
 	if(!H.ckey || !H.real_name)
 		return
 	// Use get_turf() rather than H.z directly  when H is inside a cryopod or other
@@ -203,10 +262,13 @@
 
 /client/Destroy(force)
 	// Save this character before the client reference is cleared
-	if(!gc_destroyed && mob && istype(mob, /mob/living/carbon/human))
-		var/mob/living/carbon/human/H = mob
-		if(H.ckey && H.real_name && !QDELETED(H))
-			SSpersistence.persistCharacterOnLogout(H)
+	if(!gc_destroyed && mob)
+		if(istype(mob, /mob/living/carbon/human))
+			var/mob/living/carbon/human/H = mob
+			if(H.ckey && H.real_name && !QDELETED(H))
+				SSpersistence.persistCharacterOnLogout(H)
+		else if(istype(mob, /mob/living/carbon/lace_mob) && !QDELETED(mob))
+			SSpersistence.persistCharacterOnLogout(mob)
 	stop_ambient_playlist()  // Cancel any pending timers before the client reference dies
 	. = ..()
 
@@ -613,6 +675,61 @@
 	log_and_message_admins("set character slot limit for [target_ckey] to [new_limit]", usr)
 	to_chat(usr, SPAN_GOOD("Character slot limit for [target_ckey] set to [new_limit]."))
 	feedback_add_details("admin_verb", "SPCS")
+
+// ============================================================
+// NEURAL LACE VAULT RESTORE
+// ============================================================
+
+/**
+ * Restore vaulted neural laces from ss13_neural_lace_vault into their vaults.
+ * Called from SSpersistence.Initialize() after worldstateInitialize() (vaults
+ * exist and have their networks by then). Consciousnesses are round-local and
+ * cannot be restored -- was_occupied is surfaced in the vault UI so an admin
+ * can rebind the player via Assign Consciousness.
+ */
+/datum/controller/subsystem/persistence/proc/laceVaultInitialize()
+	PRIVATE_PROC(TRUE)
+
+	if(!databaseCheckConnection("laceVaultInitialize"))
+		return
+
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"SELECT id, vault_x, vault_y, vault_z, registered_name, registered_ckey, owner_faction, lace_damage, was_occupied FROM ss13_neural_lace_vault WHERE map_path = :mp",
+		list("mp" = "[SSatlas.current_map.path]")
+	)
+	q.Execute()
+	if(!databaseCheckQueryResult(q, "laceVaultInitialize"))
+		qdel(q)
+		return
+
+	var/restored = 0
+	var/orphaned = 0
+	while(q.NextRow())
+		var/row_id = text2num(q.item[1])
+		var/vx = text2num(q.item[2])
+		var/vy = text2num(q.item[3])
+		var/vz = text2num(q.item[4])
+		if(vz < 1 || vz > world.maxz)
+			orphaned++
+			continue
+		var/turf/T = locate(vx, vy, vz)
+		var/obj/structure/machinery/lace_storage/vault = T ? (locate(/obj/structure/machinery/lace_storage) in T) : null
+		if(!vault || !vault.has_free_slot())
+			// Leave the row -- self-heals if the vault comes back next boot.
+			orphaned++
+			continue
+		var/obj/item/organ/internal/neural_lace/lace = new(vault)
+		lace.registered_name = q.item[5] || ""
+		lace.registered_ckey = q.item[6] || ""
+		lace.owner_faction   = q.item[7] || ""
+		lace.lace_damage     = text2num(q.item[8]) || 0
+		vault.stored_laces += lace
+		vault.stored_lace_row_ids += row_id
+		vault.stored_lace_was_occupied += (text2num(q.item[9]) ? TRUE : FALSE)
+		vault.update_icon()
+		restored++
+	qdel(q)
+	log_subsystem_persistence_info("LaceVault: Restored [restored] vaulted lace(s)[orphaned ? ", [orphaned] row(s) left pending (no vault at coords)" : ""].")
 
 #undef PERSISTENCE_CRYO_TIMEOUT
 #undef PERSISTENCE_BASE_SLOTS

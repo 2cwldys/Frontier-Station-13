@@ -132,6 +132,10 @@
 		var/mob/living/carbon/human/H = target_body
 		H.set_id_info(H)
 
+	// The character is embodied again -- clear the in_lace/dead_body state so a
+	// future reconnect (or server restart) doesn't route them back to the lace.
+	persistence_set_char_state(inserted_lace.registered_ckey, inserted_lace.registered_name, "alive")
+
 	inserted_lace.lace_occupied = FALSE
 	inserted_lace.lace_mob = null
 	qdel(LM)

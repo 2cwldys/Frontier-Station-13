@@ -78,7 +78,7 @@
 		if (I.fine == 0)
 			dat += "<br>Brig Sentence: [I.getBrigSentence()] <br>"
 		else
-			dat += "Fine: [I.fine]电<br>"
+			dat += "Fine: [I.fine]₵<br>"
 		dat += "Notes: <br>"
 		if (I.notes != "")
 			dat += nl2br(I.notes)

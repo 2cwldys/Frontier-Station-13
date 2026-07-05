@@ -879,22 +879,22 @@ ABSTRACT_TYPE(/obj/structure/stairs/urban/road_ramp_assun)
 	desc = "Welcome to Stafýlia! The real taste of Assunzione!\
 	<br><br>\
 	<br><b>Mains</b>\
-	<br>Signature Stafýlia Gyro - 6电\
-	<br>Doner Kebab - 6电\
-	<br>Falafel Pita - 6电\
+	<br>Signature Stafýlia Gyro - 6₵\
+	<br>Doner Kebab - 6₵\
+	<br>Falafel Pita - 6₵\
 	<br><br>\
 	<br><b>Sides</b>\
-	<br>Salad - 3电\
-	<br>Fries - 3电\
-	<br>Chocolate Pita - 4电\
+	<br>Salad - 3₵\
+	<br>Fries - 3₵\
+	<br>Chocolate Pita - 4₵\
 	<br><br>\
 	<br><b>Drinks</b>\
-	<br>Drosiá Grape - 2电\
-	<br>Drosiá Cherry - 2电\
-	<br>Comet Cola - 2电\
-	<br>Xanu Rush - 2电\
+	<br>Drosiá Grape - 2₵\
+	<br>Drosiá Cherry - 2₵\
+	<br>Comet Cola - 2₵\
+	<br>Xanu Rush - 2₵\
 	<br><br>\
-	<br>Get the Stafýlia meal combo! Your choice of main, side and drink for only 9.50电!"
+	<br>Get the Stafýlia meal combo! Your choice of main, side and drink for only 9.50₵!"
 	static_menu = TRUE
 
 /obj/structure/sign/urban/konyang

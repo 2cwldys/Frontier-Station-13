@@ -77,7 +77,7 @@ export const InvoiceProgram = (props) => {
                 maxValue={1000000}
                 width={7}
                 animated
-                unit="电"
+                unit="₵"
                 step={1}
                 stepPixelSize={2}
                 onChange={(value) => setAmount(value)}

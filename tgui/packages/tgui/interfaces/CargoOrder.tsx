@@ -146,7 +146,7 @@ export const MainPage = (props) => {
                 {data.order_item_count}
               </LabeledList.Item>
               <LabeledList.Item label="Price">
-                {data.order_value.toFixed(2)}电
+                {data.order_value.toFixed(2)}₵
               </LabeledList.Item>
               {data.status_message && (
                 <LabeledList.Item label="Status">
@@ -220,7 +220,7 @@ export const MainPage = (props) => {
                 key={item.name}
                 buttons={
                   <Button
-                    content={`${item.price_adjusted.toFixed(2)}电`}
+                    content={`${item.price_adjusted.toFixed(2)}₵`}
                     disabled={
                       !item.supplier_data.available && item.price_adjusted <= 0
                     }
@@ -273,16 +273,16 @@ export const ShowDetails = (props) => {
         </Table.Row>
         <Table.Row>
           <Table.Cell>Handling Fee</Table.Cell>
-          <Table.Cell>{data.handling_fee.toFixed(2)}电</Table.Cell>
+          <Table.Cell>{data.handling_fee.toFixed(2)}₵</Table.Cell>
         </Table.Row>
         <Table.Row>
           <Table.Cell>Crate Fee</Table.Cell>
-          <Table.Cell>{data.crate_fee.toFixed(2)}电</Table.Cell>
+          <Table.Cell>{data.crate_fee.toFixed(2)}₵</Table.Cell>
         </Table.Row>
         {data.order_items.map((item) => (
           <Table.Row key={item.name}>
             <Table.Cell>{item.name}</Table.Cell>
-            <Table.Cell>{item.price.toFixed(2)}电</Table.Cell>
+            <Table.Cell>{item.price.toFixed(2)}₵</Table.Cell>
           </Table.Row>
         ))}
       </Table>

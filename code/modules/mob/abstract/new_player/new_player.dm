@@ -462,8 +462,28 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 				to_chat(src, SPAN_DANGER("[client.prefs.species] is not available for play on the [station_name(TRUE)]."))
 				return
 
-	// Check if their cryo'd mob is still in the world — if so, rejoin it immediately
 	var/ckey_lower = ckey(client.ckey)
+
+	// Live lace_mob reconnect -- a captured consciousness the player never got
+	// resleeved before disconnecting. Must be checked BEFORE the cryo/live-body
+	// loops below: extraction moves the mind OUT of the corpse and into this
+	// lace_mob, so the corpse itself has no mind left to reconnect to.
+	for(var/mob/living/carbon/lace_mob/LM in GLOB.dead_mob_list)
+		if(LM.key || QDELETED(LM))
+			continue
+		var/obj/item/organ/internal/neural_lace/lace = LM.neural_lace
+		if(!lace || QDELETED(lace) || ckey(lace.registered_ckey) != ckey_lower)
+			continue
+		if(selected_from_menu && lace.registered_name != selected_from_menu)
+			continue
+		LM.key = client.ckey
+		LM.stop_sound_channel(CHANNEL_LOBBYMUSIC)
+		to_chat(LM, SPAN_NOTICE("You regain your bearings. Your consciousness remains within your neural lace."))
+		log_subsystem_persistence_info("Cryo: [lace.registered_name] ([ckey_lower]) reconnected to a live lace_mob.")
+		qdel(src)
+		return
+
+	// Check if their cryo'd mob is still in the world — if so, rejoin it immediately
 	for(var/mob/living/carbon/human/H in GLOB.human_mob_list)
 		if(!H.persistence_in_cryo)
 			continue
@@ -475,18 +495,24 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 			if(H.persistence_cryo_timer)
 				deltimer(H.persistence_cryo_timer)
 				H.persistence_cryo_timer = null
-			// Move to an available pod (faction-aware) before restoring client
-			var/rejoiner_faction = GLOB.config.sql_enabled ? persistence_get_player_faction(client.ckey) : null
-			var/turf/pod_turf = persistence_find_available_cryopod(rejoiner_faction)
-			if(pod_turf)
-				H.forceMove(pod_turf)
 			H.key = client.ckey
-			H.stat = CONSCIOUS
-			H.density = TRUE
-			H.status_flags &= ~GODMODE
 			H.stop_sound_channel(CHANNEL_LOBBYMUSIC) // Lobby music doesn't stop on its own when persistent-spawning into the world -- see create_character()'s equivalent call
-			to_chat(H, SPAN_NOTICE("You eject from cryosleep. Welcome back, [H.real_name]."))
-			log_subsystem_persistence_info("Cryo: [H.real_name] ([ckey_lower]) woke from cryosleep.")
+			if(H.stat == DEAD)
+				// Dead-in-body: reattach without waking them -- they're a corpse awaiting rescue/extraction.
+				to_chat(H, SPAN_NOTICE("Your awareness stirs within your dead body. You cannot move or act -- you can only observe. Seek rescue."))
+				log_subsystem_persistence_info("Cryo: [H.real_name] ([ckey_lower]) reconnected to their dead body.")
+			else
+				// Move to an available pod (faction-aware) before restoring client
+				var/rejoiner_faction = GLOB.config.sql_enabled ? persistence_get_player_faction(client.ckey) : null
+				var/turf/pod_turf = persistence_find_available_cryopod(rejoiner_faction)
+				if(pod_turf)
+					H.forceMove(pod_turf)
+				H.stat = CONSCIOUS
+				H.density = TRUE
+				H.status_flags &= ~GODMODE
+				to_chat(H, SPAN_NOTICE("You eject from cryosleep. Welcome back, [H.real_name]."))
+				log_subsystem_persistence_info("Cryo: [H.real_name] ([ckey_lower]) woke from cryosleep.")
+				persistence_set_char_state(ckey_lower, H.real_name, "alive")
 			if(H.client)
 				addtimer(CALLBACK(H.client, /client/proc/start_ambient_playlist), 5 SECONDS)
 			qdel(src)
@@ -534,6 +560,44 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 				return
 			if(selected_char == "-- New Character --")
 				selected_char = null
+
+	// ── Lace-aware reconnect: dead/in-lace characters never get a free respawn ──
+	// After a server restart the round-local mob is gone, so we fall back to the
+	// char_state persisted by mobPositionSave()/lacePositionSave() to figure out
+	// where this character actually is.
+	var/restoring_dead_body = FALSE
+	if(selected_char)
+		var/list/pos_entry = GLOB.persistence_position_cache["[client.ckey]|[selected_char]"]
+		var/saved_char_state = (islist(pos_entry) && pos_entry["char_state"]) ? pos_entry["char_state"] : "alive"
+
+		if(saved_char_state == "in_lace")
+			var/obj/item/organ/internal/neural_lace/found_lace = null
+			for(var/obj/item/organ/internal/neural_lace/L in world)
+				if(QDELETED(L) || L.owner)
+					continue
+				if(ckey(L.registered_ckey) != ckey_lower || L.registered_name != selected_char)
+					continue
+				found_lace = L
+				break
+			if(!found_lace || found_lace.lace_occupied)
+				to_chat(src, SPAN_WARNING("Your neural lace could not be located. Contact an administrator."))
+				return
+			var/mob/living/carbon/lace_mob/new_lm = new /mob/living/carbon/lace_mob(get_turf(found_lace))
+			new_lm.name              = selected_char
+			new_lm.real_name         = selected_char
+			new_lm.neural_lace       = found_lace
+			found_lace.lace_mob      = new_lm
+			found_lace.lace_occupied = TRUE
+			new_lm.forceMove(found_lace)
+			new_lm.ckey = client.ckey
+			new_lm.mind_initialize()
+			to_chat(new_lm, SPAN_NOTICE("You regain consciousness. Your body is gone, but your mind survives within your neural lace. Seek medical staff for resleeving."))
+			log_subsystem_persistence_info("PersistentAutoSpawn: [selected_char] ([ckey_lower]) restored into neural lace at ([found_lace.x],[found_lace.y],[found_lace.z]).")
+			qdel(src)
+			return
+
+		if(saved_char_state == "dead_body")
+			restoring_dead_body = TRUE
 
 	// ── Load this character's full SQL data into prefs before spawning ──────
 	// create_character() uses client.prefs to build appearance/species/DNA.
@@ -675,6 +739,21 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		character.internal_organs |= new_lace
 		character.internal_organs_by_name[new_lace.organ_tag] = new_lace
 
+	if(restoring_dead_body)
+		// Recreate the corpse exactly where it was left -- no cryopod spawn, no
+		// wake. char_state stays "dead_body" until someone actually revives them.
+		var/list/pos_entry = GLOB.persistence_position_cache["[client.ckey]|[selected_char]"]
+		var/turf/dead_turf = (islist(pos_entry) && pos_entry["z"]) ? locate(pos_entry["x"], pos_entry["y"], pos_entry["z"]) : null
+		if(dead_turf)
+			character.forceMove(dead_turf)
+		else
+			character.applyPersistentPosition()
+		character.set_stat(DEAD)
+		to_chat(character, SPAN_NOTICE("You reconnect to your body. It's dead -- you can only observe. Seek rescue."))
+		log_subsystem_persistence_info("PersistentAutoSpawn: [character.real_name] ([ckey_lower]) restored into their corpse (dead_body state).")
+		qdel(src)
+		return
+
 	// Spawn at a cryopod — public/unrestricted pods first, any free pod as last resort
 	var/turf/spawn_turf = persistence_find_available_cryopod(null)
 	if(!spawn_turf)
@@ -711,6 +790,7 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		character.resting    = FALSE
 		character.drowsiness = 0
 		character.set_stat(CONSCIOUS)
+		persistence_set_char_state(client.ckey, character.real_name, "alive")
 	character.status_flags &= ~GODMODE
 	character.density = TRUE
 

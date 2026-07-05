@@ -135,7 +135,7 @@ export const ItemWindow = (props) => {
                     <Table.Row key={`${category}-${item.name}`}>
                       <Table.Cell>{item.name}</Table.Cell>
                       <Table.Cell align="right">
-                        {item.price.toFixed(2)}电 &nbsp;
+                        {item.price.toFixed(2)}₵ &nbsp;
                       </Table.Cell>
                       <Table.Cell>
                         {!data.editmode ? (
@@ -246,7 +246,7 @@ export const CartWindow = (props) => {
             <Table.Cell>x{item.amount}</Table.Cell>
             <Table.Cell align="right">
               <Flex justify="flex-end">
-                <Flex.Item>{(item.price * item.amount).toFixed(2)}电</Flex.Item>
+                <Flex.Item>{(item.price * item.amount).toFixed(2)}₵</Flex.Item>
                 <Flex.Item>
                   &nbsp;
                   <Button
@@ -262,7 +262,7 @@ export const CartWindow = (props) => {
       </LabeledList>
       {data.sum ? (
         <Section color="average">
-          The total is {data.sum.toFixed(2)}电.
+          The total is {data.sum.toFixed(2)}₵.
           <br />
           Please swipe your id to pay.
         </Section>

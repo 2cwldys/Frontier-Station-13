@@ -29,6 +29,10 @@
 		target.hovertext.screen_loc = ui_hovertext
 		hud_elements |= target.hovertext
 
+		// ── Autosave countdown (top-center, same blue styling) ────────────────
+		target.save_timer = new /atom/movable/screen/text/save_timer()
+		hud_elements |= target.save_timer
+
 	// ── Gear slots ────────────────────────────────────────────────────────────
 	var/has_hidden_gear
 	for(var/gear_slot in hud_data.gear)
@@ -213,6 +217,10 @@
 	mymob.client.screen += hud_elements
 	mymob.client.screen += src.adding + src.hotkeybuttons
 	inventory_shown = 0
+
+	// Honor the per-client autosave countdown preference (Toggle Save Timer verb)
+	if(target?.save_timer && !mymob.client.show_save_timer)
+		mymob.client.screen -= target.save_timer
 
 	// ── Aurora: vision cone + film grain ─────────────────────────────────────
 	var/mob/living/carbon/human/H = mymob

@@ -20,6 +20,9 @@
 	var/ambient_hum_playing = null // Is the ambient hum playing?
 	var/ambience_last_played_time = null // "world.time".
 
+// HUD
+	var/show_save_timer = TRUE // On-screen autosave countdown (Toggle Save Timer verb)
+
 // Security
 	var/info_sent = 0
 	// comment out the line below when debugging locally to enable the options & messages menu

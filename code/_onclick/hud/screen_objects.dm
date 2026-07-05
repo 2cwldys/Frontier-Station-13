@@ -59,6 +59,58 @@
 	maptext_height = 480
 	maptext_width = 480
 
+/// Top-center countdown to the next persistence autosave. Same blue glow
+/// styling as the mouseover hovertext. Toggled per-client via the
+/// Toggle Save Timer verb (client.show_save_timer, on by default).
+/atom/movable/screen/text/save_timer
+	// TOP:16 lifts it half a tile above the hovertext line (hovertext anchors
+	// at CENTER+7, which is the same row as TOP on the default view size).
+	screen_loc = "CENTER-7,TOP:16"
+	maptext_height = 32
+	maptext_width = 480
+
+/atom/movable/screen/text/save_timer/Initialize()
+	. = ..()
+	START_PROCESSING(SSprocessing, src)
+	update_timer_text()
+
+/atom/movable/screen/text/save_timer/Destroy()
+	STOP_PROCESSING(SSprocessing, src)
+	return ..()
+
+/atom/movable/screen/text/save_timer/process()
+	update_timer_text()
+
+/atom/movable/screen/text/save_timer/proc/update_timer_text()
+	if(!GLOB.config.sql_enabled || !SSpersistence)
+		maptext = ""
+		return
+	var/label
+	if(SSpersistence.save_in_progress)
+		// world.time-driven so the dots alternate each second with no extra state
+		label = "SAVING [(world.time % 20) < 10 ? ".." : "..."]"
+	else if(SSpersistence.autosave_paused)
+		label = "AUTOSAVE PAUSED"
+	else
+		var/remaining = max(0, SSpersistence.next_fire - world.time)
+		var/total_seconds = round(remaining / 10)
+		label = "NEXT SAVE: [add_zero("[round(total_seconds / 60)]", 2)]:[add_zero("[total_seconds % 60]", 2)]"
+	maptext = "<center><span style=\"color:#535AB2;font-weight:bold;text-shadow:0 0 15px #535AB2;font-family:'Bahnschrift',Constantia,sans-serif;\">[label]</span></center>"
+
+/client/verb/toggle_save_timer()
+	set name = "Toggle Save Timer"
+	set category = "Preferences"
+	set desc = "Show or hide the on-screen autosave countdown."
+
+	show_save_timer = !show_save_timer
+	var/mob/living/carbon/human/H = mob
+	if(istype(H) && H.save_timer)
+		if(show_save_timer)
+			screen |= H.save_timer
+		else
+			screen -= H.save_timer
+	to_chat(src, SPAN_INFO("Autosave countdown [show_save_timer ? "shown" : "hidden"]."))
+
 /atom/movable/screen/inventory
 	/// The identifier for the slot. It has nothing to do with ID cards.
 	var/slot_id

@@ -191,7 +191,7 @@
 				text = {"
 					[accounting_letterhead(title)]
 					<u>Holder:</u> [Acc.owner_name]<br>
-					<u>Balance:</u> [Acc.money]电<br>
+					<u>Balance:</u> [Acc.money]₵<br>
 					<u>Status:</u> [Acc.suspended ? "Suspended" : "Active"]<br>
 					<u>Transactions:</u> ([Acc.transactions.len])<br>
 					<table>
@@ -246,7 +246,7 @@
 							<tr>
 								<td>#[D.account_number]</td>
 								<td>[D.owner_name]</td>
-								<td>[D.money]电</td>
+								<td>[D.money]₵</td>
 								<td>[D.suspended ? "Suspended" : "Active"]</td>
 							</tr>
 					"}

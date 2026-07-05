@@ -122,6 +122,9 @@
 	// Serenity hovertext — shows element name on HUD mouseover
 	var/atom/movable/screen/hovertext = null
 
+	// Top-center countdown to the next persistence autosave
+	var/atom/movable/screen/save_timer = null
+
 	var/is_noisy = FALSE		// if TRUE, movement should make sound.
 	var/bodyfall_sound = SFX_BODYFALL
 	var/footsound = SFX_FOOTSTEP_BLANK

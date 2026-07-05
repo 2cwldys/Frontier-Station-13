@@ -167,13 +167,13 @@ export const Overview = (props) => {
             : 'Unauthorised'}
         </LabeledList.Item>
         <LabeledList.Item label="Price">
-          {data.order_details.price.toFixed(2)}电
+          {data.order_details.price.toFixed(2)}₵
         </LabeledList.Item>
         <LabeledList.Item label="Operations Expense">
-          {data.order_details.price_cargo.toFixed(2)}电
+          {data.order_details.price_cargo.toFixed(2)}₵
         </LabeledList.Item>
         <LabeledList.Item label="Personal Expense">
-          {data.order_details.price_customer.toFixed(2)}电
+          {data.order_details.price_customer.toFixed(2)}₵
         </LabeledList.Item>
         <LabeledList.Item label="Ordered At">
           {data.order_details.time_submitted}
@@ -211,7 +211,7 @@ export const Overview = (props) => {
             <Table.Row key={item.name}>
               <Table.Cell>{item.name}</Table.Cell>
               <Table.Cell>{item.supplier_name}</Table.Cell>
-              <Table.Cell>{item.price}电</Table.Cell>
+              <Table.Cell>{item.price}₵</Table.Cell>
             </Table.Row>
           ))}
         </Table>
@@ -258,7 +258,7 @@ export const Payment = (props) => {
     >
       <LabeledList>
         <LabeledList.Item label="Price">
-          {data.order_details.price_customer.toFixed(2)}电
+          {data.order_details.price_customer.toFixed(2)}₵
         </LabeledList.Item>
         <LabeledList.Item label="Paying Account">
           {data.paying_account}

@@ -332,6 +332,12 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_panic("Unhandled exception during worldstate persistence initialization: [ws_e]")
 
 	try
+		// After worldstate so vaults exist and have their networks applied.
+		laceVaultInitialize()
+	catch(var/exception/vault_e)
+		log_subsystem_persistence_panic("Unhandled exception during lace vault initialization: [vault_e]")
+
+	try
 		turfsInitialize()
 	catch(var/exception/turfs_e)
 		log_subsystem_persistence_panic("Unhandled exception during turf persistence initialization: [turfs_e]")

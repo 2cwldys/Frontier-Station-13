@@ -67,64 +67,16 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
 	if(!databaseCheckConnection("mobsHealthFinalize"))
 		return
 
+	// Delegates to mobsHealthSaveOne() so the finalize sweep refreshes
+	// GLOB.persistence_health_cache exactly like the logout/cryo save path --
+	// otherwise a force-save followed by a same-round rejoin restores stale data.
 	var/saved = 0
 	for(var/mob/living/carbon/human/H in GLOB.human_mob_list)
 		if(!H.ckey || !H.real_name)
 			continue
 		if(!H.z)
 			continue
-
-		// Serialize organ state: limb_name => {brute, burn, robotic, model, augments}
-		var/list/organ_damage = list()
-		for(var/obj/item/organ/external/O in H.organs)
-			if(!O.limb_name)
-				continue
-			var/list/augments = list()
-			for(var/obj/item/organ/A in O.internal_organs)
-				if(!A.is_augment)
-					continue
-				if(istype(A, /obj/item/organ/internal/neural_lace))
-					var/obj/item/organ/internal/neural_lace/lace = A
-					augments += list(list(
-						"type"            = "[A.type]",
-						"lace_damage"     = lace.lace_damage,
-						"registered_name" = lace.registered_name,
-						"registered_ckey" = lace.registered_ckey,
-						"owner_faction"   = lace.owner_faction
-					))
-				else
-					augments += "[A.type]"
-			if(!O.brute_dam && !O.burn_dam && !O.robotic && !length(augments))
-				continue
-			var/list/limb = list("brute" = O.brute_dam, "burn" = O.burn_dam)
-			if(O.robotic)
-				limb["robotic"] = 1
-				if(O.model) limb["model"] = O.model
-			if(length(augments))
-				limb["augments"] = augments
-			organ_damage[O.limb_name] = limb
-
-		var/datum/db_query/insert = SSdbcore.NewQuery(
-			{"INSERT INTO ss13_char_health (ckey, char_name, organ_damage_json, stamina, bodytemperature, on_fire, fire_stacks, nutrition, hydration, saved_at)
-			VALUES (:ckey, :char_name, :organ_damage_json, :stamina, :bodytemperature, :on_fire, :fire_stacks, :nutrition, :hydration, NOW())
-			ON DUPLICATE KEY UPDATE organ_damage_json = VALUES(organ_damage_json), stamina = VALUES(stamina),
-			bodytemperature = VALUES(bodytemperature), on_fire = VALUES(on_fire), fire_stacks = VALUES(fire_stacks),
-			nutrition = VALUES(nutrition), hydration = VALUES(hydration), saved_at = NOW()"},
-			list(
-				"ckey"             = H.ckey,
-				"char_name"        = H.real_name,
-				"organ_damage_json"= length(organ_damage) ? json_encode(organ_damage) : null,
-				"stamina"          = H.stamina,
-				"bodytemperature"  = H.bodytemperature,
-				"on_fire"          = H.on_fire ? 1 : 0,
-				"fire_stacks"      = H.fire_stacks,
-				"nutrition"        = H.nutrition,
-				"hydration"        = H.hydration
-			)
-		)
-		insert.Execute()
-		databaseCheckQueryResult(insert, "mobsHealthFinalize insert")
-		qdel(insert)
+		mobsHealthSaveOne(H)
 		saved++
 
 	log_subsystem_persistence_info("MobHealth: Saved health state for [saved] mobs.")
@@ -289,6 +241,14 @@ GLOBAL_LIST_EMPTY(persistence_identity_cache)
 	databaseCheckQueryResult(ins, "charIdentitySaveOne")
 	qdel(ins)
 
+	// Refresh the in-memory cache too -- restore reads the cache, not the DB.
+	GLOB.persistence_identity_cache["[H.ckey]|[H.real_name]"] = list(
+		"citizenship"    = H.citizenship || null,
+		"special_voice"  = H.special_voice || null,
+		"flavor_texts"   = flavor_json,
+		"languages_json" = language_json
+	)
+
 /mob/living/carbon/human/proc/applyPersistentIdentity()
 	if(!GLOB.config.sql_enabled || !islist(GLOB.persistence_identity_cache))
 		return
@@ -386,32 +346,16 @@ GLOBAL_LIST_INIT(persistence_inventory_slots, list(
 	if(!databaseCheckConnection("mobsInventoryFinalize"))
 		return
 
+	// Delegates to mobsInventorySaveOne() so the finalize sweep refreshes
+	// GLOB.persistence_inventory_cache exactly like the logout/cryo save path --
+	// otherwise a force-save followed by a same-round rejoin restores stale data.
 	var/saved = 0
 	for(var/mob/living/carbon/human/H in GLOB.human_mob_list)
 		if(!H.ckey || !H.real_name)
 			continue
 		if(!H.z)
 			continue
-
-		var/list/inv = list()
-		for(var/slot_name in GLOB.persistence_inventory_slots)
-			var/slot_id = GLOB.persistence_inventory_slots[slot_name]
-			var/obj/item/I = H.get_equipped_item(slot_id)
-			inv[slot_name] = I ? serializePersistentItem(I) : null
-
-		var/datum/db_query/insert = SSdbcore.NewQuery(
-			{"INSERT INTO ss13_char_inventory (ckey, char_name, inventory_json, saved_at)
-			VALUES (:ckey, :char_name, :inventory_json, NOW())
-			ON DUPLICATE KEY UPDATE inventory_json = VALUES(inventory_json), saved_at = NOW()"},
-			list(
-				"ckey"           = H.ckey,
-				"char_name"      = H.real_name,
-				"inventory_json" = json_encode(inv)
-			)
-		)
-		insert.Execute()
-		databaseCheckQueryResult(insert, "mobsInventoryFinalize insert")
-		qdel(insert)
+		mobsInventorySaveOne(H)
 		saved++
 
 	log_subsystem_persistence_info("MobInventory: Saved inventory state for [saved] mobs.")
@@ -435,7 +379,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		return
 
 	var/datum/db_query/query = SSdbcore.NewQuery(
-		"SELECT ckey, char_name, x, y, z FROM ss13_mob_position",
+		"SELECT ckey, char_name, x, y, z, char_state, in_lace, lace_pod_x, lace_pod_y, lace_pod_z FROM ss13_mob_position",
 		list()
 	)
 	query.Execute()
@@ -448,9 +392,14 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	while(query.NextRow())
 		var/key = "[query.item[1]]|[query.item[2]]"
 		GLOB.persistence_position_cache[key] = list(
-			"x" = text2num(query.item[3]),
-			"y" = text2num(query.item[4]),
-			"z" = text2num(query.item[5])
+			"x"           = text2num(query.item[3]),
+			"y"           = text2num(query.item[4]),
+			"z"           = text2num(query.item[5]),
+			"char_state"  = query.item[6] || "alive",
+			"in_lace"     = text2num(query.item[7]),
+			"lace_pod_x"  = text2num(query.item[8]),
+			"lace_pod_y"  = text2num(query.item[9]),
+			"lace_pod_z"  = text2num(query.item[10])
 		)
 		loaded++
 
@@ -507,11 +456,17 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	if(!databaseCheckConnection("mobPositionSave"))
 		return
 
+	// A human write always means the character is embodied (alive or dead-in-body),
+	// never in_lace -- that state is written separately by lacePositionSave()
+	// when the consciousness is extracted into a neural lace.
+	var/state = (H.stat == DEAD) ? "dead_body" : "alive"
+
 	var/datum/db_query/ins = SSdbcore.NewQuery(
-		{"INSERT INTO ss13_mob_position (ckey, char_name, x, y, z)
-		VALUES (:ckey, :char_name, :x, :y, :z)
-		ON DUPLICATE KEY UPDATE x = VALUES(x), y = VALUES(y), z = VALUES(z), saved_at = NOW()"},
-		list("ckey" = H.ckey, "char_name" = H.real_name, "x" = H.x, "y" = H.y, "z" = H.z)
+		{"INSERT INTO ss13_mob_position (ckey, char_name, x, y, z, char_state, in_lace, lace_pod_x, lace_pod_y, lace_pod_z)
+		VALUES (:ckey, :char_name, :x, :y, :z, :char_state, 0, NULL, NULL, NULL)
+		ON DUPLICATE KEY UPDATE x = VALUES(x), y = VALUES(y), z = VALUES(z), char_state = VALUES(char_state),
+		in_lace = 0, lace_pod_x = NULL, lace_pod_y = NULL, lace_pod_z = NULL, saved_at = NOW()"},
+		list("ckey" = H.ckey, "char_name" = H.real_name, "x" = H.x, "y" = H.y, "z" = H.z, "char_state" = state)
 	)
 	ins.Execute()
 	databaseCheckQueryResult(ins, "mobPositionSave")
@@ -519,7 +474,80 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 
 	// Update cache
 	var/key = "[H.ckey]|[H.real_name]"
-	GLOB.persistence_position_cache[key] = list("x" = H.x, "y" = H.y, "z" = H.z)
+	GLOB.persistence_position_cache[key] = list(
+		"x"          = H.x,
+		"y"          = H.y,
+		"z"          = H.z,
+		"char_state" = state,
+		"in_lace"    = 0,
+		"lace_pod_x" = null,
+		"lace_pod_y" = null,
+		"lace_pod_z" = null
+	)
+
+/**
+ * Save the "in_lace" position state for a captured consciousness, keyed on the
+ * lace's REGISTERED identity (not the disembodied lace_mob's own ckey, which
+ * may be blank if it was created via Assign Consciousness). Called on
+ * lace_mob logout and whenever a lace is slotted into a storage vault.
+ */
+/datum/controller/subsystem/persistence/proc/lacePositionSave(ckey, char_name, turf/T)
+	if(!ckey || !char_name || !T)
+		return
+	if(!databaseCheckConnection("lacePositionSave"))
+		return
+
+	var/datum/db_query/ins = SSdbcore.NewQuery(
+		{"INSERT INTO ss13_mob_position (ckey, char_name, x, y, z, char_state, in_lace, lace_pod_x, lace_pod_y, lace_pod_z)
+		VALUES (:ckey, :char_name, :x, :y, :z, 'in_lace', 1, :x, :y, :z)
+		ON DUPLICATE KEY UPDATE char_state = 'in_lace', in_lace = 1,
+		lace_pod_x = VALUES(lace_pod_x), lace_pod_y = VALUES(lace_pod_y), lace_pod_z = VALUES(lace_pod_z), saved_at = NOW()"},
+		list("ckey" = ckey, "char_name" = char_name, "x" = T.x, "y" = T.y, "z" = T.z)
+	)
+	ins.Execute()
+	databaseCheckQueryResult(ins, "lacePositionSave")
+	qdel(ins)
+
+	var/key = "[ckey]|[char_name]"
+	GLOB.persistence_position_cache[key] = list(
+		"x"          = T.x,
+		"y"          = T.y,
+		"z"          = T.z,
+		"char_state" = "in_lace",
+		"in_lace"    = 1,
+		"lace_pod_x" = T.x,
+		"lace_pod_y" = T.y,
+		"lace_pod_z" = T.z
+	)
+
+/**
+ * Reset a character's persisted state to "alive" without touching position --
+ * called by every successful revival path (resleeve, rejoin-wake) so a stale
+ * in_lace/dead_body flag doesn't stick around after the character is back up.
+ */
+/proc/persistence_set_char_state(ckey, char_name, state)
+	if(!GLOB.config.sql_enabled || !ckey || !char_name)
+		return
+	if(!SSpersistence.databaseCheckConnection("persistence_set_char_state"))
+		return
+
+	var/datum/db_query/upd = SSdbcore.NewQuery(
+		{"UPDATE ss13_mob_position SET char_state = :state, in_lace = 0, lace_pod_x = NULL, lace_pod_y = NULL, lace_pod_z = NULL
+		WHERE ckey = :ckey AND char_name = :char_name"},
+		list("ckey" = ckey, "char_name" = char_name, "state" = state)
+	)
+	upd.Execute()
+	SSpersistence.databaseCheckQueryResult(upd, "persistence_set_char_state")
+	qdel(upd)
+
+	var/key = "[ckey]|[char_name]"
+	var/list/entry = GLOB.persistence_position_cache[key]
+	if(islist(entry))
+		entry["char_state"] = state
+		entry["in_lace"]    = 0
+		entry["lace_pod_x"] = null
+		entry["lace_pod_y"] = null
+		entry["lace_pod_z"] = null
 
 /**
  * Restore mob to their last saved position, or spawn at default landmark.
@@ -596,24 +624,41 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			limb["augments"] = augments
 		organ_damage[O.limb_name] = limb
 
+	var/organ_json = length(organ_damage) ? json_encode(organ_damage) : null
 	var/datum/db_query/ins = SSdbcore.NewQuery(
-		{"INSERT INTO ss13_char_health (ckey, char_name, organ_damage_json, stamina, bodytemperature, on_fire, fire_stacks, saved_at)
-		VALUES (:ckey, :char_name, :organ_damage_json, :stamina, :bodytemperature, :on_fire, :fire_stacks, NOW())
+		{"INSERT INTO ss13_char_health (ckey, char_name, organ_damage_json, stamina, bodytemperature, on_fire, fire_stacks, nutrition, hydration, saved_at)
+		VALUES (:ckey, :char_name, :organ_damage_json, :stamina, :bodytemperature, :on_fire, :fire_stacks, :nutrition, :hydration, NOW())
 		ON DUPLICATE KEY UPDATE organ_damage_json = VALUES(organ_damage_json), stamina = VALUES(stamina),
-		bodytemperature = VALUES(bodytemperature), on_fire = VALUES(on_fire), fire_stacks = VALUES(fire_stacks), saved_at = NOW()"},
+		bodytemperature = VALUES(bodytemperature), on_fire = VALUES(on_fire), fire_stacks = VALUES(fire_stacks),
+		nutrition = VALUES(nutrition), hydration = VALUES(hydration), saved_at = NOW()"},
 		list(
 			"ckey"              = H.ckey,
 			"char_name"         = H.real_name,
-			"organ_damage_json" = length(organ_damage) ? json_encode(organ_damage) : null,
+			"organ_damage_json" = organ_json,
 			"stamina"           = H.stamina,
 			"bodytemperature"   = H.bodytemperature,
 			"on_fire"           = H.on_fire ? 1 : 0,
-			"fire_stacks"       = H.fire_stacks
+			"fire_stacks"       = H.fire_stacks,
+			"nutrition"         = H.nutrition,
+			"hydration"         = H.hydration
 		)
 	)
 	ins.Execute()
 	databaseCheckQueryResult(ins, "mobsHealthSaveOne")
 	qdel(ins)
+
+	// Refresh the in-memory cache too -- restore reads the cache, not the DB,
+	// so a same-round store/rejoin must see this save (matches the pattern
+	// mobPositionSave already uses).
+	GLOB.persistence_health_cache["[H.ckey]|[H.real_name]"] = list(
+		"organ_damage_json" = organ_json,
+		"stamina"           = H.stamina,
+		"bodytemperature"   = H.bodytemperature,
+		"on_fire"           = H.on_fire ? 1 : 0,
+		"fire_stacks"       = H.fire_stacks,
+		"nutrition"         = H.nutrition,
+		"hydration"         = H.hydration
+	)
 
 // ============================================================
 // VITALS ADMIN VERB
@@ -681,6 +726,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		var/obj/item/I = H.get_equipped_item(slot_id)
 		inv[slot_name] = I ? serializePersistentItem(I) : null
 
+	var/inv_json = json_encode(inv)
 	var/datum/db_query/ins = SSdbcore.NewQuery(
 		{"INSERT INTO ss13_char_inventory (ckey, char_name, inventory_json, saved_at)
 		VALUES (:ckey, :char_name, :inventory_json, NOW())
@@ -688,12 +734,15 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		list(
 			"ckey"           = H.ckey,
 			"char_name"      = H.real_name,
-			"inventory_json" = json_encode(inv)
+			"inventory_json" = inv_json
 		)
 	)
 	ins.Execute()
 	databaseCheckQueryResult(ins, "mobsInventorySaveOne")
 	qdel(ins)
+
+	// Refresh the in-memory cache too -- restore reads the cache, not the DB.
+	GLOB.persistence_inventory_cache["[H.ckey]|[H.real_name]"] = inv_json
 
 /**
  * Recursively serialize an item as a typepath + contents tree.
