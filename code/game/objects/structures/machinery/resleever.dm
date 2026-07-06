@@ -117,6 +117,7 @@
 	inserted_lace.forceMove(target_body)
 	head.internal_organs |= inserted_lace
 	target_body.internal_organs |= inserted_lace
+	target_body.internal_organs_by_name[inserted_lace.organ_tag] = inserted_lace
 	inserted_lace.owner = target_body
 
 	// Transfer consciousness

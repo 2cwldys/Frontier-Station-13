@@ -58,16 +58,29 @@ GLOBAL_LIST_EMPTY(persistence_atmos_cache)
 
 	var/applied = 0
 	for(var/zone/Z in SSair.zones)
+		CHECK_TICK
+		if(!length(GLOB.persistence_atmos_cache))
+			break
 		if(!length(Z.contents))
 			continue
 
-		// Use the first turf in the zone as the representative coordinate
-		var/turf/simulated/rep = Z.contents[1]
-		if(!rep || !is_station_level(rep.z))
-			continue
-
-		var/key = "[rep.x]|[rep.y]|[rep.z]"
-		var/list/entry = GLOB.persistence_atmos_cache[key]
+		// The save keys each zone on its first turf, but ZAS rebuilds zone
+		// membership/ordering every boot (and restored walls split/merge
+		// zones), so the saved representative is not reliably contents[1]
+		// anymore. Scan the zone for ANY turf matching a saved key, and
+		// consume the entry so each saved zone applies exactly once.
+		var/list/entry = null
+		var/turf/simulated/rep = null
+		for(var/turf/simulated/T in Z.contents)
+			if(!is_station_level(T.z))
+				continue
+			var/key = "[T.x]|[T.y]|[T.z]"
+			var/list/candidate = GLOB.persistence_atmos_cache[key]
+			if(candidate)
+				entry = candidate
+				rep = T
+				GLOB.persistence_atmos_cache -= key
+				break
 		if(!entry)
 			continue
 
@@ -85,7 +98,8 @@ GLOBAL_LIST_EMPTY(persistence_atmos_cache)
 
 		applied++
 
-	log_subsystem_persistence_info("Atmos: Applied gas state to [applied] zones.")
+	var/unmatched = length(GLOB.persistence_atmos_cache)
+	log_subsystem_persistence_info("Atmos: Applied gas state to [applied] zones[unmatched ? ", [unmatched] saved zone(s) unmatched" : ""].")
 
 /**
  * Save all active atmospheric zone states to the database at round end.

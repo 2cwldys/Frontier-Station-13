@@ -730,6 +730,12 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		if(character.ckey) existing_lace.registered_ckey = character.ckey
 		character.internal_organs     |= existing_lace
 		character.internal_organs_by_name[existing_lace.organ_tag] = existing_lace
+		// Ensure head membership -- the health save serializes augments from the
+		// EXTERNAL organ's internal_organs list, so a lace missing from it would
+		// silently drop from the next save.
+		var/obj/item/organ/external/lace_head = character.get_organ(BP_HEAD)
+		if(lace_head)
+			lace_head.internal_organs |= existing_lace
 		add_verb(character, /mob/living/carbon/human/proc/check_neural_lace_status)
 	else if(GLOB.config.sql_enabled && client && client.prefs && client.prefs.neural_lace)
 		var/obj/item/organ/internal/neural_lace/new_lace = new /obj/item/organ/internal/neural_lace(character)

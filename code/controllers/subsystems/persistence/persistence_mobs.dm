@@ -134,9 +134,11 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
 								break
 						if(!already_installed)
 							try
-								// new path(loc, mapload, internal)  internal=TRUE hooks the augment into
-								// parent_organ/internal_organs/internal_organs_by_name automatically (organ.dm)
-								var/obj/item/organ/new_aug = new aug_path(src, FALSE, TRUE)
+								// /atom/New() overwrites args[1] (loc) with mapload and forwards the
+								// rest unchanged (atoms_initializing_EXPENSIVE.dm) -- so only ONE
+								// extra arg belongs here (internal); a second one shifts internal
+								// out of Initialize()'s parameter list and it's silently dropped.
+								var/obj/item/organ/new_aug = new aug_path(src, TRUE)
 								if(aug_data && istype(new_aug, /obj/item/organ/internal/neural_lace))
 									var/obj/item/organ/internal/neural_lace/lace = new_aug
 									lace.lace_damage     = isnull(aug_data["lace_damage"]) ? 0 : aug_data["lace_damage"]
@@ -596,6 +598,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		return
 
 	var/list/organ_damage = list()
+	var/list/serialized_laces = list()
 	for(var/obj/item/organ/external/O in H.organs)
 		if(!O.limb_name)
 			continue
@@ -605,6 +608,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 				continue
 			if(istype(A, /obj/item/organ/internal/neural_lace))
 				var/obj/item/organ/internal/neural_lace/lace = A
+				serialized_laces += lace
 				augments += list(list(
 					"type"            = "[A.type]",
 					"lace_damage"     = lace.lace_damage,
@@ -623,6 +627,29 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		if(length(augments))
 			limb["augments"] = augments
 		organ_damage[O.limb_name] = limb
+
+	// Defensive: a lace registered on the mob but absent from every external
+	// organ's internal_organs list (wiring bug somewhere) would silently drop
+	// from the save -- serialize it under the head entry so it always round-trips.
+	for(var/obj/item/organ/internal/neural_lace/stray in H.internal_organs)
+		if(QDELETED(stray) || (stray in serialized_laces))
+			continue
+		var/list/head_limb = organ_damage["head"]
+		if(!islist(head_limb))
+			head_limb = list("brute" = 0, "burn" = 0)
+			organ_damage["head"] = head_limb
+		var/list/head_augs = head_limb["augments"]
+		if(!islist(head_augs))
+			head_augs = list()
+			head_limb["augments"] = head_augs
+		head_augs += list(list(
+			"type"            = "[stray.type]",
+			"lace_damage"     = stray.lace_damage,
+			"registered_name" = stray.registered_name,
+			"registered_ckey" = stray.registered_ckey,
+			"owner_faction"   = stray.owner_faction
+		))
+		log_subsystem_persistence_info("MobHealth: Lace for [H.real_name] was missing from limb organ lists -- serialized defensively under head.")
 
 	var/organ_json = length(organ_damage) ? json_encode(organ_damage) : null
 	var/datum/db_query/ins = SSdbcore.NewQuery(

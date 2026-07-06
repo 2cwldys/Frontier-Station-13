@@ -553,13 +553,19 @@
 /datum/species/proc/create_organs(var/mob/living/carbon/human/H) //Handles creation of mob organs.
 	// Installed augments (neural laces etc.) are player property, not species
 	// anatomy -- lift them out before the wipe so the rebuild can't destroy
-	// them, then re-install after.
+	// them, then re-install after. Iterate a copy: removing from the list
+	// mid-iteration skips elements, losing augments when there are 2+.
 	var/list/preserved_augments = list()
-	for(var/obj/item/organ/internal/aug in H.internal_organs)
+	for(var/obj/item/organ/internal/aug in H.internal_organs.Copy())
 		if(aug.is_augment)
 			preserved_augments += aug
 			H.internal_organs -= aug
 			H.internal_organs_by_name -= aug.organ_tag
+			// Detach from every external organ too: the old limbs get qdel'd
+			// below and organ_external/Destroy() QDEL_LISTs its internal_organs
+			// -- any augment still referenced there would be destroyed with it.
+			for(var/obj/item/organ/external/E in H.organs)
+				E.internal_organs -= aug
 			aug.owner = null
 			aug.forceMove(null)
 

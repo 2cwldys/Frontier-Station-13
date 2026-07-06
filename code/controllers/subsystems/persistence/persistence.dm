@@ -363,6 +363,14 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_panic("Unhandled exception during atmos persistence initialization: [atmos_e]")
 
 	try
+		// Must run after makepowernets(): re-derives APC channels from restored
+		// cell charge, writes area power flags, and rebroadcasts power state so
+		// no machine is left with stale NOPOWER sampled mid-restore.
+		powerstateFinalize()
+	catch(var/exception/ps_e)
+		log_subsystem_persistence_panic("Unhandled exception during power state finalization: [ps_e]")
+
+	try
 		mobsHealthInitialize()
 	catch(var/exception/health_e)
 		log_subsystem_persistence_panic("Unhandled exception during mob health persistence initialization: [health_e]")

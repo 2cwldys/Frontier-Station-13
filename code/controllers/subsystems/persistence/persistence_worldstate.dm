@@ -102,25 +102,41 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 
 	log_subsystem_persistence_info("Worldstate: Applied saved state to [applied] machines.")
 
-	// Power resync — after worldstate restores APC/solar state, wait for the SMES
-	// and powernets to fully stabilize (they need ~10-15s after map load) before
-	// re-syncing. Only resync APCs that have external power but dead channels,
-	// to avoid disrupting working APCs mid-initialization.
-	// 20-second delay ensures SMES has fully stabilized before resync.
-	// By this point any APC that has power will be in a stable state;
-	// update(FALSE) re-evaluates channels without forcing a disruptive reset.
-	spawn(100)  // 10 seconds
-		var/apc_resynced = 0
-		for(var/obj/structure/machinery/power/apc/A in world)
-			if(!A.z) continue
-			A.update(FALSE)
-			apc_resynced++
-		var/solar_resynced = 0
-		for(var/obj/structure/machinery/power/solar_control/SC in world)
-			if(!SC.z) continue
-			SC.search_for_connected()
-			solar_resynced++
-		log_subsystem_persistence_info("Worldstate: Power resync — [apc_resynced] APC(s), [solar_resynced] solar controller(s).")
+/**
+ * Deterministic power-state resync, called as the final step of
+ * SSpersistence.Initialize() AFTER makepowernets(). The worldstate restore
+ * above overwrites APC channels/autoflag/cell charge (and SMES charge) but
+ * only calls update_icon() -- area.power_light/equip/environ are ONLY written
+ * by apc/update(), so without this sweep the area flags and every machine's
+ * cached NOPOWER stat are left to converge via racy timers (batteryless
+ * modular computers refuse to turn on, ATMs render lit but reject use, etc).
+ */
+/datum/controller/subsystem/persistence/proc/powerstateFinalize()
+	var/apc_count = 0
+	var/list/apc_areas = list()
+	for(var/obj/structure/machinery/power/apc/A in world)
+		if(!A.z) continue
+		if(A.cell)
+			A.update_channels()  // re-derive channel bits from the RESTORED cell charge
+		A.update()               // write area power flags (broadcasts on change)
+		if(A.area)
+			apc_areas |= A.area
+		apc_count++
+
+	var/solar_count = 0
+	for(var/obj/structure/machinery/power/solar_control/SC in world)
+		if(!SC.z) continue
+		SC.search_for_connected()
+		solar_count++
+
+	// Force every machine to re-read its area's power flags: machines cache
+	// stat & NOPOWER and only refresh on this signal, so ones that sampled
+	// power mid-restore would otherwise keep stale state until something
+	// happens to flip their area again.
+	for(var/area/AR in apc_areas)
+		SEND_SIGNAL(AR, COMSIG_AREA_POWER_CHANGE)
+
+	log_subsystem_persistence_info("Worldstate: Power state finalized -- [apc_count] APC(s), [solar_count] solar controller(s), [length(apc_areas)] area(s) rebroadcast.")
 
 /**
  * Looks up the cache entry for this machine and applies its saved content.
