@@ -120,6 +120,17 @@
 	if(!databaseCheckConnection("persistCharacterOnLogout"))
 		return
 
+	// Logging off INSIDE a cryopod = a forced Store Character: full DB store,
+	// mob moved to the offline hold, pod freed, that pod remembered as theirs.
+	// Reconnects go through the character menu instead of the 60s grace body.
+	// This is the fast path when client/Destroy fires; the pod's process()
+	// makes the same call within ~2s for disconnects that bypass it.
+	if(istype(H.loc, /obj/structure/machinery/cryopod))
+		var/obj/structure/machinery/cryopod/pod = H.loc
+		if(pod.persistence_force_store(H))
+			return
+		// Force-store unavailable (DB down etc) -- fall through to the normal despawn flow.
+
 	mobPositionSave(H)
 	mobsHealthSaveOne(H)
 	mobsInventorySaveOne(H)
@@ -127,17 +138,6 @@
 
 	H.persistence_stored_ckey = H.ckey
 	H.persistence_in_cryo     = TRUE
-
-	// Safety net: if the mob is somehow inside a cryopod, eject them immediately
-	// so the pod is not blocked for other players spawning there.
-	if(istype(H.loc, /obj/structure/machinery/cryopod))
-		var/obj/structure/machinery/cryopod/pod = H.loc
-		var/turf/exit_turf = get_step(pod, pod.dir)
-		if(!exit_turf)
-			exit_turf = get_turf(pod)
-		H.forceMove(exit_turf)
-		if(pod.occupant == H)
-			pod.occupant = null  // Explicitly clear occupant in case Exited() doesn't
 
 	var/datum/callback/cryo_cb = new /datum/callback(H, TYPE_PROC_REF(/mob/living/carbon/human, persistence_cryo_despawn))
 	H.persistence_cryo_timer = addtimer(cryo_cb, PERSISTENCE_CRYO_TIMEOUT, TIMER_STOPPABLE | TIMER_DELETE_ME)

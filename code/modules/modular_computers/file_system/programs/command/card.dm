@@ -4,7 +4,12 @@
 	program_icon_state = "id"
 	program_key_icon_state = "lightblue_key"
 	extended_desc = "Program for programming employee ID cards to access parts of the station."
-	required_access_run = ACCESS_CHANGE_IDS
+	// Anyone may OPEN the program (self-service replacement ID printing);
+	// every card-modification action is individually gated on
+	// can_run(user, 1, ACCESS_CHANGE_IDS) in ui_act -- the explicit access
+	// arg matters: with required_access_run null, a bare can_run() passes
+	// for everyone.
+	required_access_run = null
 	required_access_download = ACCESS_CHANGE_IDS
 	usage_flags = PROGRAM_CONSOLE | PROGRAM_LAPTOP
 	requires_ntnet = FALSE
@@ -21,7 +26,7 @@
 	data["assignments"] = show_assignments
 	data["have_id_slot"] = !!computer.card_slot
 	data["have_printer"] = !!computer.nano_printer
-	data["authenticated"] = can_run(user)
+	data["authenticated"] = can_run(user, FALSE, ACCESS_CHANGE_IDS)
 	data["can_print_replacement"] = TRUE  // Self-service: available to everyone
 	data["centcom_access"] = is_centcom
 
@@ -113,7 +118,7 @@
 			. = TRUE
 
 		if("print")
-			if(computer?.nano_printer && can_run(user, 1)) //This option should never be called if there is no printer
+			if(computer?.nano_printer && can_run(user, 1, ACCESS_CHANGE_IDS)) //This option should never be called if there is no printer
 				var/contents = {"<h4>Access Report</h4>
 							<u>Prepared By:</u> [user_id_card.registered_name ? user_id_card.registered_name : "Unknown"]<br>
 							<u>For:</u> [id_card.registered_name ? id_card.registered_name : "Unregistered"]<br>
@@ -155,14 +160,14 @@
 				. = TRUE
 
 		if("suspend")
-			if(computer && can_run(user, 1))
+			if(computer && can_run(user, 1, ACCESS_CHANGE_IDS))
 				id_card.assignment = "Suspended"
 				remove_nt_access(id_card)
 				callHook("suspend_employee", list(id_card))
 				. = TRUE
 
 		if("edit")
-			if(computer && can_run(user, 1))
+			if(computer && can_run(user, 1, ACCESS_CHANGE_IDS))
 				if(params["name"])
 					var/temp_name = sanitizeName(input("Enter name.", "Name", id_card.registered_name))
 					if(temp_name)
@@ -175,7 +180,7 @@
 				. = TRUE
 
 		if("assign")
-			if(computer && can_run(user, 1) && id_card)
+			if(computer && can_run(user, 1, ACCESS_CHANGE_IDS) && id_card)
 				var/t1 = params["assign_target"]
 				if(t1 == "Custom")
 					var/temp_t = sanitize(input("Enter a custom job assignment.","Assignment", id_card.assignment), 45)
@@ -214,7 +219,7 @@
 				. = TRUE
 
 		if("access")
-			if(isnum(params["allowed"]) && computer && can_run(user, 1))
+			if(isnum(params["allowed"]) && computer && can_run(user, 1, ACCESS_CHANGE_IDS))
 				var/access_type = text2num(params["access_target"])
 				var/access_allowed = text2num(params["allowed"])
 				if(access_type in get_access_ids(ACCESS_TYPE_STATION|ACCESS_TYPE_CENTCOM))
@@ -420,7 +425,7 @@
 
 		// ── Faction job assign ────────────────────────────────────────────
 		if("faction_assign")
-			if(!computer || !can_run(user, 1) || !id_card || !computer.persistent_network)
+			if(!computer || !can_run(user, 1, ACCESS_CHANGE_IDS) || !id_card || !computer.persistent_network)
 				return
 			var/assign_net = computer.persistent_network
 			var/job_title = params["faction_job"]
@@ -475,8 +480,9 @@
 	id_card.access |= accesses
 
 /datum/computer_file/program/card_mod/proc/do_print_replacement(mob/user)
-	if(!computer || !can_run(user, 1))
-		to_chat(user, SPAN_WARNING("You do not have access to this console."))
+	// Self-service: no access requirement -- identity is verified against
+	// the crew record below, same as the tgui print_replacement action.
+	if(!computer)
 		return
 
 	var/datum/record/general/R = SSrecords.find_record("name", user.real_name)

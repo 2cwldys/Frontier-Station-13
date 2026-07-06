@@ -48,6 +48,7 @@
 	data["slot_limit"]        = slot_limit
 	data["can_create"]        = length(chars_out) < slot_limit
 	data["persistence_ready"] = GLOB.persistence_ready
+	data["save_in_progress"]  = SSpersistence.save_in_progress ? TRUE : FALSE
 	// Admins can still Play while joining is locked -- matches PersistentAutoSpawn()'s
 	// own admin bypass. NOTE: with AUTO_LOCAL_ADMIN in the config, any connection
 	// from the host machine is silently full-admin, so the button will NOT grey
@@ -74,6 +75,9 @@
 			// FALSE would otherwise strand the player with no menu at all).
 			if(!GLOB.persistence_ready)
 				to_chat(NP, SPAN_WARNING("The server is still loading. Please wait a moment and try again."))
+				return TRUE
+			if(SSpersistence.save_in_progress)
+				to_chat(NP, SPAN_WARNING("Cannot join server while a save is in progress."))
 				return TRUE
 			if(!GLOB.config.enter_allowed && !check_rights(R_ADMIN, 0, NP))
 				to_chat(NP, SPAN_NOTICE("Joining is currently disabled by an administrator."))

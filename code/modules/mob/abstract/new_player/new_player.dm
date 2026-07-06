@@ -443,6 +443,10 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		to_chat(src, SPAN_WARNING("The server is still loading. Please wait a moment and try again."))
 		return
 
+	if(SSpersistence.save_in_progress)
+		to_chat(src, SPAN_WARNING("Cannot join server while a save is in progress."))
+		return
+
 	if(!GLOB.config.enter_allowed && !check_rights(R_ADMIN, 0))
 		to_chat(src, SPAN_NOTICE("Joining is currently disabled by an administrator."))
 		return

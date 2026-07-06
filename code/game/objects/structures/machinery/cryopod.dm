@@ -319,9 +319,35 @@
 
 	return TRUE
 
+/// Store a disconnected occupant as if they had used Store Character:
+/// eject to the exit turf (real coords for the position row), full DB
+/// store recording this pod as theirs, mob to the offline hold, key
+/// cleared so reconnects go through the character menu.
+/obj/structure/machinery/cryopod/proc/persistence_force_store(mob/living/carbon/human/forced_mob = null)
+	var/mob/living/carbon/human/H = forced_mob || occupant
+	if(!istype(H) || !H.ckey || H.stat == DEAD || !GLOB.config.sql_enabled)
+		return FALSE
+	if(occupant == H)
+		occupant = null
+	H.forceMove(get_step(src, dir) || get_turf(src))
+	update_icon()
+	if(SSpersistence.persistStoreCharacter(H, src))
+		H.key = null
+		log_subsystem_persistence_info("Cryo: [H.real_name] force-stored (logged off inside a cryopod).")
+		return TRUE
+	return FALSE
+
 //Lifted from Unity stasis.dm and refactored. ~Zuhayr
 /obj/structure/machinery/cryopod/process()
 	if(occupant)
+		// A player who closed their client while inside the pod: store them
+		// immediately, exactly like the Store Character verb -- no reliance on
+		// client/Destroy firing, and before the legacy 2-minute strip-despawn
+		// below can ever touch a persistence character.
+		if(ishuman(occupant) && !occupant.client && occupant.ckey && occupant.stat != DEAD && !occupant:persistence_in_cryo)
+			if(persistence_force_store())
+				return
+
 		//Allow a two minute gap between entering the pod and actually despawning.
 		if((world.time - time_entered < time_till_despawn) && occupant.ckey)
 			return

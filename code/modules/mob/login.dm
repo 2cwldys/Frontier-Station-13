@@ -98,6 +98,7 @@
 	enable_client_mobs_in_contents()
 
 	update_client_color(no_animate = TRUE)
+	reload_fullscreen()	// re-add mob.screens[] overlays wiped by client.screen.Cut() above
 	add_click_catcher()
 
 	if(client) //Should work based on "change_view" but we lack the infrastructure behind to make it useful, for now
