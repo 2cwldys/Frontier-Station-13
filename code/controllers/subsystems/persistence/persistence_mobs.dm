@@ -381,7 +381,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		return
 
 	var/datum/db_query/query = SSdbcore.NewQuery(
-		"SELECT ckey, char_name, x, y, z, char_state, in_lace, lace_pod_x, lace_pod_y, lace_pod_z FROM ss13_mob_position",
+		"SELECT ckey, char_name, x, y, z, char_state, in_lace, lace_pod_x, lace_pod_y, lace_pod_z, last_pod_x, last_pod_y, last_pod_z FROM ss13_mob_position",
 		list()
 	)
 	query.Execute()
@@ -401,7 +401,10 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			"in_lace"     = text2num(query.item[7]),
 			"lace_pod_x"  = text2num(query.item[8]),
 			"lace_pod_y"  = text2num(query.item[9]),
-			"lace_pod_z"  = text2num(query.item[10])
+			"lace_pod_z"  = text2num(query.item[10]),
+			"last_pod_x"  = text2num(query.item[11]),
+			"last_pod_y"  = text2num(query.item[12]),
+			"last_pod_z"  = text2num(query.item[13])
 		)
 		loaded++
 
@@ -474,18 +477,21 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	databaseCheckQueryResult(ins, "mobPositionSave")
 	qdel(ins)
 
-	// Update cache
+	// Update cache in place -- replacing the entry would drop fields this
+	// write doesn't own (last_pod_*, which only pod stores touch).
 	var/key = "[H.ckey]|[H.real_name]"
-	GLOB.persistence_position_cache[key] = list(
-		"x"          = H.x,
-		"y"          = H.y,
-		"z"          = H.z,
-		"char_state" = state,
-		"in_lace"    = 0,
-		"lace_pod_x" = null,
-		"lace_pod_y" = null,
-		"lace_pod_z" = null
-	)
+	var/list/entry = GLOB.persistence_position_cache[key]
+	if(!islist(entry))
+		entry = list()
+		GLOB.persistence_position_cache[key] = entry
+	entry["x"]          = H.x
+	entry["y"]          = H.y
+	entry["z"]          = H.z
+	entry["char_state"] = state
+	entry["in_lace"]    = 0
+	entry["lace_pod_x"] = null
+	entry["lace_pod_y"] = null
+	entry["lace_pod_z"] = null
 
 /**
  * Save the "in_lace" position state for a captured consciousness, keyed on the
@@ -510,17 +516,20 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	databaseCheckQueryResult(ins, "lacePositionSave")
 	qdel(ins)
 
+	// In-place for the same reason as mobPositionSave: don't drop last_pod_*.
 	var/key = "[ckey]|[char_name]"
-	GLOB.persistence_position_cache[key] = list(
-		"x"          = T.x,
-		"y"          = T.y,
-		"z"          = T.z,
-		"char_state" = "in_lace",
-		"in_lace"    = 1,
-		"lace_pod_x" = T.x,
-		"lace_pod_y" = T.y,
-		"lace_pod_z" = T.z
-	)
+	var/list/entry = GLOB.persistence_position_cache[key]
+	if(!islist(entry))
+		entry = list()
+		GLOB.persistence_position_cache[key] = entry
+	entry["x"]          = T.x
+	entry["y"]          = T.y
+	entry["z"]          = T.z
+	entry["char_state"] = "in_lace"
+	entry["in_lace"]    = 1
+	entry["lace_pod_x"] = T.x
+	entry["lace_pod_y"] = T.y
+	entry["lace_pod_z"] = T.z
 
 /**
  * Reset a character's persisted state to "alive" without touching position --
@@ -550,6 +559,38 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		entry["lace_pod_x"] = null
 		entry["lace_pod_y"] = null
 		entry["lace_pod_z"] = null
+
+/**
+ * Remember the cryopod this character last stored at, so rejoins (including
+ * across restarts) wake them from the same pod. Overwrites on every pod
+ * store -- "last used". The row exists by the time this runs: every store
+ * flow calls mobPositionSave() first.
+ */
+/proc/persistence_set_last_pod(ckey, char_name, obj/structure/machinery/cryopod/pod)
+	if(!GLOB.config.sql_enabled || !ckey || !char_name)
+		return
+	if(!istype(pod) || !pod.z)
+		return
+	if(!SSpersistence.databaseCheckConnection("persistence_set_last_pod"))
+		return
+
+	var/datum/db_query/upd = SSdbcore.NewQuery(
+		{"UPDATE ss13_mob_position SET last_pod_x = :x, last_pod_y = :y, last_pod_z = :z
+		WHERE ckey = :ckey AND char_name = :char_name"},
+		list("ckey" = ckey, "char_name" = char_name, "x" = pod.x, "y" = pod.y, "z" = pod.z)
+	)
+	upd.Execute()
+	SSpersistence.databaseCheckQueryResult(upd, "persistence_set_last_pod")
+	qdel(upd)
+
+	var/key = "[ckey]|[char_name]"
+	var/list/entry = GLOB.persistence_position_cache[key]
+	if(!islist(entry))
+		entry = list()
+		GLOB.persistence_position_cache[key] = entry
+	entry["last_pod_x"] = pod.x
+	entry["last_pod_y"] = pod.y
+	entry["last_pod_z"] = pod.z
 
 /**
  * Restore mob to their last saved position, or spawn at default landmark.

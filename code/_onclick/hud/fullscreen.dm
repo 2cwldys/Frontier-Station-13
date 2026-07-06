@@ -192,3 +192,12 @@
 	plane = LIGHTING_PLANE
 	layer = LIGHTING_PRIMARY_LAYER
 	blend_mode = BLEND_ADD
+
+// Post-cryo "chilled" cold border (see apply_cryo_chill). The bare .png is a
+// single 480x480 icon state named "", on the standard fullscreen anchor --
+// larger icons would force BYOND to expand the client viewport (zoom-out).
+// apply_cryo_chill() scales it to the client's dynamic view via transform,
+// which does NOT trigger view expansion (same trick as lighting_backdrop).
+/atom/movable/screen/fullscreen/chilled
+	icon = 'icons/hud/chilled.png'
+	icon_state = ""

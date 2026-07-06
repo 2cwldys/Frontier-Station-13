@@ -24,6 +24,13 @@
 	show_persistent_menu()
 	addtimer(CALLBACK(client, /client/proc/playtitlemusic), 1 SECOND)
 
+/// A spawn attempt aborted after PersistentAutoSpawn() closed the menu and
+/// flagged spawning -- reset and give the menu back so the player isn't stranded.
+/mob/abstract/new_player/proc/reopen_menu_after_failed_spawn()
+	if(persistent_menu_datum)
+		persistent_menu_datum.spawning = FALSE
+	show_persistent_menu()
+
 /mob/abstract/new_player/proc/show_persistent_menu()
 	set waitfor = FALSE
 	if(!client) return

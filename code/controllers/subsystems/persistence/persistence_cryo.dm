@@ -149,7 +149,7 @@
  * telepad, and returns the client to the new_player lobby so they can Join again later.
  * Unlike persistCharacterOnLogout() this does NOT use a timer  storage is instant.
  */
-/datum/controller/subsystem/persistence/proc/persistStoreCharacter(mob/living/carbon/human/H)
+/datum/controller/subsystem/persistence/proc/persistStoreCharacter(mob/living/carbon/human/H, obj/structure/machinery/cryopod/pod = null)
 	if(!GLOB.config.sql_enabled)
 		return FALSE
 	if(!H || QDELETED(H))
@@ -167,6 +167,11 @@
 	mobsHealthSaveOne(H)
 	mobsInventorySaveOne(H)
 	charIdentitySaveOne(H)
+
+	// Remember which pod they stored at so they wake from the same one --
+	// after mobPositionSave so the row exists, before the ckey is cleared.
+	if(pod)
+		persistence_set_last_pod(H.ckey, H.real_name, pod)
 
 	H.persistence_stored_ckey = H.ckey
 	H.persistence_in_cryo     = TRUE
@@ -196,6 +201,45 @@
 		log_subsystem_persistence_info("Cryo: [H.real_name] stored  no telepad found, mob remains at current location.")
 
 	return TRUE
+
+// ============================================================
+// POST-CRYO CHILL EFFECT
+// ============================================================
+
+/// Visual phase of the chill effect: cyan-turquoise wash + cold border under
+/// the HUD. No sound, no slowdown, no fade timer -- shown for as long as the
+/// mob sits inside a cryopod (set_occupant applies it; the pod exit finishes
+/// the effect via finish_cryo_chill).
+/mob/living/carbon/human/proc/apply_cryo_chill_visuals()
+	add_client_color(/datum/client_color/chilled)
+	var/atom/movable/screen/fullscreen/chilled/border = overlay_fullscreen("chilled", /atom/movable/screen/fullscreen/chilled, null, 0.5 SECONDS)
+	if(border && client)
+		// Scale the 480x480 border up to the client's (dynamic) view so it
+		// fills the whole screen -- transforms don't expand the viewport,
+		// unlike an oversized icon.
+		var/list/vs = getviewsize(client.view)
+		var/scale = max(vs[1], vs[2]) * WORLD_ICON_SIZE / 480
+		if(scale > 1)
+			border.transform = matrix(scale, 0, 0, 0, scale, 0)
+
+/// Exit phase: a chilled sound others can hear, ~15 seconds of sluggish
+/// movement, and the 15-second countdown after which the visuals fade out.
+/mob/living/carbon/human/proc/finish_cryo_chill()
+	cryo_chill_pending = FALSE
+	cryo_exited_at = world.time
+	chilled_until = world.time + 15 SECONDS
+	playsound(get_turf(src), 'sound/effects/chilled.ogg', 75, 1)
+	addtimer(CALLBACK(src, PROC_REF(clear_cryo_chill)), 15 SECONDS, TIMER_UNIQUE|TIMER_OVERRIDE|TIMER_DELETE_ME)
+
+/// Both phases at once -- for wake paths that couldn't place the mob in a
+/// pod (there is no exit moment to split the effect around).
+/mob/living/carbon/human/proc/apply_cryo_chill()
+	apply_cryo_chill_visuals()
+	finish_cryo_chill()
+
+/mob/living/carbon/human/proc/clear_cryo_chill()
+	remove_client_color(/datum/client_color/chilled)  // animates back over 1 second
+	clear_fullscreen("chilled", 1.5 SECONDS)          // alpha fade-out
 
 // ============================================================
 // ENTER CRYOSLEEP VERB  manual logout via cryopod
@@ -244,7 +288,7 @@
 	src.forceMove(pod_front)
 
 	// Save character and immediately move mob to player storage telepad
-	if(!SSpersistence.persistStoreCharacter(src))
+	if(!SSpersistence.persistStoreCharacter(src, nearest))
 		to_chat(src, SPAN_WARNING("Storage failed  could not save character data. Please try again."))
 		return
 
@@ -355,24 +399,50 @@
 	return faction_uid
 
 /**
+ * Find the cryopod this character last stored at (persistence_set_last_pod)
+ * and return it, or null so the caller falls back to the normal spawn
+ * cascade. Falls back when the pod is missing, occupied, unpowered/broken,
+ * or its faction network no longer matches the player.
+ */
+/proc/persistence_find_saved_cryopod(ckey, char_name)
+	if(!GLOB.config.sql_enabled || !ckey || !char_name)
+		return null
+	var/list/entry = GLOB.persistence_position_cache["[ckey]|[char_name]"]
+	if(!islist(entry) || !entry["last_pod_z"])
+		return null
+	var/pz = entry["last_pod_z"]
+	if(pz < 1 || pz > world.maxz)
+		return null
+	var/turf/T = locate(entry["last_pod_x"], entry["last_pod_y"], pz)
+	var/obj/structure/machinery/cryopod/pod = T ? (locate(/obj/structure/machinery/cryopod) in T) : null
+	if(!pod)
+		return null
+	if(pod.occupant)
+		return null
+	if(pod.stat & (NOPOWER|BROKEN))
+		return null
+	if(pod.persistent_network && pod.persistent_network != "public")
+		var/player_faction = persistence_get_player_faction(ckey)
+		if(normalize_faction_uid(player_faction) != normalize_faction_uid(pod.persistent_network))
+			return null
+	return pod
+
+/**
  * Find an available cryopod using the priority cascade:
  *   1. Faction pod matching faction_uid (exclusive to that faction)
  *   2. Public or unrestricted pod (persistent_network = "public" or "", persistent_spawn = TRUE)
- *   3. Any start landmark
- * Returns the turf in front of the chosen pod, or a landmark turf.
+ * Returns the chosen POD, or null (callers handle landmark fallbacks).
  */
 /proc/persistence_find_available_cryopod(faction_uid = null)
 	// Priority 1: faction's own pods
 	if(faction_uid)
 		var/list/faction_pods = list()
 		for(var/obj/structure/machinery/cryopod/pod in world)
-			if(!pod.z || pod.occupant) continue
+			if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
 			if(pod.persistent_network == faction_uid)
 				faction_pods += pod
 		if(length(faction_pods))
-			var/obj/structure/machinery/cryopod/chosen = pick(faction_pods)
-			var/turf/step = get_step(chosen, chosen.dir)
-			return step ? step : get_turf(chosen)
+			return pick(faction_pods)
 
 	// Priority 2: public or unrestricted spawn pods (open to everyone)
 	// Accepts both persistent_network == "public" (explicitly public) and
@@ -387,6 +457,9 @@
 		if(pod.occupant)
 			log_subsystem_persistence_info("Cryo spawn: skipping [pod.type] at ([pod.x],[pod.y],[pod.z])  occupied by [pod.occupant]")
 			continue
+		if(pod.stat & (NOPOWER|BROKEN))
+			log_subsystem_persistence_info("Cryo spawn: skipping [pod.type] at ([pod.x],[pod.y],[pod.z])  unpowered/broken")
+			continue
 		var/is_open = (pod.persistent_network == "public")
 		if(is_open && pod.persistent_spawn)
 			public_pods += pod
@@ -394,13 +467,7 @@
 			log_subsystem_persistence_info("Cryo spawn: skipping [pod.type] at ([pod.x],[pod.y],[pod.z])  network='[pod.persistent_network]' spawn=[pod.persistent_spawn]")
 	log_subsystem_persistence_info("Cryo spawn: checked [total_pods] pods, found [length(public_pods)] public/unrestricted.")
 	if(length(public_pods))
-		var/obj/structure/machinery/cryopod/chosen = pick(public_pods)
-		var/turf/step = get_step(chosen, chosen.dir)
-		return step ? step : get_turf(chosen)
-
-	// Last resort: any start landmark
-	for(var/obj/effect/landmark/start/L in world)
-		return get_turf(L)
+		return pick(public_pods)
 	return null
 
 // ============================================================
@@ -435,21 +502,30 @@
 		return
 
 	// Must be inside a cryopod or standing directly adjacent to one
-	var/near_pod = istype(loc, /obj/structure/machinery/cryopod)
-	if(!near_pod)
+	var/obj/structure/machinery/cryopod/near_pod = null
+	if(istype(loc, /obj/structure/machinery/cryopod))
+		near_pod = loc
+	else
 		for(var/obj/structure/machinery/cryopod/pod in range(1, src))
-			near_pod = TRUE
+			near_pod = pod
 			break
 	if(!near_pod)
 		to_chat(src, SPAN_WARNING("You must be inside or adjacent to a cryopod to store your character."))
 		return
+
+	// Faction-owned pods only serve their own members
+	if(near_pod.persistent_network && near_pod.persistent_network != "public")
+		var/player_faction = persistence_get_player_faction(src.ckey)
+		if(normalize_faction_uid(player_faction) != normalize_faction_uid(near_pod.persistent_network))
+			to_chat(src, SPAN_WARNING("This cryopod is restricted to [near_pod.persistent_network] personnel only."))
+			return
 
 	var/confirm = tgui_alert(src, "Store your character and go offline? Your character will be saved and moved to a safe holding area until you reconnect.", "Store Character", list("Store", "Cancel"))
 	if(confirm != "Store")
 		return
 
 	// Save character and immediately move mob to player storage telepad
-	if(!SSpersistence.persistStoreCharacter(src))
+	if(!SSpersistence.persistStoreCharacter(src, near_pod))
 		to_chat(src, SPAN_WARNING("Storage failed  could not save character data. Please try again."))
 		return
 

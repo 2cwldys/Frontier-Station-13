@@ -462,6 +462,16 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 				to_chat(src, SPAN_DANGER("[client.prefs.species] is not available for play on the [station_name(TRUE)]."))
 				return
 
+	// Close the character-select window NOW, while this mob still owns the
+	// client -- the rejoin paths below reassign the key before ui_act() gets
+	// a chance to close it, which strands the physical window on the player's
+	// screen being fed null-client (1-slot, empty) data forever. Also flags
+	// spawning for the legacy Topic("late_join") entry path so the menu's
+	// ui_close reopen timer can't fire mid-spawn.
+	if(persistent_menu_datum)
+		persistent_menu_datum.spawning = TRUE
+		SStgui.close_uis(persistent_menu_datum)
+
 	var/ckey_lower = ckey(client.ckey)
 
 	// Live lace_mob reconnect -- a captured consciousness the player never got
@@ -502,15 +512,39 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 				to_chat(H, SPAN_NOTICE("Your awareness stirs within your dead body. You cannot move or act -- you can only observe. Seek rescue."))
 				log_subsystem_persistence_info("Cryo: [H.real_name] ([ckey_lower]) reconnected to their dead body.")
 			else
-				// Move to an available pod (faction-aware) before restoring client
-				var/rejoiner_faction = GLOB.config.sql_enabled ? persistence_get_player_faction(client.ckey) : null
-				var/turf/pod_turf = persistence_find_available_cryopod(rejoiner_faction)
-				if(pod_turf)
-					H.forceMove(pod_turf)
+				// Wake inside their last-used pod if it's still valid, otherwise an
+				// available pod (faction -> public). NOTE: H.key was assigned above,
+				// which moved the client OFF this new_player mob -- src.client
+				// is null from here on, so only ckey_lower may be used.
+				var/obj/structure/machinery/cryopod/spawn_pod = persistence_find_saved_cryopod(ckey_lower, H.real_name)
+				if(!spawn_pod)
+					var/rejoiner_faction = GLOB.config.sql_enabled ? persistence_get_player_faction(ckey_lower) : null
+					spawn_pod = persistence_find_available_cryopod(rejoiner_faction)
+				// If they were stored inside a pod, detach them from it cleanly
+				// before waking (they may be re-inserted into spawn_pod below).
+				if(istype(H.loc, /obj/structure/machinery/cryopod))
+					var/obj/structure/machinery/cryopod/stored_pod = H.loc
+					if(stored_pod.occupant == H)
+						stored_pod.occupant = null
+					H.forceMove(get_step(stored_pod, stored_pod.dir) || get_turf(stored_pod))
+					stored_pod.update_icon()
 				H.stat = CONSCIOUS
 				H.density = TRUE
 				H.status_flags &= ~GODMODE
-				to_chat(H, SPAN_NOTICE("You eject from cryosleep. Welcome back, [H.real_name]."))
+				if(spawn_pod)
+					// Wake INSIDE the pod: closed sprite, camera on the pod;
+					// set_occupant applies the chill visuals, and stepping out
+					// (relaymove() -> go_out()) finishes the effect.
+					spawn_pod.set_occupant(H)
+					to_chat(H, SPAN_NOTICE("You stir awake inside the cryopod. Welcome back, [H.real_name]. Move in any direction to step out."))
+				else
+					// LateLogin() fired while the mob could still be inside a pod,
+					// locking client.eye onto it (EYE_PERSPECTIVE) -- re-anchor the
+					// camera to the mob now that they're on a turf.
+					H.reset_view()
+					to_chat(H, SPAN_NOTICE("You eject from cryosleep. Welcome back, [H.real_name]."))
+					// No pod exit will ever fire -- run the whole effect now.
+					H.apply_cryo_chill()
 				log_subsystem_persistence_info("Cryo: [H.real_name] ([ckey_lower]) woke from cryosleep.")
 				persistence_set_char_state(ckey_lower, H.real_name, "alive")
 			if(H.client)
@@ -556,7 +590,10 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 			if(length(saved_chars) < slot_limit)
 				options += "-- New Character --"
 			selected_char = tgui_input_list(src, "Choose a character to play:", "Character Selection", options)
-			if(!selected_char || QDELETED(src))
+			if(QDELETED(src))
+				return
+			if(!selected_char)
+				reopen_menu_after_failed_spawn()
 				return
 			if(selected_char == "-- New Character --")
 				selected_char = null
@@ -581,6 +618,7 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 				break
 			if(!found_lace || found_lace.lace_occupied)
 				to_chat(src, SPAN_WARNING("Your neural lace could not be located. Contact an administrator."))
+				reopen_menu_after_failed_spawn()
 				return
 			var/mob/living/carbon/lace_mob/new_lm = new /mob/living/carbon/lace_mob(get_turf(found_lace))
 			new_lm.name              = selected_char
@@ -653,6 +691,17 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 				client.prefs.player_setup.sanitize_setup(TRUE)
 			qdel(cq)
 
+			// The block above only reloads ss13_characters -- neural_lace lives on
+			// ss13_characters_flavour, a separate table, and would otherwise be left
+			// at whatever character was last loaded into this shared prefs object.
+			var/datum/db_query/lq = SSdbcore.NewQuery(
+				"SELECT neural_lace FROM ss13_characters_flavour WHERE char_id = :id",
+				list("id" = client.prefs.current_character))
+			lq.Execute()
+			if(lq.NextRow())
+				client.prefs.neural_lace = text2num(lq.item[1])
+			qdel(lq)
+
 	// ── Lock character preferences on first spawn (by specific character ID) ────
 	// Targets only the character being spawned, not all unspawned characters by ckey.
 	if(client.prefs.current_character && GLOB.config.sql_saves && SSdbcore.Connect())
@@ -674,6 +723,11 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		if(H.persistence_stored_ckey == client.ckey && !H.ckey)
 			qdel(H)
 			break
+
+	// create_character() ends by transferring the key -- and with it the client --
+	// onto the new mob, so src.client is null for the rest of this proc. Capture
+	// the prefs datum now while the client is still attached.
+	var/datum/preferences/spawn_prefs = client.prefs
 
 	// Create mob from character preferences (appearance, species, DNA)
 	// prefs are now populated with the selected character's specific row data
@@ -737,7 +791,7 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		if(lace_head)
 			lace_head.internal_organs |= existing_lace
 		add_verb(character, /mob/living/carbon/human/proc/check_neural_lace_status)
-	else if(GLOB.config.sql_enabled && client && client.prefs && client.prefs.neural_lace)
+	else if(GLOB.config.sql_enabled && spawn_prefs && spawn_prefs.neural_lace)
 		var/obj/item/organ/internal/neural_lace/new_lace = new /obj/item/organ/internal/neural_lace(character)
 		new_lace._bind_to_owner(character)
 		var/obj/item/organ/external/head = character.get_organ(BP_HEAD)
@@ -748,7 +802,9 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 	if(restoring_dead_body)
 		// Recreate the corpse exactly where it was left -- no cryopod spawn, no
 		// wake. char_state stays "dead_body" until someone actually revives them.
-		var/list/pos_entry = GLOB.persistence_position_cache["[client.ckey]|[selected_char]"]
+		// client is null here -- create_character() transferred the key (and the
+		// client with it) onto the character mob. Only ckey_lower is safe.
+		var/list/pos_entry = GLOB.persistence_position_cache["[ckey_lower]|[selected_char]"]
 		var/turf/dead_turf = (islist(pos_entry) && pos_entry["z"]) ? locate(pos_entry["x"], pos_entry["y"], pos_entry["z"]) : null
 		if(dead_turf)
 			character.forceMove(dead_turf)
@@ -760,22 +816,25 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		qdel(src)
 		return
 
-	// Spawn at a cryopod — public/unrestricted pods first, any free pod as last resort
-	var/turf/spawn_turf = persistence_find_available_cryopod(null)
-	if(!spawn_turf)
+	// Wake inside the character's last-used cryopod when still valid, else
+	// faction pods -> public pods, any free working pod as last resort
+	var/obj/structure/machinery/cryopod/spawn_pod = persistence_find_saved_cryopod(ckey_lower, character.real_name)
+	if(!spawn_pod)
+		var/spawner_faction = GLOB.config.sql_enabled ? persistence_get_player_faction(ckey_lower) : null
+		spawn_pod = persistence_find_available_cryopod(spawner_faction)
+	if(!spawn_pod)
 		for(var/obj/structure/machinery/cryopod/pod in world)
-			if(pod.occupant) continue
+			if(pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
 			var/turf/pt = get_turf(pod)
 			if(!pt || !pt.z) continue
-			spawn_turf = get_step(pod, pod.dir) || pt
+			spawn_pod = pod
 			break
 
-	if(spawn_turf)
-		character.forceMove(spawn_turf)
-		if(selected_char)
-			to_chat(character, SPAN_NOTICE("You eject from cryosleep. Welcome back, [character.real_name]."))
-		else
-			to_chat(character, SPAN_NOTICE("You eject from cryosleep. Welcome aboard, [character.real_name]."))
+	if(spawn_pod)
+		// Interim placement on the pod's turf -- the wake block below force-
+		// ejects mobs whose loc is a cryopod, so the actual insertion happens
+		// after the wake completes.
+		character.forceMove(get_turf(spawn_pod))
 	else
 		// Absolute last resort — saved position or landmark
 		character.applyPersistentPosition()
@@ -796,7 +855,17 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		character.resting    = FALSE
 		character.drowsiness = 0
 		character.set_stat(CONSCIOUS)
-		persistence_set_char_state(client.ckey, character.real_name, "alive")
+		persistence_set_char_state(ckey_lower, character.real_name, "alive")
+		if(spawn_pod && !QDELETED(spawn_pod) && !spawn_pod.occupant)
+			// Wake INSIDE the pod: closed sprite, camera on the pod;
+			// set_occupant applies the chill visuals, and stepping out
+			// (relaymove() -> go_out()) finishes the effect.
+			spawn_pod.set_occupant(character)
+			to_chat(character, SPAN_NOTICE("You stir awake inside the cryopod. Welcome [selected_char ? "back" : "aboard"], [character.real_name]. Move in any direction to step out."))
+		else
+			to_chat(character, SPAN_NOTICE("You eject from cryosleep. Welcome [selected_char ? "back" : "aboard"], [character.real_name]."))
+			// No pod exit will ever fire -- run the whole effect now.
+			character.apply_cryo_chill()
 	character.status_flags &= ~GODMODE
 	character.density = TRUE
 

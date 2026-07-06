@@ -125,6 +125,13 @@
 	// Top-center countdown to the next persistence autosave
 	var/atom/movable/screen/save_timer = null
 
+	// Post-cryo chill effect: movement_delay() adds a tally while world.time is below this
+	var/chilled_until = 0
+	// Chill visuals are active inside a pod; the pod exit (go_out) finishes the effect
+	var/cryo_chill_pending = FALSE
+	// When the character last exited a cryopod -- examine shows a flavor line for 10 minutes
+	var/cryo_exited_at = 0
+
 	var/is_noisy = FALSE		// if TRUE, movement should make sound.
 	var/bodyfall_sound = SFX_BODYFALL
 	var/footsound = SFX_FOOTSTEP_BLANK

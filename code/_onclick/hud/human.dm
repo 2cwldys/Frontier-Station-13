@@ -166,7 +166,10 @@
 	if(hud_data.has_warnings)
 		mymob.healths = new /atom/movable/screen()
 		mymob.healths.icon = ui_style
-		mymob.healths.icon_state = "health0"
+		// Start blank: the human Life() hud update draws the real by-limb display
+		// ("blank" + overlays); starting on "health0" flashes the raw dark.dmi
+		// sprite for the first tick or two after login.
+		mymob.healths.icon_state = "blank"
 		mymob.healths.screen_loc = ui_health
 		mymob.healths.color = list(1,0,0,0, 0,0,1,0, 0,1,0,0, 0,0,0,1, 0,0,0,0)
 		hud_elements |= mymob.healths

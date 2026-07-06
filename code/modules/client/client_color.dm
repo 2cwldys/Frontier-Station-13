@@ -116,3 +116,9 @@
 
 /datum/client_color/oversaturated/New()
 	client_color = color_saturation(40)
+
+// Frosty turquoise wash for the post-cryo chill effect: red suppressed,
+// green/blue near-full with slight cross-bleed.
+/datum/client_color/chilled
+	client_color = list(0.62, 0.08, 0.08, 0.15, 1, 0.12, 0.12, 0.2, 1)
+	priority = 50

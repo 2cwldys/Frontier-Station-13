@@ -448,6 +448,17 @@
 	if(M.stat == DEAD)
 		to_chat(user, SPAN_WARNING("Dead people can not be put into \the [src]."))
 		return
+	// Faction-owned pods only accept their own members. Single choke point for
+	// every physical entry path (grab, mouse-drop, Enter Pod verb).
+	if(persistent_network && persistent_network != "public" && GLOB.config.sql_enabled)
+		var/effective_ckey = M.ckey
+		if(!effective_ckey && ishuman(M))
+			var/mob/living/carbon/human/HM = M
+			effective_ckey = HM.persistence_stored_ckey
+		var/player_faction = effective_ckey ? persistence_get_player_faction(effective_ckey) : null
+		if(normalize_faction_uid(player_faction) != normalize_faction_uid(persistent_network))
+			to_chat(user, SPAN_WARNING("\The [src] refuses [M == user ? "you" : "\the [M]"] -- it is restricted to [persistent_network] personnel only."))
+			return
 	for(var/mob/living/carbon/slime/S in range(1, M))
 		if(S.victim == M)
 			to_chat(usr, SPAN_WARNING("[M.name] will not fit into \the [src] because they have a slime latched onto their head!"))
@@ -522,9 +533,20 @@
 		occupant.client.perspective = MOB_PERSPECTIVE
 		occupant.reset_death_timers()
 
+	var/mob/living/exiting_occupant = occupant
 	occupant.forceMove(get_turf(src))
 	occupant = null
 	playsound(loc, on_exit_sound, 25)
+	// Cold vapor rolls out of the opened pod and dissipates on its own.
+	var/datum/effect/effect/system/steam_spread/steam = new /datum/effect/effect/system/steam_spread()
+	steam.set_up(3, 0, get_turf(src))
+	steam.start()
+	// Finish the chill effect for anyone who picked it up inside the pod:
+	// chilled sound, ~15s slowdown, and the fade-out countdown.
+	if(ishuman(exiting_occupant))
+		var/mob/living/carbon/human/chilled_human = exiting_occupant
+		if(chilled_human.cryo_chill_pending)
+			chilled_human.finish_cryo_chill()
 	update_icon()
 
 /obj/structure/machinery/cryopod/proc/set_occupant(var/mob/living/carbon/occupant)
@@ -536,6 +558,12 @@
 		occupant.client.eye = src
 		time_entered = world.time
 		occupant.set_respawn_time()
+		// Chill visuals for as long as they sit inside; go_out() finishes the
+		// effect (sound/slowdown/fade) when they step out.
+		if(ishuman(occupant))
+			var/mob/living/carbon/human/chilled_human = occupant
+			chilled_human.apply_cryo_chill_visuals()
+			chilled_human.cryo_chill_pending = TRUE
 	else if(istype(occupant, /mob/living/carbon/human) && GLOB.config.sql_enabled)
 		var/mob/living/carbon/human/H = occupant
 		if(H.persistence_stored_ckey)
@@ -544,7 +572,7 @@
 			if(H.persistence_cryo_timer)
 				deltimer(H.persistence_cryo_timer)
 				H.persistence_cryo_timer = null
-			SSpersistence.persistStoreCharacter(H)
+			SSpersistence.persistStoreCharacter(H, src)
 			// persistStoreCharacter clears src.occupant and moves mob to hold area
 	update_icon()
 
