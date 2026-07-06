@@ -952,6 +952,10 @@ Traitors and the like can also be revived with the previous role mostly intact.
 	if(alert(src, "Are you sure?", "Confirm", "Yes", "No") != "Yes")
 		return
 
+	if(round_end_locked())
+		to_chat(usr, SPAN_WARNING("Round-ending actions are disabled while persistence is active (DISABLE_ROUND_END)."))
+		return
+
 	if(SSatlas.current_map.shuttle_call_restarts)
 		if(SSatlas.current_map.shuttle_call_restart_timer)
 			to_chat(usr, SPAN_WARNING("The shuttle round restart timer is already active!"))

@@ -150,6 +150,11 @@ ALLOW_ADMIN_OOCCOLOR
 ## If metadata is supported
 # ALLOW_METADATA
 
+## disables emergency shuttle calls, the Restart/Crew Transfer votes, and nuke
+## self-destruct round-ending while persistence is active -- this is a
+## persistent world that should never go through a traditional round end
+DISABLE_ROUND_END
+
 ## allow players to initiate a restart vote
 ALLOW_VOTE_RESTART
 

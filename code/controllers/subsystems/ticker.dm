@@ -202,7 +202,10 @@ SUBSYSTEM_DEF(ticker)
 
 	var/game_finished = 0
 	var/mode_finished = 0
-	if(force_end)
+	if(round_end_locked())
+		game_finished = FALSE
+		mode_finished = FALSE
+	else if(force_end)
 		game_finished = TRUE
 		mode_finished = TRUE
 	else

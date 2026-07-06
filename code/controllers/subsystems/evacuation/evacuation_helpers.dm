@@ -25,7 +25,17 @@
 /datum/evacuation_controller/proc/is_evacuating()
 	return state != EVAC_IDLE
 
+/// TRUE when this persistent world has been configured to never go through a
+/// traditional round end -- shuttle calls, round-end votes, and nuke
+/// round-ending are all gated behind this, admins included, but only while
+/// persistence (sql_enabled) is actually active.
+/proc/round_end_locked()
+	return GLOB.config.disable_round_end && GLOB.config.sql_enabled
+
 /datum/evacuation_controller/proc/can_evacuate(var/mob/user, var/forced)
+	if(round_end_locked())
+		return FALSE
+
 	if(!isnull(evac_called_at))
 		return FALSE
 

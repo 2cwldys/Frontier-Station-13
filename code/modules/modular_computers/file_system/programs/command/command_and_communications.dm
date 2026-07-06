@@ -335,6 +335,10 @@ Command action procs
 	if((!(ROUND_IS_STARTED) || !GLOB.evacuation_controller))
 		return FALSE
 
+	if(round_end_locked())
+		to_chat(user, SPAN_WARNING("This station is not authorized to call for evacuation."))
+		return FALSE
+
 	if(!GLOB.universe.OnShuttleCall(usr))
 		to_chat(user, SPAN_WARNING("A bluespace connection cannot be established! Please check the user manual for more information."))
 		return FALSE
@@ -361,6 +365,9 @@ Command action procs
 
 /proc/init_shift_change(var/mob/user, var/force = FALSE)
 	if(!(ROUND_IS_STARTED) || !GLOB.evacuation_controller)
+		return
+
+	if(round_end_locked())
 		return
 
 	if(SSatlas.current_map.shuttle_call_restarts)
