@@ -139,6 +139,40 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	log_subsystem_persistence_info("Worldstate: Power state finalized -- [apc_count] APC(s), [solar_count] solar controller(s), [length(apc_areas)] area(s) rebroadcast.")
 
 /**
+ * Clear atmos alarm state latched during boot, called AFTER atmosApply()
+ * has put the real saved air back. While turfs/zones rebuild, live air
+ * alarms sample transient vacuum/cold and latch danger levels that close
+ * the area firedoors; the reset path can't recover from a frozen
+ * danger_level, so we zero every alarm and re-derive each area once the
+ * air is correct. Genuinely bad zones re-trigger within one process tick.
+ */
+/datum/controller/subsystem/persistence/proc/atmosAlarmsReset()
+	var/alarms_reset = 0
+	var/list/alarmed_areas = list()
+	for(var/obj/structure/machinery/alarm/AA in SSmachinery.machinery)
+		if(!AA.z)
+			continue
+		AA.danger_level = 0
+		// Clear the environment memo so the next process() re-samples the
+		// restored air instead of short-circuiting on "unchanged".
+		AA.previous_environment_gas = list()
+		AA.previous_environment_temperature = null
+		AA.previous_environment_total_moles = null
+		AA.previous_environment_volume = null
+		AA.previous_environment_group_multiplier = null
+		// Re-apply the restored mode so vents/scrubbers actually match it --
+		// worldstate only writes the var.
+		AA.apply_mode()
+		if(AA.alarm_area && AA.alarm_area.atmosalm)
+			alarmed_areas |= AA.alarm_area
+		alarms_reset++
+	// With every alarm zeroed the recompute clears the area alarm and
+	// air_doors_open() lifts the shutters (welded doors stay put).
+	for(var/area/AR in alarmed_areas)
+		AR.atmosalert(0, null)
+	log_subsystem_persistence_info("Worldstate: Atmos alarms reset -- [alarms_reset] alarm(s), [length(alarmed_areas)] latched area(s) cleared.")
+
+/**
  * Looks up the cache entry for this machine and applies its saved content.
  * Returns 1 if state was applied, 0 otherwise.
  */

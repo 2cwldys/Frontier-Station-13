@@ -25,6 +25,10 @@ GLOBAL_LIST_INIT(modcomp_factory_default_programs, list("computerconfig", "clien
 	var/list/programs = modcomp_save_programs()
 	if(length(programs))
 		content["programs"] = programs
+	// ID card sitting in the card slot (PDAs) -- name/assignment/access etc.
+	if(card_slot && card_slot.stored_card)
+		content["stored_id_type"] = "[card_slot.stored_card.type]"
+		content["stored_id"] = card_slot.stored_card.persistent_objects_get_content()
 	return content
 
 /obj/item/modular_computer/persistent_objects_apply_content(content, x, y, z)
@@ -38,6 +42,13 @@ GLOBAL_LIST_INIT(modcomp_factory_default_programs, list("computerconfig", "clien
 		faction_shackled = !!content["faction_shackled"]
 	if("programs" in content)
 		modcomp_restore_programs(content["programs"])
+	if(islist(content["stored_id"]) && card_slot && !card_slot.stored_card)
+		var/id_path = text2path(content["stored_id_type"]) || /obj/item/card/id
+		if(ispath(id_path, /obj/item/card/id))
+			var/obj/item/card/id/restored_id = new id_path(src)
+			restored_id.persistent_objects_apply_content(content["stored_id"], null, null, null)
+			// insert_id() also re-applies the computer's name suffix
+			card_slot.insert_id(restored_id)
 
 /// Returns the filenames of every non-factory-default program currently
 /// installed, suitable for saving and later passing to modcomp_restore_programs().

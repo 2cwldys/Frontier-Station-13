@@ -384,6 +384,13 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_panic("Unhandled exception during power state finalization: [ps_e]")
 
 	try
+		// After atmosApply(): clear alarm/shutter state latched on transient
+		// boot air -- alarms re-sample the restored air next tick.
+		atmosAlarmsReset()
+	catch(var/exception/aar_e)
+		log_subsystem_persistence_panic("Unhandled exception during atmos alarm reset: [aar_e]")
+
+	try
 		mobsHealthInitialize()
 	catch(var/exception/health_e)
 		log_subsystem_persistence_panic("Unhandled exception during mob health persistence initialization: [health_e]")

@@ -868,6 +868,53 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			if(holstered_data)
 				data["holstered"] = holstered_data
 
+	// Power cells carry their exact charge (Initialize refills them to max,
+	// so the restore must overwrite afterwards)
+	if(istype(I, /obj/item/cell))
+		var/obj/item/cell/PC = I
+		data["cell_charge"] = PC.charge
+	else
+		// Devices holding a cell (flashlights, batons, energy guns...) --
+		// uniform via get_cell()
+		var/obj/item/cell/HC = I.get_cell()
+		if(istype(HC) && HC != I)
+			data["device_cell_charge"] = HC.charge
+
+	// Ballistic guns: internal rounds, chambered state, fitted magazine
+	if(istype(I, /obj/item/gun/projectile))
+		var/obj/item/gun/projectile/G = I
+		var/live_loaded = 0
+		for(var/obj/item/ammo_casing/CS in G.loaded)
+			if(CS.BB)
+				live_loaded++
+		data["gun_loaded"] = live_loaded
+		data["gun_chambered"] = (G.chambered && G.chambered.BB) ? 1 : 0
+		if(G.ammo_magazine)
+			var/mag_live = 0
+			for(var/obj/item/ammo_casing/MC in G.ammo_magazine.stored_ammo)
+				if(MC.BB)
+					mag_live++
+			data["gun_mag"] = list("type" = "[G.ammo_magazine.type]", "live" = mag_live)
+	// Standalone magazines: live round count (refilled with the mag's own
+	// ammo_type -- mixed handloads are out of scope)
+	else if(istype(I, /obj/item/ammo_magazine))
+		var/obj/item/ammo_magazine/M = I
+		var/live = 0
+		for(var/obj/item/ammo_casing/MC in M.stored_ammo)
+			if(MC.BB)
+				live++
+		data["mag_live"] = live
+	// Loose casings: spent or live
+	else if(istype(I, /obj/item/ammo_casing))
+		var/obj/item/ammo_casing/AC = I
+		if(!AC.BB)
+			data["casing_spent"] = 1
+
+	// RFD matter units
+	if(istype(I, /obj/item/rfd))
+		var/obj/item/rfd/R = I
+		data["rfd_matter"] = R.stored_matter
+
 	// Reagent contents (beakers, bottles, syringes, spray bottles, extinguishers, etc.)
 	if(I.reagents && I.reagents.total_volume > 0 && length(I.reagents.reagent_volumes))
 		var/list/reagents = list()
@@ -971,6 +1018,20 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 
 	log_subsystem_persistence_info("MobInventory: Restored inventory for [real_name] ([ckey]).")
 
+/// Trim or refill a magazine's stored rounds to exactly the given live
+/// count, using the magazine's own ammo_type (Initialize preloads it full).
+/proc/_persistence_set_magazine_rounds(obj/item/ammo_magazine/M, want)
+	if(!istype(M))
+		return
+	want = clamp(want, 0, M.max_ammo)
+	while(length(M.stored_ammo) > want)
+		var/obj/item/ammo_casing/extra = M.stored_ammo[length(M.stored_ammo)]
+		M.stored_ammo -= extra
+		qdel(extra)
+	while(length(M.stored_ammo) < want && M.ammo_type)
+		M.stored_ammo += new M.ammo_type(M)
+	M.update_icon()
+
 /**
  * Recursively deserialize an item from a typepath + contents tree.
  * Creates the item in the holder's loc; fills storage contents recursively.
@@ -1011,6 +1072,13 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	// proc so overlays/verbs/slowdown wire up like an attackby attach.
 	if(data["accessories"] && istype(I, /obj/item/clothing))
 		var/obj/item/clothing/C = I
+		// Saved state is authoritative: strip the factory-default accessories
+		// spawned at Initialize first, or every save/load cycle stacks another
+		// copy of each default on top (plate carriers etc).
+		if(LAZYLEN(C.accessories))
+			for(var/obj/item/clothing/accessory/default_acc in C.accessories.Copy())
+				C.remove_accessory(null, default_acc)
+				qdel(default_acc)
 		for(var/list/acc_data in data["accessories"])
 			var/obj/item/clothing/accessory/A = deserializePersistentItem(acc_data, C)
 			if(istype(A))
@@ -1028,6 +1096,61 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 				holstered_item.forceMove(HO)
 				HO.holstered = holstered_item
 				HO.update_name()
+
+	// Power cell charge (Initialize refilled it to max)
+	if(!isnull(data["cell_charge"]) && istype(I, /obj/item/cell))
+		var/obj/item/cell/PC = I
+		PC.charge = clamp(text2num("[data["cell_charge"]]"), 0, PC.maxcharge)
+	else if(!isnull(data["device_cell_charge"]))
+		var/obj/item/cell/HC = I.get_cell()
+		if(istype(HC))
+			HC.charge = clamp(text2num("[data["device_cell_charge"]]"), 0, HC.maxcharge)
+
+	// Ballistic gun state -- clear the Initialize preload, rebuild to the
+	// saved counts using the gun/magazine's own casing types
+	if(istype(I, /obj/item/gun/projectile) && (!isnull(data["gun_loaded"]) || !isnull(data["gun_chambered"]) || data["gun_mag"]))
+		var/obj/item/gun/projectile/G = I
+		for(var/obj/item/ammo_casing/OC in G.loaded)
+			G.loaded -= OC
+			qdel(OC)
+		if(G.chambered)
+			qdel(G.chambered)
+			G.chambered = null
+		if(G.ammo_magazine)
+			qdel(G.ammo_magazine)
+			G.ammo_magazine = null
+		var/load_n = text2num("[data["gun_loaded"]]") || 0
+		if(G.ammo_type)
+			for(var/j = 1 to min(load_n, G.max_shells))
+				G.loaded += new G.ammo_type(G)
+		if(islist(data["gun_mag"]))
+			var/list/mag_data = data["gun_mag"]
+			var/mag_path = text2path(mag_data["type"])
+			if(mag_path && ispath(mag_path, /obj/item/ammo_magazine))
+				var/obj/item/ammo_magazine/GM = new mag_path(G)
+				_persistence_set_magazine_rounds(GM, text2num("[mag_data["live"]]") || 0)
+				G.ammo_magazine = GM
+		if(text2num("[data["gun_chambered"]]"))
+			var/chamber_type = G.ammo_type || G.ammo_magazine?.ammo_type
+			if(chamber_type)
+				G.chambered = new chamber_type(G)
+		G.update_icon()
+
+	// Standalone magazine round count
+	if(!isnull(data["mag_live"]) && istype(I, /obj/item/ammo_magazine))
+		var/obj/item/ammo_magazine/M = I
+		_persistence_set_magazine_rounds(M, text2num("[data["mag_live"]]") || 0)
+
+	// Spent casing
+	if(data["casing_spent"] && istype(I, /obj/item/ammo_casing))
+		var/obj/item/ammo_casing/AC = I
+		if(AC.BB)
+			AC.expend()
+
+	// RFD matter (starts full; initial() is the documented maximum)
+	if(!isnull(data["rfd_matter"]) && istype(I, /obj/item/rfd))
+		var/obj/item/rfd/R = I
+		R.stored_matter = clamp(text2num("[data["rfd_matter"]]"), 0, initial(R.stored_matter))
 
 	// Reagents
 	if(data["reagents"] && I.reagents)
