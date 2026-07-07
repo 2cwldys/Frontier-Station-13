@@ -1,0 +1,16 @@
+CREATE TABLE IF NOT EXISTS `ss13_persistent_bots` (
+  `id`         INT(11) NOT NULL AUTO_INCREMENT,
+  `map_path`   VARCHAR(64) NOT NULL,
+  `type`       VARCHAR(128) NOT NULL,
+  `x`          SMALLINT UNSIGNED NOT NULL,
+  `y`          SMALLINT UNSIGNED NOT NULL,
+  `z`          SMALLINT UNSIGNED NOT NULL,
+  `dir`        TINYINT UNSIGNED NOT NULL DEFAULT 2,
+  `name`       VARCHAR(64) DEFAULT NULL,
+  `is_on`      TINYINT(1) NOT NULL DEFAULT 1,
+  `locked`     TINYINT(1) NOT NULL DEFAULT 1,
+  `emagged`    TINYINT(1) NOT NULL DEFAULT 0,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  INDEX `idx_bots_map` (`map_path`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

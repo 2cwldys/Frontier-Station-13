@@ -833,6 +833,41 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		if(length(contents))
 			data["contents"] = contents
 
+	// Internal storage -- suits-with-pockets, webbing/storage accessories,
+	// helmets: an /obj/item/storage/internal living in the item's contents
+	// rather than the item being a storage itself.
+	var/obj/item/storage/internal/IS = locate() in I
+	if(IS && length(IS.contents))
+		var/list/internal_contents = list()
+		for(var/obj/item/child in IS.contents)
+			var/list/child_data = serializePersistentItem(child)
+			if(child_data)
+				internal_contents += list(child_data)
+		if(length(internal_contents))
+			data["internal_storage"] = internal_contents
+
+	// Clothing accessories (uniforms AND suits): holsters, webbing, armbands...
+	// Each accessory serializes recursively, so its own internal storage /
+	// holstered item comes along.
+	if(istype(I, /obj/item/clothing))
+		var/obj/item/clothing/C = I
+		if(LAZYLEN(C.accessories))
+			var/list/acc_out = list()
+			for(var/obj/item/clothing/accessory/A in C.accessories)
+				var/list/acc_data = serializePersistentItem(A)
+				if(acc_data)
+					acc_out += list(acc_data)
+			if(length(acc_out))
+				data["accessories"] = acc_out
+
+	// Holstered weapon inside a holster accessory
+	if(istype(I, /obj/item/clothing/accessory/holster))
+		var/obj/item/clothing/accessory/holster/HO = I
+		if(HO.holstered)
+			var/list/holstered_data = serializePersistentItem(HO.holstered)
+			if(holstered_data)
+				data["holstered"] = holstered_data
+
 	// Reagent contents (beakers, bottles, syringes, spray bottles, extinguishers, etc.)
 	if(I.reagents && I.reagents.total_volume > 0 && length(I.reagents.reagent_volumes))
 		var/list/reagents = list()
@@ -962,6 +997,37 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			var/obj/item/child = deserializePersistentItem(child_data, I)
 			if(child)
 				S.handle_item_insertion(child, TRUE)
+
+	// Internal storage (suit pockets, webbing holds, helmet holds)
+	if(data["internal_storage"])
+		var/obj/item/storage/internal/IS = locate() in I
+		if(IS)
+			for(var/list/child_data in data["internal_storage"])
+				var/obj/item/child = deserializePersistentItem(child_data, IS)
+				if(child)
+					IS.handle_item_insertion(child, TRUE)
+
+	// Clothing accessories -- rebuild and attach through the real attach
+	// proc so overlays/verbs/slowdown wire up like an attackby attach.
+	if(data["accessories"] && istype(I, /obj/item/clothing))
+		var/obj/item/clothing/C = I
+		for(var/list/acc_data in data["accessories"])
+			var/obj/item/clothing/accessory/A = deserializePersistentItem(acc_data, C)
+			if(istype(A))
+				C.attach_accessory(null, A)
+			else if(A)
+				// Saved entry wasn't an accessory type -- don't leave it in limbo
+				qdel(A)
+
+	// Holstered weapon
+	if(data["holstered"] && istype(I, /obj/item/clothing/accessory/holster))
+		var/obj/item/clothing/accessory/holster/HO = I
+		if(!HO.holstered)
+			var/obj/item/holstered_item = deserializePersistentItem(data["holstered"], HO)
+			if(holstered_item)
+				holstered_item.forceMove(HO)
+				HO.holstered = holstered_item
+				HO.update_name()
 
 	// Reagents
 	if(data["reagents"] && I.reagents)

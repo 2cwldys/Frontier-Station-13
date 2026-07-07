@@ -226,6 +226,7 @@ SUBSYSTEM_DEF(persistence)
 	SSpersistence.objectsFinalize()
 	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("8/8")] Saving floor items..."))
 	SSpersistence.floorItemsFinalize()
+	SSpersistence.botsFinalize()
 
 	SSpersistence.save_in_progress = FALSE
 	log_and_message_admins("forced a mid-round persistence save", usr)
@@ -254,6 +255,7 @@ SUBSYSTEM_DEF(persistence)
 	atmosFinalize()
 	objectsFinalize()
 	floorItemsFinalize()
+	botsFinalize()
 
 /**
  * Initialization of the persistence subsystem.
@@ -279,6 +281,12 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_info("Z-Level skip list loaded: [GLOB.persistence_zlevel_skip.Join(", ")]")
 
 	try
+		// Loaded first so the join gate is armed before anyone can hit Play.
+		whitelistInitialize()
+	catch(var/exception/wl_e)
+		log_subsystem_persistence_panic("Unhandled exception during join whitelist initialization: [wl_e]")
+
+	try
 		objectsInitialize()
 	catch(var/exception/objs_e)
 		log_subsystem_persistence_panic("Unhandled exception during persistent objects initialization: [objs_e]")
@@ -290,6 +298,11 @@ SUBSYSTEM_DEF(persistence)
 		floorItemsInitialize()
 	catch(var/exception/floor_e)
 		log_subsystem_persistence_panic("Unhandled exception during floor item persistence initialization: [floor_e]")
+
+	try
+		botsInitialize()
+	catch(var/exception/bots_e)
+		log_subsystem_persistence_panic("Unhandled exception during bot persistence initialization: [bots_e]")
 
 	try
 		removedStructuresInitialize()
@@ -431,11 +444,16 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/pos_e)
 		log_subsystem_persistence_panic("Unhandled exception during mob position persistence finalization: [pos_e]")
 
-	//  PRIORITY 2: World items  floor items first (fast), then persistent objects (can be slow) 
+	//  PRIORITY 2: World items  floor items first (fast), then persistent objects (can be slow)
 	try
 		floorItemsFinalize()
 	catch(var/exception/floor_e)
 		log_subsystem_persistence_panic("Unhandled exception during floor item persistence finalization: [floor_e]")
+
+	try
+		botsFinalize()
+	catch(var/exception/bots_e)
+		log_subsystem_persistence_panic("Unhandled exception during bot persistence finalization: [bots_e]")
 
 	try
 		objectsFinalize()

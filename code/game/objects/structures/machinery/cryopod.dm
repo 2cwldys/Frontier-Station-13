@@ -319,10 +319,11 @@
 
 	return TRUE
 
-/// Store a disconnected occupant as if they had used Store Character:
-/// eject to the exit turf (real coords for the position row), full DB
-/// store recording this pod as theirs, mob to the offline hold, key
-/// cleared so reconnects go through the character menu.
+/// Store an occupant as if they had used Store Character: eject to the
+/// exit turf (real coords for the position row), full DB store recording
+/// this pod as theirs, mob to the offline hold. A disconnected occupant
+/// gets their key cleared; a connected one (AFK force-cryo) is returned
+/// to the lobby exactly like the Store Character verb.
 /obj/structure/machinery/cryopod/proc/persistence_force_store(mob/living/carbon/human/forced_mob = null)
 	var/mob/living/carbon/human/H = forced_mob || occupant
 	if(!istype(H) || !H.ckey || H.stat == DEAD || !GLOB.config.sql_enabled)
@@ -332,8 +333,16 @@
 	H.forceMove(get_step(src, dir) || get_turf(src))
 	update_icon()
 	if(SSpersistence.persistStoreCharacter(H, src))
-		H.key = null
-		log_subsystem_persistence_info("Cryo: [H.real_name] force-stored (logged off inside a cryopod).")
+		if(H.client)
+			// Mirror store_character()'s lobby return (persistence_cryo.dm)
+			var/stored_key = H.key
+			H.client.stop_ambient_playlist()
+			var/mob/abstract/new_player/NP = new /mob/abstract/new_player()
+			NP.key = stored_key
+			to_chat(NP, SPAN_NOTICE("You were stored in cryogenic storage. Click Play to return."))
+		else
+			H.key = null
+		log_subsystem_persistence_info("Cryo: [H.real_name] force-stored from a cryopod.")
 		return TRUE
 	return FALSE
 
@@ -356,10 +365,21 @@
 			// Persistence players are handled by their own timer — skip base strip/ghost
 			if(ishuman(occupant) && occupant:persistence_in_cryo)
 				return
+			// A persistence character must never be gear-stripped: their DB
+			// inventory row would restore the gear on next Play while the
+			// originals sit in the console = duplication. Store instead;
+			// if the store fails (DB down) just retry next tick.
+			if(ishuman(occupant) && occupant.ckey && GLOB.config.sql_enabled)
+				persistence_force_store()
+				return
 			despawn_occupant()
 
 		else if(world.time - time_entered > time_till_force_cryo)
 			if(ishuman(occupant) && occupant:persistence_in_cryo)
+				return
+			// Same protection for the AFK-with-client force-cryo path.
+			if(ishuman(occupant) && occupant.ckey && GLOB.config.sql_enabled)
+				persistence_force_store()
 				return
 			despawn_occupant()
 

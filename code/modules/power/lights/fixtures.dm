@@ -125,15 +125,19 @@
 		cell = new /obj/item/cell/device/emergency_light(src)
 
 	if (!must_start_working && mapload && loc && isNotAdminLevel(z))
+		// Random per-boot "flavor" breakage is round-server flavor: on a
+		// persistent world every restart would add freshly broken tubes on
+		// top of the saved state. Deliberate /maybe_broken fixtures keep
+		// their roll.
 		switch(fitting)
 			if("tube")
-				if(prob(2) || (maybe_broken && prob(50)))
+				if((!GLOB.config.sql_enabled && prob(2)) || (maybe_broken && prob(50)))
 					broken(1)
 			if("bulb")
-				if(prob(5) || (maybe_broken && prob(50)))
+				if((!GLOB.config.sql_enabled && prob(5)) || (maybe_broken && prob(50)))
 					broken(1)
 			if("large tube")
-				if(prob(1) || (maybe_broken && prob(50)))
+				if((!GLOB.config.sql_enabled && prob(1)) || (maybe_broken && prob(50)))
 					broken(1)
 
 	// If we're randomizing the color of this fixture, we check if the area has a special palette.
@@ -241,7 +245,7 @@
 				message_admins("LOG: Rigged light explosion, last touched by [fingerprintslast]")
 				explode()
 
-		else if(prob(min(60,(switchcount**2) * 0.05))) // LEMURIAN SEA, REDUCE 0.05 -> 0.01 AFTER ARC
+		else if(prob(min(30,(switchcount**2) * 0.01)))
 			if(status == LIGHT_OK && trigger)
 				status = LIGHT_BURNED
 				stat |= BROKEN

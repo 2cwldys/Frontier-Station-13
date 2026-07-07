@@ -14,6 +14,7 @@ type PersistentMenuData = {
   persistence_ready: BooleanLike;
   enter_allowed: BooleanLike;
   save_in_progress: BooleanLike;
+  whitelisted: BooleanLike;
 };
 
 export const PersistentMenu = (props) => {
@@ -24,6 +25,7 @@ export const PersistentMenu = (props) => {
     persistence_ready,
     enter_allowed,
     save_in_progress,
+    whitelisted,
   } = data;
 
   const emptySlots = Math.max(0, slot_limit - characters.length);
@@ -42,14 +44,19 @@ export const PersistentMenu = (props) => {
                     icon="play"
                     color="green"
                     disabled={
-                      !persistence_ready || !enter_allowed || !!save_in_progress
+                      !persistence_ready ||
+                      !enter_allowed ||
+                      !!save_in_progress ||
+                      !whitelisted
                     }
                     tooltip={
                       save_in_progress
                         ? 'Cannot join server while a save is in progress.'
-                        : !enter_allowed
-                          ? 'Joining is currently disabled by an administrator.'
-                          : 'Enter the world as this character'
+                        : !whitelisted
+                          ? 'You are not whitelisted to join this server.'
+                          : !enter_allowed
+                            ? 'Joining is currently disabled by an administrator.'
+                            : 'Enter the world as this character'
                     }
                     onClick={() => act('play', { name: char.name })}
                   >

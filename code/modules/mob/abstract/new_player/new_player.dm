@@ -451,6 +451,10 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		to_chat(src, SPAN_NOTICE("Joining is currently disabled by an administrator."))
 		return
 
+	if(!persistence_is_whitelisted(ckey) && !check_rights(R_ADMIN, 0))
+		to_chat(src, SPAN_WARNING("You are not whitelisted to join this server. Contact an administrator."))
+		return
+
 	if(SSticker.current_state != GAME_STATE_PLAYING)
 		to_chat(src, SPAN_WARNING("The round is not ready yet."))
 		return

@@ -49,6 +49,8 @@
 	data["can_create"]        = length(chars_out) < slot_limit
 	data["persistence_ready"] = GLOB.persistence_ready
 	data["save_in_progress"]  = SSpersistence.save_in_progress ? TRUE : FALSE
+	// Whitelist gate mirrors enter_allowed: applies to non-admins only
+	data["whitelisted"]       = (check_rights(R_ADMIN, 0, user) || persistence_is_whitelisted(ckey)) ? TRUE : FALSE
 	// Admins can still Play while joining is locked -- matches PersistentAutoSpawn()'s
 	// own admin bypass. NOTE: with AUTO_LOCAL_ADMIN in the config, any connection
 	// from the host machine is silently full-admin, so the button will NOT grey
@@ -81,6 +83,9 @@
 				return TRUE
 			if(!GLOB.config.enter_allowed && !check_rights(R_ADMIN, 0, NP))
 				to_chat(NP, SPAN_NOTICE("Joining is currently disabled by an administrator."))
+				return TRUE
+			if(!persistence_is_whitelisted(NP.ckey) && !check_rights(R_ADMIN, 0, NP))
+				to_chat(NP, SPAN_WARNING("You are not whitelisted to join this server. Contact an administrator."))
 				return TRUE
 			if(SSticker.current_state != GAME_STATE_PLAYING)
 				to_chat(NP, SPAN_WARNING("The round is not ready yet."))
