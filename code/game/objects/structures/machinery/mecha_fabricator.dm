@@ -34,6 +34,7 @@
 
 	var/list/materials = list(DEFAULT_WALL_MATERIAL = 0, MATERIAL_GLASS = 0, MATERIAL_GOLD = 0, MATERIAL_SILVER = 0, MATERIAL_DIAMOND = 0, MATERIAL_PHORON = 0, MATERIAL_URANIUM = 0, MATERIAL_PLASTEEL = 0, MATERIAL_ALUMINIUM = 0, MATERIAL_LEAD = 0)
 	var/res_max_amount = 200000
+	worldstate_vars = list("materials")
 
 	var/datum/research/files
 

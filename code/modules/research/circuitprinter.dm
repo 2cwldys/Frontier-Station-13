@@ -22,6 +22,7 @@ using metal and glass, it uses glass and reagents (usually sulphuric acid).
 
 	var/max_material_storage = 75000
 	var/list/materials = list(DEFAULT_WALL_MATERIAL = 0, MATERIAL_GLASS = 0, MATERIAL_GOLD = 0, MATERIAL_SILVER = 0, MATERIAL_PHORON = 0, MATERIAL_URANIUM = 0, MATERIAL_DIAMOND = 0)
+	worldstate_vars = list("materials")
 
 	/**
 	 * A `/list` of enqueued `/datum/design` to be printed, processed in the queue
