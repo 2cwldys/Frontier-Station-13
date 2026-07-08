@@ -84,6 +84,13 @@
 	/// If its a plain grey closet or crate, you can use the paint sprayer on it ONCE to change its appearance.
 	var/can_label = FALSE
 
+	/// The turf this closet was mapload-spawned at, if any. Set once in
+	/// Initialize(); used by Moved() to detect a map-placed closet being
+	/// relocated (unwrenched + dragged) so it can be promoted from worldstate
+	/// (position-keyed, assumes fixed machinery) to dynamic persistence
+	/// tracking (recreates the object at wherever it ends up).
+	var/turf/persistence_mapload_origin
+
 /obj/structure/closet/mechanics_hints(mob/user, distance, is_adjacent)
 	. += ..()
 	. += "When closed, a <b>welder</b> could be used to weld the closet shut."
@@ -124,6 +131,9 @@
 /obj/structure/closet/Initialize(mapload, var/no_fill)
 	. = ..()
 
+	if(mapload)
+		persistence_mapload_origin = get_turf(src)
+
 	update_icon()
 	if(!no_fill)
 		fill()
@@ -158,6 +168,30 @@
 	QDEL_NULL(door_obj_alt)
 
 	. = ..()
+
+/**
+ * A map-placed closet that has been relocated (unwrenched and dragged) away
+ * from its original spawn tile is promoted, once, into the dynamic
+ * persistence-tracking system -- the only system that can actually recreate
+ * an object at a NEW saved position. Without this, the closet keeps being
+ * governed by worldstate (position-keyed, assumes fixed machinery): the map
+ * always respawns a fresh copy at the original tile every boot, and the
+ * moved instance's saved contents are never consumed by anything, making it
+ * look like the closet "moved back" to its original spot.
+ */
+/obj/structure/closet/Moved(atom/old_loc, movement_dir, forced, list/old_locs)
+	. = ..()
+	if(!persistence_mapload_origin || persistent_objects_track_active)
+		return
+	if(get_turf(src) == persistence_mapload_origin)
+		return
+	if(!GLOB.config.sql_enabled)
+		return
+	// Stop the map-authored duplicate from respawning at the original tile
+	// every boot -- the real closet now lives wherever it ends up.
+	SSpersistence.saveStructureRemovalAt(type, persistence_mapload_origin)
+	SSpersistence.objectsRegisterTrack(src)
+	persistence_mapload_origin = null
 
 /obj/structure/closet/on_death(damage, damage_flags, damage_type, armor_penetration, obj/weapon)
 	dump_contents()

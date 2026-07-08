@@ -27,7 +27,7 @@
 	var/list/data = initial_data()
 
 	// Faction balance -- show when computer is linked to a faction
-	var/co_net = computer ? computer.persistent_network : null
+	var/co_net = computer ? normalize_faction_uid(computer.persistent_network) : null
 	data["faction_network"] = co_net
 	data["faction_name"]    = co_net ? get_faction_name(co_net) : null
 	data["faction_balance"] = co_net ? get_faction_account_balance(co_net) : null

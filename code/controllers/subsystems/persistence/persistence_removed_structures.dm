@@ -1,13 +1,24 @@
 /datum/controller/subsystem/persistence/proc/saveStructureRemoval(obj/structure/S)
-	if(!databaseCheckConnection("saveStructureRemoval"))
-		return
 	var/turf/T = get_turf(S)
+	if(!T)
+		return
+	saveStructureRemovalAt(S.type, T)
+
+/**
+ * Tombstones a (type, turf) pair directly, for callers where the structure
+ * itself is no longer AT the position being tombstoned (e.g. a relocated
+ * map-placed object promoted to dynamic tracking -- the original map slot
+ * must still stop respawning it, even though `S` has since moved away).
+ */
+/datum/controller/subsystem/persistence/proc/saveStructureRemovalAt(type, turf/T)
+	if(!databaseCheckConnection("saveStructureRemovalAt"))
+		return
 	if(!T || !T.z || persistence_z_manual_blocked(T.z))
 		return
 	var/datum/db_query/q = SSdbcore.NewQuery(
 		{"INSERT IGNORE INTO ss13_removed_structures (map_path, type, x, y, z)
 		VALUES (:mp, :type, :x, :y, :z)"},
-		list("mp" = "[SSatlas.current_map.path]", "type" = "[S.type]", "x" = T.x, "y" = T.y, "z" = T.z)
+		list("mp" = "[SSatlas.current_map.path]", "type" = "[type]", "x" = T.x, "y" = T.y, "z" = T.z)
 	)
 	q.Execute()
 	qdel(q)

@@ -66,23 +66,24 @@
 /datum/computer_file/program/card_mod/ui_static_data(mob/user)
 	var/list/data = list()
 	// Faction jobs — populated when this console is networked to a faction
-	if(computer && computer.persistent_network)
+	var/net = computer ? normalize_faction_uid(computer.persistent_network) : ""
+	if(net)
 		var/list/faction_jobs_formatted = list()
-		for(var/list/j in get_faction_jobs(computer.persistent_network))
+		for(var/list/j in get_faction_jobs(net))
 			faction_jobs_formatted += list(list(
 				"job"      = j["title"],
 				"rank"     = j["rank"] || 0,
 				"pay_rate" = j["pay_rate"] || 0
 			))
 		data["faction_jobs"]    = faction_jobs_formatted
-		data["faction_network"] = computer.persistent_network
-		data["faction_name"]    = get_faction_name(computer.persistent_network)
+		data["faction_network"] = net
+		data["faction_name"]    = get_faction_name(net)
 		// Show dispense button when the user has no member record for this faction yet
 		var/mob/ui_user = usr
-		var/already_member = (ui_user && ui_user.ckey) ? !!get_faction_member(ui_user.ckey, computer.persistent_network) : FALSE
+		var/already_member = (ui_user && ui_user.ckey) ? !!get_faction_member(ui_user.ckey, net) : FALSE
 		data["can_dispense_faction_id"] = !already_member
 		// Officer field: rank >= 1 in this faction, or admin -- gates job assignment UI
-		var/list/op_fmember = (ui_user && ui_user.ckey) ? get_faction_member(ui_user.ckey, computer.persistent_network) : null
+		var/list/op_fmember = (ui_user && ui_user.ckey) ? get_faction_member(ui_user.ckey, net) : null
 		data["faction_officer"] = (op_fmember && (op_fmember["rank"] || 0) >= 1) || check_rights(R_ADMIN, 0, ui_user)
 	else
 		data["faction_jobs"]    = list()
@@ -211,8 +212,9 @@
 
 				// Consoles tied to a faction network stamp their faction on assignment,
 				// matching faction_assign -- otherwise the spawn default (e.g. NanoTrasen) sticks
-				if(computer.persistent_network)
-					id_card.employer_faction = computer.persistent_network
+				var/assign_id_net = computer ? normalize_faction_uid(computer.persistent_network) : ""
+				if(assign_id_net)
+					id_card.employer_faction = assign_id_net
 
 				SSrecords.reset_manifest()
 				callHook("reassign_employee", list(id_card))
@@ -252,8 +254,9 @@
 			new_card.registered_name = user.real_name
 			new_card.assignment = R.rank || "Civilian"
 			new_card.rank = R.rank || "Civilian"
-			if(computer && computer.persistent_network)
-				new_card.employer_faction = computer.persistent_network
+			var/repl_net = computer ? normalize_faction_uid(computer.persistent_network) : ""
+			if(repl_net)
+				new_card.employer_faction = repl_net
 			new_card.update_name()
 
 			// Re-apply access for the job
@@ -336,7 +339,7 @@
 			if(!user.real_name || !user.ckey)
 				to_chat(usr, SPAN_WARNING("You must be a living character to receive an ID."))
 				return
-			var/disp_net = computer.persistent_network
+			var/disp_net = normalize_faction_uid(computer.persistent_network)
 			var/faction_name = get_faction_name(disp_net)
 			// If already a member, reprint instead
 			var/already_member = !!get_faction_member(user.ckey, disp_net)
@@ -427,7 +430,7 @@
 		if("faction_assign")
 			if(!computer || !can_run(user, 1, ACCESS_CHANGE_IDS) || !id_card || !computer.persistent_network)
 				return
-			var/assign_net = computer.persistent_network
+			var/assign_net = normalize_faction_uid(computer.persistent_network)
 			var/job_title = params["faction_job"]
 			var/list/faction_jobs = get_faction_jobs(assign_net)
 			var/list/job_data = null
@@ -503,8 +506,9 @@
 	new_card.registered_name = user.real_name
 	new_card.assignment = R.rank || "Civilian"
 	new_card.rank = R.rank || "Civilian"
-	if(computer && computer.persistent_network)
-		new_card.employer_faction = computer.persistent_network
+	var/verb_repl_net = computer ? normalize_faction_uid(computer.persistent_network) : ""
+	if(verb_repl_net)
+		new_card.employer_faction = verb_repl_net
 	new_card.update_name()
 
 	var/datum/job/jobdatum

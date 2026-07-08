@@ -189,7 +189,7 @@
 
 		// Export items at the faction telepad → credit faction account
 		if("export_faction")
-			var/exp_net = computer.persistent_network
+			var/exp_net = console_net
 			if(!exp_net)
 				status_message = "This console is not linked to a faction network."
 				return TRUE
