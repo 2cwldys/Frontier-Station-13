@@ -221,15 +221,16 @@ GLOBAL_LIST_EMPTY(used_invoice_ids)
 	if(payee_type == INVOICE_PAYEE_FACTION && payee_faction_uid == FC.faction_uid)
 		to_chat(user, SPAN_WARNING("This invoice is payable to the same faction that owns \the [FC]."))
 		return
+	// Stored-value card: funds already left the faction account at print
+	// time -- spend draws down FC.worth locally, same as a normal ewallet.
+	if(FC.worth < amount)
+		to_chat(user, SPAN_WARNING("\The [FC] has insufficient stored funds."))
+		return
 	var/payer_desc = "[get_faction_name(FC.faction_uid)] (faction)"
-	if(!faction_debit(FC.faction_uid, amount, "Invoice #[invoice_id] to [payee_name]: [purpose]"))
-		to_chat(user, SPAN_WARNING("The faction account has insufficient funds."))
-		return
 	if(!credit_payee(payer_desc))
-		// Refund the faction -- payee vanished between checks
-		faction_credit(FC.faction_uid, amount, "Invoice #[invoice_id] refund")
-		to_chat(user, SPAN_WARNING("Payment failed: payee not found. Funds returned."))
+		to_chat(user, SPAN_WARNING("Payment failed: payee not found."))
 		return
+	FC.worth -= amount
 	finalize_payment(user, payer_desc)
 
 #undef INVOICE_PAYEE_PERSONAL

@@ -19,7 +19,7 @@
 		return
 
 	var/datum/db_query/query = SSdbcore.NewQuery(
-		"SELECT type, x, y, z, dir, name, is_on, locked, emagged FROM ss13_persistent_bots WHERE map_path = :map_path",
+		"SELECT type, x, y, z, dir, name, is_on, locked, emagged, extra FROM ss13_persistent_bots WHERE map_path = :map_path",
 		list("map_path" = "[SSatlas.current_map.path]")
 	)
 	query.Execute()
@@ -38,7 +38,8 @@
 			"name"    = query.item[6],
 			"is_on"   = text2num(query.item[7]),
 			"locked"  = text2num(query.item[8]),
-			"emagged" = text2num(query.item[9])
+			"emagged" = text2num(query.item[9]),
+			"extra"   = query.item[10]
 		))
 	qdel(query)
 
@@ -73,6 +74,19 @@
 			B.name = data["name"]
 		B.locked  = data["locked"] ? TRUE : FALSE
 		B.emagged = data["emagged"] || 0
+		// Restore per-bot appearance quirks (e.g. medbot's randomly-rolled
+		// first-aid kit) so the sprite stays consistent across saves.
+		if(data["extra"] && istype(B, /mob/living/bot/medbot))
+			var/list/extra = json_decode(data["extra"])
+			if(islist(extra) && extra["firstaid"])
+				var/kit_path = text2path(extra["firstaid"])
+				if(kit_path && ispath(kit_path, /obj/item/storage/firstaid))
+					var/mob/living/bot/medbot/MB = B
+					if(MB.firstaid_item)
+						qdel(MB.firstaid_item)
+					MB.firstaid_item = new kit_path(MB)
+					MB.underlays.Cut()
+					MB.update_icon()
 		if(data["is_on"])
 			B.turn_on()
 		else
@@ -106,7 +120,13 @@
 		if(!isturf(B.loc) || !B.z || persistence_z_excluded(B.z))
 			continue
 		var/name_escaped = replacetext("[B.name]", "'", "''")
-		value_rows += "('[map_path_escaped]', '[B.type]', [B.x], [B.y], [B.z], [B.dir], '[name_escaped]', [B.on ? 1 : 0], [B.locked ? 1 : 0], [B.emagged || 0])"
+		var/extra_sql = "NULL"
+		if(istype(B, /mob/living/bot/medbot))
+			var/mob/living/bot/medbot/MB = B
+			if(MB.firstaid_item)
+				var/extra_json = replacetext(json_encode(list("firstaid" = "[MB.firstaid_item.type]")), "'", "''")
+				extra_sql = "'[extra_json]'"
+		value_rows += "('[map_path_escaped]', '[B.type]', [B.x], [B.y], [B.z], [B.dir], '[name_escaped]', [B.on ? 1 : 0], [B.locked ? 1 : 0], [B.emagged || 0], [extra_sql])"
 
 	var/saved = length(value_rows)
 	if(saved)
@@ -115,7 +135,7 @@
 			var/end = min(i + chunk_size - 1, saved)
 			var/list/chunk = value_rows.Copy(i, end + 1)
 			var/datum/db_query/bulk = SSdbcore.NewQuery(
-				"INSERT INTO ss13_persistent_bots (map_path, type, x, y, z, dir, name, is_on, locked, emagged) VALUES [chunk.Join(",")]"
+				"INSERT INTO ss13_persistent_bots (map_path, type, x, y, z, dir, name, is_on, locked, emagged, extra) VALUES [chunk.Join(",")]"
 			)
 			bulk.Execute()
 			databaseCheckQueryResult(bulk, "botsFinalize bulk insert")

@@ -318,13 +318,15 @@
 /obj/item/spacecash/ewallet/c10000
 	worth = 10000
 
-// Faction charge card -- NOT stored-value: spending it debits the owning
-// faction's live bank balance. Printed from the Faction Management terminal.
+// Faction charge card -- STORED-VALUE: a fixed amount is withdrawn from the
+// owning faction's bank account at print time and loaded onto the card
+// (worth). Spending it draws down that stored balance only -- it never
+// touches the faction account again. Printed from the Faction Management
+// terminal.
 /obj/item/spacecash/ewallet/faction_charge_card
 	name = "faction charge card"
-	desc = "A corporate charge card that draws directly on a faction's bank account."
+	desc = "A corporate charge card loaded with funds withdrawn from a faction's bank account."
 	icon_state = "efundcard_special"
-	worth = 0 // unused; funds come from the faction account
 	persistant_objects_expiration_time_days = 360
 	var/faction_uid = ""
 	/// The faction's charge-card epoch at the moment this card was printed --
@@ -338,10 +340,10 @@
 	SSpersistence.objectsRegisterTrack(src)
 
 /obj/item/spacecash/ewallet/faction_charge_card/get_examine_text(mob/user, distance, is_adjacent, infix, suffix)
-	. = ..()
+	. = ..() // parent already prints "It has [worth]₵ left."
 	if(distance <= 2 && faction_uid)
 		if(is_faction_charge_card_valid(src))
-			. += SPAN_NOTICE("It draws on the account of [get_faction_name(faction_uid)]. Current balance: [get_faction_account_balance(faction_uid) || 0] credits.")
+			. += SPAN_NOTICE("Issued by [get_faction_name(faction_uid)].")
 		else
 			. += SPAN_WARNING("This card has been VOIDED and can no longer be used.")
 
@@ -351,6 +353,7 @@
 	content["faction_uid"] = faction_uid
 	content["owner_name"] = owner_name
 	content["issued_epoch"] = issued_epoch
+	content["worth"] = worth
 	return content
 
 /obj/item/spacecash/ewallet/faction_charge_card/persistent_objects_apply_content(content, x, y, z)
@@ -361,6 +364,7 @@
 	if(!isnull(content["faction_uid"]))  faction_uid = normalize_faction_uid(content["faction_uid"])
 	if(!isnull(content["owner_name"]))   owner_name = content["owner_name"]
 	if(!isnull(content["issued_epoch"])) issued_epoch = content["issued_epoch"]
+	if(!isnull(content["worth"]))        worth = content["worth"]
 
 // Deregister while held/stored -- otherwise objectsFinalize() saves it as a
 // world floor object at the holder's last position (get_turf() resolves

@@ -487,16 +487,27 @@
 		// ---- Print Faction Charge Card --------------------------------------
 		if("print_charge_card")
 			if(op_rank < 2) return
-			var/confirm = tgui_alert(user, "Print a charge card that draws directly on [get_faction_name(net)]'s bank account? Anyone holding it can spend faction funds.", "Print Charge Card", list("Print", "Cancel"))
+			var/confirm = tgui_alert(user, "Print a charge card loaded with funds withdrawn from [get_faction_name(net)]'s bank account?", "Print Charge Card", list("Print", "Cancel"))
 			if(confirm != "Print") return
+			var/balance = get_faction_account_balance(net) || 0
+			if(balance <= 0)
+				to_chat(user, SPAN_WARNING("[get_faction_name(net)] has no funds to load onto a card."))
+				return
+			var/amount = tgui_input_number(user, "How many credits to withdraw from [get_faction_name(net)]'s account and store on this card? (Available: [balance])", "Print Charge Card", min(1000, balance), balance, 1)
+			if(isnull(amount) || amount <= 0)
+				return
+			if(!faction_debit(net, amount, "Charge card printed by [user.real_name || key_name(user)]"))
+				to_chat(user, SPAN_WARNING("Withdrawal failed -- the faction account balance changed. Try again."))
+				return
 			var/obj/item/spacecash/ewallet/faction_charge_card/FC = new(get_turf(computer))
 			FC.faction_uid = net
 			FC.name = "[get_faction_name(net)] charge card"
 			FC.owner_name = get_faction_name(net)
 			FC.issued_epoch = get_faction_cards_epoch(net)
+			FC.worth = amount
 			user.put_in_hands(FC)
-			to_chat(user, SPAN_GOOD("Printed \a [FC]."))
-			log_game("[key_name(user)] printed a faction charge card for '[net]' via faction_manage.")
+			to_chat(user, SPAN_GOOD("Printed \a [FC] loaded with [amount] credits."))
+			log_game("[key_name(user)] printed a faction charge card for '[net]' loaded with [amount] credits via faction_manage.")
 			. = TRUE
 
 		// ---- Invalidate All Charge Cards -------------------------------------

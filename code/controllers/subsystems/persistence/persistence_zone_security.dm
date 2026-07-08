@@ -23,6 +23,11 @@ GLOBAL_LIST_EMPTY(zone_security_by_z)
 GLOBAL_LIST_EMPTY(highsec_offense_log)
 
 #define HIGHSEC_OFFENSE_LOG_MAX 20
+#define OFFENSE_TRACK_COOLDOWN (10 MINUTES)
+
+/// ckey -> world.time of their last TRACKED offense (log entry + PDA
+/// alert). Does NOT gate the admin chat escalation, which fires every time.
+GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 
 /// The security zone level of a z-level (ZONE_NULLSEC when unset).
 /proc/zone_security_get(z)
@@ -137,7 +142,9 @@ GLOBAL_LIST_EMPTY(highsec_offense_log)
 /**
  * Record a highsec offense (called from admin_attack_log()): escalates to
  * every admin unconditionally (bypasses the CHAT_ATTACKLOGS preference) with
- * a JMP link, and feeds the First Responder offense list.
+ * a JMP link every time, and feeds the First Responder offense list --
+ * subject to a per-attacker cooldown so a single fight doesn't spam the
+ * offense log/PDA alerts with one entry per hit.
  */
 /proc/zone_security_record_offense(mob/attacker, mob/victim, admin_message)
 	var/mob/anchor = victim || attacker
@@ -145,6 +152,12 @@ GLOBAL_LIST_EMPTY(highsec_offense_log)
 		return
 	message_admins("<span class='danger'>HIGHSEC OFFENSE:</span> [key_name(attacker)] against [key_name(victim)] -- [admin_message] (<a href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[anchor.x];Y=[anchor.y];Z=[anchor.z]'>JMP</a>)")
 	if(attacker)
+		var/ck = attacker.ckey
+		var/last_tracked = ck ? GLOB.highsec_offense_last_tracked[ck] : null
+		if(ck && last_tracked && (world.time - last_tracked) < OFFENSE_TRACK_COOLDOWN)
+			return // still on cooldown -- admin chat above already fired
+		if(ck)
+			GLOB.highsec_offense_last_tracked[ck] = world.time
 		GLOB.highsec_offense_log += list(list(
 			"name" = attacker.name,
 			"ref"  = WEAKREF(attacker),
