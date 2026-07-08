@@ -746,6 +746,20 @@
 	groupable = TRUE
 	spawn_amount = 1
 
+/singleton/cargo_item/autodoc
+	category = "medical"
+	name = "autodoc"
+	supplier = "zeng_hu"
+	description = "An automated surgery table. Lie a patient on it and it will diagnose and repair injuries -- missing limbs, organ damage, broken bones, embedded shrapnel -- without a surgeon. Ships anchored; wrench to reposition."
+	price = 5000
+	items = list(
+		/obj/structure/machinery/autodoc
+	)
+	access = ACCESS_SURGERY
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
 /singleton/cargo_item/tajaranlatexgloves
 	category = "medical"
 	name = "tajaran latex gloves"

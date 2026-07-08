@@ -1459,6 +1459,7 @@
 #include "code\game\objects\structures\machinery\anti_bluespace.dm"
 #include "code\game\objects\structures\machinery\antibody.dm"
 #include "code\game\objects\structures\machinery\atmo_control.dm"
+#include "code\game\objects\structures\machinery\autodoc.dm"
 #include "code\game\objects\structures\machinery\biogenerator.dm"
 #include "code\game\objects\structures\machinery\bioprinter.dm"
 #include "code\game\objects\structures\machinery\bluespace_beacon.dm"
