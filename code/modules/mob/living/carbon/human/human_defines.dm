@@ -125,6 +125,9 @@
 	// Top-center countdown to the next persistence autosave
 	var/atom/movable/screen/save_timer = null
 
+	// Top-right security zone shield (green/yellow/red by zone)
+	var/atom/movable/screen/zone_indicator = null
+
 	// Post-cryo chill effect: movement_delay() adds a tally while world.time is below this
 	var/chilled_until = 0
 	// Chill visuals are active inside a pod; the pod exit (go_out) finishes the effect

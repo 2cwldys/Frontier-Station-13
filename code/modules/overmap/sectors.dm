@@ -136,10 +136,24 @@ GLOBAL_DATUM(map_overmap, /area/overmap)
 		start_x = home.x
 		start_y = home.y
 		LOG_DEBUG("place_near_main moving [src] near [main] ([main.x],[main.y]) with radius [place_near_main], got ([home.x],[home.y])")
-	else
-		start_x = start_x || rand(map_low, map_high)
-		start_y = start_y || rand(map_low, map_high)
+	else if(start_x && start_y)
+		// Fixed coordinates (mapped-in or pinned/injected sites) -- respected untouched
 		home = locate(start_x, start_y, SSatlas.current_map.overmap_z)
+	else
+		// Random placement: avoid tiles that already hold another sector marker
+		// (pinned/injected sites and earlier random spawns), so nothing stacks.
+		// Bounded retries -- accepts the last roll on a genuinely crowded map.
+		var/tries = 10
+		while(tries > 0)
+			tries--
+			var/try_x = start_x || rand(map_low, map_high)
+			var/try_y = start_y || rand(map_low, map_high)
+			var/turf/candidate = locate(try_x, try_y, SSatlas.current_map.overmap_z)
+			if(!(locate(/obj/effect/overmap/visitable) in candidate) || !tries)
+				start_x = try_x
+				start_y = try_y
+				home = candidate
+				break
 
 	if(!invisible_until_ghostrole_spawn)
 		forceMove(home)

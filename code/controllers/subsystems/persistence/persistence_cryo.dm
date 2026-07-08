@@ -245,10 +245,9 @@
 // ENTER CRYOSLEEP VERB  manual logout via cryopod
 // ============================================================
 
-/mob/living/carbon/human/verb/enter_cryosleep()
-	set name = "Enter Cryopod"
-	set category = "Persistence"
-	set desc = "Enter a nearby cryopod to save your character and go offline."
+// Deliberately a proc, not a verb -- removed from the Persistence tab; players
+// enter pods physically (or code paths may call this directly).
+/mob/living/carbon/human/proc/enter_cryosleep()
 
 	if(!GLOB.config.sql_enabled)
 		to_chat(src, SPAN_WARNING("Persistence is not enabled on this server."))
@@ -582,6 +581,7 @@
 	network = normalize_faction_uid(network)
 	if(network)
 		for(var/obj/structure/machinery/telepad_cargo/pad in world)
+			if(!pad.accepts_cargo) continue // security pads (and any future non-cargo subtype) never take deliveries
 			if(!pad.z) continue
 			if(!pad.persistent_spawn)  continue
 			if(normalize_faction_uid(pad.persistent_network) == network)
@@ -589,6 +589,7 @@
 
 	// Public fallback
 	for(var/obj/structure/machinery/telepad_cargo/pad in world)
+		if(!pad.accepts_cargo) continue
 		if(!pad.z) continue
 		if(lowertext(pad.persistent_network) == "public" && pad.persistent_spawn)
 			return get_turf(pad)

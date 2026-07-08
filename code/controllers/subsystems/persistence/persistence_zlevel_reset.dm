@@ -17,6 +17,69 @@
  * the existing template system, which touches none of those.
  */
 
+/**
+ * Deletes every persistence DB row keyed to the given z (turfs, atmos, floor
+ * items, tracked objects, machinery worldstate, removed-structure tombstones).
+ * DB rows ONLY -- no live-world changes. Used when a pinned away site's
+ * deterministic z drifts (stale rows must not misapply to the new occupant of
+ * that z) and by the Persistent Overmap Sites unpin flow.
+ */
+/datum/controller/subsystem/persistence/proc/purgeZRows(z, quiet = FALSE)
+	if(!databaseCheckConnection("purgeZRows"))
+		return FALSE
+	var/map_path = "[SSatlas.current_map.path]"
+	var/list/deletes = list(
+		"ss13_worldstate_turfs"    = "DELETE FROM ss13_worldstate_turfs WHERE z = :z AND map_path = :mp",
+		"ss13_persistent_objects"  = "DELETE FROM ss13_persistent_objects WHERE z = :z AND map_path = :mp",
+		"ss13_floor_items"         = "DELETE FROM ss13_floor_items WHERE z = :z AND map_path = :mp",
+		"ss13_removed_structures"  = "DELETE FROM ss13_removed_structures WHERE z = :z AND map_path = :mp",
+		"ss13_persistent_bots"     = "DELETE FROM ss13_persistent_bots WHERE z = :z AND map_path = :mp",
+		"ss13_atmos_zones"         = "DELETE FROM ss13_atmos_zones WHERE rep_z = :z AND map_path = :mp",
+		// ss13_worldstate_objects has no map_path column (pre-existing schema gap) -- z only
+		"ss13_worldstate_objects"  = "DELETE FROM ss13_worldstate_objects WHERE z = :z"
+	)
+	for(var/table in deletes)
+		var/datum/db_query/dq = SSdbcore.NewQuery(deletes[table], list("z" = z, "mp" = map_path))
+		dq.Execute()
+		databaseCheckQueryResult(dq, "purgeZRows [table]")
+		qdel(dq)
+	if(!quiet)
+		log_subsystem_persistence_info("Purged persistence DB rows for z=[z] ([map_path]).")
+	return TRUE
+
+/**
+ * Moves every persistence DB row from old_z to new_z (same map). Used when a
+ * pinned away site's deterministic z drifts between boots: templates always
+ * load centered at the same (x, y), so remapping just the z column preserves
+ * everything saved at the old number losslessly. Stale rows already sitting
+ * at new_z are purged first so the moved rows can't collide.
+ */
+/datum/controller/subsystem/persistence/proc/remapZRows(old_z, new_z, quiet = FALSE)
+	if(old_z == new_z)
+		return TRUE
+	if(!databaseCheckConnection("remapZRows"))
+		return FALSE
+	purgeZRows(new_z, quiet = TRUE)
+	var/map_path = "[SSatlas.current_map.path]"
+	var/list/updates = list(
+		"ss13_worldstate_turfs"    = "UPDATE ss13_worldstate_turfs SET z = :nz WHERE z = :oz AND map_path = :mp",
+		"ss13_persistent_objects"  = "UPDATE ss13_persistent_objects SET z = :nz WHERE z = :oz AND map_path = :mp",
+		"ss13_floor_items"         = "UPDATE ss13_floor_items SET z = :nz WHERE z = :oz AND map_path = :mp",
+		"ss13_removed_structures"  = "UPDATE ss13_removed_structures SET z = :nz WHERE z = :oz AND map_path = :mp",
+		"ss13_persistent_bots"     = "UPDATE ss13_persistent_bots SET z = :nz WHERE z = :oz AND map_path = :mp",
+		"ss13_atmos_zones"         = "UPDATE ss13_atmos_zones SET rep_z = :nz WHERE rep_z = :oz AND map_path = :mp",
+		// ss13_worldstate_objects has no map_path column (pre-existing schema gap) -- z only
+		"ss13_worldstate_objects"  = "UPDATE ss13_worldstate_objects SET z = :nz WHERE z = :oz"
+	)
+	for(var/table in updates)
+		var/datum/db_query/uq = SSdbcore.NewQuery(updates[table], list("oz" = old_z, "nz" = new_z, "mp" = map_path))
+		uq.Execute()
+		databaseCheckQueryResult(uq, "remapZRows [table]")
+		qdel(uq)
+	if(!quiet)
+		log_subsystem_persistence_info("Remapped persistence DB rows z=[old_z] -> z=[new_z] ([map_path]).")
+	return TRUE
+
 /datum/admins/proc/check_zlevel_info()
 	set name = "Check Z-Level Info"
 	set category = "Persistence"
@@ -53,6 +116,7 @@
 	msg += "Name: [level_name]\n"
 	msg += "Traits: [trait_names.len ? trait_names.Join(", ") : "(none)"]\n"
 	msg += "Persistence: [persisted ? "enabled (saves/loads)" : "disabled (regenerates each restart)"]\n"
+	msg += "Security zone: [uppertext(zone_security_name(zone_security_get(z_pick)))]\n"
 	msg += "Players currently present: [present.len]"
 	if(present.len)
 		msg += "\n  [present.Join("\n  ")]"

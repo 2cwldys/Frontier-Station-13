@@ -17,15 +17,43 @@ GLOBAL_VAR_INIT(persistence_ready, FALSE)
 /// Empty by default = all Z levels persist.
 GLOBAL_LIST_EMPTY(persistence_zlevel_skip)
 
+/// Z levels explicitly ENABLED via the Toggle Z-Level Persistence verb.
+/// Populated from ss13_zlevel_persistence WHERE enabled = 1 at startup.
+/// Only consulted when MANUAL_AREA_SAVE is on -- persistence then becomes
+/// opt-in and ONLY these z-levels save/load.
+GLOBAL_LIST_EMPTY(persistence_zlevel_allow)
+
 /// Z levels that received a map template at runtime (away sites via load_new_z,
 /// ruins/landmark loads via template.load on non-station levels). Never persisted.
 GLOBAL_LIST_EMPTY(persistence_template_loaded_z)
 
+/// Z levels of admin-pinned persistent away sites (ss13_persistent_away_sites),
+/// populated by build_pinned_away_sites() during SSmapping init. These BYPASS
+/// every persistence exclusion (away trait, template-loaded, manual gate) --
+/// a pinned site saves/loads like a station deck.
+GLOBAL_LIST_EMPTY(persistence_pinned_site_z)
+
+/// TRUE when MANUAL_AREA_SAVE is on and this z was not explicitly enabled via
+/// the Toggle Z-Level Persistence verb -- flips persistence from opt-out to
+/// opt-in per z-level, using the same DB-backed list the verb manages.
+/// Pinned away-site z's are never blocked (their z is derived, not listed).
+/proc/persistence_z_manual_blocked(z)
+	if(z in GLOB.persistence_pinned_site_z)
+		return FALSE
+	return GLOB.config.manual_area_save && !(z in GLOB.persistence_zlevel_allow)
+
 /// TRUE if this z-level must not be saved/loaded by turf/object/worldstate persistence:
-/// manually disabled via ss13_zlevel_persistence, a procedurally loaded away-site z
-/// (tagged ZTRAIT_AWAY), an asteroid/mining level (regenerated each round), or any z
-/// a map template was loaded onto at runtime.
+/// not in the MANUAL_AREA_SAVE allow list (when that mode is on), manually disabled via
+/// ss13_zlevel_persistence, a procedurally loaded away-site z (tagged ZTRAIT_AWAY), an
+/// asteroid/mining level (regenerated each round), or any z a map template was loaded
+/// onto at runtime. Admin-pinned persistent away sites bypass ALL of these -- the
+/// pinned check must stay FIRST: pinned sites spawn via load_new_z(), which stamps
+/// them with both the away trait and the template-loaded mark below.
 /proc/persistence_z_excluded(z)
+	if(z in GLOB.persistence_pinned_site_z)
+		return FALSE
+	if(persistence_z_manual_blocked(z))
+		return TRUE
 	if(z in GLOB.persistence_zlevel_skip)
 		return TRUE
 	if(is_away_level(z))
@@ -272,13 +300,24 @@ SUBSYSTEM_DEF(persistence)
 
 	// Load Z-level persistence toggles FIRST — before any save/load so checks are in effect
 	var/datum/db_query/zlq = SSdbcore.NewQuery(
-		"SELECT z FROM ss13_zlevel_persistence WHERE enabled = 0", list())
+		"SELECT z, enabled FROM ss13_zlevel_persistence", list())
 	zlq.Execute()
 	while(zlq.NextRow())
-		GLOB.persistence_zlevel_skip += text2num(zlq.item[1])
+		var/toggle_z = text2num(zlq.item[1])
+		if(text2num(zlq.item[2]))
+			GLOB.persistence_zlevel_allow += toggle_z
+		else
+			GLOB.persistence_zlevel_skip += toggle_z
 	qdel(zlq)
 	if(length(GLOB.persistence_zlevel_skip))
 		log_subsystem_persistence_info("Z-Level skip list loaded: [GLOB.persistence_zlevel_skip.Join(", ")]")
+	if(GLOB.config.manual_area_save)
+		log_subsystem_persistence_info("MANUAL_AREA_SAVE active: only z-levels \[[GLOB.persistence_zlevel_allow.Join(", ")]\] will save/load.")
+
+	try
+		zoneSecurityInitialize()
+	catch(var/exception/zs_e)
+		log_subsystem_persistence_error("Zone security init failed: [zs_e] on [zs_e.file]:[zs_e.line]")
 
 	try
 		// Loaded first so the join gate is armed before anyone can hit Play.
@@ -412,6 +451,12 @@ SUBSYSTEM_DEF(persistence)
 
 	// GLOB.persistence_ready is set by SSpersistence_world_ready.Initialize()
 	// which runs at init_order = 1 (last of all subsystems)  after atoms, mapping, etc.
+
+	// One delayed power resync: the mid-init rebroadcast can't reach machines
+	// restored after it (objectsInitialize) nor powernets that hadn't ticked
+	// yet -- the rare "dark station, full APCs" boot state that a manual APC
+	// on->auto cycle used to fix.
+	addtimer(CALLBACK(src, PROC_REF(powerstateFinalize)), 30 SECONDS)
 
 	// Prevent an immediate fire() right after init  first autosave should be 30 min after startup
 	next_fire = world.time + wait

@@ -113,6 +113,10 @@
 	if(client && !istype(src, /mob/abstract/new_player)) //Do not update the skybox if it's a new player mob, they don't see it anyways and it can runtime
 		client.update_skybox(TRUE)
 
+	// Security-zone baseline: silent for nullsec on a fresh mob, announces
+	// non-nullsec zones on join/possession (persistence_zone_security.dm)
+	check_zone_announce(quiet_baseline = (zone_announce_level == -1))
+
 	if(spell_masters)
 		for(var/atom/movable/screen/movable/spell_master/spell_master in spell_masters)
 			spell_master.toggle_open(1)

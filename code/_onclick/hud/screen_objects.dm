@@ -97,6 +97,88 @@
 		label = "NEXT SAVE: [add_zero("[round(total_seconds / 60)]", 2)]:[add_zero("[total_seconds % 60]", 2)]"
 	maptext = "<center><span style=\"color:#535AB2;font-weight:bold;text-shadow:0 0 15px #535AB2;font-family:'Bahnschrift',Constantia,sans-serif;\">[label]</span></center>"
 
+/// Top-right security-zone shield: recolors green/yellow/red by the owner's
+/// current zone level (grayscale 32x32 source so color multiply tints
+/// cleanly); mouseover shows the zone name, examine explains the system.
+/atom/movable/screen/zone_security_indicator
+	name = "nullsec"
+	icon = 'icons/hud/security_shield.png'
+	icon_state = ""
+	screen_loc = "EAST,NORTH"
+	mouse_opacity = MOUSE_OPACITY_ICON
+	var/mob/owner
+
+/atom/movable/screen/zone_security_indicator/Initialize(mapload, mob/holder)
+	. = ..()
+	owner = holder
+	START_PROCESSING(SSprocessing, src)
+	update_zone_shield()
+
+/atom/movable/screen/zone_security_indicator/Destroy()
+	STOP_PROCESSING(SSprocessing, src)
+	owner = null
+	return ..()
+
+/atom/movable/screen/zone_security_indicator/process()
+	update_zone_shield()
+
+/atom/movable/screen/zone_security_indicator/proc/update_zone_shield()
+	// get_turf pierces containers -- inside a cryopod/locker the mob's loc
+	// is the object (z 0), but they are still standing in the zone
+	var/turf/owner_turf = QDELETED(owner) ? null : get_turf(owner)
+	if(!owner_turf)
+		alpha = 0
+		return
+	alpha = 255
+	switch(zone_security_get(owner_turf.z))
+		if(ZONE_HIGHSEC)
+			color = "#54c556"
+			name = "highsec"
+			desc = "You are in a HIGHSEC area: piracy and combat are outlawed, Hub law is enforced, and offenses alert Hub security."
+		if(ZONE_MEDSEC)
+			color = "#e8bb4a"
+			name = "medsec"
+			desc = "You are in a MEDSEC area: piracy is outlawed, factions enforce their own laws."
+		else
+			color = "#e04545"
+			name = "nullsec"
+			desc = "You are in a NULLSEC area: Hub and faction laws are not enforced here."
+
+/atom/movable/screen/zone_security_indicator/get_examine_text(mob/user, distance, is_adjacent, infix, suffix, show_extended)
+	. = ..()
+	. += SPAN_NOTICE("Security zone legend:")
+	. += SPAN_COLOR("#54c556", "  HIGHSEC (green) -- piracy and combat outlawed; Hub law enforced, offenses alert Hub security.")
+	. += SPAN_COLOR("#e8bb4a", "  MEDSEC (yellow) -- piracy outlawed; factions enforce their own laws.")
+	. += SPAN_COLOR("#e04545", "  NULLSEC (red) -- no laws enforced; piracy unchecked.")
+
+/// Screen objects can't be targeted by the examine verb (they live in
+/// client.screen, not world view) -- clicking the shield prints the info
+/atom/movable/screen/zone_security_indicator/Click(location, control, params)
+	if(!usr)
+		return
+	to_chat(usr, SPAN_NOTICE("Current zone: [name] -- [desc]"))
+	to_chat(usr, SPAN_NOTICE("Security zone legend:"))
+	to_chat(usr, SPAN_COLOR("#54c556", "  HIGHSEC (green) -- piracy and combat outlawed; Hub law enforced, offenses alert Hub security."))
+	to_chat(usr, SPAN_COLOR("#e8bb4a", "  MEDSEC (yellow) -- piracy outlawed; factions enforce their own laws."))
+	to_chat(usr, SPAN_COLOR("#e04545", "  NULLSEC (red) -- no laws enforced; piracy unchecked."))
+	return TRUE
+
+/client/verb/toggle_zone_shield()
+	set name = "Toggle Security Level Shield"
+	set category = "Preferences"
+	set desc = "Show or hide the top-right security zone shield. Saved to your preferences."
+
+	prefs.toggles ^= HIDE_ZONE_SHIELD
+	var/shown = !(prefs.toggles & HIDE_ZONE_SHIELD)
+	var/mob/living/carbon/human/H = mob
+	if(istype(H) && H.zone_indicator)
+		if(shown)
+			screen |= H.zone_indicator
+		else
+			screen -= H.zone_indicator
+	prefs.save_preferences()
+	to_chat(src, SPAN_INFO("Security zone shield [shown ? "shown" : "hidden"]."))
+
 /client/verb/toggle_save_timer()
 	set name = "Toggle Save Timer"
 	set category = "Preferences"

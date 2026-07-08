@@ -38,6 +38,9 @@ GLOBAL_LIST_EMPTY(persistence_atmos_cache)
 
 	var/loaded = 0
 	while(query.NextRow())
+		var/rep_z = text2num(query.item[3])
+		if(persistence_z_manual_blocked(rep_z))
+			continue
 		var/key = "[query.item[1]]|[query.item[2]]|[query.item[3]]"
 		GLOB.persistence_atmos_cache[key] = list(
 			"gas_json"    = query.item[4],
@@ -72,7 +75,7 @@ GLOBAL_LIST_EMPTY(persistence_atmos_cache)
 		var/list/entry = null
 		var/turf/simulated/rep = null
 		for(var/turf/simulated/T in Z.contents)
-			if(!is_station_level(T.z))
+			if((!is_station_level(T.z) && !(T.z in GLOB.persistence_pinned_site_z)) || persistence_z_manual_blocked(T.z))
 				continue
 			var/key = "[T.x]|[T.y]|[T.z]"
 			var/list/candidate = GLOB.persistence_atmos_cache[key]
@@ -128,7 +131,7 @@ GLOBAL_LIST_EMPTY(persistence_atmos_cache)
 		if(Z.invalid || !length(Z.contents))
 			continue
 		var/turf/simulated/rep = Z.contents[1]
-		if(!rep || !is_station_level(rep.z))
+		if(!rep || (!is_station_level(rep.z) && !(rep.z in GLOB.persistence_pinned_site_z)) || persistence_z_manual_blocked(rep.z))
 			continue
 		if(!Z.air || !length(Z.air.gas))
 			continue

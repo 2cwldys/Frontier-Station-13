@@ -166,6 +166,11 @@
 	eject_item()
 
 /obj/item/modular_computer/attack(mob/living/target_mob, mob/living/user, target_zone)
+	// First Responder open: tapping a mob toggles a transport tag instead of attacking
+	var/datum/computer_file/program/security/first_responder/FR = active_program
+	if(istype(FR))
+		FR.toggle_prisoner_tag(target_mob, user)
+		return
 	if(scan_mode == SCANNER_MEDICAL)
 		var/datum/component/health_analyzer/h_analyzer = src.GetComponent(/datum/component/health_analyzer)
 		if(!h_analyzer)

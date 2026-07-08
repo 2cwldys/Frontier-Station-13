@@ -17,8 +17,22 @@ var/global/enabled_spooking = 0
 		if(R_CCIAA & C.holder.rights)
 			to_chat(C, msg)
 
-/proc/msg_admin_attack(var/text,var/ckey="",var/ckey_target="") //Toggleable Attack Messages
+/proc/msg_admin_attack(var/text,var/ckey="",var/ckey_target="",var/attack_z = 0,var/offense_recorded = FALSE) //Toggleable Attack Messages
 	log_attack(text)
+	// Many harmful actions call this proc DIRECTLY (self-attacks included)
+	// without routing through admin_attack_log() -- fall back to the acting
+	// mob for the zone check (usr is the attacker in click/verb contexts)
+	if(!attack_z && ismob(usr))
+		attack_z = usr.z
+	// Zone security: attack chatter only reaches admin chat for HIGHSEC
+	// attacks -- nullsec/medsec combat is lawful and stays file-logged only
+	if(zone_security_get(attack_z) != ZONE_HIGHSEC)
+		return
+	// Direct callers never fed the offense escalation/responder list --
+	// record here unless admin_attack_log() already did. Matching ckey args
+	// mean self-harm (both are key_name() strings): not an offense.
+	if(!offense_recorded && ismob(usr) && !zone_security_exempt(usr) && !(ckey && ckey == ckey_target))
+		zone_security_record_offense(usr, null, text)
 	var/rendered = "<span class=\"log_message\"><span class=\"prefix\">ATTACK:</span> <span class=\"message\">[text]</span></span>"
 	for(var/s in GLOB.staff)
 		var/client/C = s

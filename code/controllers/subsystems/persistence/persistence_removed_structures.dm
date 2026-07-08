@@ -2,7 +2,7 @@
 	if(!databaseCheckConnection("saveStructureRemoval"))
 		return
 	var/turf/T = get_turf(S)
-	if(!T || !T.z)
+	if(!T || !T.z || persistence_z_manual_blocked(T.z))
 		return
 	var/datum/db_query/q = SSdbcore.NewQuery(
 		{"INSERT IGNORE INTO ss13_removed_structures (map_path, type, x, y, z)
@@ -16,7 +16,7 @@
 	if(!databaseCheckConnection("clearStructureRemoval"))
 		return
 	var/turf/T = get_turf(S)
-	if(!T || !T.z)
+	if(!T || !T.z || persistence_z_manual_blocked(T.z))
 		return
 	var/datum/db_query/q = SSdbcore.NewQuery(
 		"DELETE FROM ss13_removed_structures WHERE map_path = :mp AND type = :type AND x = :x AND y = :y AND z = :z",
@@ -62,6 +62,8 @@
 		var/tx = text2num(q.item[2])
 		var/ty = text2num(q.item[3])
 		var/tz = text2num(q.item[4])
+		if(persistence_z_manual_blocked(tz))
+			continue
 		var/turf/T = locate(tx, ty, tz)
 		if(!T)
 			continue

@@ -70,6 +70,9 @@
 	var/persistent_spawn   = FALSE
 	/// TRUE when a player has claimed this pad for their faction; only officers+ can release.
 	var/faction_shackled   = FALSE
+	/// Hard guarantee flag: cargo delivery selectors refuse any pad with this
+	/// FALSE (security telepads) -- supplies can never land on non-cargo pads.
+	var/accepts_cargo      = TRUE
 
 /obj/structure/machinery/telepad_cargo/verb/link_faction_network()
 	set name = "Link to Faction"
@@ -222,6 +225,56 @@
 		new /obj/item/stack/material/steel(get_turf(src))
 		new /obj/item/stack/material/glass(get_turf(src))
 		qdel(src)
+
+/*
+ * Security telepad -- the return point for First Responder teleports.
+ * Subtype of the cargo telepad so it inherits the faction link/release
+ * verbs, ID-swipe handling, tool interactions, and worldstate persistence;
+ * cargo delivery lookups explicitly exclude this type so supplies never
+ * land on it. Red tint is a PLACEHOLDER over the cargo pad sprite until
+ * dedicated sprite work is done.
+ */
+/obj/structure/machinery/telepad_security
+	parent_type = /obj/structure/machinery/telepad_cargo
+	name = "security telepad"
+	desc = "A tuned telepad that serves as the return point for accredited security first responders. Swipe a faction ID or use the Link to Faction verb to tie it to a faction network."
+	color = "#ff4444"
+	accepts_cargo = FALSE
+
+/// The inherited "Configure Supply Network" verb wrongly implies cargo
+/// deliveries -- swap it at runtime for a security-worded twin (DM cannot
+/// rename an inherited verb in an override).
+/obj/structure/machinery/telepad_security/Initialize()
+	. = ..()
+	verbs -= /obj/structure/machinery/telepad_cargo/verb/configure_supply_network
+
+/obj/structure/machinery/telepad_security/verb/configure_security_network()
+	set name = "Configure Security Network"
+	set category = "Admin"
+	set desc = "Set this telepad's faction network for first-responder returns."
+	set src in oview(1)
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	var/current = "[persistent_network ? persistent_network : "(none)"] | active=[persistent_spawn]"
+	to_chat(usr, SPAN_NOTICE("Current config: [current]"))
+
+	var/new_network = tgui_input_text(usr, "Enter network ID (a faction UID, 'public', or leave blank to clear):", "Configure Security Network", persistent_network, max_length = 32)
+	if(new_network == null)
+		return
+
+	persistent_network = normalize_faction_uid(new_network)
+
+	if(new_network)
+		var/active_choice = tgui_alert(usr, "Activate this pad as the first-responder return point for network '[new_network]'?", "Configure Security Network", list("Yes", "No"))
+		persistent_spawn = (active_choice == "Yes")
+	else
+		persistent_spawn = FALSE
+
+	var/label = persistent_network ? "[persistent_network][persistent_spawn ? " (return point active)" : " (inactive)"]" : "unmanaged"
+	to_chat(usr, SPAN_GOOD("Security telepad network set to: [label]"))
+	log_admin("[key_name(usr)] configured security telepad at ([x],[y],[z]) network='[persistent_network]' active=[persistent_spawn]")
 
 ///TELEPAD CALLER///
 /obj/item/telepad_beacon

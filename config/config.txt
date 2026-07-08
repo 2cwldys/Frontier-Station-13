@@ -155,6 +155,15 @@ ALLOW_ADMIN_OOCCOLOR
 ## persistent world that should never go through a traditional round end
 DISABLE_ROUND_END
 
+## flips z-level persistence from opt-out to opt-in: ONLY z-levels explicitly
+## enabled through the in-game "Toggle Z-Level Persistence" admin verb (stored
+## in the ss13_zlevel_persistence database table) will save/load. Everything
+## on unlisted z-levels is skipped entirely -- turf/wall changes, objects,
+## floor items, atmos, machinery state, bots -- which also speeds up saves by
+## skipping whole z-levels. Global data (characters, factions, research,
+## whitelists) is unaffected.
+MANUAL_AREA_SAVE
+
 ## allow players to initiate a restart vote
 ALLOW_VOTE_RESTART
 

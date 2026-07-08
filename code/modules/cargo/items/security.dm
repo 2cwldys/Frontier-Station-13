@@ -1,5 +1,19 @@
 //Basic sec items
 
+/singleton/cargo_item/security_telepad
+	category = "security"
+	name = "security telepad"
+	supplier = "nanotrasen"
+	description = "A tuned telepad that serves as the return point for accredited security first responders. Link it to your faction network after installation."
+	price = 1500
+	items = list(
+		/obj/structure/machinery/telepad_security
+	)
+	access = ACCESS_SECURITY
+	container_type = "crate"
+	groupable = FALSE
+	spawn_amount = 1
+
 /singleton/cargo_item/stunbaton
 	category = "security"
 	name = "stunbaton"

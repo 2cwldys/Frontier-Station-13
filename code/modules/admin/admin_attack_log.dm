@@ -26,7 +26,19 @@
 		attacker.attack_log += "\[[time_stamp()]\] <span class='warning'>[key_name(victim)] - [attacker_message]</span>"
 		jmp_link = " (<A href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[attacker.x];Y=[attacker.y];Z=[attacker.z]'>JMP</a>)"
 
-	msg_admin_attack("[attacker ? key_name_admin(attacker) : ""] [admin_message] [victim ? key_name_admin(victim) : ""] (INTENT: [attacker? uppertext(attacker.a_intent) : "N/A"])[jmp_link]",ckey=key_name(attacker),ckey_target=key_name(victim))
+	msg_admin_attack("[attacker ? key_name_admin(attacker) : ""] [admin_message] [victim ? key_name_admin(victim) : ""] (INTENT: [attacker? uppertext(attacker.a_intent) : "N/A"])[jmp_link]",ckey=key_name(attacker),ckey_target=key_name(victim),attack_z=(attacker ? attacker.z : (victim ? victim.z : 0)),offense_recorded=TRUE)
+
+	// Highsec zones: combat is outlawed -- escalate unconditionally (bypasses
+	// the per-admin attack-log toggle) and feed the First Responder offense
+	// list. Hub-faction security personnel are exempt (they ARE the law).
+	if(zone_security_get(attacker ? attacker.z : 0) == ZONE_HIGHSEC || zone_security_get(victim ? victim.z : 0) == ZONE_HIGHSEC)
+		// Self-harm is not an offense -- it must not summon security
+		if(!zone_security_exempt(attacker) && !(attacker && attacker == victim))
+			zone_security_record_offense(attacker, victim, admin_message)
+		else
+			// Silent to chat by design, but auditable -- and it explains
+			// "why didn't my test fire" when testing with a security char
+			log_game("HIGHSEC (exempt Hub security): [key_name(attacker)] -- [admin_message] [victim ? key_name(victim) : ""]")
 
 /proc/admin_attacker_log_many_victims(var/mob/attacker, var/list/mob/victims, var/attacker_message, var/victim_message, var/admin_message)
 	if(!victims || !victims.len)

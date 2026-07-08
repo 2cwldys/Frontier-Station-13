@@ -940,6 +940,9 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		var/list/generic_content = I.persistent_objects_get_content()
 		if(islist(generic_content) && length(generic_content))
 			data["obj_content"] = generic_content
+			// Diagnostic: confirm program lists are captured for computers/PDAs
+			if(istype(I, /obj/item/modular_computer) && islist(generic_content["programs"]))
+				log_subsystem_persistence_info("Modcomp save: [I] programs=[json_encode(generic_content["programs"])]")
 
 	// Stack material amounts
 	if(istype(I, /obj/item/stack))

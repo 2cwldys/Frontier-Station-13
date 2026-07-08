@@ -33,6 +33,10 @@
 		target.save_timer = new /atom/movable/screen/text/save_timer()
 		hud_elements |= target.save_timer
 
+		// ── Security zone shield (top-right, recolors by zone) ────────────────
+		target.zone_indicator = new /atom/movable/screen/zone_security_indicator(null, target)
+		hud_elements |= target.zone_indicator
+
 	// ── Gear slots ────────────────────────────────────────────────────────────
 	var/has_hidden_gear
 	for(var/gear_slot in hud_data.gear)
@@ -224,6 +228,10 @@
 	// Honor the per-client autosave countdown preference (Toggle Save Timer verb)
 	if(target?.save_timer && !mymob.client.show_save_timer)
 		mymob.client.screen -= target.save_timer
+
+	// Honor the saved security-shield preference (Toggle Security Level Shield verb)
+	if(target?.zone_indicator && (mymob.client.prefs.toggles & HIDE_ZONE_SHIELD))
+		mymob.client.screen -= target.zone_indicator
 
 	// ── Aurora: vision cone + film grain ─────────────────────────────────────
 	var/mob/living/carbon/human/H = mymob

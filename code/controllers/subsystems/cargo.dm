@@ -679,6 +679,13 @@ SUBSYSTEM_DEF(cargo)
 		log_subsystem_cargo("Warning: order [co.order_id] found no delivery-enabled telepad for '[co.delivery_network]' -- falling back to shuttle.")
 		return FALSE
 
+	// Hard guarantee: never land cargo on a non-cargo pad (security telepads),
+	// even if a future selector regression resolves one.
+	var/obj/structure/machinery/telepad_cargo/dest_pad = locate() in telepad_turf
+	if(dest_pad && !dest_pad.accepts_cargo)
+		log_subsystem_cargo("Warning: order [co.order_id] resolved a non-cargo pad ([dest_pad]) at ([telepad_turf.x],[telepad_turf.y],[telepad_turf.z]) -- refusing, falling back to shuttle.")
+		return FALSE
+
 	// Faction pays BEFORE anything spawns -- a failed debit leaves no
 	// orphaned crate and no operations charge.
 	if(!faction_debit(co.delivery_network, co.price, "Cargo order [co.order_id]"))

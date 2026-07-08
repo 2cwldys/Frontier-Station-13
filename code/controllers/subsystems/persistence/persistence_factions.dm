@@ -324,11 +324,17 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	if(!check_rights(R_ADMIN))
 		return
 
-	// Build status display
-	var/msg = "Current Z-Level Persistence:\n"
+	// Build status display. Under MANUAL_AREA_SAVE persistence is opt-in:
+	// only z-levels explicitly enabled (allow list) save/load.
+	var/manual_mode = GLOB.config.manual_area_save
+	var/msg = "Current Z-Level Persistence[manual_mode ? " (MANUAL_AREA_SAVE: opt-in)" : ""]:\n"
 	for(var/z = 1 to world.maxz)
-		var/skipped = (z in GLOB.persistence_zlevel_skip)
-		msg += "  Z=[z]: [skipped ? "SKIP (regenerates each restart)" : "PERSIST (saves/loads)"]\n"
+		var/persists
+		if(manual_mode)
+			persists = (z in GLOB.persistence_zlevel_allow)
+		else
+			persists = !(z in GLOB.persistence_zlevel_skip)
+		msg += "  Z=[z]: [persists ? "PERSIST (saves/loads)" : "SKIP (regenerates each restart)"]\n"
 
 	var/z_pick = tgui_input_number(usr, "[msg]\nZ=[usr.z] is your current level. Enter Z level to toggle:", "Toggle Z Persistence", usr.z, world.maxz, 1)
 	if(isnull(z_pick) || z_pick < 1 || z_pick > world.maxz)
@@ -350,8 +356,14 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 
 	var/new_notes = tgui_input_text(usr, "Label for Z=[z_pick] (optional, e.g. 'Mining'):", "Z Level Label", cur_notes, max_length = 128)
 
-	var/currently_skipped = (z_pick in GLOB.persistence_zlevel_skip)
-	var/new_enabled = currently_skipped ? 1 : 0  // toggle
+	// Toggle off the EFFECTIVE state -- under manual mode a z with no DB row
+	// is blocked, so toggling it must write enabled=1 (add to the allow list)
+	var/currently_persists
+	if(GLOB.config.manual_area_save)
+		currently_persists = (z_pick in GLOB.persistence_zlevel_allow)
+	else
+		currently_persists = !(z_pick in GLOB.persistence_zlevel_skip)
+	var/new_enabled = currently_persists ? 0 : 1  // toggle
 
 	var/datum/db_query/q = SSdbcore.NewQuery(
 		{"INSERT INTO ss13_zlevel_persistence (z, enabled, notes)
@@ -363,15 +375,444 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	SSpersistence.databaseCheckQueryResult(q, "toggle_zlevel_persistence")
 	qdel(q)
 
-	// Update in-memory skip list immediately
+	// Update in-memory skip + allow lists immediately
 	if(new_enabled)
 		GLOB.persistence_zlevel_skip -= z_pick
+		GLOB.persistence_zlevel_allow |= z_pick
 	else
 		GLOB.persistence_zlevel_skip |= z_pick
+		GLOB.persistence_zlevel_allow -= z_pick
 
 	var/state = new_enabled ? "PERSIST" : "SKIP"
 	to_chat(usr, SPAN_GOOD("Z=[z_pick] set to [state][new_notes != "" ? " ([new_notes])" : ""]. Takes effect on next save/load cycle."))
 	log_and_message_admins("set Z=[z_pick] persistence to [state][new_notes != "" ? " ([new_notes])" : ""]", usr)
+
+/// View and edit the MANUAL_AREA_SAVE allow list as a whole -- add/remove
+/// z-levels with labels, backed by ss13_zlevel_persistence (enabled = 1 rows).
+/datum/admins/proc/manage_manual_save_list()
+	set name = "Manual Z-Level Save List"
+	set category = "Persistence"
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	if(!SSpersistence.databaseCheckConnection("manage_manual_save_list"))
+		to_chat(usr, SPAN_WARNING("DB connection failed."))
+		return
+
+	while(TRUE)
+		// Fetch labels fresh each pass so edits show immediately
+		var/list/notes_by_z = list()
+		var/datum/db_query/nq = SSdbcore.NewQuery(
+			"SELECT z, notes FROM ss13_zlevel_persistence WHERE enabled = 1", list())
+		nq.Execute()
+		while(nq.NextRow())
+			notes_by_z["[text2num(nq.item[1])]"] = nq.item[2] || ""
+		qdel(nq)
+
+		var/msg = "Manual Z-Level Save List [GLOB.config.manual_area_save ? "(MANUAL_AREA_SAVE active -- ONLY listed z-levels save/load)" : "(MANUAL_AREA_SAVE is OFF -- list stored but dormant)"]:\n"
+		for(var/z = 1 to world.maxz)
+			var/here = (z == usr.z) ? " <- you are here" : ""
+			// Identify what this z actually is so admins know what's safe to list
+			var/identity = ""
+			var/obj/effect/overmap/visitable/z_sector = GLOB.map_sectors["[z]"]
+			if(z in GLOB.persistence_pinned_site_z)
+				identity = " -- PINNED SITE (auto-saves[z_sector ? ": [z_sector.name]" : ""])"
+			else if(is_centcom_level(z))
+				identity = " -- CentCom/admin"
+			else if(SSmapping.level_trait(z, ZTRAIT_OVERMAP))
+				identity = " -- Overmap chart"
+			else if(is_reserved_level(z))
+				identity = " -- reserved (shuttle transit)"
+			else if(is_mining_level(z))
+				identity = " -- mining (regenerates)"
+			else if(is_away_level(z) || (z in GLOB.persistence_template_loaded_z))
+				identity = " -- away site/POI[z_sector ? " ([z_sector.name])" : ""] -- DYNAMIC, do not list; use Persistent Overmap Sites"
+			else if(is_station_level(z))
+				identity = " -- station deck[z_sector ? " ([z_sector.name])" : ""]"
+			else if(SSmapping.z_list && z <= length(SSmapping.z_list))
+				identity = " -- [SSmapping.z_list[z].name]"
+			if(z in GLOB.persistence_zlevel_allow)
+				var/disp_label = notes_by_z["[z]"]
+				msg += "  Z=[z]: IN LIST[disp_label ? " ([disp_label])" : ""][identity][here]\n"
+			else
+				msg += "  Z=[z]: not listed[identity][here]\n"
+		to_chat(usr, SPAN_NOTICE(msg))
+
+		var/action = tgui_input_list(usr, "Select action:", "Manual Z-Level Save List", list("Add Z-Level", "Remove Z-Level", "Close"))
+		if(!action || action == "Close")
+			return
+
+		if(action == "Add Z-Level")
+			var/z_pick = tgui_input_number(usr, "Enter Z level to add to the manual save list:", "Add Z-Level", usr.z, world.maxz, 1)
+			if(isnull(z_pick) || z_pick < 1 || z_pick > world.maxz)
+				continue
+			var/add_label = tgui_input_text(usr, "Label for Z=[z_pick] (optional, e.g. 'Start'):", "Z Level Label", notes_by_z["[z_pick]"], max_length = 128)
+			var/datum/db_query/q = SSdbcore.NewQuery(
+				{"INSERT INTO ss13_zlevel_persistence (z, enabled, notes)
+				VALUES (:z, 1, :notes)
+				ON DUPLICATE KEY UPDATE enabled = 1, notes = VALUES(notes)"},
+				list("z" = z_pick, "notes" = (add_label != "" ? add_label : null))
+			)
+			q.Execute()
+			SSpersistence.databaseCheckQueryResult(q, "manage_manual_save_list add")
+			qdel(q)
+			GLOB.persistence_zlevel_allow |= z_pick
+			GLOB.persistence_zlevel_skip -= z_pick
+			to_chat(usr, SPAN_GOOD("Z=[z_pick] added to the manual save list[add_label ? " ([add_label])" : ""]."))
+			log_and_message_admins("added Z=[z_pick] to the manual z-level save list[add_label ? " ([add_label])" : ""]", usr)
+
+		else if(action == "Remove Z-Level")
+			if(!length(GLOB.persistence_zlevel_allow))
+				to_chat(usr, SPAN_WARNING("The manual save list is empty."))
+				continue
+			var/list/choices = list()
+			for(var/az in GLOB.persistence_zlevel_allow)
+				var/rem_label = notes_by_z["[az]"]
+				choices["Z=[az][rem_label ? " ([rem_label])" : ""]"] = az
+			var/pick = tgui_input_list(usr, "Remove which z-level from the manual save list?", "Remove Z-Level", choices)
+			if(!pick)
+				continue
+			var/z_out = choices[pick]
+			// DELETE returns the z to "unlisted" -- blocked under manual mode but
+			// NOT added to the normal-mode skip list (that stays the Toggle verb's job)
+			var/datum/db_query/dq = SSdbcore.NewQuery(
+				"DELETE FROM ss13_zlevel_persistence WHERE z = :z",
+				list("z" = z_out)
+			)
+			dq.Execute()
+			SSpersistence.databaseCheckQueryResult(dq, "manage_manual_save_list remove")
+			qdel(dq)
+			GLOB.persistence_zlevel_allow -= z_out
+			to_chat(usr, SPAN_GOOD("Z=[z_out] removed from the manual save list."))
+			log_and_message_admins("removed Z=[z_out] from the manual z-level save list", usr)
+
+/// Pin/unpin overmap away sites for persistence (ss13_persistent_away_sites).
+/// A pinned site always spawns, keeps its overmap position, gets a
+/// deterministic z-number, and saves/loads like a station deck. Default for
+/// all sites remains dynamic (fresh each boot). Exoplanets cannot be pinned
+/// (procedurally generated every boot -- no fixed template to respawn).
+/datum/admins/proc/manage_persistent_overmap_sites()
+	set name = "Persistent Overmap Sites"
+	set category = "Persistence"
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	if(!SSpersistence.databaseCheckConnection("manage_persistent_overmap_sites"))
+		to_chat(usr, SPAN_WARNING("DB connection failed."))
+		return
+
+	while(TRUE)
+		// Fresh row read each pass so edits show immediately
+		var/list/rows = list()
+		var/datum/db_query/pq = SSdbcore.NewQuery(
+			"SELECT id, template_name, overmap_x, overmap_y, last_z, enabled, notes, custom_name, custom_icon_state FROM ss13_persistent_away_sites WHERE map_path = :mp ORDER BY id ASC",
+			list("mp" = "[SSatlas.current_map.path]")
+		)
+		pq.Execute()
+		while(pq.NextRow())
+			rows += list(list(
+				"id"          = text2num(pq.item[1]),
+				"template"    = pq.item[2],
+				"om_x"        = text2num(pq.item[3]),
+				"om_y"        = text2num(pq.item[4]),
+				"last_z"      = text2num(pq.item[5]),
+				"enabled"     = text2num(pq.item[6]),
+				"notes"       = pq.item[7] || "",
+				"custom_name" = pq.item[8] || "",
+				"custom_icon" = pq.item[9] || ""
+			))
+		qdel(pq)
+
+		var/msg = "Persistent Overmap Sites (pinned away sites):\n"
+		if(!length(rows))
+			msg += "  (none pinned -- every overmap site is dynamic and resets each boot)\n"
+		for(var/list/row in rows)
+			var/live = (row["last_z"] && (row["last_z"] in GLOB.persistence_pinned_site_z)) ? "live at z=[row["last_z"]]" : "takes effect next boot"
+			var/appearance_info = ""
+			if(row["custom_name"])
+				appearance_info += ", named '[row["custom_name"]]'"
+			if(row["custom_icon"])
+				appearance_info += ", icon '[row["custom_icon"]]'"
+			msg += "  #[row["id"]] [row["template"]][row["notes"] ? " ([row["notes"]])" : ""] -- [row["enabled"] ? "ENABLED" : "disabled"], overmap ([row["om_x"]],[row["om_y"]])[appearance_info], [live]\n"
+		to_chat(usr, SPAN_NOTICE(msg))
+
+		var/action = tgui_input_list(usr, "Select action:", "Persistent Overmap Sites", list("Pin Site I'm At", "Pin From Template List", "Rename Site", "Change Icon", "Toggle Enabled", "Unpin Site", "Close"))
+		if(!action || action == "Close")
+			return
+
+		if(action == "Pin Site I'm At")
+			var/obj/effect/overmap/visitable/here_marker = GLOB.map_sectors["[usr.z]"]
+			if(istype(here_marker, /obj/effect/overmap/visitable/sector/exoplanet))
+				to_chat(usr, SPAN_WARNING("Exoplanets are procedurally generated every boot (no fixed template) and cannot be pinned."))
+				continue
+			var/datum/map_template/here_template = GLOB.map_templates["[usr.z]"]
+			if(!istype(here_template, /datum/map_template/ruin/away_site))
+				to_chat(usr, SPAN_WARNING("Z=[usr.z] was not loaded from an away-site template -- stand on the site you want to pin."))
+				continue
+			var/already_pinned = FALSE
+			for(var/list/row in rows)
+				if(row["template"] == here_template.id)
+					already_pinned = TRUE
+					break
+			if(already_pinned)
+				to_chat(usr, SPAN_WARNING("'[here_template.id]' is already pinned."))
+				continue
+			var/pin_label = tgui_input_text(usr, "Label for this site (optional):", "Pin Site", "", max_length = 128)
+			// The site's base z this session (lowest of its connected z's)
+			var/base_z = usr.z
+			var/list/live_zs = list(usr.z)
+			if(here_marker && length(here_marker.map_z))
+				live_zs = here_marker.map_z.Copy()
+				base_z = live_zs[1]
+				for(var/mz in live_zs)
+					base_z = min(base_z, mz)
+			var/datum/db_query/iq = SSdbcore.NewQuery(
+				{"INSERT INTO ss13_persistent_away_sites (template_name, map_path, overmap_x, overmap_y, last_z, enabled, notes)
+				VALUES (:tn, :mp, :ox, :oy, :z, 1, :notes)
+				ON DUPLICATE KEY UPDATE enabled = 1, notes = VALUES(notes)"},
+				list(
+					"tn" = here_template.id,
+					"mp" = "[SSatlas.current_map.path]",
+					"ox" = (here_marker ? here_marker.start_x : 0),
+					"oy" = (here_marker ? here_marker.start_y : 0),
+					"z"  = base_z,
+					"notes" = (pin_label != "" ? pin_label : null)
+				)
+			)
+			iq.Execute()
+			SSpersistence.databaseCheckQueryResult(iq, "persistent_overmap_sites pin")
+			qdel(iq)
+			// Live activation: the site starts saving from the next save pass
+			// this session; next boot it respawns pinned (rows remapped to its
+			// deterministic z automatically).
+			for(var/nz in live_zs)
+				GLOB.persistence_pinned_site_z |= nz
+				GLOB.persistence_zlevel_allow |= nz
+			to_chat(usr, SPAN_GOOD("Pinned '[here_template.id]'[pin_label ? " ([pin_label])" : ""] -- persisting from the next save, respawns every boot at overmap ([here_marker ? "[here_marker.start_x],[here_marker.start_y]" : "?,?"])."))
+			log_and_message_admins("pinned overmap site '[here_template.id]' for persistence[pin_label ? " ([pin_label])" : ""]", usr)
+
+		else if(action == "Pin From Template List")
+			var/list/pinnable = list()
+			for(var/site_id in SSmapping.away_sites_templates)
+				var/id_taken = FALSE
+				for(var/list/row in rows)
+					if(row["template"] == site_id)
+						id_taken = TRUE
+						break
+				if(!id_taken)
+					pinnable += site_id
+			if(!length(pinnable))
+				to_chat(usr, SPAN_WARNING("Every away-site template is already pinned."))
+				continue
+			var/tmpl_pick = tgui_input_list(usr, "Pin which away-site template? It will spawn pinned starting next boot.", "Pin From Template List", pinnable)
+			if(!tmpl_pick)
+				continue
+			var/list_label = tgui_input_text(usr, "Label for this site (optional):", "Pin Site", "", max_length = 128)
+			var/datum/db_query/lq = SSdbcore.NewQuery(
+				{"INSERT INTO ss13_persistent_away_sites (template_name, map_path, overmap_x, overmap_y, last_z, enabled, notes)
+				VALUES (:tn, :mp, 0, 0, 0, 1, :notes)
+				ON DUPLICATE KEY UPDATE enabled = 1, notes = VALUES(notes)"},
+				list("tn" = tmpl_pick, "mp" = "[SSatlas.current_map.path]", "notes" = (list_label != "" ? list_label : null))
+			)
+			lq.Execute()
+			SSpersistence.databaseCheckQueryResult(lq, "persistent_overmap_sites pin-list")
+			qdel(lq)
+			to_chat(usr, SPAN_GOOD("Pinned '[tmpl_pick]'[list_label ? " ([list_label])" : ""] -- spawns pinned starting next boot (overmap position recorded on first spawn)."))
+			log_and_message_admins("pinned overmap site '[tmpl_pick]' for persistence (from template list)", usr)
+
+		else if(action == "Rename Site")
+			if(!length(rows))
+				to_chat(usr, SPAN_WARNING("No sites are pinned."))
+				continue
+			var/list/rename_choices = list()
+			for(var/list/row in rows)
+				rename_choices["#[row["id"]] [row["template"]][row["custom_name"] ? " ('[row["custom_name"]]')" : ""]"] = row
+			var/rename_pick = tgui_input_list(usr, "Rename which pinned site?", "Rename Site", rename_choices)
+			if(!rename_pick)
+				continue
+			var/list/rename_row = rename_choices[rename_pick]
+			var/new_site_name = tgui_input_text(usr, "New overmap name for '[rename_row["template"]]' (leave blank to restore the template default):", "Rename Site", rename_row["custom_name"], max_length = 128)
+			if(isnull(new_site_name))
+				continue
+			var/datum/db_query/rnq = SSdbcore.NewQuery(
+				"UPDATE ss13_persistent_away_sites SET custom_name = :cn WHERE id = :id",
+				list("cn" = (new_site_name != "" ? new_site_name : null), "id" = rename_row["id"])
+			)
+			rnq.Execute()
+			SSpersistence.databaseCheckQueryResult(rnq, "persistent_overmap_sites rename")
+			qdel(rnq)
+			// Apply live if the site is spawned this session
+			if(rename_row["last_z"] && (rename_row["last_z"] in GLOB.persistence_pinned_site_z))
+				var/obj/effect/overmap/visitable/rename_marker = GLOB.map_sectors["[rename_row["last_z"]]"]
+				if(rename_marker)
+					rename_marker.name = (new_site_name != "" ? new_site_name : initial(rename_marker.name))
+			to_chat(usr, SPAN_GOOD("'[rename_row["template"]]' [new_site_name != "" ? "renamed to '[new_site_name]'" : "name restored to template default"] -- persists across reboots."))
+			log_and_message_admins("[new_site_name != "" ? "renamed pinned overmap site '[rename_row["template"]]' to '[new_site_name]'" : "cleared custom name on pinned overmap site '[rename_row["template"]]'"]", usr)
+
+		else if(action == "Change Icon")
+			if(!length(rows))
+				to_chat(usr, SPAN_WARNING("No sites are pinned."))
+				continue
+			var/list/icon_site_choices = list()
+			for(var/list/row in rows)
+				icon_site_choices["#[row["id"]] [row["template"]][row["custom_icon"] ? " ('[row["custom_icon"]]')" : ""]"] = row
+			var/icon_site_pick = tgui_input_list(usr, "Change the overmap icon of which pinned site?", "Change Icon", icon_site_choices)
+			if(!icon_site_pick)
+				continue
+			var/list/icon_row = icon_site_choices[icon_site_pick]
+			// Runtime enumeration -- any sprite later added to the sheet becomes pickable
+			var/list/icon_options = list("(template default)") + icon_states('icons/obj/overmap/overmap_effects.dmi')
+			var/icon_pick = tgui_input_list(usr, "New overmap icon for '[icon_row["template"]]':", "Change Icon", icon_options)
+			if(!icon_pick)
+				continue
+			var/new_icon_state = (icon_pick == "(template default)") ? null : icon_pick
+			var/datum/db_query/icq = SSdbcore.NewQuery(
+				"UPDATE ss13_persistent_away_sites SET custom_icon_state = :ci WHERE id = :id",
+				list("ci" = new_icon_state, "id" = icon_row["id"])
+			)
+			icq.Execute()
+			SSpersistence.databaseCheckQueryResult(icq, "persistent_overmap_sites change icon")
+			qdel(icq)
+			if(icon_row["last_z"] && (icon_row["last_z"] in GLOB.persistence_pinned_site_z))
+				var/obj/effect/overmap/visitable/icon_marker = GLOB.map_sectors["[icon_row["last_z"]]"]
+				if(icon_marker)
+					icon_marker.icon_state = new_icon_state || initial(icon_marker.icon_state)
+					icon_marker.update_icon()
+			to_chat(usr, SPAN_GOOD("'[icon_row["template"]]' overmap icon [new_icon_state ? "set to '[new_icon_state]'" : "restored to template default"] -- persists across reboots."))
+			log_and_message_admins("[new_icon_state ? "set pinned overmap site '[icon_row["template"]]' icon to '[new_icon_state]'" : "cleared custom icon on pinned overmap site '[icon_row["template"]]'"]", usr)
+
+		else if(action == "Toggle Enabled")
+			if(!length(rows))
+				to_chat(usr, SPAN_WARNING("No sites are pinned."))
+				continue
+			var/list/toggle_choices = list()
+			for(var/list/row in rows)
+				toggle_choices["#[row["id"]] [row["template"]] ([row["enabled"] ? "ENABLED" : "disabled"])"] = row
+			var/toggle_pick = tgui_input_list(usr, "Toggle which pinned site?", "Toggle Enabled", toggle_choices)
+			if(!toggle_pick)
+				continue
+			var/list/toggle_row = toggle_choices[toggle_pick]
+			var/new_state = toggle_row["enabled"] ? 0 : 1
+			var/datum/db_query/tq = SSdbcore.NewQuery(
+				"UPDATE ss13_persistent_away_sites SET enabled = :en WHERE id = :id",
+				list("en" = new_state, "id" = toggle_row["id"])
+			)
+			tq.Execute()
+			SSpersistence.databaseCheckQueryResult(tq, "persistent_overmap_sites toggle")
+			qdel(tq)
+			if(!new_state && toggle_row["last_z"] && (toggle_row["last_z"] in GLOB.persistence_pinned_site_z))
+				GLOB.persistence_pinned_site_z -= toggle_row["last_z"]
+				GLOB.persistence_zlevel_allow -= toggle_row["last_z"]
+			to_chat(usr, SPAN_GOOD("'[toggle_row["template"]]' is now [new_state ? "ENABLED (persists from next boot)" : "disabled (dynamic again from next boot; saved rows kept)"]."))
+			log_and_message_admins("[new_state ? "enabled" : "disabled"] pinned overmap site '[toggle_row["template"]]'", usr)
+
+		else if(action == "Unpin Site")
+			if(!length(rows))
+				to_chat(usr, SPAN_WARNING("No sites are pinned."))
+				continue
+			var/list/unpin_choices = list()
+			for(var/list/row in rows)
+				unpin_choices["#[row["id"]] [row["template"]][row["notes"] ? " ([row["notes"]])" : ""]"] = row
+			var/unpin_pick = tgui_input_list(usr, "Unpin which site? It returns to the dynamic RNG pool next boot.", "Unpin Site", unpin_choices)
+			if(!unpin_pick)
+				continue
+			var/list/unpin_row = unpin_choices[unpin_pick]
+			var/purge_choice = tgui_alert(usr, "Also purge '[unpin_row["template"]]'s saved persistence rows (z=[unpin_row["last_z"]])? 'Keep' leaves them orphaned in the DB.", "Unpin Site", list("Purge", "Keep", "Cancel"))
+			if(!purge_choice || purge_choice == "Cancel")
+				continue
+			var/datum/db_query/uq = SSdbcore.NewQuery(
+				"DELETE FROM ss13_persistent_away_sites WHERE id = :id",
+				list("id" = unpin_row["id"])
+			)
+			uq.Execute()
+			SSpersistence.databaseCheckQueryResult(uq, "persistent_overmap_sites unpin")
+			qdel(uq)
+			if(purge_choice == "Purge" && unpin_row["last_z"])
+				SSpersistence.purgeZRows(unpin_row["last_z"])
+			if(unpin_row["last_z"] && (unpin_row["last_z"] in GLOB.persistence_pinned_site_z))
+				GLOB.persistence_pinned_site_z -= unpin_row["last_z"]
+				GLOB.persistence_zlevel_allow -= unpin_row["last_z"]
+			to_chat(usr, SPAN_GOOD("Unpinned '[unpin_row["template"]]'[purge_choice == "Purge" ? " and purged its saved rows" : " (saved rows kept)"]. Dynamic again from next boot."))
+			log_and_message_admins("unpinned overmap site '[unpin_row["template"]]'[purge_choice == "Purge" ? " (rows purged)" : ""]", usr)
+
+/// Inject an away-site template at a chosen overmap tile at runtime -- the
+/// same kind of z-level that normally only spawns randomly at boot, placed
+/// deliberately mid-session. The site is DYNAMIC (gone on reboot, never saved)
+/// unless subsequently pinned via Persistent Overmap Sites, which then
+/// respawns it at this exact spot every boot with full persistence.
+/datum/admins/proc/generate_away_site()
+	set name = "Generate Away Site"
+	set category = "Persistence"
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	if(SSticker.current_state < GAME_STATE_PREGAME)
+		to_chat(usr, SPAN_WARNING("Wait for the master controller to initialize before loading maps."))
+		return
+	if(!SSatlas.current_map.overmap_z)
+		to_chat(usr, SPAN_WARNING("This map has no overmap."))
+		return
+
+	var/tmpl_pick = tgui_input_list(usr, "Which away-site template to generate?", "Generate Away Site", SSmapping.away_sites_templates)
+	if(!tmpl_pick)
+		return
+	var/datum/map_template/ruin/away_site/site = SSmapping.away_sites_templates[tmpl_pick]
+	if(!site)
+		return
+	if(site.loaded && !(site.template_flags & TEMPLATE_FLAG_ALLOW_DUPLICATES))
+		to_chat(usr, SPAN_WARNING("'[tmpl_pick]' is already loaded somewhere in the world and does not allow duplicates."))
+		return
+
+	// Position: standing on the overmap chart (ghost flyover) defaults to your
+	// tile -- the "visual" picker. Coordinates can always be entered manually.
+	var/map_low = OVERMAP_EDGE
+	var/map_high = SSatlas.current_map.overmap_size - OVERMAP_EDGE
+	var/default_x = (usr.z == SSatlas.current_map.overmap_z) ? usr.x : map_low
+	var/default_y = (usr.z == SSatlas.current_map.overmap_z) ? usr.y : map_low
+	var/pick_x = tgui_input_number(usr, "Overmap X ([map_low]-[map_high])[usr.z == SSatlas.current_map.overmap_z ? " -- defaulting to your current tile" : ""]:", "Generate Away Site", default_x, map_high, map_low)
+	if(isnull(pick_x))
+		return
+	var/pick_y = tgui_input_number(usr, "Overmap Y ([map_low]-[map_high]):", "Generate Away Site", default_y, map_high, map_low)
+	if(isnull(pick_y))
+		return
+	pick_x = clamp(pick_x, map_low, map_high)
+	pick_y = clamp(pick_y, map_low, map_high)
+
+	var/turf/target_tile = locate(pick_x, pick_y, SSatlas.current_map.overmap_z)
+	if(!target_tile)
+		to_chat(usr, SPAN_WARNING("No overmap tile at ([pick_x],[pick_y])."))
+		return
+	var/obj/effect/overmap/visitable/occupant = locate() in target_tile
+	if(occupant)
+		to_chat(usr, SPAN_WARNING("([pick_x],[pick_y]) is already occupied by '[occupant.name]' -- pick another tile."))
+		return
+
+	log_and_message_admins("is generating away site '[tmpl_pick]' at overmap ([pick_x],[pick_y])", usr)
+
+	// Suspend ZAS during the load or the freshly loaded site gets vented
+	// (same recipe as the Map Template - Place In New Z verb).
+	var/z_before = world.maxz
+	SSair.can_fire = FALSE
+	var/bounds = site.load_new_z(FALSE)
+	SSair.can_fire = TRUE
+	if(!bounds)
+		to_chat(usr, SPAN_WARNING("Failed to load '[tmpl_pick]'."))
+		log_and_message_admins("failed to generate away site '[tmpl_pick]'", usr)
+		return
+
+	var/site_z = z_before + 1
+	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[site_z]"]
+	if(marker)
+		marker.start_x = pick_x
+		marker.start_y = pick_y
+		if(marker.loc)
+			marker.forceMove(target_tile)
+
+	to_chat(usr, SPAN_GOOD("Generated '[tmpl_pick]' at overmap ([pick_x],[pick_y]), z=[site_z]. It is DYNAMIC (gone on reboot, not saved) -- pin it via Persistent Overmap Sites to make it permanent."))
+	log_and_message_admins("generated away site '[tmpl_pick]' at overmap ([pick_x],[pick_y]), z=[site_z]", usr)
 
 /datum/admins/proc/give_credits_to_player()
 	set name = "Give Credits"

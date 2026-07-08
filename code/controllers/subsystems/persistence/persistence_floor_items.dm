@@ -66,6 +66,8 @@
 			continue
 		if(!I.z)
 			continue
+		if(persistence_z_manual_blocked(I.z))
+			continue // z-level not persisted -- leave its items alone, don't wipe
 		if(I.persistent_objects_track_id != 0)
 			continue
 		if(I in GLOB.persistence_object_track_register)
@@ -83,6 +85,8 @@
 		CHECK_TICK
 		var/turf/T = locate(data["x"], data["y"], data["z"])
 		if(!T || !T.z)
+			continue
+		if(persistence_z_manual_blocked(T.z))
 			continue
 		// Skip turfs with closed closets -- their contents are handled by closet content serialization,
 		// and the closet LateInitialize would suck restored floor items in, causing duplication.
@@ -148,6 +152,8 @@
 		if(!isturf(I.loc))
 			continue
 		if(!I.z)
+			continue
+		if(persistence_z_manual_blocked(I.z))
 			continue
 		if(I.persistent_objects_track_id != 0)
 			continue

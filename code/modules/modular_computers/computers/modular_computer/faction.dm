@@ -35,6 +35,11 @@ GLOBAL_LIST_INIT(modcomp_factory_default_programs, list("computerconfig", "clien
 	..()
 	if(!islist(content))
 		return
+	// Diagnostic: prove the apply side runs and what it received
+	var/list/content_keys = list()
+	for(var/ck in content)
+		content_keys += "[ck]"
+	log_subsystem_persistence_info("Modcomp apply: [src] keys=\[[content_keys.Join(", ")]\] programs=[islist(content["programs"]) ? length(content["programs"]) : "none"]")
 	if("persistent_network" in content)
 		// Normalize on restore: older saves may carry raw display names
 		persistent_network = normalize_faction_uid(content["persistent_network"]) || ""
@@ -69,25 +74,51 @@ GLOBAL_LIST_INIT(modcomp_factory_default_programs, list("computerconfig", "clien
 /// silently skipped.
 /obj/item/modular_computer/proc/modcomp_restore_programs(list/filenames)
 	if(!islist(filenames) || !hard_drive)
+		if(islist(filenames) && length(filenames))
+			log_subsystem_persistence_error("Modcomp restore: [src] has no hard drive -- [length(filenames)] saved program(s) not restored.")
 		return
+	// Reconciliation pass: the fresh machine's Initialize() already installed
+	// its FULL preset program set -- including programs the player deleted
+	// in-game to free drive space. Saved state is authoritative: remove any
+	// non-factory, deletable program that is not in the saved list FIRST, so
+	// the install pass below has the same free space the player actually had
+	// (fixes "hard drive full" restore failures on near-capacity PDAs).
+	for(var/datum/computer_file/program/P in hard_drive.stored_files.Copy())
+		if(P.filename in filenames)
+			continue
+		if(P.filename in GLOB.modcomp_factory_default_programs)
+			continue // never saved by design -- always keep
+		if(P.undeletable)
+			continue
+		P.kill_program(TRUE)
+		hard_drive.remove_file(P, force = TRUE)
+		log_subsystem_persistence_info("Modcomp restore: removed un-saved '[P.filename]' from [src] (reconcile).")
 	for(var/fname in filenames)
 		if(hard_drive.find_file_by_name(fname))
 			continue // already present
 		var/datum/computer_file/program/template = GLOB.ntnet_global.find_ntnet_file_by_name(fname)
 		if(!template)
+			log_subsystem_persistence_error("Modcomp restore: program '[fname]' not found in the NTNet catalog -- skipped on [src].")
 			continue
 		var/datum/computer_file/program/copy = template.clone(FALSE, src)
-		hard_drive.store_file(copy)
+		if(hard_drive.store_file(copy))
+			log_subsystem_persistence_info("Modcomp restore: installed '[fname]' on [src].")
+		else
+			log_subsystem_persistence_error("Modcomp restore: hard drive full -- could not install '[fname]' on [src].")
 
 /obj/item/modular_computer/verb/link_faction_network()
 	set name = "Link to Faction"
 	set category = "Object"
-	set src in oview(1)
+	set src in view(1)
 
 	var/mob/user = usr
-	var/obj/item/card/id/I = user.GetIdCard()
+	// Prefer the ID inserted in the device's own card slot (the natural PDA
+	// flow), fall back to the ID the user is wearing/holding
+	var/obj/item/card/id/I = card_slot ? card_slot.stored_card : null
 	if(!I || !I.employer_faction)
-		to_chat(user, SPAN_WARNING("Your ID is not issued by a faction."))
+		I = user.GetIdCard()
+	if(!I || !I.employer_faction)
+		to_chat(user, SPAN_WARNING("Insert a faction-issued ID into \the [src] or carry one on you."))
 		return
 
 	// IDs carry the faction display name; the faction cache/DB key is the
@@ -99,7 +130,22 @@ GLOBAL_LIST_INIT(modcomp_factory_default_programs, list("computerconfig", "clien
 		return
 
 	if(faction_shackled && persistent_network == card_faction)
-		to_chat(user, SPAN_NOTICE("This computer is already shackled to [get_faction_name(card_faction)] ([card_faction])."))
+		// Same faction: this button doubles as the unshackle toggle
+		// (officer+ of the faction or admin, mirroring release_faction_shackle)
+		var/toggle_is_admin = check_rights(R_ADMIN, 0, user)
+		if(!toggle_is_admin)
+			var/list/toggle_member = get_faction_member(user.ckey, card_faction)
+			var/toggle_rank = toggle_member ? (toggle_member["rank"] || 0) : -1
+			if(toggle_rank < 1)
+				to_chat(user, SPAN_WARNING("This computer is shackled to [get_faction_name(card_faction)]. You need officer access to release it."))
+				return
+		var/release_confirm = tgui_alert(user, "This computer is already shackled to [get_faction_name(card_faction)]. Release the shackle?", "Release Faction Shackle", list("Release", "Cancel"))
+		if(release_confirm != "Release")
+			return
+		persistent_network = ""
+		faction_shackled   = FALSE
+		to_chat(user, SPAN_GOOD("Shackle released. Computer is now unclaimed."))
+		log_game("[key_name(user)] released faction shackle on [src] at ([x],[y],[z]) (was '[card_faction]') via Link to Faction toggle.")
 		return
 
 	var/confirm = tgui_alert(user, "Shackle this computer to [get_faction_name(card_faction)] ([card_faction])? Only officers of that faction will be able to release it.", "Link to Faction", list("Confirm", "Cancel"))
@@ -114,7 +160,7 @@ GLOBAL_LIST_INIT(modcomp_factory_default_programs, list("computerconfig", "clien
 /obj/item/modular_computer/verb/release_faction_shackle()
 	set name = "Release Faction Shackle"
 	set category = "Object"
-	set src in oview(1)
+	set src in view(1)
 
 	var/mob/user = usr
 
@@ -144,7 +190,7 @@ GLOBAL_LIST_INIT(modcomp_factory_default_programs, list("computerconfig", "clien
 /obj/item/modular_computer/verb/check_faction_network()
 	set name = "Check Faction Network"
 	set category = "Admin"
-	set src in oview(1)
+	set src in view(1)
 
 	if(!check_rights(R_ADMIN))
 		return

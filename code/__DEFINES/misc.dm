@@ -30,7 +30,9 @@
 // Preference toggles.
 #define SOUND_ADMINHELP 0x1
 #define SOUND_MIDI      0x2
-// 0x4 is free.
+// INVERTED bit (hidden when set): existing players' saved toggles predate
+// this flag, and unset must mean "shown" for the shield to default on.
+#define HIDE_ZONE_SHIELD 0x4
 // 0x8 is free.
 #define CHAT_OOC				0x10
 #define CHAT_DEAD				0x20
