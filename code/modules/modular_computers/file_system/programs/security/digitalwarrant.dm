@@ -17,6 +17,10 @@
 /datum/computer_file/program/digitalwarrant/ui_data(mob/user)
 	var/list/data = initial_data()
 
+	// Faction instancing: a shackled console only sees its own faction's
+	// warrants; unshackled consoles see the full station-wide list, unchanged.
+	var/net = computer ? normalize_faction_uid(computer.persistent_network) : ""
+
 	if(active_warrant)
 		data["active_warrant"] = list(
 			"name" = active_warrant.name,
@@ -28,6 +32,8 @@
 	else
 		var/list/allwarrants = list()
 		for(var/datum/record/warrant/W in SSrecords.warrants)
+			if(!record_faction_visible(W.faction_uid, net))
+				continue
 			allwarrants += list(list(
 			"name" = W.name,
 			"charges" = "[copytext(W.notes,1,min(length(W.notes) + 1, 50))]...",
@@ -50,8 +56,9 @@
 			SStgui.update_uis(computer)
 
 		if("editwarrant")
+			var/net = computer ? normalize_faction_uid(computer.persistent_network) : ""
 			for(var/datum/record/warrant/W in SSrecords.warrants)
-				if(W.id == text2num(params["editwarrant"]))
+				if(W.id == text2num(params["editwarrant"]) && record_faction_visible(W.faction_uid, net))
 					active_warrant = W
 					break
 			. = TRUE
@@ -80,6 +87,7 @@
 		if("addwarrant")
 			. = TRUE
 			var/datum/record/warrant/W = new()
+			W.faction_uid = computer ? normalize_faction_uid(computer.persistent_network) : ""
 			var/temp = sanitize(input(usr, "Do you want to create a search-, or an arrest warrant?") as null|anything in list("search", "arrest"))
 			if(!computer.use_check_and_message(user))
 				if(temp == "arrest")

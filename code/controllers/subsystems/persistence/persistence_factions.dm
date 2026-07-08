@@ -127,6 +127,15 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 		return uid
 	return lowertext(replacetext(uid, " ", "_"))
 
+/// TRUE if a faction-taggable record should be visible to a console on the
+/// given (already-normalized) network. Unshackled consoles (console_net "")
+/// see everything -- unchanged station-wide behavior, so the base game never
+/// regresses. A shackled console only sees its own faction's slice.
+/proc/record_faction_visible(record_faction_uid, console_net)
+	if(!console_net)
+		return TRUE
+	return normalize_faction_uid(record_faction_uid) == console_net
+
 /proc/get_faction_account_balance(uid)
 	uid = normalize_faction_uid(uid)
 	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))

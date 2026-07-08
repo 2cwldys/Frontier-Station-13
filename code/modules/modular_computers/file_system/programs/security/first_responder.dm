@@ -105,14 +105,9 @@
 				to_chat(user, SPAN_WARNING("Offense record no longer available."))
 				return TRUE
 			var/list/entry = GLOB.highsec_offense_log[index]
-			// Live offender position preferred; recorded coordinates fallback
-			var/turf/target_turf
-			var/datum/weakref/wr = entry["ref"]
-			var/mob/offender = wr ? wr.resolve() : null
-			if(!QDELETED(offender) && offender.z)
-				target_turf = get_turf(offender)
-			else
-				target_turf = locate(entry["x"], entry["y"], entry["z"])
+			// Always the recorded crime SITE -- secure the scene, don't chase
+			// wherever the offender may have wandered off to since.
+			var/turf/target_turf = locate(entry["x"], entry["y"], entry["z"])
 			if(!target_turf)
 				to_chat(user, SPAN_WARNING("Cannot resolve the offense location."))
 				return TRUE
