@@ -27,18 +27,24 @@
 
 /datum/computer_file/program/civilian/cargoexports/ui_data(mob/user)
 	var/list/data = initial_data()
-	var/net = computer ? computer.persistent_network : ""
+	// Normalize defensively: consoles shackled before uid normalization carry
+	// raw display names in their saved worldstate
+	var/net = computer ? normalize_faction_uid(computer.persistent_network) : ""
+
+	var/raw_balance = net ? get_faction_account_balance(net) : null
 
 	data["faction_uid"]     = net
 	data["faction_name"]    = net ? get_faction_name(net) : null
-	data["faction_balance"] = net ? get_faction_account_balance(net) : null
+	data["faction_balance"] = isnull(raw_balance) ? 0 : raw_balance
 	data["has_telepad"]     = net ? !!persistence_find_cargo_telepad(net) : FALSE
 	data["status_message"]  = status_message
 
-	// Export catalog — all exportable types and their current prices
+	// Export catalog -- all exportable types and their current prices
 	var/list/catalog = list()
 	for(var/datum/export/E in SScargo.exports_list)
-		catalog += list(list("name" = E:name, "price" = E.get_cost()))
+		if(!E.unit_name)
+			continue
+		catalog += list(list("name" = E.unit_name, "price" = E.get_cost()))
 	data["export_catalog"] = catalog
 
 	// Operator rank (officer+ required to export)
@@ -54,7 +60,7 @@
 		return
 
 	var/mob/user = usr
-	var/net = computer.persistent_network
+	var/net = normalize_faction_uid(computer.persistent_network)
 
 	switch(action)
 		if("link_faction")
@@ -66,7 +72,7 @@
 			if(!I || !I.employer_faction)
 				status_message = "Your ID is not issued by a faction. Get a faction ID first."
 				return TRUE
-			var/card_faction = I.employer_faction
+			var/card_faction = normalize_faction_uid(I.employer_faction)
 			if(computer.faction_shackled && computer.persistent_network != card_faction)
 				status_message = "This console is already linked to [get_faction_name(computer.persistent_network)]. Only their officers can release it."
 				return TRUE
@@ -81,7 +87,7 @@
 				status_message = "This terminal is not linked to a faction network."
 				return TRUE
 
-			// Operator rank gate — officer+
+			// Operator rank gate -- officer+
 			var/list/op_member = user.ckey ? get_faction_member(user.ckey, net) : null
 			var/op_rank = op_member ? (isnull(op_member["rank"]) ? 0 : (op_member["rank"] + 0)) : -1
 			if(op_rank < 1 && !check_rights(R_ADMIN, 0, user))
@@ -108,7 +114,7 @@
 			var/list/exp_lines = list()
 			for(var/datum/export/E in SScargo.exports_list)
 				if(E.total_cost <= 0) continue
-				exp_lines += "[E:name]: [E.total_amount] units — [E.total_cost] cr"
+				exp_lines += "[E.unit_name]: [E.total_amount] units -- [E.total_cost] cr"
 				exp_total += E.total_cost
 				E.export_end()
 

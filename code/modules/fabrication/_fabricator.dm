@@ -15,6 +15,7 @@ ABSTRACT_TYPE(/obj/structure/machinery/fabricator)
 	var/fabricator_class = FABRICATOR_CLASS_GENERAL
 	/// List of stored materials.
 	var/list/stored_material = list()
+	worldstate_vars = list("stored_material")
 	/// List of material capacities. Should not be modified directly, use [var/list/base_storage_capacity] instead.
 	var/list/storage_capacity = list()
 	/// Base storage capacity, which is modified by default by the amount and tier of matter bins.

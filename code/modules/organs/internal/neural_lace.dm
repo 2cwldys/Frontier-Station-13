@@ -32,8 +32,8 @@
 	emp_coeff = 3
 	is_augment = TRUE
 	w_class = WEIGHT_CLASS_TINY
-	icon = 'icons/obj/organs/augments.dmi'
-	icon_state = "augment"
+	icon = 'icons/obj/organs/neural_lace.dmi'
+	icon_state = "cortical-stack"
 
 	/// Physical/electronic damage to the extracted lace (0–100). Only accumulates when NOT installed.
 	var/lace_damage = 0
@@ -191,10 +191,10 @@
 	var/is_fresh = !length(registered_ckey)
 	registered_name = H.real_name
 	if(H.ckey) registered_ckey = H.ckey
-	if(H.employer_faction) owner_faction = H.employer_faction
+	if(H.employer_faction) owner_faction = normalize_faction_uid(H.employer_faction)
 	else if(H.wear_id && istype(H.wear_id, /obj/item/card/id))
 		var/obj/item/card/id/card = H.wear_id
-		if(card.employer_faction) owner_faction = card.employer_faction
+		if(card.employer_faction) owner_faction = normalize_faction_uid(card.employer_faction)
 	if(is_fresh)
 		to_chat(H, SPAN_NOTICE("You feel a faint tingle at the base of your skull as the neural lace comes online."))
 	add_verb(H, /mob/living/carbon/human/proc/check_neural_lace_status)
@@ -207,65 +207,52 @@
 /// Called when surgically removed from a mob
 /obj/item/organ/internal/neural_lace/removed(mob/living/carbon/human/target, mob/living/user, drop_organ = TRUE, detach = TRUE)
 	remove_verb(target, /mob/living/carbon/human/proc/check_neural_lace_status)
-	// Transfer the consciousness into the lace item if occupied
-	if(lace_occupied && lace_mob && !QDELETED(lace_mob))
+
+	// If the host is dead and still has a mind attached, extraction is the
+	// moment their consciousness gets captured into the lace -- not death.
+	if(!lace_occupied && target.stat == DEAD && target.mind)
+		registered_name = target.real_name
+		if(target.ckey) registered_ckey = target.ckey
+		if(target.wear_id && istype(target.wear_id, /obj/item/card/id))
+			var/obj/item/card/id/card = target.wear_id
+			if(card.employer_faction) owner_faction = normalize_faction_uid(card.employer_faction)
+
+		lace_mob = new /mob/living/carbon/lace_mob(get_turf(target))
+		lace_mob.name      = target.real_name
+		lace_mob.real_name = target.real_name
+		lace_mob.neural_lace = src
+		if(target.dna)
+			lace_mob.dna = target.dna.Clone()
+
+		target.mind.transfer_to(lace_mob)
+		lace_occupied = TRUE
 		lace_mob.forceMove(src)
-		// Cancel the auto-transfer timer — medics have it now
-		if(auto_transfer_timer)
-			deltimer(auto_transfer_timer)
-			auto_transfer_timer = null
-		to_chat(lace_mob, SPAN_NOTICE("You feel yourself contained. You are inside the neural lace. Medical staff can resleeve you."))
+
+		to_chat(lace_mob, SPAN_NOTICE("Your body is dead. Your neural lace has been removed, and your consciousness now resides within it."))
+		to_chat(lace_mob, SPAN_NOTICE("You can hear nearby voices. Whisper to communicate. Medical staff can resleeve you."))
+		log_game("[registered_name] ([registered_ckey]) died and had their neural lace extracted -- consciousness captured.")
+
+		var/datum/callback/cb = new /datum/callback(src, TYPE_PROC_REF(/obj/item/organ/internal/neural_lace, _auto_transfer_to_storage))
+		auto_transfer_timer = addtimer(cb, 4 HOURS, TIMER_STOPPABLE | TIMER_DELETE_ME)
 	. = ..()
 
-/// Hook called from death proc — transfers consciousness into lace
-/obj/item/organ/internal/neural_lace/proc/on_host_death(mob/living/carbon/human/H)
-	if(lace_occupied || !H.mind)
-		return
-
-	// Update registration in case they changed IDs
-	registered_name = H.real_name
-	if(H.ckey) registered_ckey = H.ckey
-	if(H.wear_id && istype(H.wear_id, /obj/item/card/id))
-		var/obj/item/card/id/card = H.wear_id
-		if(card.employer_faction) owner_faction = card.employer_faction
-
-	// Create the lace mob and transfer consciousness into it
-	lace_mob = new /mob/living/carbon/lace_mob(get_turf(H))
-	lace_mob.name      = H.real_name
-	lace_mob.real_name = H.real_name
-	lace_mob.neural_lace = src
-	if(H.dna)
-		lace_mob.dna = H.dna.Clone()
-
-	H.mind.transfer_to(lace_mob)
-	lace_occupied = TRUE
-
-	to_chat(lace_mob, SPAN_NOTICE("Your body is dead. Your consciousness has been captured by your neural lace."))
-	to_chat(lace_mob, SPAN_NOTICE("You can hear nearby voices. Whisper to communicate. Medical staff can extract your lace and resleeve you."))
-	log_game("[registered_name] ([registered_ckey]) died — neural lace consciousness captured.")
-
-	// Start 10-minute countdown — if not extracted, auto-route to lace storage
-	var/datum/callback/cb = new /datum/callback(src, TYPE_PROC_REF(/obj/item/organ/internal/neural_lace, _auto_transfer_to_storage))
-	auto_transfer_timer = addtimer(cb, 4 HOURS, TIMER_STOPPABLE | TIMER_DELETE_ME)
-
-/// Called when 10-minute timer expires — teleport lace to nearest faction/public storage
+/// Called when the 4-hour timer expires, or directly to route immediately
+/// (e.g. a dead+logged-off despawn) — teleport lace to nearest faction/public storage.
 /obj/item/organ/internal/neural_lace/proc/_auto_transfer_to_storage()
+	if(auto_transfer_timer)
+		deltimer(auto_transfer_timer)
 	auto_transfer_timer = null
 	// If still inside a body, surgically eject first
 	if(owner && istype(owner, /mob/living/carbon/human))
 		removed(owner, null, TRUE, TRUE)
 		return  // removed() will call this again indirectly — but we clear the timer
 
-	// Find a storage pod
+	// Find a storage vault
 	var/obj/structure/machinery/lace_storage/pod = _find_storage()
-	if(pod)
-		forceMove(pod)
-		pod.stored_lace  = src
-		pod.stored_ckey  = registered_ckey
-		pod.update_icon()
+	if(pod && pod.store_lace(src))
 		if(lace_mob)
-			to_chat(lace_mob, SPAN_NOTICE("You feel yourself moved to a lace storage pod. Medical staff can retrieve you here."))
-		log_game("[registered_name] lace auto-transferred to storage pod at ([pod.x],[pod.y],[pod.z]).")
+			to_chat(lace_mob, SPAN_NOTICE("You feel yourself moved to a lace storage vault. Medical staff can retrieve you here."))
+		log_game("[registered_name] lace auto-transferred to storage vault at ([pod.x],[pod.y],[pod.z]).")
 	else
 		if(lace_mob)
 			to_chat(lace_mob, SPAN_NOTICE("No lace storage found. You remain where you are — seek medical attention."))
@@ -274,11 +261,11 @@
 	// Priority 1: faction storage
 	if(owner_faction)
 		for(var/obj/structure/machinery/lace_storage/pod in world)
-			if(is_station_level(pod.z) && pod.persistent_network == owner_faction && !pod.stored_lace)
+			if(is_station_level(pod.z) && pod.persistent_network == owner_faction && pod.has_free_slot())
 				return pod
 	// Priority 2: public storage
 	for(var/obj/structure/machinery/lace_storage/pod in world)
-		if(is_station_level(pod.z) && pod.persistent_network == "public" && !pod.stored_lace)
+		if(is_station_level(pod.z) && pod.persistent_network == "public" && pod.has_free_slot())
 			return pod
 	return null
 
@@ -343,6 +330,124 @@
 		return FALSE
 	return ..()
 
+// ============================================================
+// EMERGENCY CONSCIOUSNESS ASSIGNMENT (ADMIN)
+// ============================================================
+
+/// Disaster recovery: when a player's body AND lace are both lost, an admin
+/// can bind that player's consciousness to a blank lace, then run it through
+/// the normal body_vat -> resleever pipeline to rebuild them a body.
+/obj/item/organ/internal/neural_lace/verb/assign_consciousness()
+	set name = "Assign Consciousness"
+	set category = "Persistence"
+	set src in view(1)
+	set hidden = TRUE
+
+	if(!check_rights(R_ADMIN))
+		return
+	if(owner)
+		to_chat(usr, SPAN_WARNING("This lace is installed in someone. Extract it first."))
+		return
+	if(lace_occupied)
+		to_chat(usr, SPAN_WARNING("This lace already holds a consciousness."))
+		return
+
+	var/target_ckey = tgui_input_text(usr, "Enter the ckey whose consciousness should be bound to this lace:", "Assign Consciousness")
+	if(!target_ckey) return
+	target_ckey = ckey(target_ckey)
+
+	var/client/C = GLOB.directory[target_ckey]
+	if(!C)
+		to_chat(usr, SPAN_WARNING("No connected client found for ckey '[target_ckey]'."))
+		return
+
+	var/char_name = tgui_input_text(usr, "Character name to register the lace to:", "Assign Consciousness", C.prefs?.real_name)
+	if(!char_name) return
+
+	var/confirm = tgui_alert(usr, "Bind [target_ckey]'s consciousness to this lace as '[char_name]'? They will be pulled out of their current mob.", "Confirm", list("Bind", "Cancel"))
+	if(confirm != "Bind") return
+
+	// Re-validate after the blocking prompts -- state can change while they sit open.
+	if(owner || lace_occupied)
+		to_chat(usr, SPAN_WARNING("The lace's state changed while you were deciding. Aborting."))
+		return
+	C = GLOB.directory[target_ckey]
+	if(!C)
+		to_chat(usr, SPAN_WARNING("[target_ckey] disconnected. Aborting."))
+		return
+
+	lace_mob = new /mob/living/carbon/lace_mob(get_turf(src))
+	lace_mob.name      = char_name
+	lace_mob.real_name = char_name
+	lace_mob.neural_lace = src
+
+	// Ghosts/observers keep their mind -- transfer preserves it. A mob with
+	// no mind (e.g. lobby) gets pulled in by ckey and a fresh mind built.
+	if(C.mob?.mind)
+		C.mob.mind.transfer_to(lace_mob)
+	else
+		lace_mob.ckey = target_ckey
+		lace_mob.mind_initialize()
+
+	registered_name = char_name
+	registered_ckey = target_ckey
+	lace_occupied = TRUE
+	lace_mob.forceMove(src)
+
+	to_chat(lace_mob, SPAN_NOTICE("Your consciousness has been bound to a neural lace. Medical staff can resleeve you into a new body."))
+	to_chat(usr, SPAN_GOOD("[target_ckey]'s consciousness bound to the lace as '[char_name]'."))
+	log_and_message_admins("bound [target_ckey]'s consciousness to a neural lace as '[char_name]'", usr)
+
+/// Admin: install this lace into the VV-marked mob, skipping surgery.
+/// Matches the surgical install semantics exactly (replaced() chain).
+/obj/item/organ/internal/neural_lace/verb/assign_body()
+	set name = "Assign Body"
+	set category = "Persistence"
+	set src in view(1)
+	set hidden = TRUE
+
+	if(!check_rights(R_ADMIN))
+		return
+	if(owner)
+		to_chat(usr, SPAN_WARNING("This lace is already installed in [owner]. Extract it first."))
+		return
+
+	var/datum/marked = usr.client?.holder?.marked_datum
+	if(!marked)
+		to_chat(usr, SPAN_WARNING("No marked datum. Use VV -> Mark Object on the target mob first."))
+		return
+	var/mob/living/carbon/human/H = marked
+	if(!istype(H))
+		to_chat(usr, SPAN_WARNING("The marked datum is not a living human mob ([marked.type])."))
+		return
+	if(QDELETED(H))
+		to_chat(usr, SPAN_WARNING("The marked mob no longer exists."))
+		return
+	for(var/obj/item/organ/internal/neural_lace/existing in H.internal_organs)
+		to_chat(usr, SPAN_WARNING("[H.real_name] already has a neural lace installed."))
+		return
+
+	var/confirm = tgui_alert(usr, "Install this lace into [H.real_name]?", "Assign Body", list("Install", "Cancel"))
+	if(confirm != "Install")
+		return
+	// Re-validate after the blocking prompt.
+	if(owner || QDELETED(H))
+		to_chat(usr, SPAN_WARNING("State changed while you were deciding. Aborting."))
+		return
+
+	forceMove(H)
+	var/obj/item/organ/external/head = H.get_organ(BP_HEAD)
+	if(head)
+		replaced(H, head)
+	else
+		// Species without a head limb -- register directly on the mob.
+		owner = H
+		H.internal_organs |= src
+		H.internal_organs_by_name[organ_tag] = src
+
+	to_chat(usr, SPAN_GOOD("Neural lace installed in [H.real_name]."))
+	log_and_message_admins("assigned a neural lace into [H.real_name]'s body via Assign Body", usr)
+
 #undef LACE_DAMAGE_NONE
 #undef LACE_DAMAGE_MINOR
 #undef LACE_DAMAGE_MODERATE
@@ -386,17 +491,3 @@
 		to_chat(src, SPAN_NOTICE("  Faction routing: [faction_display]"))
 	to_chat(src, SPAN_NOTICE("  Consciousness preservation: [lace.lace_occupied ? SPAN_WARNING("ACTIVE - consciousness stored") : SPAN_GOOD("STANDBY")]"))
 
-// ============================================================
-// HUMAN MOB DEATH HOOK
-// ============================================================
-
-/// Override human death to trigger neural lace consciousness capture
-/mob/living/carbon/human/death(gibbed, deathmessage, messagerange)
-	. = ..()
-	if(!.)
-		return
-	// Find installed neural lace and trigger consciousness capture
-	for(var/obj/item/organ/internal/neural_lace/lace in internal_organs)
-		if(!lace.lace_occupied)
-			lace.on_host_death(src)
-			break

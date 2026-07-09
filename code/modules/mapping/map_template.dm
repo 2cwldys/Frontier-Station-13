@@ -71,6 +71,7 @@
 		if(!base_level)
 			base_level = level
 		GLOB.map_templates["[level.z_value]"] = src
+		GLOB.persistence_template_loaded_z |= level.z_value
 
 	var/datum/map_load_metadata/M = maploader.load_map(file(mappath), x, y, base_level.z_value, no_changeturf = no_changeturf)
 
@@ -200,6 +201,10 @@
 	init_shuttles(shuttle_state)
 
 	SSicon_smooth.can_fire = TRUE
+	// Landmark/ruin loads onto non-station levels must never persist; station
+	// levels are left alone so prefabs placed there still save normally.
+	if(!is_station_level(T.z))
+		GLOB.persistence_template_loaded_z |= T.z
 	message_admins("[name] loaded at [T.x], [T.y], [T.z]")
 	log_game("[name] loaded at [T.x], [T.y], [T.z]")
 	return TRUE

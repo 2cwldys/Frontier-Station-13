@@ -30,7 +30,9 @@
 // Preference toggles.
 #define SOUND_ADMINHELP 0x1
 #define SOUND_MIDI      0x2
-// 0x4 is free.
+// INVERTED bit (hidden when set): existing players' saved toggles predate
+// this flag, and unset must mean "shown" for the shield to default on.
+#define HIDE_ZONE_SHIELD 0x4
 // 0x8 is free.
 #define CHAT_OOC				0x10
 #define CHAT_DEAD				0x20
@@ -56,6 +58,8 @@
 #define ACCENT_TAG_TEXT BITFLAG(8)
 #define CLIENT_PREFERENCE_HIDE_MENU BITFLAG(9)
 #define FILM_GRAIN BITFLAG(10)
+#define INTIMATE_INTERACTIONS_ENABLED BITFLAG(11)
+#define TOGGLE_MUTTERING BITFLAG(12)
 
 #define TOGGLES_DEFAULT (SOUND_ADMINHELP | SOUND_MIDI | CHAT_OOC | CHAT_DEAD | CHAT_GHOSTEARS | CHAT_GHOSTSIGHT | CHAT_PRAYER | CHAT_RADIO | CHAT_ATTACKLOGS | CHAT_LOOC | CHAT_GHOSTLOOC)
 
@@ -72,8 +76,9 @@
 #define ASFX_HUM 				BITFLAG(8)
 #define ASFX_MUSIC				BITFLAG(9)
 #define ASFX_CONSOLE_AMBIENCE	BITFLAG(10)
+#define ASFX_AMBIENT_PLAYLIST	BITFLAG(11)
 
-#define ASFX_DEFAULT (ASFX_AMBIENCE | ASFX_FOOTSTEPS | ASFX_VOTE | ASFX_VOX | ASFX_DROPSOUND | ASFX_ARCADE | ASFX_RADIO | ASFX_INSTRUMENT | ASFX_HUM | ASFX_MUSIC | ASFX_CONSOLE_AMBIENCE)
+#define ASFX_DEFAULT (ASFX_AMBIENCE | ASFX_FOOTSTEPS | ASFX_VOTE | ASFX_VOX | ASFX_DROPSOUND | ASFX_ARCADE | ASFX_RADIO | ASFX_INSTRUMENT | ASFX_HUM | ASFX_MUSIC | ASFX_CONSOLE_AMBIENCE | ASFX_AMBIENT_PLAYLIST)
 
 // For secHUDs and medHUDs and variants. The number is the location of the image on the list hud_list of humans.
 #define      HEALTH_HUD 1 // A simple line reading the pulse.

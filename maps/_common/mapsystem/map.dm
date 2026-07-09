@@ -303,6 +303,11 @@
 
 	log_admin("Loading away sites...")
 
+	// Admin-pinned persistent sites spawn FIRST, in fixed id order, so their
+	// z-numbers repeat across boots (persistence rows key on absolute x,y,z).
+	// Returns the template ids already spawned -- excluded from the RNG pool.
+	var/list/pinned_ids = build_pinned_away_sites()
+
 	var/list/guaranteed = list()
 	var/list/selected = list()
 	var/list/available = list()
@@ -311,6 +316,8 @@
 
 	for (var/site_id in SSmapping.away_sites_templates)
 		var/datum/map_template/ruin/away_site/site = SSmapping.away_sites_templates[site_id]
+		if (site_id in pinned_ids)
+			continue
 		if (((site.template_flags & TEMPLATE_FLAG_SPAWN_GUARANTEED) && (site.spawns_in_current_sector())) || (site_id in GLOB.config.awaysites["guaranteed_sites"]))
 			guaranteed += site
 			if ((site.template_flags & TEMPLATE_FLAG_ALLOW_DUPLICATES) && !(site.template_flags & TEMPLATE_FLAG_RUIN_STARTS_DISALLOWED))
@@ -357,3 +364,110 @@
 		else
 			log_admin("Failed loading away site [template]!")
 #endif
+
+/**
+ * Spawns admin-pinned persistent away sites (ss13_persistent_away_sites)
+ * BEFORE the RNG budget pass, in fixed id order, so their z-numbers repeat
+ * across boots ("deterministic-z" -- every persistence table keys rows by
+ * absolute x,y,z). Registers each site's z in GLOB.persistence_pinned_site_z
+ * (bypasses all persistence exclusions) and the session allow list, locks the
+ * overmap marker to its pinned position, and self-heals on z drift by purging
+ * the site's stale rows at the old z. Returns the spawned template ids so
+ * build_away_sites() excludes them from the RNG pool.
+ * Managed in-game by the "Persistent Overmap Sites" admin verb.
+ */
+/datum/map/proc/build_pinned_away_sites()
+	. = list()
+	if(!GLOB.config.sql_enabled)
+		return
+	if(!SSdbcore.Connect())
+		log_admin("Pinned away sites: no database connection -- skipping.")
+		return
+
+	var/datum/db_query/pq = SSdbcore.NewQuery(
+		"SELECT id, template_name, overmap_x, overmap_y, last_z, custom_name, custom_icon_state, sec_zone FROM ss13_persistent_away_sites WHERE map_path = :mp AND enabled = 1 ORDER BY id ASC",
+		list("mp" = "[path]")
+	)
+	pq.Execute()
+	var/list/rows = list()
+	while(pq.NextRow())
+		rows += list(list(
+			"id"          = text2num(pq.item[1]),
+			"template"    = pq.item[2],
+			"om_x"        = text2num(pq.item[3]),
+			"om_y"        = text2num(pq.item[4]),
+			"last_z"      = text2num(pq.item[5]),
+			"custom_name" = pq.item[6],
+			"custom_icon" = pq.item[7],
+			"sec_zone"    = text2num(pq.item[8])
+		))
+	qdel(pq)
+	if(!length(rows))
+		return
+
+	for(var/list/row in rows)
+		var/datum/map_template/ruin/away_site/site = SSmapping.away_sites_templates[row["template"]]
+		if(!site)
+			log_admin("Pinned away sites: template '[row["template"]]' no longer exists -- skipping (unpin it via the Persistent Overmap Sites verb).")
+			continue
+		var/z_before = world.maxz
+		var/bounds = site.load_new_z()
+		if(!bounds)
+			log_admin("Pinned away sites: FAILED to load '[row["template"]]'!")
+			continue
+		. += row["template"]
+
+		var/site_z = z_before + 1
+		var/list/site_zs = list()
+		for(var/nz = z_before + 1 to world.maxz)
+			site_zs += nz
+
+		// Deterministic-z contract: if the number drifted (first boot after
+		// pinning, or a map/config change), move the site's rows to the new z.
+		// Templates always load centered at the same (x, y), so remapping the
+		// z column alone carries everything over losslessly -- including
+		// content saved the same session the site was pinned.
+		if(row["last_z"] && row["last_z"] != site_z)
+			log_admin("Pinned away sites: '[row["template"]]' moved z [row["last_z"]] -> [site_z]; remapping its persistence rows.")
+			for(var/zi = 0 to length(site_zs) - 1)
+				SSpersistence.remapZRows(row["last_z"] + zi, site_z + zi, quiet = TRUE)
+
+		for(var/nz in site_zs)
+			GLOB.persistence_pinned_site_z |= nz
+			GLOB.persistence_zlevel_allow |= nz
+			// Security zone follows the pinned site across boots
+			if(row["sec_zone"])
+				GLOB.zone_security_by_z["[nz]"] = row["sec_zone"]
+
+		// Lock the overmap marker to the pinned position; first boot (0,0)
+		// records wherever the marker placed itself.
+		var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[site_z]"]
+		if(marker && row["om_x"] && row["om_y"])
+			marker.start_x = row["om_x"]
+			marker.start_y = row["om_y"]
+			var/turf/dest = locate(row["om_x"], row["om_y"], SSatlas.current_map.overmap_z)
+			if(dest && marker.loc)
+				marker.forceMove(dest)
+
+		// Apply admin-set appearance (Rename Site / Change Icon) -- the
+		// marker's Initialize/update_name already ran, so plain assignment
+		// sticks.
+		if(marker)
+			if(row["custom_name"])
+				marker.name = row["custom_name"]
+			if(row["custom_icon"])
+				marker.icon_state = row["custom_icon"]
+				marker.update_icon()
+
+		var/datum/db_query/uq = SSdbcore.NewQuery(
+			"UPDATE ss13_persistent_away_sites SET last_z = :z, overmap_x = :ox, overmap_y = :oy WHERE id = :id",
+			list(
+				"z"  = site_z,
+				"ox" = (marker ? marker.start_x : row["om_x"]),
+				"oy" = (marker ? marker.start_y : row["om_y"]),
+				"id" = row["id"]
+			)
+		)
+		uq.Execute()
+		qdel(uq)
+		log_admin("Pinned away sites: loaded '[row["template"]]' at z=[site_z] (overmap [marker ? "[marker.start_x],[marker.start_y]" : "no marker"]).")

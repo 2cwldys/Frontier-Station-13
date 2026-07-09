@@ -8,7 +8,18 @@
 	/// Don't mutate the filename of assets when sending via browse_rsc.
 	/// This is to make it easier to debug issues with assets, and allow server operators to bypass issues that make it to production.
 	/// If turning this on fixes asset issues, something isn't using get_asset_url and the asset isn't marked legacy, fix one of those.
-	var/dont_mutate_filenames = TRUE
+	/// Was TRUE -- that forced every asset (including the tgui bundles) to
+	/// always be served under a fixed, unchanging filename regardless of
+	/// per-asset keep_local_name flags (this is the first of an OR chain in
+	/// get_asset_url()/send_assets(), so it always won). BYOND's client-side
+	/// resource cache has no content-hash/freshness check -- it only checks
+	/// "do I already have a file with this name" -- so any client that had
+	/// ever connected before a tgui rebuild kept rendering the old bundle
+	/// forever, no matter how many times the server actually rebuilt it.
+	/// FALSE lets tgui/other non-legacy assets fall through to hash-named
+	/// filenames (asset.<hash>.js) that change automatically whenever the
+	/// content does, so every rebuild is guaranteed fresh for every client.
+	var/dont_mutate_filenames = FALSE
 
 /// Called when the transport is loaded by the config controller, not called on the default transport unless it gets loaded by a config change.
 /datum/asset_transport/proc/Load()

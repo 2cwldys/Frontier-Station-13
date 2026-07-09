@@ -95,7 +95,7 @@
 
 	var/obj/item/card/id/I = user.GetIdCard()
 	if(istype(I) && has_access(req_one_access = src.req_one_access, accesses = I.access))
-		var/price_guess = text2num(tgui_input_text(user, "How much do you wish to withdraw? Remaining credits: [credit]电", "Quik-Pay", 0, 10))
+		var/price_guess = text2num(tgui_input_text(user, "How much do you wish to withdraw? Remaining credits: [credit]₵", "Quik-Pay", 0, 10))
 		if(isnull(price_guess) || price_guess == 0)
 			return
 		price_guess = max(0, round(price_guess, 0.01))
@@ -218,10 +218,10 @@
 		var/item_amount = bought_item["amount"]
 		var/item_price = bought_item["price"]
 
-		receipt += "<li><b>[item_name]</b>: [item_amount] x [item_price]电: [item_amount * item_price]电<br>"
+		receipt += "<li><b>[item_name]</b>: [item_amount] x [item_price]₵: [item_amount * item_price]₵<br>"
 		sum += item_price * item_amount
 
-	receipt += "</ul><HR>Total:</b> [sum]电<br>"
+	receipt += "</ul><HR>Total:</b> [sum]₵<br>"
 
 /datum/component/quikpay_shop/ui_interact(mob/user, datum/tgui/ui)
 	ui = SStgui.try_update_ui(user, src, ui)
@@ -397,10 +397,10 @@
 		var/item_price = bought_item["price"]
 		sum += item_price * item_amount
 
-		receipt += "<li><b>[item_name]</b>: [item_amount] x [item_price]电: [item_amount * item_price]电<br>"
-		ticket += "<li><b>[item_name]</b>: [item_amount] x [item_price]电: [item_amount * item_price]电<br>"
-	receipt += "<hr><b>Total:</b> [sum]电"
-	ticket += "<hr><b>Total:</b> [sum]电"
+		receipt += "<li><b>[item_name]</b>: [item_amount] x [item_price]₵: [item_amount * item_price]₵<br>"
+		ticket += "<li><b>[item_name]</b>: [item_amount] x [item_price]₵: [item_amount * item_price]₵<br>"
+	receipt += "<hr><b>Total:</b> [sum]₵"
+	ticket += "<hr><b>Total:</b> [sum]₵"
 	sum = sum
 
 /// Print the receipt followed by the order ticket

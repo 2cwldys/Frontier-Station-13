@@ -4,7 +4,12 @@
 	program_icon_state = "id"
 	program_key_icon_state = "lightblue_key"
 	extended_desc = "Program for programming employee ID cards to access parts of the station."
-	required_access_run = ACCESS_CHANGE_IDS
+	// Anyone may OPEN the program (self-service replacement ID printing);
+	// every card-modification action is individually gated on
+	// can_run(user, 1, ACCESS_CHANGE_IDS) in ui_act -- the explicit access
+	// arg matters: with required_access_run null, a bare can_run() passes
+	// for everyone.
+	required_access_run = null
 	required_access_download = ACCESS_CHANGE_IDS
 	usage_flags = PROGRAM_CONSOLE | PROGRAM_LAPTOP
 	requires_ntnet = FALSE
@@ -21,7 +26,7 @@
 	data["assignments"] = show_assignments
 	data["have_id_slot"] = !!computer.card_slot
 	data["have_printer"] = !!computer.nano_printer
-	data["authenticated"] = can_run(user)
+	data["authenticated"] = can_run(user, FALSE, ACCESS_CHANGE_IDS)
 	data["can_print_replacement"] = TRUE  // Self-service: available to everyone
 	data["centcom_access"] = is_centcom
 
@@ -61,23 +66,24 @@
 /datum/computer_file/program/card_mod/ui_static_data(mob/user)
 	var/list/data = list()
 	// Faction jobs — populated when this console is networked to a faction
-	if(computer && computer.persistent_network)
+	var/net = computer ? normalize_faction_uid(computer.persistent_network) : ""
+	if(net)
 		var/list/faction_jobs_formatted = list()
-		for(var/list/j in get_faction_jobs(computer.persistent_network))
+		for(var/list/j in get_faction_jobs(net))
 			faction_jobs_formatted += list(list(
 				"job"      = j["title"],
 				"rank"     = j["rank"] || 0,
 				"pay_rate" = j["pay_rate"] || 0
 			))
 		data["faction_jobs"]    = faction_jobs_formatted
-		data["faction_network"] = computer.persistent_network
-		data["faction_name"]    = get_faction_name(computer.persistent_network)
+		data["faction_network"] = net
+		data["faction_name"]    = get_faction_name(net)
 		// Show dispense button when the user has no member record for this faction yet
 		var/mob/ui_user = usr
-		var/already_member = (ui_user && ui_user.ckey) ? !!get_faction_member(ui_user.ckey, computer.persistent_network) : FALSE
+		var/already_member = (ui_user && ui_user.ckey) ? !!get_faction_member(ui_user.ckey, net) : FALSE
 		data["can_dispense_faction_id"] = !already_member
 		// Officer field: rank >= 1 in this faction, or admin -- gates job assignment UI
-		var/list/op_fmember = (ui_user && ui_user.ckey) ? get_faction_member(ui_user.ckey, computer.persistent_network) : null
+		var/list/op_fmember = (ui_user && ui_user.ckey) ? get_faction_member(ui_user.ckey, net) : null
 		data["faction_officer"] = (op_fmember && (op_fmember["rank"] || 0) >= 1) || check_rights(R_ADMIN, 0, ui_user)
 	else
 		data["faction_jobs"]    = list()
@@ -113,7 +119,7 @@
 			. = TRUE
 
 		if("print")
-			if(computer?.nano_printer && can_run(user, 1)) //This option should never be called if there is no printer
+			if(computer?.nano_printer && can_run(user, 1, ACCESS_CHANGE_IDS)) //This option should never be called if there is no printer
 				var/contents = {"<h4>Access Report</h4>
 							<u>Prepared By:</u> [user_id_card.registered_name ? user_id_card.registered_name : "Unknown"]<br>
 							<u>For:</u> [id_card.registered_name ? id_card.registered_name : "Unregistered"]<br>
@@ -155,14 +161,14 @@
 				. = TRUE
 
 		if("suspend")
-			if(computer && can_run(user, 1))
+			if(computer && can_run(user, 1, ACCESS_CHANGE_IDS))
 				id_card.assignment = "Suspended"
 				remove_nt_access(id_card)
 				callHook("suspend_employee", list(id_card))
 				. = TRUE
 
 		if("edit")
-			if(computer && can_run(user, 1))
+			if(computer && can_run(user, 1, ACCESS_CHANGE_IDS))
 				if(params["name"])
 					var/temp_name = sanitizeName(input("Enter name.", "Name", id_card.registered_name))
 					if(temp_name)
@@ -175,7 +181,7 @@
 				. = TRUE
 
 		if("assign")
-			if(computer && can_run(user, 1) && id_card)
+			if(computer && can_run(user, 1, ACCESS_CHANGE_IDS) && id_card)
 				var/t1 = params["assign_target"]
 				if(t1 == "Custom")
 					var/temp_t = sanitize(input("Enter a custom job assignment.","Assignment", id_card.assignment), 45)
@@ -204,12 +210,18 @@
 					id_card.assignment = t1
 					id_card.rank = t1
 
+				// Consoles tied to a faction network stamp their faction on assignment,
+				// matching faction_assign -- otherwise the spawn default (e.g. NanoTrasen) sticks
+				var/assign_id_net = computer ? normalize_faction_uid(computer.persistent_network) : ""
+				if(assign_id_net)
+					id_card.employer_faction = assign_id_net
+
 				SSrecords.reset_manifest()
 				callHook("reassign_employee", list(id_card))
 				. = TRUE
 
 		if("access")
-			if(isnum(params["allowed"]) && computer && can_run(user, 1))
+			if(isnum(params["allowed"]) && computer && can_run(user, 1, ACCESS_CHANGE_IDS))
 				var/access_type = text2num(params["access_target"])
 				var/access_allowed = text2num(params["allowed"])
 				if(access_type in get_access_ids(ACCESS_TYPE_STATION|ACCESS_TYPE_CENTCOM))
@@ -233,7 +245,8 @@
 			for(var/obj/item/card/id/old_card in world)
 				if(!old_card.revoked && old_card.registered_name == user.real_name)
 					old_card.revoked = TRUE
-					old_card.name = "[old_card.registered_name]'s ID Card (REVOKED)"
+					old_card.access = list()
+					old_card.update_name()
 					to_chat(usr, SPAN_NOTICE("Previous ID card ([old_card.assignment]) has been revoked."))
 
 			// Print new card
@@ -241,9 +254,10 @@
 			new_card.registered_name = user.real_name
 			new_card.assignment = R.rank || "Civilian"
 			new_card.rank = R.rank || "Civilian"
-			new_card.name = "[user.real_name]'s ID Card ([new_card.assignment])"
-			if(computer && computer.persistent_network)
-				new_card.employer_faction = computer.persistent_network
+			var/repl_net = computer ? normalize_faction_uid(computer.persistent_network) : ""
+			if(repl_net)
+				new_card.employer_faction = repl_net
+			new_card.update_name()
 
 			// Re-apply access for the job
 			var/datum/job/jobdatum
@@ -278,14 +292,13 @@
 					rep_is_new = TRUE
 			new_card.associated_account_number = rep_acct
 
-			// Place in ID slot so card is immediately readable by RFID scanners
+			// Place in ID slot if empty; otherwise hand it over -- the old
+			// (revoked) card stays equipped until the player swaps it themselves
 			var/placed_in_slot = FALSE
 			if(istype(user, /mob/living/carbon/human))
 				var/mob/living/carbon/human/H = user
-				// Remove any existing (revoked) card from the ID slot first
-				if(H.wear_id)
-					H.drop_from_inventory(H.wear_id)
-				placed_in_slot = H.equip_to_slot_if_possible(new_card, SLOT_ID, 0, 0, 0, 1)
+				if(!H.wear_id)
+					placed_in_slot = H.equip_to_slot_if_possible(new_card, SLOT_ID, 0, 0, 0, 1)
 			if(!placed_in_slot)
 				user.put_in_hands(new_card)
 
@@ -307,6 +320,9 @@
 					)
 					rn_q.Execute()
 					qdel(rn_q)
+				// Mirror onto the live record too, or recordsFinalize() overwrites
+				// the DB note with the record's stale default at round end
+				R.ccia_record = rep_note
 				to_chat(usr, SPAN_GOOD("[icon2html(new_card, usr)] KEEP SAFE -- Account: #[rep_acct] | PIN: [pin_display]"))
 				to_chat(usr, SPAN_NOTICE("Saved in your crew record. Access at any Idris SelfServ Teller."))
 			else if(rep_acct)
@@ -323,7 +339,7 @@
 			if(!user.real_name || !user.ckey)
 				to_chat(usr, SPAN_WARNING("You must be a living character to receive an ID."))
 				return
-			var/disp_net = computer.persistent_network
+			var/disp_net = normalize_faction_uid(computer.persistent_network)
 			var/faction_name = get_faction_name(disp_net)
 			// If already a member, reprint instead
 			var/already_member = !!get_faction_member(user.ckey, disp_net)
@@ -331,7 +347,8 @@
 			for(var/obj/item/card/id/old_card in world)
 				if(!old_card.revoked && old_card.registered_name == user.real_name && old_card.employer_faction == disp_net)
 					old_card.revoked = TRUE
-					old_card.name = "[old_card.registered_name]'s ID Card (REVOKED)"
+					old_card.access = list()
+					old_card.update_name()
 			// Get or create personal Idris bank account (players spawn with none)
 			var/dispense_acct = 0
 			var/acct_is_new = FALSE
@@ -356,7 +373,7 @@
 			new_card.rank                 = "Unassigned"
 			new_card.employer_faction     = disp_net
 			new_card.associated_account_number = dispense_acct
-			new_card.name = "[user.real_name]'s ID Card ([faction_name])"
+			new_card.update_name()
 			if(istype(user, /mob/living/carbon/human))
 				var/mob/living/carbon/human/H = user
 				H.set_id_info(new_card)
@@ -411,9 +428,9 @@
 
 		// ── Faction job assign ────────────────────────────────────────────
 		if("faction_assign")
-			if(!computer || !can_run(user, 1) || !id_card || !computer.persistent_network)
+			if(!computer || !can_run(user, 1, ACCESS_CHANGE_IDS) || !id_card || !computer.persistent_network)
 				return
-			var/assign_net = computer.persistent_network
+			var/assign_net = normalize_faction_uid(computer.persistent_network)
 			var/job_title = params["faction_job"]
 			var/list/faction_jobs = get_faction_jobs(assign_net)
 			var/list/job_data = null
@@ -456,7 +473,7 @@
 			. = TRUE
 
 	if(id_card)
-		id_card.name = "[id_card.registered_name]'s ID Card ([id_card.assignment])"
+		id_card.update_name()
 		. = TRUE
 
 /datum/computer_file/program/card_mod/proc/remove_nt_access(var/obj/item/card/id/id_card)
@@ -466,8 +483,9 @@
 	id_card.access |= accesses
 
 /datum/computer_file/program/card_mod/proc/do_print_replacement(mob/user)
-	if(!computer || !can_run(user, 1))
-		to_chat(user, SPAN_WARNING("You do not have access to this console."))
+	// Self-service: no access requirement -- identity is verified against
+	// the crew record below, same as the tgui print_replacement action.
+	if(!computer)
 		return
 
 	var/datum/record/general/R = SSrecords.find_record("name", user.real_name)
@@ -479,7 +497,8 @@
 	for(var/obj/item/card/id/old_card in world)
 		if(!old_card.revoked && old_card.registered_name == user.real_name)
 			old_card.revoked = TRUE
-			old_card.name = "[old_card.registered_name]'s ID Card (REVOKED)"
+			old_card.access = list()
+			old_card.update_name()
 			to_chat(user, SPAN_NOTICE("Previous ID ([old_card.assignment]) has been revoked."))
 
 	// Create new card — no blank card required
@@ -487,9 +506,10 @@
 	new_card.registered_name = user.real_name
 	new_card.assignment = R.rank || "Civilian"
 	new_card.rank = R.rank || "Civilian"
-	new_card.name = "[user.real_name]'s ID Card ([new_card.assignment])"
-	if(computer && computer.persistent_network)
-		new_card.employer_faction = computer.persistent_network
+	var/verb_repl_net = computer ? normalize_faction_uid(computer.persistent_network) : ""
+	if(verb_repl_net)
+		new_card.employer_faction = verb_repl_net
+	new_card.update_name()
 
 	var/datum/job/jobdatum
 	for(var/jobtype in typesof(/datum/job))
@@ -503,6 +523,19 @@
 	if(istype(user, /mob/living/carbon/human))
 		var/mob/living/carbon/human/H = user
 		H.set_id_info(new_card)
+
+	// Link existing bank account -- only mint a new one if the player has none anywhere
+	var/verb_acct = 0
+	var/list/verb_econ = GLOB.persistence_economy_cache["[user.ckey]|[user.real_name]"]
+	if(islist(verb_econ))
+		verb_acct = verb_econ["account_number"] || 0
+	if(!verb_acct && user.mind && user.mind.initial_account)
+		verb_acct = user.mind.initial_account.account_number
+	if(!verb_acct)
+		SSeconomy.create_and_assign_account(user)
+		if(user.mind && user.mind.initial_account)
+			verb_acct = user.mind.initial_account.account_number
+	new_card.associated_account_number = verb_acct
 
 	user.put_in_hands(new_card)
 	to_chat(user, SPAN_GOOD("Replacement ID card printed. Previous card(s) revoked."))

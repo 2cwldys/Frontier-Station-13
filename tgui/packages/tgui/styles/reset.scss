@@ -15,14 +15,33 @@ body {
   scrollbar-color: var(--color-scrollbar-thumb) var(--color-scrollbar-base);
 }
 
+// Custom game cursor family. Components reference var(--cursor-*); these were
+// never defined upstream. Resize handles keep native affordance.
+:root {
+  --cursor-default: url('~tgui/styles/cursor.cur'), default;
+  --cursor-pointer: url('~tgui/styles/cursor.cur'), pointer;
+  --cursor-se-resize: se-resize;
+  --cursor-s-resize: s-resize;
+  --cursor-e-resize: e-resize;
+}
+
 html {
-  cursor: var(--cursor-default, default); // Reset the cursor.
+  // Custom game cursor; falls back to the default arrow if unavailable.
+  cursor: var(--cursor-default, default);
   overflow: hidden;
 }
 
 body {
   overflow: auto;
   font-family: var(--font-family, Verdana, Geneva, sans-serif);
+}
+
+// tgui-core's Button hardcodes cursor: pointer from outside this repo and may
+// land later in the cascade; !important keeps the game cursor in charge.
+a,
+button,
+.Button {
+  cursor: var(--cursor-pointer, pointer) !important;
 }
 
 *,

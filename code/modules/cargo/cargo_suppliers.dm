@@ -49,7 +49,12 @@
 	log_subsystem_cargo("get_total_price_coefficient() called on suppliers '[name]' is multiplying original value [price_modifier] to [final_coef].")
 	return final_coef
 
+// The universal supplier: every cargo item is bound to this supplier at load
+// time (load_cargo_items), regardless of its declared supplier string.
 /singleton/cargo_supplier/generic_supplier
+	name = "Hub"
+	description = "A galaxy-spanning logistics conglomerate handling freight for every major manufacturer in the Spur."
+	tag_line = "If it exists, we ship it."
 
 /singleton/cargo_supplier/arizi
 	short_name = "arizi"

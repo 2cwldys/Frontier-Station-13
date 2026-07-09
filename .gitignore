@@ -76,3 +76,4 @@ define_sanity_output.txt
 
 # JavaScript tools
 **/node_modules
+/backups

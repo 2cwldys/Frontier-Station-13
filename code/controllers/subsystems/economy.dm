@@ -125,7 +125,7 @@ SUBSYSTEM_DEF(economy)
 			info += "<i>Account holder:</i> [M.owner_name]<br>"
 			info += "<i>Account number:</i> [M.account_number]<br>"
 			info += "<i>Account pin:</i> [M.remote_access_pin]<br>"
-			info += "<i>Starting balance:</i> [M.money]电<br>"
+			info += "<i>Starting balance:</i> [M.money]₵<br>"
 			info += "<i>Date and time:</i> [worldtime2text()], [worlddate2text()]<br><br>"
 			info += "<i>Creation terminal ID:</i> [source_db.machine_id]<br>"
 			var/obj/item/card/id/held_card = source_db.get_held_card()
@@ -162,7 +162,7 @@ SUBSYSTEM_DEF(economy)
 		var/remembered_info = ""
 		remembered_info += "<b>Your account number is:</b> #[money_account.account_number]<br>"
 		remembered_info += "<b>Your account pin is:</b> [money_account.remote_access_pin]<br>"
-		remembered_info += "<b>Your account funds are:</b> [money_account.money]电<br>"
+		remembered_info += "<b>Your account funds are:</b> [money_account.money]₵<br>"
 
 		if(money_account.transactions.len)
 			var/datum/transaction/transaction = money_account.transactions[1]

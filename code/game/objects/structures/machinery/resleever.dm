@@ -117,6 +117,7 @@
 	inserted_lace.forceMove(target_body)
 	head.internal_organs |= inserted_lace
 	target_body.internal_organs |= inserted_lace
+	target_body.internal_organs_by_name[inserted_lace.organ_tag] = inserted_lace
 	inserted_lace.owner = target_body
 
 	// Transfer consciousness
@@ -131,6 +132,10 @@
 	if(istype(target_body, /mob/living/carbon/human))
 		var/mob/living/carbon/human/H = target_body
 		H.set_id_info(H)
+
+	// The character is embodied again -- clear the in_lace/dead_body state so a
+	// future reconnect (or server restart) doesn't route them back to the lace.
+	persistence_set_char_state(inserted_lace.registered_ckey, inserted_lace.registered_name, "alive")
 
 	inserted_lace.lace_occupied = FALSE
 	inserted_lace.lace_mob = null

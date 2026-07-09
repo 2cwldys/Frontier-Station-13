@@ -19,6 +19,7 @@
 
 /datum/component/eye/proc/look(mob/new_looker, list/eye_args)
 	if(new_looker.eyeobj || current_looker)
+		log_world("eye component: look() rejected for [new_looker] ([REF(new_looker)]) -- new_looker.eyeobj=[new_looker.eyeobj] ([new_looker.eyeobj ? REF(new_looker.eyeobj) : "null"]), current_looker=[current_looker] ([current_looker ? REF(current_looker) : "null"]).")
 		return FALSE
 	LAZYINSERT(eye_args, get_turf(current_looker), 1) //Make sure that a loc is provided to the eye
 	if(!component_eye)
@@ -38,17 +39,36 @@
 	unlook_action.Grant(current_looker)
 
 	//Checks for removing the user from the eye outside of unlook actions.
-	RegisterSignal(parent, COMSIG_MOVABLE_MOVED, PROC_REF(unlook))
-	RegisterSignal(current_looker, COMSIG_MOVABLE_MOVED, PROC_REF(unlook))
+	RegisterSignal(parent, COMSIG_MOVABLE_MOVED, PROC_REF(on_moved))
+	RegisterSignal(current_looker, COMSIG_MOVABLE_MOVED, PROC_REF(on_moved))
 
-	RegisterSignal(parent, COMSIG_QDELETING, PROC_REF(unlook))
-	RegisterSignal(current_looker, COMSIG_QDELETING, PROC_REF(unlook))
-	RegisterSignal(component_eye, COMSIG_QDELETING, PROC_REF(unlook))
+	RegisterSignal(parent, COMSIG_QDELETING, PROC_REF(on_qdeleting))
+	RegisterSignal(current_looker, COMSIG_QDELETING, PROC_REF(on_qdeleting))
+	RegisterSignal(component_eye, COMSIG_QDELETING, PROC_REF(on_qdeleting))
 
-	RegisterSignal(current_looker, COMSIG_MOB_LOGOUT, PROC_REF(unlook))
+	RegisterSignal(current_looker, COMSIG_MOB_LOGOUT, PROC_REF(on_logout))
 	RegisterSignal(SSdcs, COMSIG_GLOB_MOB_DEATH, PROC_REF(unlook))
 
 	return TRUE
+
+// Diagnostic wrappers so an unexpected teardown can be traced to its exact
+// trigger instead of guessing -- split out from a shared PROC_REF(unlook) so
+// each signal logs which of parent/current_looker/component_eye moved,
+// qdeleted, or logged out.
+/datum/component/eye/proc/on_moved(atom/movable/source, atom/old_loc, direction, forced, list/old_locs)
+	SIGNAL_HANDLER
+	log_world("eye component: unlook triggered by COMSIG_MOVABLE_MOVED on [source] ([REF(source)]), old_loc=[old_loc], new_loc=[source.loc], forced=[forced] -- current_looker=[current_looker] ([current_looker ? REF(current_looker) : "null"]).")
+	unlook()
+
+/datum/component/eye/proc/on_qdeleting(datum/source)
+	SIGNAL_HANDLER
+	log_world("eye component: unlook triggered by COMSIG_QDELETING on [source] ([REF(source)]) -- current_looker=[current_looker] ([current_looker ? REF(current_looker) : "null"]).")
+	unlook()
+
+/datum/component/eye/proc/on_logout(datum/source)
+	SIGNAL_HANDLER
+	log_world("eye component: unlook triggered by COMSIG_MOB_LOGOUT on [source] ([REF(source)]) -- current_looker=[current_looker] ([current_looker ? REF(current_looker) : "null"]).")
+	unlook()
 
 /datum/component/eye/proc/unlook()
 	if(!isnull(parent))

@@ -1,5 +1,6 @@
 /atom/movable/screen/internals
 	name = "internal"
+	icon = 'icons/hud/mob/screen/dark.dmi'
 	screen_loc = ui_internal
 	icon_state = "internal0"
 

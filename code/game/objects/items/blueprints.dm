@@ -31,14 +31,26 @@
 	if(use_check_and_message(usr, USE_DISALLOW_SILICONS) || usr.get_active_hand() != src)
 		return
 	add_fingerprint(user)
+
+	// Always present a choice menu, not just when show_wires is set --
+	// outpost blueprints (show_wires = FALSE) previously skipped this
+	// entirely, so the quick area-action shortcuts below never reached them,
+	// even though outpost blueprints are the ones that matter for pinned
+	// sites. Wire-schema entries are still only offered when show_wires.
+	var/list/choices = list()
 	if(show_wires)
-		var/choice = tgui_alert(user, "Select blueprint action", "Blueprints", list("Airlock Wire Schema", "Vending Wire Schema", "Use Blueprints"))
-		if(choice == "Airlock Wire Schema")
-			airlock_wires.get_wire_diagram(user)
-		else if(choice == "Vending Wire Schema")
-			vending_wires.get_wire_diagram(user)
-		if(choice != "Use Blueprints") //Don't do the normal blueprints stuff if the user just wants wires
-			return
+		choices += list("Airlock Wire Schema", "Vending Wire Schema")
+	choices += list("Use Blueprints", "Detect Room", "Add to Area", "Highlight Area", "Modify Area", "Remove Area")
+	var/choice = tgui_alert(user, "Select blueprint action", "Blueprints", choices)
+
+	if(choice == "Airlock Wire Schema")
+		airlock_wires.get_wire_diagram(user)
+		return
+	if(choice == "Vending Wire Schema")
+		vending_wires.get_wire_diagram(user)
+		return
+	if(!choice)
+		return
 
 	var/datum/component/eye/blueprints = GetComponent(/datum/component/eye)
 	if(!(user.z in valid_z_levels))
@@ -47,6 +59,8 @@
 	if(blueprints)
 		if(blueprints.look(user, get_look_args())) // Abandon all peripheral vision, ye who enter here.
 			to_chat(user, SPAN_NOTICE("You start peering closely at \the [src]"))
+			if(choice != "Use Blueprints")
+				to_chat(user, SPAN_NOTICE("Select your tiles, then use the \"[choice]\" button."))
 			return
 		else
 			to_chat(user, SPAN_WARNING("You couldn't get a good look at \the [src]. Maybe someone else is using it?"))
@@ -89,8 +103,10 @@
 			area_prefix = E.planet_name
 		else
 			area_prefix = E.name
+	else if(GET_Z(user) in GLOB.persistence_pinned_site_z)
+		area_prefix = "Pinned Site"
 	else
-		area_prefix = E.name
+		area_prefix = "Outpost"
 	. = ..()
 
 /obj/item/blueprints/outpost/set_valid_z_levels()
@@ -103,6 +119,7 @@
 		valid_z_levels += E.map_z
 	if(length(SSodyssey.scenario_zlevels))
 		valid_z_levels += SSodyssey.scenario_zlevels
+	valid_z_levels += GLOB.persistence_pinned_site_z
 	return TRUE
 
 /obj/item/blueprints/shuttle

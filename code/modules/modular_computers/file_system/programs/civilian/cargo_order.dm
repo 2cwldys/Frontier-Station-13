@@ -26,8 +26,8 @@
 
 	var/list/data = initial_data()
 
-	// Faction balance — show when computer is linked to a faction
-	var/co_net = computer ? computer.persistent_network : null
+	// Faction balance -- show when computer is linked to a faction
+	var/co_net = computer ? normalize_faction_uid(computer.persistent_network) : null
 	data["faction_network"] = co_net
 	data["faction_name"]    = co_net ? get_faction_name(co_net) : null
 	data["faction_balance"] = co_net ? get_faction_account_balance(co_net) : null
@@ -106,6 +106,9 @@
 				return TRUE
 
 			co.set_submitted(GetNameAndAssignmentFromId(I), usr.character_id, reason)
+			// Faction instancing: the submitting console's network owns the
+			// order from birth. Null for unshackled (station) consoles.
+			co.delivery_network = (computer && computer.persistent_network) ? normalize_faction_uid(computer.persistent_network) : null
 			status_message = "Order submitted successfully. Order ID: [co.order_id] Tracking code: [co.get_tracking_code()]"
 
 			co = null

@@ -177,6 +177,8 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 	var/log_world_output = 0			// log world.log <<  messages
 	var/sql_enabled = 0					// for sql switching
 	var/allow_admin_ooccolor = 0		// Allows admins with relevant permissions to have their own ooc colour
+	var/disable_round_end = 0			// disables shuttle calls, round-end votes, and nuke round-end while persistence (sql_enabled) is active
+	var/manual_area_save = 0			// persistence only saves/loads z-levels explicitly enabled via the Toggle Z-Level Persistence verb (ss13_zlevel_persistence)
 	var/allow_vote_restart = 0 			// allow votes to restart
 	var/ert_admin_call_only = 0
 	var/allow_vote_mode = 0				// allow votes to change mode
@@ -203,6 +205,8 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 	var/Ticklag = 0.33
 	var/antag_hud_allowed = 0			// Ghosts can turn on Antagovision to see a HUD of who is the bad guys this round.
 	var/antag_hud_restricted = 0                    // Ghosts that turn on Antagovision cannot rejoin the round.
+	var/intimate_interactions_allowed = 0			// Drag-onto-mob intimate interaction menu is available (still gated per-player by opt-in preference).
+	var/require_consent = 0			// If set, intimate interactions respect each participant's "Toggle Intimate Interactions" preference. If unset, that preference is ignored and anyone can be targeted.
 	var/list/mode_names = list()
 	var/list/modes = list()				// allowed modes
 	var/list/votable_modes = list()		// votable modes
@@ -321,6 +325,7 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 	var/sql_stats = 0			//Do we record round statistics on the database (deaths, round reports, population, etcetera) or not?
 	var/sql_whitelists = 0		//Defined whether the server uses an SQL based whitelist system, or the legacy one with two .txts. Config option in config.txt
 	var/sql_saves = 0			//Defines whether the server uses an SQL based character and preference saving system. Config option in config.txt
+	var/goonchat = 0			//Use Serenity-style goonchat browser output instead of TGUI panel chat. Config option in config.txt
 	var/sql_ccia_logs = 0		//Defines weather the server saves CCIA Logs to the database aswell
 
 	var/simultaneous_pm_warning_timeout = 100
@@ -571,6 +576,12 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 				if("allow_admin_ooccolor")
 					GLOB.config.allow_admin_ooccolor = 1
 
+				if("disable_round_end")
+					GLOB.config.disable_round_end = 1
+
+				if("manual_area_save")
+					GLOB.config.manual_area_save = 1
+
 				if ("allow_vote_restart")
 					GLOB.config.allow_vote_restart = 1
 
@@ -797,6 +808,12 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 				if("antag_hud_restricted")
 					GLOB.config.antag_hud_restricted = 1
 
+				if("allow_intimate_interactions")
+					GLOB.config.intimate_interactions_allowed = 1
+
+				if("require_consent")
+					GLOB.config.require_consent = 1
+
 				if("ipc_timelock_active")
 					ipc_timelock_active = TRUE
 
@@ -921,6 +938,9 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 
 				if("sql_saves")
 					GLOB.config.sql_saves = 1
+
+				if("goonchat")
+					GLOB.config.goonchat = 1
 
 				if("sql_ccia_logs")
 					GLOB.config.sql_ccia_logs = 1

@@ -31,7 +31,7 @@
 }
 
 .PersonalCraftingGridItem--craftable {
-  cursor: pointer;
+  cursor: var(--cursor-pointer, pointer);
 }
 
 .PersonalCraftingGridItem__content {

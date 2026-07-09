@@ -161,6 +161,9 @@
 		else
 			sound_to_use.frequency = get_rand_frequency()
 
+	if(audio_lag_until && world.time < audio_lag_until)
+		sound_to_use.frequency = AUDIO_LAG_FREQUENCY
+
 	if(isturf(turf_source))
 		var/turf/turf_loc = get_turf(src)
 

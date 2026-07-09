@@ -17,6 +17,53 @@ GLOBAL_VAR_INIT(persistence_ready, FALSE)
 /// Empty by default = all Z levels persist.
 GLOBAL_LIST_EMPTY(persistence_zlevel_skip)
 
+/// Z levels explicitly ENABLED via the Toggle Z-Level Persistence verb.
+/// Populated from ss13_zlevel_persistence WHERE enabled = 1 at startup.
+/// Only consulted when MANUAL_AREA_SAVE is on -- persistence then becomes
+/// opt-in and ONLY these z-levels save/load.
+GLOBAL_LIST_EMPTY(persistence_zlevel_allow)
+
+/// Z levels that received a map template at runtime (away sites via load_new_z,
+/// ruins/landmark loads via template.load on non-station levels). Never persisted.
+GLOBAL_LIST_EMPTY(persistence_template_loaded_z)
+
+/// Z levels of admin-pinned persistent away sites (ss13_persistent_away_sites),
+/// populated by build_pinned_away_sites() during SSmapping init. These BYPASS
+/// every persistence exclusion (away trait, template-loaded, manual gate) --
+/// a pinned site saves/loads like a station deck.
+GLOBAL_LIST_EMPTY(persistence_pinned_site_z)
+
+/// TRUE when MANUAL_AREA_SAVE is on and this z was not explicitly enabled via
+/// the Toggle Z-Level Persistence verb -- flips persistence from opt-out to
+/// opt-in per z-level, using the same DB-backed list the verb manages.
+/// Pinned away-site z's are never blocked (their z is derived, not listed).
+/proc/persistence_z_manual_blocked(z)
+	if(z in GLOB.persistence_pinned_site_z)
+		return FALSE
+	return GLOB.config.manual_area_save && !(z in GLOB.persistence_zlevel_allow)
+
+/// TRUE if this z-level must not be saved/loaded by turf/object/worldstate persistence:
+/// not in the MANUAL_AREA_SAVE allow list (when that mode is on), manually disabled via
+/// ss13_zlevel_persistence, a procedurally loaded away-site z (tagged ZTRAIT_AWAY), an
+/// asteroid/mining level (regenerated each round), or any z a map template was loaded
+/// onto at runtime. Admin-pinned persistent away sites bypass ALL of these -- the
+/// pinned check must stay FIRST: pinned sites spawn via load_new_z(), which stamps
+/// them with both the away trait and the template-loaded mark below.
+/proc/persistence_z_excluded(z)
+	if(z in GLOB.persistence_pinned_site_z)
+		return FALSE
+	if(persistence_z_manual_blocked(z))
+		return TRUE
+	if(z in GLOB.persistence_zlevel_skip)
+		return TRUE
+	if(is_away_level(z))
+		return TRUE
+	if(is_mining_level(z))
+		return TRUE
+	if(z in GLOB.persistence_template_loaded_z)
+		return TRUE
+	return FALSE
+
 SUBSYSTEM_DEF(persistence)
 	name = "Persistence"
 	init_order = INIT_ORDER_PERSISTENCE // The order is tied with the init and maploading subsystem.
@@ -193,6 +240,7 @@ SUBSYSTEM_DEF(persistence)
 	SSpersistence.recordsFinalize()
 	SSpersistence.researchFinalize()
 	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("3/8")] Saving machinery states..."))
+	SSpersistence.areasFinalize()
 	SSpersistence.worldstateFinalize()
 	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("4/8")] Saving mob health, inventory, identity, position..."))
 	SSpersistence.mobsHealthFinalize()
@@ -207,12 +255,53 @@ SUBSYSTEM_DEF(persistence)
 	SSpersistence.objectsFinalize()
 	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("8/8")] Saving floor items..."))
 	SSpersistence.floorItemsFinalize()
+	SSpersistence.botsFinalize()
 
 	SSpersistence.save_in_progress = FALSE
 	log_and_message_admins("forced a mid-round persistence save", usr)
 	to_chat(usr, SPAN_GOOD("Persistence save complete."))
 
 	feedback_add_details("admin_verb","FPS")
+
+/**
+ * Sweeps the whole world and vaults every dead/unclaimed neural lace, plus
+ * any sitting loose. Never touches a lace still installed in a living
+ * owner -- that check must run before _auto_transfer_to_storage() is ever
+ * called, not after, so a living person's lace is never even momentarily
+ * touched. Shared by the admin verb (manual, mid-round) and Shutdown()
+ * (automatic, on every real reboot -- not the periodic autosave, which
+ * never touches this).
+ */
+/datum/controller/subsystem/persistence/proc/vaultAllLaces()
+	var/vaulted = 0
+	var/skipped_alive = 0
+	for(var/obj/item/organ/internal/neural_lace/L in world)
+		if(istype(L.loc, /obj/structure/machinery/lace_storage))
+			continue // already vaulted, nothing to do
+
+		if(L.owner && L.owner.stat != DEAD)
+			skipped_alive++
+			continue
+
+		L._auto_transfer_to_storage()
+		vaulted++
+
+	log_subsystem_persistence_info("Lace vault sweep: [vaulted] vaulted, [skipped_alive] skipped (alive owner).")
+	return list("vaulted" = vaulted, "skipped_alive" = skipped_alive)
+
+/datum/admins/proc/force_vault_all_laces()
+	set name = "Force Vault All Laces"
+	set category = "Persistence"
+	set desc = "Immediately vaults every neural lace belonging to a dead/unclaimed body, plus any sitting loose in the world. Never touches a living person's installed lace. Use before a server reboot."
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	var/list/result = SSpersistence.vaultAllLaces()
+	to_chat(usr, SPAN_NOTICE("Force-vaulted [result["vaulted"]] neural lace\s ([result["skipped_alive"]] skipped -- still alive)."))
+	log_admin("[key_name(usr)] used Force Vault All Laces -- [result["vaulted"]] processed, [result["skipped_alive"]] skipped (alive owner).")
+
+	feedback_add_details("admin_verb","FVAL")
 
 /**
  * Public proc: save all persistence data immediately (economy, records, research, worldstate, turfs, atmos, objects, mob health, inventory).
@@ -226,6 +315,7 @@ SUBSYSTEM_DEF(persistence)
 	researchFinalize()
 	factionFinalize()
 	factionResearchFinalize()
+	areasFinalize()
 	worldstateFinalize()
 	mobsHealthFinalize()
 	mobsInventoryFinalize()
@@ -235,6 +325,7 @@ SUBSYSTEM_DEF(persistence)
 	atmosFinalize()
 	objectsFinalize()
 	floorItemsFinalize()
+	botsFinalize()
 
 /**
  * Initialization of the persistence subsystem.
@@ -251,13 +342,30 @@ SUBSYSTEM_DEF(persistence)
 
 	// Load Z-level persistence toggles FIRST — before any save/load so checks are in effect
 	var/datum/db_query/zlq = SSdbcore.NewQuery(
-		"SELECT z FROM ss13_zlevel_persistence WHERE enabled = 0", list())
+		"SELECT z, enabled FROM ss13_zlevel_persistence", list())
 	zlq.Execute()
 	while(zlq.NextRow())
-		GLOB.persistence_zlevel_skip += text2num(zlq.item[1])
+		var/toggle_z = text2num(zlq.item[1])
+		if(text2num(zlq.item[2]))
+			GLOB.persistence_zlevel_allow += toggle_z
+		else
+			GLOB.persistence_zlevel_skip += toggle_z
 	qdel(zlq)
 	if(length(GLOB.persistence_zlevel_skip))
 		log_subsystem_persistence_info("Z-Level skip list loaded: [GLOB.persistence_zlevel_skip.Join(", ")]")
+	if(GLOB.config.manual_area_save)
+		log_subsystem_persistence_info("MANUAL_AREA_SAVE active: only z-levels \[[GLOB.persistence_zlevel_allow.Join(", ")]\] will save/load.")
+
+	try
+		zoneSecurityInitialize()
+	catch(var/exception/zs_e)
+		log_subsystem_persistence_error("Zone security init failed: [zs_e] on [zs_e.file]:[zs_e.line]")
+
+	try
+		// Loaded first so the join gate is armed before anyone can hit Play.
+		whitelistInitialize()
+	catch(var/exception/wl_e)
+		log_subsystem_persistence_panic("Unhandled exception during join whitelist initialization: [wl_e]")
 
 	try
 		objectsInitialize()
@@ -271,6 +379,11 @@ SUBSYSTEM_DEF(persistence)
 		floorItemsInitialize()
 	catch(var/exception/floor_e)
 		log_subsystem_persistence_panic("Unhandled exception during floor item persistence initialization: [floor_e]")
+
+	try
+		botsInitialize()
+	catch(var/exception/bots_e)
+		log_subsystem_persistence_panic("Unhandled exception during bot persistence initialization: [bots_e]")
 
 	try
 		removedStructuresInitialize()
@@ -308,9 +421,23 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_panic("Unhandled exception during template pending check: [templates_e]")
 
 	try
+		// Before worldstateInitialize() -- a restored APC's get_area(src) must
+		// already resolve to the correct custom area by the time its worldstate
+		// restore runs.
+		areasInitialize()
+	catch(var/exception/areas_e)
+		log_subsystem_persistence_panic("Unhandled exception during area persistence initialization: [areas_e]")
+
+	try
 		worldstateInitialize()
 	catch(var/exception/ws_e)
 		log_subsystem_persistence_panic("Unhandled exception during worldstate persistence initialization: [ws_e]")
+
+	try
+		// After worldstate so vaults exist and have their networks applied.
+		laceVaultInitialize()
+	catch(var/exception/vault_e)
+		log_subsystem_persistence_panic("Unhandled exception during lace vault initialization: [vault_e]")
 
 	try
 		turfsInitialize()
@@ -318,9 +445,39 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_panic("Unhandled exception during turf persistence initialization: [turfs_e]")
 
 	try
+		// Restored cables/turfs above may have left segments on isolated powernets
+		// (SSmachinery built the grid long before persistence ran). Rebuild from
+		// GLOB.cable_list -- same proc the admin "Make Powernets" debug verb uses.
+		SSmachinery.makepowernets()
+		log_subsystem_persistence_info("Powernets rebuilt after persistence restore.")
+	catch(var/exception/pn_e)
+		log_subsystem_persistence_panic("Unhandled exception during powernet rebuild: [pn_e]")
+
+	try
 		atmosInitialize()
+		// The turf restore above queued ZAS updates -- settle them so zone geometry
+		// is final, then re-apply the saved zone gases. This must happen here:
+		// SSair initializes BEFORE SSpersistence, so any air vented while restored
+		// turfs rebuilt zones is replenished from the saved state, and alarms clear.
+		SSair.fire(FALSE, TRUE)
+		atmosApply()
 	catch(var/exception/atmos_e)
 		log_subsystem_persistence_panic("Unhandled exception during atmos persistence initialization: [atmos_e]")
+
+	try
+		// Must run after makepowernets(): re-derives APC channels from restored
+		// cell charge, writes area power flags, and rebroadcasts power state so
+		// no machine is left with stale NOPOWER sampled mid-restore.
+		powerstateFinalize()
+	catch(var/exception/ps_e)
+		log_subsystem_persistence_panic("Unhandled exception during power state finalization: [ps_e]")
+
+	try
+		// After atmosApply(): clear alarm/shutter state latched on transient
+		// boot air -- alarms re-sample the restored air next tick.
+		atmosAlarmsReset()
+	catch(var/exception/aar_e)
+		log_subsystem_persistence_panic("Unhandled exception during atmos alarm reset: [aar_e]")
 
 	try
 		mobsHealthInitialize()
@@ -345,6 +502,12 @@ SUBSYSTEM_DEF(persistence)
 	// GLOB.persistence_ready is set by SSpersistence_world_ready.Initialize()
 	// which runs at init_order = 1 (last of all subsystems)  after atoms, mapping, etc.
 
+	// One delayed power resync: the mid-init rebroadcast can't reach machines
+	// restored after it (objectsInitialize) nor powernets that hadn't ticked
+	// yet -- the rare "dark station, full APCs" boot state that a manual APC
+	// on->auto cycle used to fix.
+	addtimer(CALLBACK(src, PROC_REF(powerstateFinalize)), 30 SECONDS)
+
 	// Prevent an immediate fire() right after init  first autosave should be 30 min after startup
 	next_fire = world.time + wait
 	return SS_INIT_SUCCESS
@@ -362,7 +525,18 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_panic("SQL error during persistence subsystem shutdown. Cannot finalise persistence of the round.")
 		return
 
-	//  PRIORITY 1: Player data  must survive even if server is killed mid-shutdown 
+	//  PRIORITY 0: Vault laces before anything else touches mob/organ state
+	// Runs automatically on every real reboot (admin verb, vote, round-end
+	// auto-restart, remote command) -- Shutdown() is the one proc every
+	// world.Reboot() path funnels through via Master.Shutdown(). Does NOT
+	// run on the periodic 30-minute autosave (fire()), which never restarts
+	// the server.
+	try
+		vaultAllLaces()
+	catch(var/exception/lace_e)
+		log_subsystem_persistence_panic("Unhandled exception during pre-reboot lace vault sweep: [lace_e]")
+
+	//  PRIORITY 1: Player data  must survive even if server is killed mid-shutdown
 	try
 		mobsHealthFinalize()
 	catch(var/exception/health_e)
@@ -383,18 +557,28 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/pos_e)
 		log_subsystem_persistence_panic("Unhandled exception during mob position persistence finalization: [pos_e]")
 
-	//  PRIORITY 2: World items  floor items first (fast), then persistent objects (can be slow) 
+	//  PRIORITY 2: World items  floor items first (fast), then persistent objects (can be slow)
 	try
 		floorItemsFinalize()
 	catch(var/exception/floor_e)
 		log_subsystem_persistence_panic("Unhandled exception during floor item persistence finalization: [floor_e]")
 
 	try
+		botsFinalize()
+	catch(var/exception/bots_e)
+		log_subsystem_persistence_panic("Unhandled exception during bot persistence finalization: [bots_e]")
+
+	try
 		objectsFinalize()
 	catch(var/exception/objs_e)
 		log_subsystem_persistence_panic("Unhandled exception during persistent objects finalization: [objs_e]")
 
-	//  PRIORITY 3: World state  machinery, turfs, atmos 
+	//  PRIORITY 3: World state  machinery, turfs, atmos
+	try
+		areasFinalize()
+	catch(var/exception/areas_e)
+		log_subsystem_persistence_panic("Unhandled exception during area persistence finalization: [areas_e]")
+
 	try
 		worldstateFinalize()
 	catch(var/exception/ws_e)

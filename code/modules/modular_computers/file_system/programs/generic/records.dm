@@ -124,10 +124,15 @@
 	data["allrecords"] = list()
 	data["allrecords_locked"] = list()
 	data["record_viruses"] = list()
+	// Faction instancing: a shackled console only sees its own faction's
+	// records; unshackled consoles see the full station-wide list, unchanged.
+	var/net = computer ? normalize_faction_uid(computer.persistent_network) : ""
 	if(authenticated)
 		data["allrecords"] = list()
 		for(var/tR in sortRecord(SSrecords.records))
 			var/datum/record/general/R = tR
+			if(!record_faction_visible(R.faction_uid, net))
+				continue
 			data["allrecords"] += list(list(
 				"id" = R.id,
 				"name" = R.name,
@@ -153,6 +158,8 @@
 			data["allrecords_locked"] = list()
 			for(var/tR in sortRecord(SSrecords.records_locked))
 				var/datum/record/general/R = tR
+				if(!record_faction_visible(R.faction_uid, net))
+					continue
 				data["allrecords_locked"] += list(list(
 					"id" = R.id,
 					"name" = R.name,
@@ -196,14 +203,23 @@
 	if(!authenticated)
 		return
 
+	// Faction instancing: a shackled console can't open another faction's
+	// record even via a stale/guessed id -- defense in depth alongside the
+	// list-level filtering in ui_data().
+	var/net = computer ? normalize_faction_uid(computer.persistent_network) : ""
+
 	switch(action)
 		if("setactive")
 			active = SSrecords.find_record("id", params["setactive"])
+			if(active && !record_faction_visible(active.faction_uid, net))
+				active = null
 			. = TRUE
 
 		if("setactive_locked")
 			if(records_type & RECORD_LOCKED)
 				active = SSrecords.find_record("id", params["setactive_locked"], RECORD_GENERAL | RECORD_LOCKED)
+				if(active && !record_faction_visible(active.faction_uid, net))
+					active = null
 				. = TRUE
 
 		//Key is the variable we want to edit. Value is what we set it to.
@@ -232,6 +248,7 @@
 		if("newrecord")
 			if(edit_type & RECORD_GENERAL)
 				active = new /datum/record/general()
+				active.faction_uid = net
 				SSrecords.add_record(active)
 				. = TRUE
 

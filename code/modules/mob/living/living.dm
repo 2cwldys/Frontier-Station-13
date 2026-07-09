@@ -680,6 +680,8 @@ default behaviour is:
 	if(!incapacitated(INCAPACITATION_KNOCKOUT) && canClick())
 		SEND_SIGNAL(src, COMSIG_MOB_RESISTED)
 		resist_grab()
+		if(pulling)
+			stop_pulling()
 		if(!weakened)
 			process_resist()
 

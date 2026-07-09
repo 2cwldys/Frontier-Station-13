@@ -101,7 +101,7 @@ ABSTRACT_TYPE(/obj/item/package)
 				if(delivery_sector)
 					delivery_site = delivery_sector.name
 		. += SPAN_NOTICE("The label on the package reads: SITE: <b>[delivery_site]</b> | COORD: <b>[delivery_point_coordinates]</b> | ID: <b>[delivery_point_id]</b>")
-		. += SPAN_NOTICE("The price tag on the package reads: <b>[pay_amount]电</b>.")
+		. += SPAN_NOTICE("The price tag on the package reads: <b>[pay_amount]₵</b>.")
 
 /obj/item/package/delivery/Initialize(mapload, obj/structure/cargo_receptacle/delivery_point)
 	. = ..()

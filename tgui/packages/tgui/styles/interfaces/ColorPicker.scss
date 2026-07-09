@@ -22,7 +22,7 @@
   width: 200px;
   height: 200px;
   user-select: none;
-  cursor: default;
+  cursor: var(--cursor-default, default);
 }
 
 .react-colorful__saturation_value {

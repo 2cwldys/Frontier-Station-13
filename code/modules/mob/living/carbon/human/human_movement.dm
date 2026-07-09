@@ -47,6 +47,9 @@
 		if (bodytemperature < species.cold_discomfort_level)
 			tally += (species.cold_discomfort_level - bodytemperature) / 10 * 1.75
 
+	if(world.time < chilled_until) // Post-cryo chill (apply_cryo_chill)
+		tally += 4
+
 	tally += max(2 * stance_damage, 0) //damaged/missing feet or legs is slow
 	if((mutations & mRun))
 		tally = 0

@@ -39,7 +39,10 @@
 	if(parent_computer)
 		parent_computer.verbs += /obj/item/modular_computer/proc/eject_id
 		parent_computer.initial_name = parent_computer.name
-		parent_computer.name = "[parent_computer.name] - [id.registered_name], [id.assignment]"
+		if(id.employer_faction)
+			parent_computer.name = "[parent_computer.name] - [id.registered_name] ([get_faction_name(id.employer_faction) || id.employer_faction]) ([id.assignment])"
+		else
+			parent_computer.name = "[parent_computer.name] - [id.registered_name], [id.assignment]"
 
 /obj/item/computer_hardware/card_slot/proc/eject_id(mob/user)
 	if(!stored_card)

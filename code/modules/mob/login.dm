@@ -98,6 +98,7 @@
 	enable_client_mobs_in_contents()
 
 	update_client_color(no_animate = TRUE)
+	reload_fullscreen()	// re-add mob.screens[] overlays wiped by client.screen.Cut() above
 	add_click_catcher()
 
 	if(client) //Should work based on "change_view" but we lack the infrastructure behind to make it useful, for now
@@ -111,6 +112,10 @@
 
 	if(client && !istype(src, /mob/abstract/new_player)) //Do not update the skybox if it's a new player mob, they don't see it anyways and it can runtime
 		client.update_skybox(TRUE)
+
+	// Security-zone baseline: silent for nullsec on a fresh mob, announces
+	// non-nullsec zones on join/possession (persistence_zone_security.dm)
+	check_zone_announce(quiet_baseline = (zone_announce_level == -1))
 
 	if(spell_masters)
 		for(var/atom/movable/screen/movable/spell_master/spell_master in spell_masters)

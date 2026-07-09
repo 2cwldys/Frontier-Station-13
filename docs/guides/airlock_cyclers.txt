@@ -1,0 +1,117 @@
+AIRLOCK CYCLERS -- building and wiring a working cycler from scratch
+====================================================================
+
+WHAT YOU NEED
+--------------------------------------------------------------------
+An "Airlock Cycler Crate" (ordered from cargo, engineering category)
+contains everything except the door itself:
+  - 1x airlock controller frame + electronics
+  - 2x access button frame + electronics
+  - 2x airlock sensor frame + electronics
+  - cable coil
+
+The airlock(s) themselves are NOT included -- build those separately from
+a standard airlock assembly (steel stack -> "external airlock assembly" or
+any other airlock assembly type via the material construction menu ->
+wrench the frame -> 3x cable coil -> insert airlock electronics ->
+screwdriver to finish). Use the EXTERNAL assembly specifically if you want
+true external-airlock behavior (AI can't force it open, can't be
+emag-hacked, unique sounds) -- a generic airlock linked to a controller
+will cycle fine, but stays a plain airlock in every other respect.
+
+Air vents are not included either -- they're free to build through normal
+atmospherics construction and already fully compatible with a cycler once
+linked (see below).
+
+BUILDING A PART FROM ITS FRAME
+--------------------------------------------------------------------
+Each part (controller, access button, airlock sensor) is built the same
+three-step way, onto an EXISTING, already-finished wall -- same as
+building a fire alarm or air alarm. The wall must already be built; you
+attach the panel to its face, you don't need the wall itself mid-
+construction.
+
+  1. Walk up to a finished wall, stand on the adjacent floor tile, and
+     click the wall directly with the frame item in-hand. It mounts onto
+     that wall, facing you.
+  2. While it's still just a mounted frame (unsecured), you can WRENCH it
+     to rotate it 90 degrees at a time -- do this before wiring it, since
+     you can't rotate it anymore once it's finished. A CROWBAR at this
+     stage removes it from the wall entirely, giving you back the
+     portable frame item (full undo).
+  3. Insert the matching electronics board (e.g. "access button
+     electronics" into the access button frame) to advance it.
+  4. Use 5x cable (a cable coil) on it to finish wiring -- it's now a
+     complete, working part.
+
+Undoing a finished part: SCREWDRIVER opens its access panel, then
+WIRECUTTERS (while the panel's open) cuts the wires back out (drops 5
+cable, reverts to the unwired stage). From there, CROWBAR pries the
+circuit board back out (drops the electronics item, reverts to bare
+frame), then CROWBAR again removes the frame from the wall.
+
+WIRING EVERYTHING TOGETHER WITH A MULTITOOL
+--------------------------------------------------------------------
+All linking is done the same way, for every part -- door, access button,
+airlock sensor, and air vent, all pair with the CONTROLLER (not with each
+other) using a multitool:
+
+  1. Click one device with the multitool to buffer it (a chat message
+     confirms it's buffered).
+  2. Click the OTHER device (the controller, or the part, whichever you
+     didn't click first -- order doesn't matter) to complete the link.
+  3. To UNLINK, do the exact same thing again on the same pair -- it's a
+     toggle, not a separate unlink action.
+
+What each link actually does:
+  - Door <-> Controller: fills the controller's exterior-door slot if
+    empty, otherwise the interior-door slot, otherwise refuses (unlink one
+    first). Tunes the door to the controller's frequency automatically.
+  - Access Button <-> Controller: the button will send its "cycle"
+    command to that controller from then on, tuned to its frequency.
+  - Airlock Sensor <-> Controller: links BOTH directions at once -- the
+    sensor's manual card-swipe cycle command reaches the controller, AND
+    the controller starts listening to that sensor's live pressure
+    reports. Fills the controller's chamber-sensor slot first, then
+    exterior-sensor, then interior-sensor (whichever is empty first).
+  - Air Vent <-> Controller: fills the controller's airpump slot -- this
+    is the pump the controller pressurizes/depressurizes the chamber
+    with during a cycle. Vents already have their own id_tag assigned
+    automatically the moment they're built, so there's no extra setup
+    needed there before linking.
+
+A controller only has one exterior-door slot, one interior-door slot, and
+one airpump slot, but three sensor slots (chamber/exterior/interior) --
+with just the 2 sensors from the crate, the first one you link fills the
+chamber slot and the second fills the exterior slot. A third sensor is
+needed if you also want real interior-side pressure sensing instead of
+the controller's default 1-atmosphere assumption.
+
+PRESSURE SENSING: VACUUM VS. ROOM-TO-ROOM
+--------------------------------------------------------------------
+The controller assumes vacuum (0 pressure) on the exterior side and
+standard atmosphere (1 atm) on the interior side BY DEFAULT. Those are
+just fallback assumptions for a bare space airlock with no sensors linked
+-- if you link a sensor into the exterior-sensor slot (sitting in the
+room/area on the far side of the airlock), the controller starts using
+that sensor's real live pressure reading instead of assuming vacuum. This
+means the same cycler works correctly for both true space airlocks and
+room-to-room cyclers between two pressurized areas, as long as a sensor
+is actually placed and linked on the far side.
+
+Note: sensors only report raw pressure, not gas composition. The cycler
+has no way to detect a contaminated or different gas mix on the other
+side if it happens to be at a matching pressure -- it will cycle it
+through like any other air.
+
+PERSISTENCE
+--------------------------------------------------------------------
+Everything here survives a server restart:
+  - A part's construction progress (frame only / circuit inserted /
+    fully wired) and facing, so a half-built part is still half-built
+    after a restart, not reset.
+  - Every multitool link (door/button/sensor/vent tag assignments and
+    the frequency they're tuned to) on all four device types.
+  - The physical part itself, the same way any other player-built
+    machine already persists -- no separate save step needed on your
+    part, it's automatic once built.

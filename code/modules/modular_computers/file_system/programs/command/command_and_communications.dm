@@ -80,7 +80,17 @@
 	return can_run(user)
 
 /datum/computer_file/program/comm/proc/obtain_message_listener()
-	return GLOB.global_message_listener
+	// Faction instancing: a shackled console gets its OWN inbox, lazily
+	// created, separate from the station's shared one. Nothing currently
+	// posts faction-targeted messages (admin/CCIA/storyteller/malf are all
+	// station-wide broadcasts, unchanged) -- a faction inbox simply starts
+	// empty and stays that way until something faction-aware posts to it.
+	var/net = computer ? normalize_faction_uid(computer.persistent_network) : ""
+	if(!net)
+		return GLOB.global_message_listener
+	if(!GLOB.faction_message_listeners[net])
+		GLOB.faction_message_listeners[net] = new /datum/comm_message_listener()
+	return GLOB.faction_message_listeners[net]
 
 /datum/computer_file/program/comm/proc/can_call_shuttle()
 	return can_call_shuttle
@@ -234,6 +244,9 @@ General message handling stuff
 */
 GLOBAL_LIST_EMPTY_TYPED(comm_message_listeners, /datum/comm_message_listener)
 GLOBAL_DATUM_INIT(global_message_listener, /datum/comm_message_listener, new()) //May be used by admins
+/// Per-faction comm inboxes, keyed by normalized faction UID. Lazily created
+/// the first time a console shackled to that faction opens Command & Comms.
+GLOBAL_LIST_EMPTY_TYPED(faction_message_listeners, /datum/comm_message_listener)
 GLOBAL_VAR_INIT(last_message_id, 0)
 
 /proc/get_comm_message_id()
@@ -335,6 +348,10 @@ Command action procs
 	if((!(ROUND_IS_STARTED) || !GLOB.evacuation_controller))
 		return FALSE
 
+	if(round_end_locked())
+		to_chat(user, SPAN_WARNING("This station is not authorized to call for evacuation."))
+		return FALSE
+
 	if(!GLOB.universe.OnShuttleCall(usr))
 		to_chat(user, SPAN_WARNING("A bluespace connection cannot be established! Please check the user manual for more information."))
 		return FALSE
@@ -361,6 +378,9 @@ Command action procs
 
 /proc/init_shift_change(var/mob/user, var/force = FALSE)
 	if(!(ROUND_IS_STARTED) || !GLOB.evacuation_controller)
+		return
+
+	if(round_end_locked())
 		return
 
 	if(SSatlas.current_map.shuttle_call_restarts)

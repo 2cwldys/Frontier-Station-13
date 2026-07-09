@@ -83,6 +83,7 @@ INITIALIZE_IMMEDIATE(/obj/item/organ)
 				blood_DNA[dna.unique_enzymes] = dna.b_type
 		if(internal)
 			holder.internal_organs |= src
+			holder.internal_organs_by_name[organ_tag] = src
 	START_PROCESSING(SSprocessing, src)
 
 

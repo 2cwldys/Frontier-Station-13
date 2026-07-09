@@ -70,6 +70,39 @@ GLOBAL_LIST_INIT(sfx_toggles, list(
 	src << sound(null, repeat = 0, wait = 0, volume = 0, channel = 4) // Music plays on channel 4.
 	to_chat(src, SPAN_INFO("You will [(prefs.sfx_toggles & ASFX_MUSIC) ? "now" : "no longer"] hear music (such as from jukeboxes)."))
 
+// Ambient Playlist Volume (modeled on toggletitlemusic() in preferences_toggles.dm)
+/client/verb/toggle_ambient_playlist_vol()
+	set name = "Ambient Playlist Volume"
+	set category = "Preferences.Sound"
+	set desc = "Adjusts the in-round ambient music playlist volume"
+
+	var/new_vol = tgui_input_number(src, "Choose ambient playlist volume, 0 to mute", "Ambient Playlist Volume", prefs.ambient_playlist_vol, 100, 0, 0, TRUE)
+	if(isnull(new_vol))
+		return
+
+	var/was_off = !prefs.ambient_playlist_vol
+	prefs.ambient_playlist_vol = new_vol
+	prefs.sfx_toggles = new_vol ? (prefs.sfx_toggles | ASFX_AMBIENT_PLAYLIST) : (prefs.sfx_toggles & ~ASFX_AMBIENT_PLAYLIST)
+	prefs.save_preferences()
+
+	if(new_vol)
+		to_chat(src, SPAN_INFO("You will now hear the ambient music playlist."))
+		if(was_off && mob && !ambient_playlist_running)
+			start_ambient_playlist()
+		else
+			// Volume of an already-baked sound() call doesn't update on its own --
+			// push a live update so a currently playing track responds immediately
+			// instead of waiting for the next queued track.
+			// status is not a valid sound() constructor arg on this BYOND
+			// version -- construct then assign it as a property, otherwise
+			// this throws "bad arg name 'status'" at runtime every time.
+			var/sound/vol_update = sound(null, volume = new_vol, channel = CHANNEL_AMBIENT_PLAYLIST)
+			vol_update.status = SOUND_UPDATE
+			SEND_SOUND(src, vol_update)
+	else
+		to_chat(src, SPAN_INFO("You will no longer hear the ambient music playlist."))
+		stop_ambient_playlist()
+
 /client/verb/toggle_asfx_console()
 	set name = "Toggle Console Ambience SFX"
 	set category = "Preferences.Sound"

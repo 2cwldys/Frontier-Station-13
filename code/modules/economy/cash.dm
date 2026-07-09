@@ -1,6 +1,6 @@
 /obj/item/spacecash
 	name = "0 credit chip"
-	desc = "It's worth 0电."
+	desc = "It's worth 0₵."
 	gender = PLURAL
 	icon = 'icons/obj/cash.dmi'
 	icon_state = "spacecash1"
@@ -38,7 +38,7 @@
 			h_user.drop_from_inventory(src)
 			h_user.drop_from_inventory(bundle)
 			h_user.put_in_hands(bundle)
-		to_chat(user, SPAN_NOTICE("You add [src.worth]电 to the bundles.<br>It holds [bundle.worth]电 now."))
+		to_chat(user, SPAN_NOTICE("You add [src.worth]₵ to the bundles.<br>It holds [bundle.worth]₵ now."))
 		qdel(src)
 
 /proc/coin_typepath_suffix(var/amount)
@@ -55,7 +55,7 @@
 	name = "credit chips"
 	icon_state = ""
 	gender = PLURAL
-	desc = "They are worth 0电."
+	desc = "They are worth 0₵."
 	worth = 0
 
 /obj/item/spacecash/bundle/update_icon()
@@ -97,7 +97,7 @@
 
 	AddOverlays(ovr)
 	UpdateOverlays()	// The delay looks weird, so we force an update immediately.
-	src.desc = "A bundle of Biesel Standard Credits. Combined, this is worth [worth]电."
+	src.desc = "A bundle of Biesel Standard Credits. Combined, this is worth [worth]₵."
 
 /obj/item/spacecash/bundle/attack_self(mob/user as mob)
 	var/amount = tgui_input_number(user, "How many credits do you want to take out? (0 to [src.worth])", "Take Money", 5, worth, 0, 0, round_value = FALSE)
@@ -171,49 +171,49 @@
 /obj/item/spacecash/c5
 	name = "5 credit chip"
 	icon_state = "spacecash5"
-	desc = "A Biesel Standard Credit chip, used for transactions large and small. This one is worth 5电."
+	desc = "A Biesel Standard Credit chip, used for transactions large and small. This one is worth 5₵."
 	worth = 5
 
 /obj/item/spacecash/c10
 	name = "10 credit chip"
 	icon_state = "spacecash10"
-	desc = "A Biesel Standard Credit chip, used for transactions large and small. This one is worth 10电."
+	desc = "A Biesel Standard Credit chip, used for transactions large and small. This one is worth 10₵."
 	worth = 10
 
 /obj/item/spacecash/c20
 	name = "20 credit chip"
 	icon_state = "spacecash20"
-	desc = "A Biesel Standard Credit chip, used for transactions large and small. This one is worth 20电."
+	desc = "A Biesel Standard Credit chip, used for transactions large and small. This one is worth 20₵."
 	worth = 20
 
 /obj/item/spacecash/c50
 	name = "50 credit chip"
 	icon_state = "spacecash50"
-	desc = "A Biesel Standard Credit chip, used for transactions large and small. This one is worth 50电."
+	desc = "A Biesel Standard Credit chip, used for transactions large and small. This one is worth 50₵."
 	worth = 50
 
 /obj/item/spacecash/c100
 	name = "100 credit chip"
 	icon_state = "spacecash100"
-	desc = "A Biesel Standard Credit chip, used for transactions large and small. This one is worth 100电."
+	desc = "A Biesel Standard Credit chip, used for transactions large and small. This one is worth 100₵."
 	worth = 100
 
 /obj/item/spacecash/c200
 	name = "200 credit chip"
 	icon_state = "spacecash200"
-	desc = "A Biesel Standard Credit chip, used for transactions large and small. This one is worth 200电."
+	desc = "A Biesel Standard Credit chip, used for transactions large and small. This one is worth 200₵."
 	worth = 200
 
 /obj/item/spacecash/c500
 	name = "500 credit chip"
 	icon_state = "spacecash500"
-	desc = "A Biesel Standard Credit chip, used for transactions large and small. This one is worth 500电."
+	desc = "A Biesel Standard Credit chip, used for transactions large and small. This one is worth 500₵."
 	worth = 500
 
 /obj/item/spacecash/c1000
 	name = "1000 credit chip"
 	icon_state = "spacecash1000"
-	desc = "A Biesel Standard Credit chip, used for transactions large and small. This one is worth 1000电."
+	desc = "A Biesel Standard Credit chip, used for transactions large and small. This one is worth 1000₵."
 	worth = 1000
 
 /obj/item/spacecash/coin
@@ -238,25 +238,25 @@
 /obj/item/spacecash/coin/c001
 	name = "1 cent unie coin"
 	icon_state = "spacecash0.01"
-	desc = "A Biesel Standard Credit coin, called a 'unie'. This is worth 0.01电."
+	desc = "A Biesel Standard Credit coin, called a 'unie'. This is worth 0.01₵."
 	worth = 0.01
 
 /obj/item/spacecash/coin/c005
 	name = "5 cent quin coin"
 	icon_state = "spacecash0.05"
-	desc = "A Biesel Standard Credit coin, called a 'quin'. This is worth 0.05电."
+	desc = "A Biesel Standard Credit coin, called a 'quin'. This is worth 0.05₵."
 	worth = 0.05
 
 /obj/item/spacecash/coin/c010
 	name = "10 cent dece coin"
 	icon_state = "spacecash0.10"
-	desc = "A Biesel Standard Credit coin, called a 'dece'. This is worth 0.10电."
+	desc = "A Biesel Standard Credit coin, called a 'dece'. This is worth 0.10₵."
 	worth = 0.10
 
 /obj/item/spacecash/coin/c025
 	name = "25 cent quarter coin"
 	icon_state = "spacecash0.25"
-	desc = "A Biesel Standard Credit coin, called a 'quarter'. This is worth 0.25电."
+	desc = "A Biesel Standard Credit coin, called a 'quarter'. This is worth 0.25₵."
 	worth = 0.25
 
 /proc/spawn_money(var/sum, spawnloc, mob/living/carbon/human/human_user as mob)
@@ -307,7 +307,7 @@
 		return
 	if(src.owner_name)
 		. += SPAN_NOTICE("The charge card's owner is [src.owner_name].")
-	. += SPAN_NOTICE("It has [src.worth]电 left.")
+	. += SPAN_NOTICE("It has [src.worth]₵ left.")
 
 /obj/item/spacecash/ewallet/c2000
 	worth = 2000
@@ -317,6 +317,68 @@
 
 /obj/item/spacecash/ewallet/c10000
 	worth = 10000
+
+// Faction charge card -- STORED-VALUE: a fixed amount is withdrawn from the
+// owning faction's bank account at print time and loaded onto the card
+// (worth). Spending it draws down that stored balance only -- it never
+// touches the faction account again. Printed from the Faction Management
+// terminal.
+/obj/item/spacecash/ewallet/faction_charge_card
+	name = "faction charge card"
+	desc = "A corporate charge card loaded with funds withdrawn from a faction's bank account."
+	icon_state = "efundcard_special"
+	persistant_objects_expiration_time_days = 360
+	var/faction_uid = ""
+	/// The faction's charge-card epoch at the moment this card was printed --
+	/// see invalidate_faction_charge_cards()/is_faction_charge_card_valid()
+	/// in persistence_factions.dm. Cards from before this feature existed
+	/// default to 0, matching a faction that has never invalidated cards.
+	var/issued_epoch = 0
+
+/obj/item/spacecash/ewallet/faction_charge_card/Initialize()
+	. = ..()
+	SSpersistence.objectsRegisterTrack(src)
+
+/obj/item/spacecash/ewallet/faction_charge_card/get_examine_text(mob/user, distance, is_adjacent, infix, suffix)
+	. = ..() // parent already prints "It has [worth]₵ left."
+	if(distance <= 2 && faction_uid)
+		if(is_faction_charge_card_valid(src))
+			. += SPAN_NOTICE("Issued by [get_faction_name(faction_uid)].")
+		else
+			. += SPAN_WARNING("This card has been VOIDED and can no longer be used.")
+
+/obj/item/spacecash/ewallet/faction_charge_card/persistent_objects_get_content()
+	var/list/content = list()
+	content["name"] = name
+	content["faction_uid"] = faction_uid
+	content["owner_name"] = owner_name
+	content["issued_epoch"] = issued_epoch
+	content["worth"] = worth
+	return content
+
+/obj/item/spacecash/ewallet/faction_charge_card/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["name"]))         name = content["name"]
+	if(!isnull(content["faction_uid"]))  faction_uid = normalize_faction_uid(content["faction_uid"])
+	if(!isnull(content["owner_name"]))   owner_name = content["owner_name"]
+	if(!isnull(content["issued_epoch"])) issued_epoch = content["issued_epoch"]
+	if(!isnull(content["worth"]))        worth = content["worth"]
+
+// Deregister while held/stored -- otherwise objectsFinalize() saves it as a
+// world floor object at the holder's last position (get_turf() resolves
+// through the holder), duplicating it every restart alongside the copy the
+// inventory/cryo system restores. Only a card actually sitting on a turf
+// should be tracked this way.
+/obj/item/spacecash/ewallet/faction_charge_card/pickup(mob/user)
+	SSpersistence.objectsDeregisterTrack(src)
+	..()
+
+/obj/item/spacecash/ewallet/faction_charge_card/dropped(mob/user)
+	..()
+	if(isturf(loc))
+		SSpersistence.objectsRegisterTrack(src)
 
 // Persistent ewallet that keeps it's value across rounds.
 // When spawned, using VV, set "worth", "initial_worth", "owner_name" and "name".
@@ -366,3 +428,13 @@
 /obj/item/spacecash/ewallet/persistent_charge_card/Destroy()
 	log_and_message_admins("Persistent charge card ([src.name]) at [src] was destroyed!", null, get_turf(src))
 	. = ..()
+
+// See faction_charge_card's pickup()/dropped() above -- same floor-duplication issue.
+/obj/item/spacecash/ewallet/persistent_charge_card/pickup(mob/user)
+	SSpersistence.objectsDeregisterTrack(src)
+	..()
+
+/obj/item/spacecash/ewallet/persistent_charge_card/dropped(mob/user)
+	..()
+	if(isturf(loc))
+		SSpersistence.objectsRegisterTrack(src)

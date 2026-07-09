@@ -73,6 +73,7 @@
 /mob/abstract/eye/blueprints/proc/finalize_area(var/area_name)
 	var/area/A = new()
 	A.name = area_name
+	A.is_blueprint_area = TRUE
 	var/area/old_area = get_area(selected_turfs[1])
 	if(old_area.area_flags & AREA_FLAG_INDESTRUCTIBLE_TURFS) //to prevent new areas on exoplanets being ventable
 		A.area_flags |= AREA_FLAG_INDESTRUCTIBLE_TURFS
@@ -101,6 +102,169 @@
 	for(var/turf/T in A.contents)
 		T.change_area(T.loc, background_area)
 	if(!locate(/turf) in A)
+		qdel(A)
+
+/// Flood-fills outward from the eye's current position through non-dense
+/// (walkable) turfs, treating any dense turf (wall, closed door, etc.) as a
+/// boundary that's included in the result but not expanded through --
+/// "select this enclosed room, walls included" in one action, instead of
+/// several manual box-select passes for an irregular room or hallway
+/// offshoot. Goes straight into create_area() once the fill succeeds
+/// (prompts for a name immediately), the same as finishing a manual
+/// box-select and pressing "Mark New Area" -- no separate confirmation
+/// step. Doors must be closed -- an open doorway lets the fill leak into
+/// whatever's beyond it, which aborts the detection (see below) rather
+/// than guessing a boundary.
+/mob/abstract/eye/blueprints/proc/detect_room()
+	var/turf/start = get_turf(src)
+	if(!start || !(start.z in valid_z_levels))
+		to_chat(owner, SPAN_WARNING("The markings on this are entirely irrelevant to your whereabouts!"))
+		return
+	if(start.density)
+		to_chat(owner, SPAN_WARNING("You're standing inside a wall -- move into the room first."))
+		return
+
+	var/list/found = list()
+	var/list/pending = list(start)
+	var/enclosed = TRUE
+
+	while(LAZYLEN(pending))
+		if(LAZYLEN(found) > MAX_AREA_SIZE)
+			enclosed = FALSE
+			break
+		var/turf/T = pending[1]
+		pending -= T
+		if(T in found)
+			continue
+		found += T
+		if(T.density)
+			continue // boundary turf -- included, but the fill doesn't pass through it
+		for(var/dir in GLOB.cardinals)
+			var/turf/NT = get_step(T, dir)
+			if(!istype(NT) || NT.z != start.z || (NT in found) || (NT in pending))
+				continue
+			pending += NT
+
+	if(!enclosed)
+		to_chat(owner, SPAN_WARNING("That room isn't fully enclosed -- check for open doors or gaps in the walls, then try again."))
+		return
+
+	selected_turfs.Cut()
+	for(var/turf/T in found)
+		selected_turfs[T] = TRUE
+	last_selected_turf = null
+	last_selected_image.loc = null
+	to_chat(owner, SPAN_NOTICE("Detected an enclosed room: [length(found)] tile\s, walls included."))
+	create_area()
+
+/// Add the current selection onto the area the eye is standing in, instead
+/// of creating a new one. Selection may include background tiles (claimed
+/// the normal way) *and* tiles already part of the target area (a no-op
+/// reassignment, so extending an odd-shaped claim doesn't require avoiding
+/// your own existing tiles).
+/mob/abstract/eye/blueprints/proc/add_to_area()
+	var/area/target = get_area(src)
+	if(!check_modification_validity())
+		return
+	if(!check_selection_validity_for_area(target))
+		to_chat(owner, SPAN_WARNING("Could not add to area: [english_list(errors)]!"))
+		return
+	var/added = 0
+	for(var/turf/T in selected_turfs)
+		if(get_area(T) == target)
+			continue // already part of it, nothing to do
+		T.change_area(T.loc, target)
+		added++
+	to_chat(owner, SPAN_NOTICE("Added [added] tile\s to [target.name]."))
+	remove_selection()
+
+/// Same validity rules as check_selection_validity(), except a turf that's
+/// already part of the target area is accepted alongside background turfs.
+/mob/abstract/eye/blueprints/proc/check_selection_validity_for_area(area/target)
+	. = TRUE
+	errors.Cut()
+	if(!LAZYLEN(selected_turfs))
+		errors |= "no turfs are selected"
+		return FALSE
+	if(LAZYLEN(selected_turfs) > MAX_AREA_SIZE)
+		errors |= "selection exceeds max size"
+		return FALSE
+	if(LAZYLEN(target.contents) + LAZYLEN(selected_turfs) > MAX_AREA_SIZE)
+		errors |= "area would exceed max size"
+		return FALSE
+	for(var/turf/T in selected_turfs)
+		var/turf_valid = check_turf_validity_for_area(T, target)
+		. = min(., turf_valid)
+		selected_turfs[T] = turf_valid
+	if(!.) return
+	. = check_contiguity()
+
+/mob/abstract/eye/blueprints/proc/check_turf_validity_for_area(var/turf/T, area/target)
+	. = TRUE
+	if(!T)
+		return FALSE
+	if(!(T.z in valid_z_levels))
+		errors |= "selection isn't marked on the blueprints"
+		. = FALSE
+	var/area/A = T.loc
+	if(!A)
+		errors |= "selection overlaps unknown location"
+		return FALSE
+	if(A != target && !(A.area_flags & AREA_FLAG_IS_BACKGROUND))
+		errors |= "selection overlaps other area"
+		. = FALSE
+	if(istype(T, (A.base_turf ? A.base_turf : /turf/space)))
+		errors |= "selection is exposed to the outside"
+		. = FALSE
+
+/// Briefly overlays every turf currently in the area the eye is standing in,
+/// so a player can see exactly what's already claimed before expanding it.
+/mob/abstract/eye/blueprints/proc/highlight_area()
+	var/area/A = get_area(src)
+	if(!check_modification_validity())
+		return
+	var/list/highlight_images = list()
+	for(var/turf/T in A.contents)
+		if(T.z != src.z)
+			continue
+		var/image/I = image('icons/effects/blueprints.dmi', T, "valid")
+		I.plane = HUD_PLANE
+		I.appearance_flags = NO_CLIENT_COLOR
+		highlight_images += I
+	if(!owner?.client)
+		return
+	owner.client.images += highlight_images
+	addtimer(CALLBACK(src, PROC_REF(_clear_highlight), highlight_images), 3 SECONDS)
+	to_chat(owner, SPAN_NOTICE("Highlighting [length(highlight_images)] tile\s of [A.name]."))
+
+/mob/abstract/eye/blueprints/proc/_clear_highlight(list/image/images)
+	if(owner?.client)
+		owner.client.images -= images
+	QDEL_LIST(images)
+
+/// Removes the current selection from the area the eye is standing in,
+/// reverting those tiles to background -- shrinking an existing area
+/// without deleting the whole thing. Only tiles actually part of that area
+/// are removed; anything else in the selection is silently skipped.
+/mob/abstract/eye/blueprints/proc/modify_area()
+	var/area/A = get_area(src)
+	if(!check_modification_validity())
+		return
+	if(!LAZYLEN(selected_turfs))
+		to_chat(owner, SPAN_WARNING("Select tiles within [A.name] to remove them from it first."))
+		return
+	var/removed = 0
+	for(var/turf/T in selected_turfs)
+		if(get_area(T) != A)
+			continue
+		T.change_area(T.loc, world.area)
+		removed++
+	remove_selection()
+	if(!removed)
+		to_chat(owner, SPAN_WARNING("None of the selected tiles were part of [A.name]."))
+		return
+	to_chat(owner, SPAN_NOTICE("Removed [removed] tile\s from [A.name]."))
+	if(!(locate(/turf) in A))
 		qdel(A)
 
 /mob/abstract/eye/blueprints/proc/edit_area()

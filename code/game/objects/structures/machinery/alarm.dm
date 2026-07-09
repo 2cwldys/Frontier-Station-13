@@ -968,8 +968,12 @@ pixel_x = 10;
  * Resets the area atmospheric alarm. Called by ui_act and directly by atmos_alert computers.
  */
 /obj/structure/machinery/alarm/proc/alarm_reset()
-	if(alarm_area.atmosalert(0, src))
-		apply_danger_level(0)
+	// Zero OUR danger before the area recomputes -- atmosalert() takes the
+	// max over every alarm's danger_level INCLUDING this one, so resetting
+	// without lowering it first is a guaranteed no-op.
+	danger_level = 0
+	alarm_area.atmosalert(0, src)
+	apply_danger_level(0)
 	update_icon()
 
 /obj/structure/machinery/alarm/attackby(obj/item/attacking_item, mob/user)

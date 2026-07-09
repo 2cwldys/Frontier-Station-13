@@ -44,6 +44,7 @@
 
 /datum/category_item/player_setup_item/general/flavor/gather_load_query()
 	var/list/var_list = list(
+		"neural_lace" = "neural_lace",
 		"flavour_general" = "flavor_texts/general",
 		"flavour_head" = "flavor_texts/head",
 		"flavour_face" = "flavor_texts/face",
@@ -73,6 +74,7 @@
 
 /datum/category_item/player_setup_item/general/flavor/gather_save_query()
 	var/list/var_list = list(
+		"neural_lace",
 		"flavour_general",
 		"flavour_head",
 		"flavour_face",
@@ -96,6 +98,7 @@
 /datum/category_item/player_setup_item/general/flavor/gather_save_parameters()
 	var/list/var_list = list(
 		"char_id" = pref.current_character,
+		"neural_lace" = pref.neural_lace,
 		"flavour_general" = pref.flavor_texts["general"],
 		"flavour_head" = pref.flavor_texts["head"],
 		"flavour_face" = pref.flavor_texts["face"],
@@ -116,6 +119,7 @@
 	return var_list
 
 /datum/category_item/player_setup_item/general/flavor/sanitize_character(var/sql_load = 0)
+	pref.neural_lace = text2num(pref.neural_lace) // SQL queries return as text, so make this a num
 	if (!pref.signature)
 		pref.signature = "<i>[pref.real_name]</i>"
 	if (!pref.signfont)

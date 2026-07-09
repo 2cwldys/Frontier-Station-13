@@ -5,6 +5,8 @@
 		species.handle_login_special(src)
 	if(client)
 		CutOverlays(image('icons/effects/effects.dmi', "zzz_glow"))
+		if(client.prefs.toggles_secondary & INTIMATE_INTERACTIONS_ENABLED)
+			add_verb(src, /mob/living/carbon/human/verb/masturbate)
 	var/datum/antagonist/antag = player_is_antag(mind, FALSE)
 	if(antag)
 		antag.handle_latelogin(src)

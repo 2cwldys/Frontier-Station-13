@@ -12,17 +12,27 @@ type PersistentMenuData = {
   slot_limit: number;
   can_create: BooleanLike;
   persistence_ready: BooleanLike;
+  enter_allowed: BooleanLike;
+  save_in_progress: BooleanLike;
+  whitelisted: BooleanLike;
 };
 
 export const PersistentMenu = (props) => {
   const { act, data } = useBackend<PersistentMenuData>();
-  const { characters = [], slot_limit = 1, persistence_ready } = data;
+  const {
+    characters = [],
+    slot_limit = 1,
+    persistence_ready,
+    enter_allowed,
+    save_in_progress,
+    whitelisted,
+  } = data;
 
   const emptySlots = Math.max(0, slot_limit - characters.length);
 
   return (
     <Window title="Character Select" width={420} height={520}>
-      <Window.Content>
+      <Window.Content className="PersistentMenu">
         {characters.map((char) => (
           <Section
             key={char.name}
@@ -33,8 +43,21 @@ export const PersistentMenu = (props) => {
                   <Button
                     icon="play"
                     color="green"
-                    disabled={!persistence_ready}
-                    tooltip="Enter the world as this character"
+                    disabled={
+                      !persistence_ready ||
+                      !enter_allowed ||
+                      !!save_in_progress ||
+                      !whitelisted
+                    }
+                    tooltip={
+                      save_in_progress
+                        ? 'Cannot join server while a save is in progress.'
+                        : !whitelisted
+                          ? 'You are not whitelisted to join this server.'
+                          : !enter_allowed
+                            ? 'Joining is currently disabled by an administrator.'
+                            : 'Enter the world as this character'
+                    }
                     onClick={() => act('play', { name: char.name })}
                   >
                     Play

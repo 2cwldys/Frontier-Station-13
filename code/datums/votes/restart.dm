@@ -6,6 +6,10 @@
 /datum/vote/restart/can_be_initiated(mob/by_who, forced)
 	. = ..()
 
+	if(round_end_locked())
+		to_chat(by_who, SPAN_NOTICE("Restart voting is disabled on this station."))
+		return FALSE
+
 	//If it's disabled and you're not staff, no voting
 	if(!GLOB.config.allow_vote_restart && !forced)
 		return FALSE

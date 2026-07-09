@@ -43,6 +43,11 @@
 	var/telecomms_type = null
 	/// The network ID of the machinery
 	var/network = "NULL"
+	/// Faction UID this machine belongs to, if claimed by a faction beacon.
+	/// Matches the persistent_network convention used on cryopods/telepads/
+	/// modular computers/blueprint-created areas -- unrelated to the
+	/// telecomms-mesh "network" var above (that's the relay grouping tag).
+	var/persistent_network = ""
 
 	/// List of frequencies to tune into: if none, will listen to all
 	var/list/freq_listening = list()

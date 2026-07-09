@@ -223,13 +223,13 @@ export const CargoControl = (props) => {
                   : 'Unauthorised'}
               </LabeledList.Item>
               <LabeledList.Item label="Price">
-                {(data.order_details.price ?? 0).toFixed(2)}电
+                {(data.order_details.price ?? 0).toFixed(2)}₵
               </LabeledList.Item>
               <LabeledList.Item label="Operations Expense">
-                {(data.order_details.price_cargo ?? 0).toFixed(2)}电
+                {(data.order_details.price_cargo ?? 0).toFixed(2)}₵
               </LabeledList.Item>
               <LabeledList.Item label="Personal Expense">
-                {(data.order_details.price_customer ?? 0).toFixed(2)}电
+                {(data.order_details.price_customer ?? 0).toFixed(2)}₵
               </LabeledList.Item>
               <LabeledList.Item label="Ordered At">
                 {data.order_details.time_submitted}
@@ -263,11 +263,11 @@ export const CargoControl = (props) => {
                   <Table.Cell>Supplier</Table.Cell>
                   <Table.Cell>Price</Table.Cell>
                 </Table.Row>
-                {data.order_details.items.map((item) => (
+                {(data.order_details.items || []).map((item) => (
                   <Table.Row key={item.name}>
                     <Table.Cell>{item.name}</Table.Cell>
                     <Table.Cell>{item.supplier_name}</Table.Cell>
-                    <Table.Cell>{(item.price ?? 0).toFixed(2)}电</Table.Cell>
+                    <Table.Cell>{(item.price ?? 0).toFixed(2)}₵</Table.Cell>
                   </Table.Row>
                 ))}
               </Table>
@@ -308,7 +308,7 @@ export const MainWindow = (props) => {
       <Box bold>Welcome, {data.username}.</Box>
       <LabeledList>
         <LabeledList.Item label="Operations Fund">
-          {(data.cargo_money ?? 0).toFixed(2)}电
+          {(data.cargo_money ?? 0).toFixed(2)}₵
         </LabeledList.Item>
       </LabeledList>
       {data.shuttle_has_arrive_time ? (
@@ -341,7 +341,7 @@ export const OverviewSubmitted = (props) => {
           {data.order_approved_shuttle_time / 10} seconds
         </LabeledList.Item>
         <LabeledList.Item label="Estimated Elevator Fee">
-          {(data.order_approved_shuttle_price ?? 0).toFixed(2)}电
+          {(data.order_approved_shuttle_price ?? 0).toFixed(2)}₵
         </LabeledList.Item>
       </LabeledList>
       <Table>
@@ -351,11 +351,11 @@ export const OverviewSubmitted = (props) => {
           <Table.Cell>Price</Table.Cell>
           <Table.Cell>Actions</Table.Cell>
         </Table.Row>
-        {data.order_list.map((order) => (
+        {(data.order_list || []).map((order) => (
           <Table.Row key={order.order_id}>
             <Table.Cell>{order.order_id}</Table.Cell>
             <Table.Cell>{order.ordered_by}</Table.Cell>
-            <Table.Cell>{(order.price_cargo ?? 0).toFixed(2)}电</Table.Cell>
+            <Table.Cell>{(order.price_cargo ?? 0).toFixed(2)}₵</Table.Cell>
             <Table.Cell>
               <Button
                 content="Approve"
@@ -414,7 +414,7 @@ export const OverviewApproved = (props) => {
           {data.order_approved_shuttle_time / 10} seconds
         </LabeledList.Item>
         <LabeledList.Item label="Estimated Elevator Fee">
-          {(data.order_approved_shuttle_price ?? 0).toFixed(2)}电
+          {(data.order_approved_shuttle_price ?? 0).toFixed(2)}₵
         </LabeledList.Item>
       </LabeledList>
       <Table>
@@ -424,11 +424,11 @@ export const OverviewApproved = (props) => {
           <Table.Cell>Price</Table.Cell>
           <Table.Cell>Actions</Table.Cell>
         </Table.Row>
-        {data.order_list.map((order) => (
+        {(data.order_list || []).map((order) => (
           <Table.Row key={order.order_id}>
             <Table.Cell>{order.order_id}</Table.Cell>
             <Table.Cell>{order.ordered_by}</Table.Cell>
-            <Table.Cell>{(order.price_cargo ?? 0).toFixed(2)}电</Table.Cell>
+            <Table.Cell>{(order.price_cargo ?? 0).toFixed(2)}₵</Table.Cell>
             <Table.Cell>
               <Button
                 content="Reject"
@@ -482,11 +482,11 @@ export const OverviewShipped = (props) => {
           <Table.Cell>Price</Table.Cell>
           <Table.Cell>Actions</Table.Cell>
         </Table.Row>
-        {data.order_list.map((order) => (
+        {(data.order_list || []).map((order) => (
           <Table.Row key={order.order_id}>
             <Table.Cell>{order.order_id}</Table.Cell>
             <Table.Cell>{order.ordered_by}</Table.Cell>
-            <Table.Cell>{(order.price_cargo ?? 0).toFixed(2)}电</Table.Cell>
+            <Table.Cell>{(order.price_cargo ?? 0).toFixed(2)}₵</Table.Cell>
             <Table.Cell>
               <Button
                 content="Details"
@@ -531,11 +531,11 @@ export const OverviewDelivered = (props) => {
           <Table.Cell>Price</Table.Cell>
           <Table.Cell>Actions</Table.Cell>
         </Table.Row>
-        {data.order_list.map((order) => (
+        {(data.order_list || []).map((order) => (
           <Table.Row key={order.order_id}>
             <Table.Cell>{order.order_id}</Table.Cell>
             <Table.Cell>{order.ordered_by}</Table.Cell>
-            <Table.Cell>{(order.price_cargo ?? 0).toFixed(2)}电</Table.Cell>
+            <Table.Cell>{(order.price_cargo ?? 0).toFixed(2)}₵</Table.Cell>
             <Table.Cell>
               <Button
                 content="Details"
@@ -572,7 +572,7 @@ export const OverviewShipments = (props) => {
           <Table.Cell>Income</Table.Cell>
           <Table.Cell>Action</Table.Cell>
         </Table.Row>
-        {data.shipment_list.map((shipment) => (
+        {(data.shipment_list || []).map((shipment) => (
           <Table.Row key={shipment.shipment_num}>
             <Table.Cell>{shipment.shipment_num}</Table.Cell>
             <Table.Cell>{shipment.shipment_cost_purchase}</Table.Cell>
@@ -615,7 +615,7 @@ export const Bounties = (props) => {
           <Table.Cell>Completion</Table.Cell>
           <Table.Cell>Status</Table.Cell>
         </Table.Row>
-        {data.bounties.map((bounty) => (
+        {(data.bounties || []).map((bounty) => (
           <Table.Row key={bounty.name} m={5}>
             <Table.Cell textColor={bounty.claimed ? 'green' : 'red'}>
               {bounty.name}

@@ -551,6 +551,24 @@
 	return
 
 /datum/species/proc/create_organs(var/mob/living/carbon/human/H) //Handles creation of mob organs.
+	// Installed augments (neural laces etc.) are player property, not species
+	// anatomy -- lift them out before the wipe so the rebuild can't destroy
+	// them, then re-install after. Iterate a copy: removing from the list
+	// mid-iteration skips elements, losing augments when there are 2+.
+	var/list/preserved_augments = list()
+	for(var/obj/item/organ/internal/aug in H.internal_organs.Copy())
+		if(aug.is_augment)
+			preserved_augments += aug
+			H.internal_organs -= aug
+			H.internal_organs_by_name -= aug.organ_tag
+			// Detach from every external organ too: the old limbs get qdel'd
+			// below and organ_external/Destroy() QDEL_LISTs its internal_organs
+			// -- any augment still referenced there would be destroyed with it.
+			for(var/obj/item/organ/external/E in H.organs)
+				E.internal_organs -= aug
+			aug.owner = null
+			aug.forceMove(null)
+
 	for(var/obj/item/organ/organ in H.contents)
 		if((organ in H.organs) || (organ in H.internal_organs))
 			H.drop_from_inventory(organ, null, FALSE, TRUE)
@@ -600,6 +618,22 @@
 			E.status |= ORGAN_ADV_ROBOT
 		for(var/obj/item/organ/I in H.internal_organs)
 			I.status |= ORGAN_ADV_ROBOT
+
+	// Re-install preserved augments via the standard install hook, which
+	// re-registers them in internal_organs/internal_organs_by_name (and for
+	// neural laces, re-binds the owner and re-adds the status verb).
+	for(var/obj/item/organ/internal/aug as anything in preserved_augments)
+		if(QDELETED(aug))
+			continue
+		aug.forceMove(H)
+		var/obj/item/organ/external/parent = H.organs_by_name[aug.parent_organ]
+		if(parent)
+			aug.replaced(H, parent)
+		else
+			// No parent limb on this species -- register directly on the mob.
+			aug.owner = H
+			H.internal_organs |= aug
+			H.internal_organs_by_name[aug.organ_tag] = aug
 
 	if(natural_armor)
 		H.AddComponent(natural_armor_type, natural_armor)

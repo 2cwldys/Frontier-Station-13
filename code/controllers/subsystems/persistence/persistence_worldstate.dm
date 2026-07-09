@@ -38,7 +38,11 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	if(!worldstate_vars) return
 	for(var/v in worldstate_vars)
 		if((v in content) && !isnull(content[v]))
-			src.vars[v] = content[v]
+			// Faction uids saved before normalization may be raw display names
+			if(v == "persistent_network")
+				src.vars[v] = normalize_faction_uid(content[v])
+			else
+				src.vars[v] = content[v]
 	update_icon()
 
 // =====================================================================
@@ -84,35 +88,89 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	// Single blanket loop  covers all /obj/structure subtypes (machinery, closets, tables, grilles, etc.)
 	// Only types with worldstate_vars set or explicit proc overrides will actually save/load.
 	for(var/obj/structure/S in world)
-		if(S.z in GLOB.persistence_zlevel_skip) continue
+		if(persistence_z_excluded(S.z)) continue
 		applied += worldstateApplyToMachine(S)
 
 	// Items that need worldstate but aren't structures
 	for(var/obj/item/radio/intercom/IC in world)
-		if(IC.z in GLOB.persistence_zlevel_skip) continue
+		if(persistence_z_excluded(IC.z)) continue
 		applied += worldstateApplyToMachine(IC)
+
+	for(var/obj/item/modular_computer/MC in world)
+		if(persistence_z_excluded(MC.z)) continue
+		applied += worldstateApplyToMachine(MC)
 
 	log_subsystem_persistence_info("Worldstate: Applied saved state to [applied] machines.")
 
-	// Power resync — after worldstate restores APC/solar state, wait for the SMES
-	// and powernets to fully stabilize (they need ~10-15s after map load) before
-	// re-syncing. Only resync APCs that have external power but dead channels,
-	// to avoid disrupting working APCs mid-initialization.
-	// 20-second delay ensures SMES has fully stabilized before resync.
-	// By this point any APC that has power will be in a stable state;
-	// update(FALSE) re-evaluates channels without forcing a disruptive reset.
-	spawn(100)  // 10 seconds
-		var/apc_resynced = 0
-		for(var/obj/structure/machinery/power/apc/A in world)
-			if(!A.z) continue
-			A.update(FALSE)
-			apc_resynced++
-		var/solar_resynced = 0
-		for(var/obj/structure/machinery/power/solar_control/SC in world)
-			if(!SC.z) continue
-			SC.search_for_connected()
-			solar_resynced++
-		log_subsystem_persistence_info("Worldstate: Power resync — [apc_resynced] APC(s), [solar_resynced] solar controller(s).")
+/**
+ * Deterministic power-state resync, called as the final step of
+ * SSpersistence.Initialize() AFTER makepowernets(). The worldstate restore
+ * above overwrites APC channels/autoflag/cell charge (and SMES charge) but
+ * only calls update_icon() -- area.power_light/equip/environ are ONLY written
+ * by apc/update(), so without this sweep the area flags and every machine's
+ * cached NOPOWER stat are left to converge via racy timers (batteryless
+ * modular computers refuse to turn on, ATMs render lit but reject use, etc).
+ */
+/datum/controller/subsystem/persistence/proc/powerstateFinalize()
+	var/apc_count = 0
+	var/list/apc_areas = list()
+	for(var/obj/structure/machinery/power/apc/A in world)
+		if(!A.z) continue
+		if(A.cell)
+			A.update_channels()  // re-derive channel bits from the RESTORED cell charge
+		A.update()               // write area power flags (broadcasts on change)
+		if(A.area)
+			apc_areas |= A.area
+		apc_count++
+
+	var/solar_count = 0
+	for(var/obj/structure/machinery/power/solar_control/SC in world)
+		if(!SC.z) continue
+		SC.search_for_connected()
+		solar_count++
+
+	// Force every machine to re-read its area's power flags: machines cache
+	// stat & NOPOWER and only refresh on this signal, so ones that sampled
+	// power mid-restore would otherwise keep stale state until something
+	// happens to flip their area again.
+	for(var/area/AR in apc_areas)
+		SEND_SIGNAL(AR, COMSIG_AREA_POWER_CHANGE)
+
+	log_subsystem_persistence_info("Worldstate: Power state finalized -- [apc_count] APC(s), [solar_count] solar controller(s), [length(apc_areas)] area(s) rebroadcast.")
+
+/**
+ * Clear atmos alarm state latched during boot, called AFTER atmosApply()
+ * has put the real saved air back. While turfs/zones rebuild, live air
+ * alarms sample transient vacuum/cold and latch danger levels that close
+ * the area firedoors; the reset path can't recover from a frozen
+ * danger_level, so we zero every alarm and re-derive each area once the
+ * air is correct. Genuinely bad zones re-trigger within one process tick.
+ */
+/datum/controller/subsystem/persistence/proc/atmosAlarmsReset()
+	var/alarms_reset = 0
+	var/list/alarmed_areas = list()
+	for(var/obj/structure/machinery/alarm/AA in SSmachinery.machinery)
+		if(!AA.z)
+			continue
+		AA.danger_level = 0
+		// Clear the environment memo so the next process() re-samples the
+		// restored air instead of short-circuiting on "unchanged".
+		AA.previous_environment_gas = list()
+		AA.previous_environment_temperature = null
+		AA.previous_environment_total_moles = null
+		AA.previous_environment_volume = null
+		AA.previous_environment_group_multiplier = null
+		// Re-apply the restored mode so vents/scrubbers actually match it --
+		// worldstate only writes the var.
+		AA.apply_mode()
+		if(AA.alarm_area && AA.alarm_area.atmosalm)
+			alarmed_areas |= AA.alarm_area
+		alarms_reset++
+	// With every alarm zeroed the recompute clears the area alarm and
+	// air_doors_open() lifts the shutters (welded doors stay put).
+	for(var/area/AR in alarmed_areas)
+		AR.atmosalert(0, null)
+	log_subsystem_persistence_info("Worldstate: Atmos alarms reset -- [alarms_reset] alarm(s), [length(alarmed_areas)] latched area(s) cleared.")
 
 /**
  * Looks up the cache entry for this machine and applies its saved content.
@@ -157,12 +215,16 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	var/saved = 0
 
 	for(var/obj/structure/S in world)
-		if(S.z in GLOB.persistence_zlevel_skip) continue
+		if(persistence_z_excluded(S.z)) continue
 		saved += worldstateSaveOneMachine(S)
 
 	for(var/obj/item/radio/intercom/IC in world)
-		if(IC.z in GLOB.persistence_zlevel_skip) continue
+		if(persistence_z_excluded(IC.z)) continue
 		saved += worldstateSaveOneMachine(IC)
+
+	for(var/obj/item/modular_computer/MC in world)
+		if(persistence_z_excluded(MC.z)) continue
+		saved += worldstateSaveOneMachine(MC)
 
 	log_subsystem_persistence_info("Worldstate: Saved state for [saved] machines.")
 
@@ -219,8 +281,27 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 /obj/structure/machinery/telepad_cargo
 	worldstate_vars = list("persistent_network", "persistent_spawn", "faction_shackled")
 
+// Full override instead of worldstate_vars -- also saves/restores downloaded
+// software via the shared helpers in modular_computer/faction.dm, so a
+// stationary shackled computer keeps its installed programs across restarts
+// the same way a dynamically-tracked one does via persistent_objects_*_content().
+/obj/item/modular_computer/worldstate_get_content()
+	var/list/content = list("persistent_network" = persistent_network, "faction_shackled" = faction_shackled)
+	var/list/programs = modcomp_save_programs()
+	if(length(programs))
+		content["programs"] = json_encode(programs)
+	return content
+
+/obj/item/modular_computer/worldstate_apply_content(list/content)
+	if(!isnull(content["persistent_network"]))
+		persistent_network = normalize_faction_uid(content["persistent_network"]) || ""
+	if(!isnull(content["faction_shackled"]))
+		faction_shackled = content["faction_shackled"]
+	if(content["programs"])
+		modcomp_restore_programs(json_decode(content["programs"]))
+
 /obj/structure/machinery/door/airlock
-	worldstate_vars = list("welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access")
+	worldstate_vars = list("welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access", "id_tag", "frequency")
 
 /obj/structure/machinery/door/airlock/worldstate_get_content()
 	var/list/content = ..()
@@ -235,6 +316,12 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		var/list/cut = json_decode(content["cut_wires"])
 		if(islist(cut))
 			wires.cut_wires = cut
+	// The generic apply above only sets the raw frequency var -- it takes an
+	// actual set_frequency() call to re-register with SSradio, or a restored
+	// door with a restored id_tag would sit on the right frequency var but
+	// never actually receive anything.
+	if(frequency)
+		set_frequency(frequency)
 
 /obj/structure/machinery/door/blast
 	worldstate_vars = list("density")
@@ -249,7 +336,121 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	worldstate_vars = list("use_power", "scrubbing", "welded")
 
 /obj/structure/machinery/atmospherics/unary/vent_pump
-	worldstate_vars = list("use_power", "pump_direction", "external_pressure_bound", "internal_pressure_bound", "pressure_checks", "welded")
+	worldstate_vars = list("use_power", "pump_direction", "external_pressure_bound", "internal_pressure_bound", "pressure_checks", "welded", "frequency")
+
+/obj/structure/machinery/atmospherics/unary/vent_pump/worldstate_apply_content(list/content)
+	..()
+	if(frequency)
+		set_frequency(frequency)
+
+/obj/structure/machinery/portable_atmospherics/canister
+	worldstate_vars = list("valve_open", "release_pressure", "release_flow_rate", "can_label")
+
+/obj/structure/machinery/portable_atmospherics/canister/worldstate_get_content()
+	var/list/content = ..()
+	if(air_contents)
+		content["air_gas"] = json_encode(air_contents.gas)
+		content["air_temperature"] = air_contents.temperature
+	return content
+
+/obj/structure/machinery/portable_atmospherics/canister/worldstate_apply_content(list/content)
+	..()
+	if(!air_contents || !content["air_gas"])
+		return
+	var/list/gases = json_decode(content["air_gas"])
+	if(islist(gases))
+		air_contents.gas = gases
+	if(!isnull(content["air_temperature"]))
+		air_contents.temperature = text2num(content["air_temperature"])
+	air_contents.update_values()
+
+// Airlock cycler parts (section 8): buildstage/panel_open + dir so a still-
+// under-construction frame/circuit survives a restart mid-build, plus every
+// tag/frequency link a multitool sets up, so a player-built cycler doesn't
+// need to be rewired after a restart.
+/obj/structure/machinery/airlock_sensor
+	worldstate_vars = list("buildstage", "panel_open", "dir", "id_tag", "master_tag", "frequency", "on")
+
+/obj/structure/machinery/airlock_sensor/worldstate_apply_content(list/content)
+	..()
+	if(frequency)
+		set_frequency(frequency)
+
+/obj/structure/machinery/access_button
+	worldstate_vars = list("buildstage", "panel_open", "dir", "master_tag", "frequency", "on")
+
+/obj/structure/machinery/access_button/worldstate_apply_content(list/content)
+	..()
+	if(frequency)
+		set_frequency(frequency)
+
+/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller
+	worldstate_vars = list("buildstage", "panel_open", "dir", "id_tag", "frequency", "tag_exterior_door", "tag_interior_door", "tag_airpump", "tag_chamber_sensor", "tag_exterior_sensor", "tag_interior_sensor")
+
+/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/worldstate_apply_content(list/content)
+	..()
+	if(frequency)
+		set_frequency(frequency)
+
+// ------- Telecomms machinery (section 9) -------
+// Full override instead of worldstate_vars: freq_listening is list-valued
+// (json-encoded, same as camera's network list above) and links/
+// links_by_telecomms_type are object references, not JSON-safe -- saved as
+// [x,y,z] coordinates and restored via add_new_link(), which already
+// rebuilds links_by_telecomms_type as a side effect (it's a derived index,
+// not independently saved). Message logs (pda_msgs/rc_msgs -- themselves
+// unfinished, see the TODO already in message_server.dm) and the server's
+// NTSL2 script (rawcode is dead/unreferenced outside its own declaration;
+// the actual compiled Program datum isn't a simple var dump) are both
+// deliberately NOT persisted here -- out of scope for this pass, flagged
+// rather than silently skipped.
+/obj/structure/machinery/telecomms/worldstate_get_content()
+	var/list/link_coords = list()
+	for(var/obj/structure/machinery/telecomms/L in links)
+		link_coords += list(list(L.x, L.y, L.z))
+	return list(
+		"id" = id,
+		"network" = network,
+		"use_power" = use_power,
+		"integrity" = integrity,
+		"persistent_network" = persistent_network,
+		"freq_listening" = json_encode(freq_listening),
+		"links" = json_encode(link_coords),
+	)
+
+/obj/structure/machinery/telecomms/worldstate_apply_content(list/content)
+	if(content["id"])
+		id = content["id"]
+	if(content["network"])
+		network = content["network"]
+	if(!isnull(content["use_power"]))
+		use_power = text2num(content["use_power"])
+	if(!isnull(content["integrity"]))
+		integrity = text2num(content["integrity"])
+	if(!isnull(content["persistent_network"]))
+		persistent_network = normalize_faction_uid(content["persistent_network"]) || ""
+	if(content["freq_listening"])
+		var/list/freqs = json_decode(content["freq_listening"])
+		if(islist(freqs))
+			freq_listening = freqs
+	if(content["links"])
+		var/list/coords = json_decode(content["links"])
+		if(islist(coords))
+			for(var/list/pair in coords)
+				if(!islist(pair) || length(pair) < 3)
+					continue
+				var/turf/T = locate(pair[1], pair[2], pair[3])
+				if(!T)
+					continue
+				for(var/obj/structure/machinery/telecomms/other in T)
+					add_new_link(other)
+	update_icon()
+
+/obj/structure/machinery/telecomms/bus
+	worldstate_vars = list("change_frequency")
+
+/obj/structure/machinery/telecomms/message_server
+	worldstate_vars = list("decryptkey", "spamfilter_limit")
 
 /obj/structure/machinery/light
 	worldstate_vars = list("status")
@@ -301,6 +502,12 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 
 /obj/structure/machinery/floodlight
 	worldstate_vars = list("on", "unlocked", "open")
+
+/obj/structure/machinery/floodlight/worldstate_apply_content(list/content)
+	. = ..()
+	// The restore writes "on" as a raw var -- the dynamic light listens to
+	// set_light_on()'s signal, which a raw write never fires.
+	set_light_on(on)
 
 /obj/structure/machinery/hologram/holopad
 	worldstate_vars = list("long_range", "hacked")
@@ -396,7 +603,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 /obj/structure/machinery/cryopod/worldstate_apply_content(list/content)
 	// Only apply non-empty network strings  don't let a stale empty DB value wipe the "public" default
 	if(!isnull(content["persistent_network"]) && length(content["persistent_network"]))
-		persistent_network = content["persistent_network"]
+		persistent_network = normalize_faction_uid(content["persistent_network"])
 	if(!isnull(content["persistent_spawn"]))
 		persistent_spawn = content["persistent_spawn"]
 

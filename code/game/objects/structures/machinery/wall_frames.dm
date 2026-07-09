@@ -82,3 +82,24 @@
 	icon_state = "slight-construct-item"
 	refund_amt = 3
 	build_machine_type = /obj/structure/machinery/light_construct/spot
+
+/obj/item/frame/access_button
+	name = "access button frame"
+	desc = "Used for building airlock access buttons."
+	icon = 'icons/obj/airlock_machines.dmi'
+	icon_state = "access_button_standby"
+	build_machine_type = /obj/structure/machinery/access_button
+
+/obj/item/frame/airlock_sensor
+	name = "airlock sensor frame"
+	desc = "Used for building airlock pressure sensors."
+	icon = 'icons/obj/airlock_machines.dmi'
+	icon_state = "airlock_sensor_off"
+	build_machine_type = /obj/structure/machinery/airlock_sensor
+
+/obj/item/frame/airlock_controller
+	name = "airlock controller frame"
+	desc = "Used for building airlock cycler controllers."
+	icon = 'icons/obj/airlock_machines.dmi'
+	icon_state = "airlock_sensor_off"
+	build_machine_type = /obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller

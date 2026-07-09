@@ -216,6 +216,9 @@
 	return
 
 /obj/item/card/id/proc/update_name()
+	if(revoked)
+		name = "REVOKED"
+		return
 	if(employer_faction)
 		name = "[src.registered_name]'s ID Card ([get_faction_name(employer_faction)]) ([src.assignment || "Civilian"])"
 	else
@@ -425,6 +428,9 @@
 		var/list/saved_access = json_decode(content["access"])
 		if(islist(saved_access))
 			access = saved_access
+	// Revoked cards carry no access -- strip any that survived in older saves
+	if(revoked)
+		access = list()
 
 /obj/item/card/id/proc/mob_icon_update()
 	if(ismob(src.loc))

@@ -8,6 +8,7 @@
 #define ZTRAIT_OVERMAP "Overmap"
 #define ZTRAIT_EXPLANET "Exoplanet"
 #define ZTRAIT_PORTOFCALL "Port of Call"
+#define ZTRAIT_MINING "Mining"
 
 
 // Whether this z level is linked up/down. Bool.
@@ -32,6 +33,11 @@
 #define ZTRAITS_AWAY list(ZTRAIT_AWAY = TRUE)
 ///Z level traits for Overmap
 #define ZTRAITS_OVERMAP list(ZTRAIT_OVERMAP = TRUE, ZTRAIT_LINKAGE = SELFLOOPING)
+
+//How far from the edge of overmap zlevel could randomly placed objects spawn
+//(defined here rather than modules\overmap\_defines.dm so earlier-compiled
+//code, e.g. the persistence admin verbs, can use it)
+#define OVERMAP_EDGE 4
 ///Z level traits for Exoplanets
 #define ZTRAITS_EXPLANET list(ZTRAIT_EXPLANET = TRUE, ZTRAIT_LINKAGE = SELFLOOPING)
 

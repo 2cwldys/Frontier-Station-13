@@ -251,11 +251,17 @@
 			M.show_message(envelope)
 	if(msg.say_mode != SAYMODE_RADIO)
 		play_speech_sound(msg, sound_vol)
+	else
+		playsound(get_turf(src), 'sound/effects/radio_chatter.ogg', sound_vol, vary = TRUE)
 
 /// Plays the speech sound for a given message.
 /mob/proc/play_speech_sound(datum/say_message/msg, sound_vol)
 	var/mob/speaker = msg.speaker
-	if(msg.speech_sound && (get_dist(speaker, src) <= world.view && src.z == speaker?.z))
+	if(!msg.speech_sound)
+		return
+	if(client && !(client.prefs.toggles_secondary & TOGGLE_MUTTERING))
+		return
+	if(get_dist(speaker, src) <= world.view && src.z == speaker?.z)
 		var/turf/source = speaker ? get_turf(speaker) : get_turf(src)
 		playsound(source, msg.speech_sound, sound_vol, vary = TRUE)
 

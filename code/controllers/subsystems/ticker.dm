@@ -51,11 +51,7 @@ SUBSYSTEM_DEF(ticker)
 	var/atom/movable/screen/cinematic = null
 
 	var/list/default_lobby_tracks = list(
-		'sound/music/lobby/yuki_satellites.xm',
-		'sound/music/lobby/snow.ogg',
-		'sound/music/lobby/saturn.ogg',
-		'sound/music/lobby/kaaistoep.ogg',
-		'sound/music/lobby/saturn.ogg'
+		'sound/music/lobby/mainmenu.ogg',
 	)
 
 	var/lobby_ready = FALSE
@@ -78,6 +74,14 @@ SUBSYSTEM_DEF(ticker)
 	// by SSpersistence.Initialize() once all saved data has loaded.
 	mode = new /datum/game_mode/extended
 	current_state = GAME_STATE_PLAYING
+	// The persistent flow never runs pregame(), which is normally what fills
+	// login_music -- without this, playtitlemusic() waits on it forever and
+	// lobby music never plays.
+	if(!login_music)
+		if(SSatlas.current_sector?.lobby_tracks)
+			login_music = SSatlas.current_sector.lobby_tracks
+		else
+			login_music = default_lobby_tracks
 	return SS_INIT_SUCCESS
 
 /**
@@ -198,7 +202,10 @@ SUBSYSTEM_DEF(ticker)
 
 	var/game_finished = 0
 	var/mode_finished = 0
-	if(force_end)
+	if(round_end_locked())
+		game_finished = FALSE
+		mode_finished = FALSE
+	else if(force_end)
 		game_finished = TRUE
 		mode_finished = TRUE
 	else
@@ -768,6 +775,15 @@ SUBSYSTEM_DEF(ticker)
 /datum/controller/subsystem/ticker/proc/create_characters()
 	for(var/mob/abstract/new_player/player in GLOB.player_list)
 		if(player && player.ready && player.mind)
+			// Readied lobby players otherwise bypass every enter_allowed check
+			// entirely -- this is the only spawn path that doesn't route
+			// through PersistentAutoSpawn()/persistent_menu.dm, so a server
+			// locked via "Toggle Server Joining" moments before round start
+			// would still let them in without this.
+			if(!GLOB.config.enter_allowed && !check_rights(R_ADMIN, 0, player))
+				to_chat(player, SPAN_NOTICE("Joining is currently disabled by an administrator."))
+				CHECK_TICK
+				continue
 			if(player.mind.assigned_role=="AI")
 				player.close_spawn_windows()
 				player.AIize()

@@ -594,7 +594,7 @@ export const ListActive = (props) => {
                       </Box>
                       <Box color="red">
                         {incident.fine
-                          ? `Fined ${incident.fine.toFixed(2)}电.`
+                          ? `Fined ${incident.fine.toFixed(2)}₵.`
                           : 'Sentenced to ' +
                             incident.brig_sentence +
                             ' minutes of brig time.'}

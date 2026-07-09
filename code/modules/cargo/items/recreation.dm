@@ -1,7 +1,7 @@
 /singleton/cargo_item/crayonbox
 	category = "recreation"
 	name = "box of crayons"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Nontoxic crayons! For drawing, writing, painting. Warranty void if consumed."
 	price = 30
 	items = list(
@@ -15,7 +15,7 @@
 /singleton/cargo_item/painting_kit
 	category = "recreation"
 	name = "painting kit"
-	supplier = "virgo"
+	supplier = "Hub"
 	description = "A painter's kit containing an easel, a small canvas, and some paints. Additional canvases sold separately."
 	price = 350
 	items = list(
@@ -32,7 +32,7 @@
 /singleton/cargo_item/canvas_small
 	category = "recreation"
 	name = "small canvas"
-	supplier = "virgo"
+	supplier = "Hub"
 	description = "A painting canvas. Does not include the tools required to use it."
 	price = 50
 	items = list(
@@ -46,7 +46,7 @@
 /singleton/cargo_item/canvas_medium
 	category = "recreation"
 	name = "medium canvas"
-	supplier = "virgo"
+	supplier = "Hub"
 	description = "A painting canvas. Does not include the tools required to use it."
 	price = 80
 	items = list(
@@ -60,7 +60,7 @@
 /singleton/cargo_item/canvas_large
 	category = "recreation"
 	name = "large canvas"
-	supplier = "virgo"
+	supplier = "Hub"
 	description = "A painting canvas. Does not include the tools required to use it."
 	price = 100
 	items = list(
@@ -74,7 +74,7 @@
 /singleton/cargo_item/trumpet
 	category = "recreation"
 	name = "trumpet"
-	supplier = "virgo"
+	supplier = "Hub"
 	description = "A trumpet for those triumphant tooting sessions."
 	price = 300
 	items = list(
@@ -88,7 +88,7 @@
 /singleton/cargo_item/guitar
 	category = "recreation"
 	name = "guitar"
-	supplier = "virgo"
+	supplier = "Hub"
 	description = "An acoustic guitar for those balcony serenades."
 	price = 190
 	items = list(
@@ -102,7 +102,7 @@
 /singleton/cargo_item/violin
 	category = "recreation"
 	name = "violin"
-	supplier = "virgo"
+	supplier = "Hub"
 	description = "A wooden musical instrument with four strings and a bow."
 	price = 250
 	items = list(
@@ -116,7 +116,7 @@
 /singleton/cargo_item/polyguitar
 	category = "recreation"
 	name = "polyguitar"
-	supplier = "virgo"
+	supplier = "Hub"
 	description = "An electric polyguitar. 100% digital audio."
 	price = 250
 	items = list(
@@ -130,7 +130,7 @@
 /singleton/cargo_item/piano
 	category = "recreation"
 	name = "piano"
-	supplier = "virgo"
+	supplier = "Hub"
 	description = "Like a regular piano, but always in tune! Even if the musician isn't."
 	price = 1200
 	items = list(
@@ -144,7 +144,7 @@
 /singleton/cargo_item/pianosoundsynthesizer
 	category = "recreation"
 	name = "synthesizer 3.0"
-	supplier = "virgo"
+	supplier = "Hub"
 	description = "An expensive sound synthesizer. Great for those orchestra-of-one performances."
 	price = 1900
 	items = list(
@@ -158,7 +158,7 @@
 /singleton/cargo_item/jukebox
 	category = "recreation"
 	name = "juke box"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "A common sight in any modern space bar, this jukebox has all the space classics."
 	price = 500
 	items = list(
@@ -172,7 +172,7 @@
 /singleton/cargo_item/adhomian_phonograph
 	category = "recreation"
 	name = "adhomian phonograph"
-	supplier = "zharkov"
+	supplier = "Hub"
 	description = "An Adhomian record player."
 	price = 700
 	items = list(
@@ -186,7 +186,7 @@
 /singleton/cargo_item/waterballoons
 	category = "recreation"
 	name = "water balloons (x10)"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "Ten empty water balloons for water balloon fights."
 	price = 3.25
 	items = list(
@@ -200,7 +200,7 @@
 /singleton/cargo_item/balloons
 	category = "recreation"
 	name = "balloons (x10)"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "Ten empty regular balloons. Can be filled using a tank of air or other gas. Warranty void if filled with hydrogen."
 	price = 2.50
 	items = list(
@@ -214,7 +214,7 @@
 /singleton/cargo_item/toysword
 	category = "recreation"
 	name = "toy sword"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "A cheap, plastic replica of a blue energy sword. Realistic sounds and colors! Ages 8 and up."
 	price = 12
 	items = list(
@@ -228,7 +228,7 @@
 /singleton/cargo_item/replicakatana
 	category = "recreation"
 	name = "replica katana"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "A cheap plastic katana. Useful for pretending you're a samurai or for tabletop roleplaying sessions."
 	price = 16
 	items = list(
@@ -242,7 +242,7 @@
 /singleton/cargo_item/foamdart
 	category = "recreation"
 	name = "foam darts (x5)"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "It's some foam darts, for use in foam weaponry. Ages 8 and up."
 	price = 3.50
 	items = list(
@@ -256,7 +256,7 @@
 /singleton/cargo_item/foamdartcrossbow
 	category = "recreation"
 	name = "foam dart crossbow"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "A weapon favored by many overactive children. Ages 8 and up."
 	price = 20
 	items = list(
@@ -270,7 +270,7 @@
 /singleton/cargo_item/gravitationalsingularitytoy
 	category = "recreation"
 	name = "gravitational singularity toy"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "'Singulo' brand spinning toy. Certified mesmerizing since 2440."
 	price = 8
 	items = list(
@@ -284,7 +284,7 @@
 /singleton/cargo_item/randomplushies
 	category = "recreation"
 	name = "random plushies (x4)"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "Four random surplus plushies from a local toy store's clearance sale. People grow old, apparently."
 	price = 45
 	items = list(
@@ -298,7 +298,7 @@
 /singleton/cargo_item/therapydoll
 	category = "recreation"
 	name = "therapy doll"
-	supplier = "virgo"
+	supplier = "Hub"
 	description = "A toy for therapeutic and recreational purposes."
 	price = 22
 	items = list(
@@ -312,7 +312,7 @@
 /singleton/cargo_item/snappop
 	category = "recreation"
 	name = "snap pop (x5)"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "A number of snap pops."
 	price = 12
 	items = list(
@@ -326,7 +326,7 @@
 /singleton/cargo_item/redlasertagequipmentset
 	category = "recreation"
 	name = "red laser tag equipment set"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "A two-player set of red-team laser tag equipment consisting of a helmet, armor, and a gun."
 	price = 150
 	items = list(
@@ -342,7 +342,7 @@
 /singleton/cargo_item/bluelasertagequipmentset
 	category = "recreation"
 	name = "blue laser tag equipment set"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "A two-player set of blue-team laser blue equipment consisting of a helmet, armor, and a gun."
 	price = 150
 	items = list(
@@ -358,7 +358,7 @@
 /singleton/cargo_item/lyodiicards
 	category = "recreation"
 	name = "lyodii fatesayer cards"
-	supplier = "orion"
+	supplier = "Hub"
 	description = "A lyodii Fatesayer card deck. Exported from Moroz, used to tell your fate."
 	price = 120 //It's a niche novelty thing made in relatively small export quantities
 	items = list(
@@ -372,7 +372,7 @@
 /singleton/cargo_item/game_helm
 	category = "recreation"
 	name = "InUs Game-Helm"
-	supplier = "orion"
+	supplier = "Hub"
 	description = "A popular portable gaming console with thousands of games available for play."
 	price = 150
 	items = list(
@@ -386,7 +386,7 @@
 /singleton/cargo_item/whiteboard
 	category = "recreation"
 	name = "whiteboard"
-	supplier = "orion"
+	supplier = "Hub"
 	description = "A standard whiteboard."
 	price = 100
 	items = list(
@@ -400,7 +400,7 @@
 /singleton/cargo_item/whiteboard_portable
 	category = "recreation"
 	name = "portable whiteboard"
-	supplier = "orion"
+	supplier = "Hub"
 	description = "A portable whiteboard, smaller than the standard alternatives."
 	price = 75
 	items = list(

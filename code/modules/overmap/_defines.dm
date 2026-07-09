@@ -1,6 +1,5 @@
 
-//How far from the edge of overmap zlevel could randomly placed objects spawn
-#define OVERMAP_EDGE 4
+// OVERMAP_EDGE moved to code\__DEFINES\maps.dm so earlier-compiled code can use it
 
 /// All sector overmap objects.
 /// Assoc list of stringified zlevel integer value (like `"1"` or `"42"` etc)

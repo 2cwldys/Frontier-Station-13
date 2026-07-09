@@ -163,11 +163,17 @@
 				page = "order_overview" //Details page for a specific order - Lists the contents of the orde with the suppliers, prices and required access levels
 				//Fetch the order details and store it for the order. No need to fetch it again every 2 seconds
 				co = SScargo.get_order_by_id(text2num(params["order_overview"]))
-				order_details = co.get_list()
+				if(!co)
+					page = "overview_main"
+				else
+					order_details = co.get_list()
 			if("order_payment")
 				page = "order_payment"
 				co = SScargo.get_order_by_id(text2num(params["order_payment"]))
-				order_details = co.get_list()
+				if(!co)
+					page = "overview_main"
+				else
+					order_details = co.get_list()
 			else
 				page = "overview_main" //fall back to overview_main if a unknown page has been supplied
 		return TRUE

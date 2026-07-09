@@ -1,7 +1,7 @@
 /singleton/cargo_item/oxygentank
 	category = "atmos"
 	name = "oxygen tank"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A man-portable tank containing oxygen, the precious gas of life. Unless you're Vaurca, in which case it's pure poison."
 	price = 80
 	items = list(
@@ -15,7 +15,7 @@
 /singleton/cargo_item/phorontank
 	category = "atmos"
 	name = "phoron tank"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "A man-portable tank containing phoron, pure poison. Unless you're Vaurca, in which case it's the precious gas of life."
 	price = 1200
 	items = list(
@@ -29,7 +29,7 @@
 /singleton/cargo_item/hydrogentank
 	category = "atmos"
 	name = "hydrogen tank"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A man-portable tank containing hydrogen. Do not inhale. Warning: extremely flammable."
 	price = 45
 	items = list(
@@ -43,7 +43,7 @@
 /singleton/cargo_item/portable_air_pump
 	category = "atmos"
 	name = "portable air pump"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Used to fill or drain rooms without differentiating between gasses. NOTE: Does not come pre-filled. Air sold separately."
 	price = 130
 	items = list(
@@ -57,7 +57,7 @@
 /singleton/cargo_item/portable_air_scrubber
 	category = "atmos"
 	name = "portable air scrubber"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Scrubs contaminants from the local atmosphere or the connected portable tank."
 	price = 150
 	items = list(
@@ -71,7 +71,7 @@
 /singleton/cargo_item/canister_air
 	category = "atmos"
 	name = "Canister (Air)"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Holds a nitrogen-oxygen mixture of breathable air. Has a built-in valve to allow for filling portable tanks."
 	price = 180
 	items = list(
@@ -85,7 +85,7 @@
 /singleton/cargo_item/canister_3he
 	category = "atmos"
 	name = "Canister (Helium-3)"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Holds Helium-3 gas, a valuable fusion fuel. Has a built-in valve to allow for filling portable tanks."
 	price = 3800
 	items = list(
@@ -99,7 +99,7 @@
 /singleton/cargo_item/canister_co2
 	category = "atmos"
 	name = "Canister (CO2)"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Holds heavy CO2 gas, whatever that is. Has a built-in valve to allow for filling portable tanks."
 	price = 300
 	items = list(
@@ -113,7 +113,7 @@
 /singleton/cargo_item/canister_h2
 	category = "atmos"
 	name = "Canister (Hydrogen)"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Holds flammable hydrogen. Has a built-in valve to allow for filling portable tanks."
 	price = 350
 	items = list(
@@ -127,7 +127,7 @@
 /singleton/cargo_item/canister_he
 	category = "atmos"
 	name = "Canister (Helium)"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Holds voice-changing helium. Has a built-in valve to allow for filling portable tanks."
 	price = 320
 	items = list(
@@ -141,7 +141,7 @@
 /singleton/cargo_item/canister_n2
 	category = "atmos"
 	name = "Canister (Nitrogen)"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Holds inert nitrogen. Has a built-in valve to allow for filling portable tanks."
 	price = 320
 	items = list(
@@ -155,7 +155,7 @@
 /singleton/cargo_item/canister_n2o
 	category = "atmos"
 	name = "Canister (Nitrous Oxide)"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Holds sleepy nitrous oxide. Has a built-in valve to allow for filling portable tanks."
 	price = 650
 	items = list(
@@ -169,7 +169,7 @@
 /singleton/cargo_item/canister_o2
 	category = "atmos"
 	name = "Canister (Oxygen)"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Holds precious oxygen. Has a built-in valve to allow for filling portable tanks."
 	price = 450
 	items = list(
@@ -183,7 +183,7 @@
 /singleton/cargo_item/canister_phoron
 	category = "atmos"
 	name = "Canister (Phoron)"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "Holds valuable phoron gas. Has a built-in valve to allow for filling portable tanks."
 	price = 5500
 	items = list(
@@ -197,7 +197,7 @@
 /singleton/cargo_item/pipedispenser
 	category = "atmos"
 	name = "pipe dispenser"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "It dispenses pipes, no idea how though."
 	price = 90
 	items = list(
@@ -211,7 +211,7 @@
 /singleton/cargo_item/paint_sprayer
 	category = "atmos"
 	name = "paint sprayer"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Its said that green pipes are safe to travel through."
 	price = 25
 	items = list(
@@ -225,7 +225,7 @@
 /singleton/cargo_item/rpd
 	category = "atmos"
 	name = "Rapid Fabrication Device P-Class"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A heavily modified RFD, modified to construct pipes and piping accessories."
 	price = 45
 	items = list(
@@ -239,7 +239,7 @@
 /singleton/cargo_item/atmosvoidsuit
 	category = "atmos"
 	name = "atmospherics voidsuit"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A special suit that protects against hazardous, low pressure environments. Has unmatched thermal protection and minor radiation protection."
 	price = 800
 	items = list(
@@ -253,7 +253,7 @@
 /singleton/cargo_item/atmosphericsvoidsuithelmet
 	category = "atmos"
 	name = "atmospherics voidsuit helmet"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A special helmet designed for work in a hazardous, low pressure environments. Has unmatched thermal and minor radiation protection."
 	price = 500
 	items = list(

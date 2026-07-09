@@ -1,4 +1,6 @@
 /mob/living/carbon/human
+	COOLDOWN_DECLARE(mumble_sound_cd)
+
 	// Vision cone screen objects
 	var/atom/movable/screen/fov
 	var/atom/movable/screen/fov_mask
@@ -118,6 +120,22 @@
 	var/equipment_see_invis					// Max see invibility level granted by equipped items
 	var/equipment_prescription				// Eye prescription granted by equipped items
 	var/list/equipment_overlays = list()	// Extra overlays from equipped items
+
+	// Serenity hovertext — shows element name on HUD mouseover
+	var/atom/movable/screen/hovertext = null
+
+	// Top-center countdown to the next persistence autosave
+	var/atom/movable/screen/save_timer = null
+
+	// Top-right security zone shield (green/yellow/red by zone)
+	var/atom/movable/screen/zone_indicator = null
+
+	// Post-cryo chill effect: movement_delay() adds a tally while world.time is below this
+	var/chilled_until = 0
+	// Chill visuals are active inside a pod; the pod exit (go_out) finishes the effect
+	var/cryo_chill_pending = FALSE
+	// When the character last exited a cryopod -- examine shows a flavor line for 10 minutes
+	var/cryo_exited_at = 0
 
 	var/is_noisy = FALSE		// if TRUE, movement should make sound.
 	var/bodyfall_sound = SFX_BODYFALL

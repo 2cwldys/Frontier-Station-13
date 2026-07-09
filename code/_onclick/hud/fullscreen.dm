@@ -192,3 +192,22 @@
 	plane = LIGHTING_PLANE
 	layer = LIGHTING_PRIMARY_LAYER
 	blend_mode = BLEND_ADD
+
+// Post-cryo "chilled" cold border (see apply_cryo_chill). The bare .png is a
+// single 480x480 icon state named "", on the standard fullscreen anchor --
+// larger icons would force BYOND to expand the client viewport (zoom-out).
+// apply_cryo_chill() scales it to the client's dynamic view via transform,
+// which does NOT trigger view expansion (same trick as lighting_backdrop).
+/atom/movable/screen/fullscreen/chilled
+	icon = 'icons/hud/chilled.png'
+	icon_state = ""
+
+// Super Hug cap payoff (see apply_euphoric_rainbow) -- a plain tintable white plane, same
+// icon/state lighting_backdrop uses above, cycled through hues via animate() at the call site.
+/atom/movable/screen/fullscreen/euphoric_rainbow
+	icon = 'icons/hud/mob/white.dmi'
+	icon_state = "flash"
+	blend_mode = BLEND_OVERLAY
+	alpha = 120
+	color = "#FF0000"
+	transform = matrix(200, 0, 0, 0, 200, 0)

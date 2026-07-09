@@ -24,6 +24,9 @@
 	var/summary = ""
 	/// Who started the case
 	var/created_by = ""
+	/// Normalized faction UID this case belongs to, "" = station-wide
+	/// (see record_faction_visible()).
+	var/faction_uid = ""
 	/// When the case was opened
 	var/created_at = ""
 	/// When the case was last updated/editted

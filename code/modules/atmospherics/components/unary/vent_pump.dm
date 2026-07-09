@@ -378,7 +378,27 @@
 	broadcast_status_next_process = TRUE
 	update_icon()
 
+/// Sets frequency and re-derives the radio filter via setup_radio() (which
+/// special-cases the reserved air-alarm frequency 1439) instead of touching
+/// SSradio directly -- keeps this in sync with whatever setup_radio() does
+/// on Initialize().
+/obj/structure/machinery/atmospherics/unary/vent_pump/proc/set_frequency(new_frequency)
+	if(radio_connection)
+		SSradio.remove_object(src, frequency)
+	frequency = new_frequency
+	setup_radio()
+
 /obj/structure/machinery/atmospherics/unary/vent_pump/attackby(obj/item/attacking_item, mob/user)
+
+	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
+		var/obj/item/multitool/MT = attacking_item
+		var/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller = MT.get_buffer(/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller)
+		if(!controller)
+			MT.set_buffer(src)
+			to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
+			return TRUE
+		controller._link_to_airpump(src, user)
+		return TRUE
 
 	if(attacking_item.tool_behaviour == TOOL_WELDER)
 		var/obj/item/weldingtool/WT = attacking_item

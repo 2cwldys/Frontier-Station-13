@@ -61,7 +61,7 @@
 	mouse_opacity = MOUSE_OPACITY_TRANSPARENT
 	plane         = FULLSCREEN_PLANE
 	layer         = FULLSCREEN_LAYER
-	alpha         = 255
+	alpha         = 140
 
 // ── Cone geometry ──────────────────────────────────────────────────────────
 
@@ -70,7 +70,12 @@
 	var/d = get_dir(center, src)
 	if(!d || d == dir) return TRUE
 	if(dir & (dir-1))
-		return (d & ~dir) ? FALSE : TRUE
+		// Diagonal facing: only the single octant directly opposite counts as
+		// "in cone" (i.e. hidden when this is called with the opposite-facing
+		// dir) -- a subset test here would also match either lone cardinal
+		// component of the diagonal, hiding people standing beside you, not
+		// just behind you.
+		return (d == dir) ? TRUE : FALSE
 	if(!(d & dir)) return FALSE
 	var/dx = abs(x - center.x)
 	var/dy = abs(y - center.y)
@@ -86,6 +91,8 @@
 	for(var/turf/T in atoms)
 		for(var/mob/M in T.contents)
 			if(!M.InCone(center, dir)) atoms -= M
+		for(var/obj/item/It in T.contents)
+			if(!It.InCone(center, dir)) atoms -= It
 	return atoms
 
 // ── Vision cone update ────────────────────────────────────────────────────
@@ -129,9 +136,10 @@
 			src.fov.icon_state         = initial(src.fov.icon_state)
 			src.fov_mask_two.icon_state = initial(src.fov_mask_two.icon_state)
 
-	// Hide mobs behind the player using override images
+	// Hide mobs and loose floor items behind the player using override images
 	if(client && fov.alpha)
-		for(var/mob/living/M in cone(src, OPPOSITE_DIR(src.dir), view(src)))
+		var/list/hidden_candidates = cone(src, OPPOSITE_DIR(src.dir), view(src))
+		for(var/mob/living/M in hidden_candidates)
 			I = image(null, M)
 			I.override = TRUE
 			src.client.images    += I
@@ -140,6 +148,15 @@
 			M.in_vision_cones[src.client] = TRUE
 			if(src.pulling == M)
 				I.override = FALSE
+		for(var/obj/item/It in hidden_candidates)
+			if(!isturf(It.loc))
+				continue
+			if(istype(It, /obj/item/modular_computer/console))
+				continue // anchored console -- a fixture, not a loose floor item
+			I = image(null, It)
+			I.override = TRUE
+			src.client.images    += I
+			src.client.hidden_atoms += I
 
 // ── Show/hide helpers ─────────────────────────────────────────────────────
 
@@ -164,6 +181,15 @@
 // ── Direction change hook ─────────────────────────────────────────────────
 
 /mob/living/carbon/human/set_dir(new_dir)
+	. = ..()
+	if(fov) update_vision_cone()
+
+// ── Movement hook ──────────────────────────────────────────────────────────
+// The cone test depends on relative position, not just facing -- walking
+// past someone changes whether they're in-cone even with dir unchanged, so
+// this needs the same recompute set_dir() already triggers.
+
+/mob/living/carbon/human/Moved(atom/old_loc, movement_dir, forced, list/old_locs)
 	. = ..()
 	if(fov) update_vision_cone()
 

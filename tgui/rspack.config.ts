@@ -78,6 +78,10 @@ export default defineConfig({
           filename: '[name][ext]',
         },
       },
+      {
+        test: /\.cur$/,
+        type: 'asset/inline',
+      },
 
       {
         test: /\.svg$/,

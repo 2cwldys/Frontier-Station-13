@@ -67,53 +67,16 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
 	if(!databaseCheckConnection("mobsHealthFinalize"))
 		return
 
+	// Delegates to mobsHealthSaveOne() so the finalize sweep refreshes
+	// GLOB.persistence_health_cache exactly like the logout/cryo save path --
+	// otherwise a force-save followed by a same-round rejoin restores stale data.
 	var/saved = 0
 	for(var/mob/living/carbon/human/H in GLOB.human_mob_list)
 		if(!H.ckey || !H.real_name)
 			continue
 		if(!H.z)
 			continue
-
-		// Serialize organ state: limb_name => {brute, burn, robotic, model, augments}
-		var/list/organ_damage = list()
-		for(var/obj/item/organ/external/O in H.organs)
-			if(!O.limb_name)
-				continue
-			var/list/augments = list()
-			for(var/obj/item/organ/A in O.internal_organs)
-				if(A.is_augment)
-					augments += "[A.type]"
-			if(!O.brute_dam && !O.burn_dam && !O.robotic && !length(augments))
-				continue
-			var/list/limb = list("brute" = O.brute_dam, "burn" = O.burn_dam)
-			if(O.robotic)
-				limb["robotic"] = 1
-				if(O.model) limb["model"] = O.model
-			if(length(augments))
-				limb["augments"] = augments
-			organ_damage[O.limb_name] = limb
-
-		var/datum/db_query/insert = SSdbcore.NewQuery(
-			{"INSERT INTO ss13_char_health (ckey, char_name, organ_damage_json, stamina, bodytemperature, on_fire, fire_stacks, nutrition, hydration, saved_at)
-			VALUES (:ckey, :char_name, :organ_damage_json, :stamina, :bodytemperature, :on_fire, :fire_stacks, :nutrition, :hydration, NOW())
-			ON DUPLICATE KEY UPDATE organ_damage_json = VALUES(organ_damage_json), stamina = VALUES(stamina),
-			bodytemperature = VALUES(bodytemperature), on_fire = VALUES(on_fire), fire_stacks = VALUES(fire_stacks),
-			nutrition = VALUES(nutrition), hydration = VALUES(hydration), saved_at = NOW()"},
-			list(
-				"ckey"             = H.ckey,
-				"char_name"        = H.real_name,
-				"organ_damage_json"= length(organ_damage) ? json_encode(organ_damage) : null,
-				"stamina"          = H.stamina,
-				"bodytemperature"  = H.bodytemperature,
-				"on_fire"          = H.on_fire ? 1 : 0,
-				"fire_stacks"      = H.fire_stacks,
-				"nutrition"        = H.nutrition,
-				"hydration"        = H.hydration
-			)
-		)
-		insert.Execute()
-		databaseCheckQueryResult(insert, "mobsHealthFinalize insert")
-		qdel(insert)
+		mobsHealthSaveOne(H)
 		saved++
 
 	log_subsystem_persistence_info("MobHealth: Saved health state for [saved] mobs.")
@@ -153,7 +116,14 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
 						O.robotize(company)
 				// Restore augments
 				if(limb["augments"] && islist(limb["augments"]))
-					for(var/aug_type_str in limb["augments"])
+					for(var/aug_entry in limb["augments"])
+						var/aug_type_str
+						var/list/aug_data = null
+						if(islist(aug_entry))
+							aug_data = aug_entry
+							aug_type_str = aug_data["type"]
+						else
+							aug_type_str = aug_entry
 						var/aug_path = text2path(aug_type_str)
 						if(!aug_path || !ispath(aug_path, /obj/item/organ))
 							continue
@@ -164,8 +134,17 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
 								break
 						if(!already_installed)
 							try
-								// new path(loc, mapload, internal)  internal=TRUE hooks the augment into parent_organ automatically
-								new aug_path(src, FALSE, TRUE)
+								// /atom/New() overwrites args[1] (loc) with mapload and forwards the
+								// rest unchanged (atoms_initializing_EXPENSIVE.dm) -- so only ONE
+								// extra arg belongs here (internal); a second one shifts internal
+								// out of Initialize()'s parameter list and it's silently dropped.
+								var/obj/item/organ/new_aug = new aug_path(src, TRUE)
+								if(aug_data && istype(new_aug, /obj/item/organ/internal/neural_lace))
+									var/obj/item/organ/internal/neural_lace/lace = new_aug
+									lace.lace_damage     = isnull(aug_data["lace_damage"]) ? 0 : aug_data["lace_damage"]
+									lace.registered_name = aug_data["registered_name"] || ""
+									lace.registered_ckey = aug_data["registered_ckey"] || ""
+									lace.owner_faction   = aug_data["owner_faction"] || ""
 							catch(var/exception/aug_e)
 								log_subsystem_persistence_error("MobHealth: Failed to restore augment [aug_type_str] for [real_name]: [aug_e]")
 
@@ -264,6 +243,14 @@ GLOBAL_LIST_EMPTY(persistence_identity_cache)
 	databaseCheckQueryResult(ins, "charIdentitySaveOne")
 	qdel(ins)
 
+	// Refresh the in-memory cache too -- restore reads the cache, not the DB.
+	GLOB.persistence_identity_cache["[H.ckey]|[H.real_name]"] = list(
+		"citizenship"    = H.citizenship || null,
+		"special_voice"  = H.special_voice || null,
+		"flavor_texts"   = flavor_json,
+		"languages_json" = language_json
+	)
+
 /mob/living/carbon/human/proc/applyPersistentIdentity()
 	if(!GLOB.config.sql_enabled || !islist(GLOB.persistence_identity_cache))
 		return
@@ -316,7 +303,9 @@ GLOBAL_LIST_INIT(persistence_inventory_slots, list(
 	"wrists"    = slot_wrists,
 	"l_hand"    = slot_l_hand,
 	"r_hand"    = slot_r_hand,
-	"s_store"   = slot_s_store
+	"s_store"   = slot_s_store,
+	"l_store"   = slot_l_store,
+	"r_store"   = slot_r_store
 ))
 
 /**
@@ -359,32 +348,16 @@ GLOBAL_LIST_INIT(persistence_inventory_slots, list(
 	if(!databaseCheckConnection("mobsInventoryFinalize"))
 		return
 
+	// Delegates to mobsInventorySaveOne() so the finalize sweep refreshes
+	// GLOB.persistence_inventory_cache exactly like the logout/cryo save path --
+	// otherwise a force-save followed by a same-round rejoin restores stale data.
 	var/saved = 0
 	for(var/mob/living/carbon/human/H in GLOB.human_mob_list)
 		if(!H.ckey || !H.real_name)
 			continue
 		if(!H.z)
 			continue
-
-		var/list/inv = list()
-		for(var/slot_name in GLOB.persistence_inventory_slots)
-			var/slot_id = GLOB.persistence_inventory_slots[slot_name]
-			var/obj/item/I = H.get_equipped_item(slot_id)
-			inv[slot_name] = I ? serializePersistentItem(I) : null
-
-		var/datum/db_query/insert = SSdbcore.NewQuery(
-			{"INSERT INTO ss13_char_inventory (ckey, char_name, inventory_json, saved_at)
-			VALUES (:ckey, :char_name, :inventory_json, NOW())
-			ON DUPLICATE KEY UPDATE inventory_json = VALUES(inventory_json), saved_at = NOW()"},
-			list(
-				"ckey"           = H.ckey,
-				"char_name"      = H.real_name,
-				"inventory_json" = json_encode(inv)
-			)
-		)
-		insert.Execute()
-		databaseCheckQueryResult(insert, "mobsInventoryFinalize insert")
-		qdel(insert)
+		mobsInventorySaveOne(H)
 		saved++
 
 	log_subsystem_persistence_info("MobInventory: Saved inventory state for [saved] mobs.")
@@ -408,7 +381,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		return
 
 	var/datum/db_query/query = SSdbcore.NewQuery(
-		"SELECT ckey, char_name, x, y, z FROM ss13_mob_position",
+		"SELECT ckey, char_name, x, y, z, char_state, in_lace, lace_pod_x, lace_pod_y, lace_pod_z, last_pod_x, last_pod_y, last_pod_z FROM ss13_mob_position",
 		list()
 	)
 	query.Execute()
@@ -421,9 +394,17 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	while(query.NextRow())
 		var/key = "[query.item[1]]|[query.item[2]]"
 		GLOB.persistence_position_cache[key] = list(
-			"x" = text2num(query.item[3]),
-			"y" = text2num(query.item[4]),
-			"z" = text2num(query.item[5])
+			"x"           = text2num(query.item[3]),
+			"y"           = text2num(query.item[4]),
+			"z"           = text2num(query.item[5]),
+			"char_state"  = query.item[6] || "alive",
+			"in_lace"     = text2num(query.item[7]),
+			"lace_pod_x"  = text2num(query.item[8]),
+			"lace_pod_y"  = text2num(query.item[9]),
+			"lace_pod_z"  = text2num(query.item[10]),
+			"last_pod_x"  = text2num(query.item[11]),
+			"last_pod_y"  = text2num(query.item[12]),
+			"last_pod_z"  = text2num(query.item[13])
 		)
 		loaded++
 
@@ -480,19 +461,136 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	if(!databaseCheckConnection("mobPositionSave"))
 		return
 
+	// A human write always means the character is embodied (alive or dead-in-body),
+	// never in_lace -- that state is written separately by lacePositionSave()
+	// when the consciousness is extracted into a neural lace.
+	var/state = (H.stat == DEAD) ? "dead_body" : "alive"
+
 	var/datum/db_query/ins = SSdbcore.NewQuery(
-		{"INSERT INTO ss13_mob_position (ckey, char_name, x, y, z)
-		VALUES (:ckey, :char_name, :x, :y, :z)
-		ON DUPLICATE KEY UPDATE x = VALUES(x), y = VALUES(y), z = VALUES(z), saved_at = NOW()"},
-		list("ckey" = H.ckey, "char_name" = H.real_name, "x" = H.x, "y" = H.y, "z" = H.z)
+		{"INSERT INTO ss13_mob_position (ckey, char_name, x, y, z, char_state, in_lace, lace_pod_x, lace_pod_y, lace_pod_z)
+		VALUES (:ckey, :char_name, :x, :y, :z, :char_state, 0, NULL, NULL, NULL)
+		ON DUPLICATE KEY UPDATE x = VALUES(x), y = VALUES(y), z = VALUES(z), char_state = VALUES(char_state),
+		in_lace = 0, lace_pod_x = NULL, lace_pod_y = NULL, lace_pod_z = NULL, saved_at = NOW()"},
+		list("ckey" = H.ckey, "char_name" = H.real_name, "x" = H.x, "y" = H.y, "z" = H.z, "char_state" = state)
 	)
 	ins.Execute()
 	databaseCheckQueryResult(ins, "mobPositionSave")
 	qdel(ins)
 
-	// Update cache
+	// Update cache in place -- replacing the entry would drop fields this
+	// write doesn't own (last_pod_*, which only pod stores touch).
 	var/key = "[H.ckey]|[H.real_name]"
-	GLOB.persistence_position_cache[key] = list("x" = H.x, "y" = H.y, "z" = H.z)
+	var/list/entry = GLOB.persistence_position_cache[key]
+	if(!islist(entry))
+		entry = list()
+		GLOB.persistence_position_cache[key] = entry
+	entry["x"]          = H.x
+	entry["y"]          = H.y
+	entry["z"]          = H.z
+	entry["char_state"] = state
+	entry["in_lace"]    = 0
+	entry["lace_pod_x"] = null
+	entry["lace_pod_y"] = null
+	entry["lace_pod_z"] = null
+
+/**
+ * Save the "in_lace" position state for a captured consciousness, keyed on the
+ * lace's REGISTERED identity (not the disembodied lace_mob's own ckey, which
+ * may be blank if it was created via Assign Consciousness). Called on
+ * lace_mob logout and whenever a lace is slotted into a storage vault.
+ */
+/datum/controller/subsystem/persistence/proc/lacePositionSave(ckey, char_name, turf/T)
+	if(!ckey || !char_name || !T)
+		return
+	if(!databaseCheckConnection("lacePositionSave"))
+		return
+
+	var/datum/db_query/ins = SSdbcore.NewQuery(
+		{"INSERT INTO ss13_mob_position (ckey, char_name, x, y, z, char_state, in_lace, lace_pod_x, lace_pod_y, lace_pod_z)
+		VALUES (:ckey, :char_name, :x, :y, :z, 'in_lace', 1, :x, :y, :z)
+		ON DUPLICATE KEY UPDATE char_state = 'in_lace', in_lace = 1,
+		lace_pod_x = VALUES(lace_pod_x), lace_pod_y = VALUES(lace_pod_y), lace_pod_z = VALUES(lace_pod_z), saved_at = NOW()"},
+		list("ckey" = ckey, "char_name" = char_name, "x" = T.x, "y" = T.y, "z" = T.z)
+	)
+	ins.Execute()
+	databaseCheckQueryResult(ins, "lacePositionSave")
+	qdel(ins)
+
+	// In-place for the same reason as mobPositionSave: don't drop last_pod_*.
+	var/key = "[ckey]|[char_name]"
+	var/list/entry = GLOB.persistence_position_cache[key]
+	if(!islist(entry))
+		entry = list()
+		GLOB.persistence_position_cache[key] = entry
+	entry["x"]          = T.x
+	entry["y"]          = T.y
+	entry["z"]          = T.z
+	entry["char_state"] = "in_lace"
+	entry["in_lace"]    = 1
+	entry["lace_pod_x"] = T.x
+	entry["lace_pod_y"] = T.y
+	entry["lace_pod_z"] = T.z
+
+/**
+ * Reset a character's persisted state to "alive" without touching position --
+ * called by every successful revival path (resleeve, rejoin-wake) so a stale
+ * in_lace/dead_body flag doesn't stick around after the character is back up.
+ */
+/proc/persistence_set_char_state(ckey, char_name, state)
+	if(!GLOB.config.sql_enabled || !ckey || !char_name)
+		return
+	if(!SSpersistence.databaseCheckConnection("persistence_set_char_state"))
+		return
+
+	var/datum/db_query/upd = SSdbcore.NewQuery(
+		{"UPDATE ss13_mob_position SET char_state = :state, in_lace = 0, lace_pod_x = NULL, lace_pod_y = NULL, lace_pod_z = NULL
+		WHERE ckey = :ckey AND char_name = :char_name"},
+		list("ckey" = ckey, "char_name" = char_name, "state" = state)
+	)
+	upd.Execute()
+	SSpersistence.databaseCheckQueryResult(upd, "persistence_set_char_state")
+	qdel(upd)
+
+	var/key = "[ckey]|[char_name]"
+	var/list/entry = GLOB.persistence_position_cache[key]
+	if(islist(entry))
+		entry["char_state"] = state
+		entry["in_lace"]    = 0
+		entry["lace_pod_x"] = null
+		entry["lace_pod_y"] = null
+		entry["lace_pod_z"] = null
+
+/**
+ * Remember the cryopod this character last stored at, so rejoins (including
+ * across restarts) wake them from the same pod. Overwrites on every pod
+ * store -- "last used". The row exists by the time this runs: every store
+ * flow calls mobPositionSave() first.
+ */
+/proc/persistence_set_last_pod(ckey, char_name, obj/structure/machinery/cryopod/pod)
+	if(!GLOB.config.sql_enabled || !ckey || !char_name)
+		return
+	if(!istype(pod) || !pod.z)
+		return
+	if(!SSpersistence.databaseCheckConnection("persistence_set_last_pod"))
+		return
+
+	var/datum/db_query/upd = SSdbcore.NewQuery(
+		{"UPDATE ss13_mob_position SET last_pod_x = :x, last_pod_y = :y, last_pod_z = :z
+		WHERE ckey = :ckey AND char_name = :char_name"},
+		list("ckey" = ckey, "char_name" = char_name, "x" = pod.x, "y" = pod.y, "z" = pod.z)
+	)
+	upd.Execute()
+	SSpersistence.databaseCheckQueryResult(upd, "persistence_set_last_pod")
+	qdel(upd)
+
+	var/key = "[ckey]|[char_name]"
+	var/list/entry = GLOB.persistence_position_cache[key]
+	if(!islist(entry))
+		entry = list()
+		GLOB.persistence_position_cache[key] = entry
+	entry["last_pod_x"] = pod.x
+	entry["last_pod_y"] = pod.y
+	entry["last_pod_z"] = pod.z
 
 /**
  * Restore mob to their last saved position, or spawn at default landmark.
@@ -541,12 +639,25 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		return
 
 	var/list/organ_damage = list()
+	var/list/serialized_laces = list()
 	for(var/obj/item/organ/external/O in H.organs)
 		if(!O.limb_name)
 			continue
 		var/list/augments = list()
 		for(var/obj/item/organ/A in O.internal_organs)
-			if(A.is_augment)
+			if(!A.is_augment)
+				continue
+			if(istype(A, /obj/item/organ/internal/neural_lace))
+				var/obj/item/organ/internal/neural_lace/lace = A
+				serialized_laces += lace
+				augments += list(list(
+					"type"            = "[A.type]",
+					"lace_damage"     = lace.lace_damage,
+					"registered_name" = lace.registered_name,
+					"registered_ckey" = lace.registered_ckey,
+					"owner_faction"   = lace.owner_faction
+				))
+			else
 				augments += "[A.type]"
 		if(!O.brute_dam && !O.burn_dam && !O.robotic && !length(augments))
 			continue
@@ -558,24 +669,115 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			limb["augments"] = augments
 		organ_damage[O.limb_name] = limb
 
+	// Defensive: a lace registered on the mob but absent from every external
+	// organ's internal_organs list (wiring bug somewhere) would silently drop
+	// from the save -- serialize it under the head entry so it always round-trips.
+	for(var/obj/item/organ/internal/neural_lace/stray in H.internal_organs)
+		if(QDELETED(stray) || (stray in serialized_laces))
+			continue
+		var/list/head_limb = organ_damage["head"]
+		if(!islist(head_limb))
+			head_limb = list("brute" = 0, "burn" = 0)
+			organ_damage["head"] = head_limb
+		var/list/head_augs = head_limb["augments"]
+		if(!islist(head_augs))
+			head_augs = list()
+			head_limb["augments"] = head_augs
+		head_augs += list(list(
+			"type"            = "[stray.type]",
+			"lace_damage"     = stray.lace_damage,
+			"registered_name" = stray.registered_name,
+			"registered_ckey" = stray.registered_ckey,
+			"owner_faction"   = stray.owner_faction
+		))
+		log_subsystem_persistence_info("MobHealth: Lace for [H.real_name] was missing from limb organ lists -- serialized defensively under head.")
+
+	var/organ_json = length(organ_damage) ? json_encode(organ_damage) : null
 	var/datum/db_query/ins = SSdbcore.NewQuery(
-		{"INSERT INTO ss13_char_health (ckey, char_name, organ_damage_json, stamina, bodytemperature, on_fire, fire_stacks, saved_at)
-		VALUES (:ckey, :char_name, :organ_damage_json, :stamina, :bodytemperature, :on_fire, :fire_stacks, NOW())
+		{"INSERT INTO ss13_char_health (ckey, char_name, organ_damage_json, stamina, bodytemperature, on_fire, fire_stacks, nutrition, hydration, saved_at)
+		VALUES (:ckey, :char_name, :organ_damage_json, :stamina, :bodytemperature, :on_fire, :fire_stacks, :nutrition, :hydration, NOW())
 		ON DUPLICATE KEY UPDATE organ_damage_json = VALUES(organ_damage_json), stamina = VALUES(stamina),
-		bodytemperature = VALUES(bodytemperature), on_fire = VALUES(on_fire), fire_stacks = VALUES(fire_stacks), saved_at = NOW()"},
+		bodytemperature = VALUES(bodytemperature), on_fire = VALUES(on_fire), fire_stacks = VALUES(fire_stacks),
+		nutrition = VALUES(nutrition), hydration = VALUES(hydration), saved_at = NOW()"},
 		list(
 			"ckey"              = H.ckey,
 			"char_name"         = H.real_name,
-			"organ_damage_json" = length(organ_damage) ? json_encode(organ_damage) : null,
+			"organ_damage_json" = organ_json,
 			"stamina"           = H.stamina,
 			"bodytemperature"   = H.bodytemperature,
 			"on_fire"           = H.on_fire ? 1 : 0,
-			"fire_stacks"       = H.fire_stacks
+			"fire_stacks"       = H.fire_stacks,
+			"nutrition"         = H.nutrition,
+			"hydration"         = H.hydration
 		)
 	)
 	ins.Execute()
 	databaseCheckQueryResult(ins, "mobsHealthSaveOne")
 	qdel(ins)
+
+	// Refresh the in-memory cache too -- restore reads the cache, not the DB,
+	// so a same-round store/rejoin must see this save (matches the pattern
+	// mobPositionSave already uses).
+	GLOB.persistence_health_cache["[H.ckey]|[H.real_name]"] = list(
+		"organ_damage_json" = organ_json,
+		"stamina"           = H.stamina,
+		"bodytemperature"   = H.bodytemperature,
+		"on_fire"           = H.on_fire ? 1 : 0,
+		"fire_stacks"       = H.fire_stacks,
+		"nutrition"         = H.nutrition,
+		"hydration"         = H.hydration
+	)
+
+// ============================================================
+// VITALS ADMIN VERB
+// ============================================================
+
+/datum/admins/proc/check_vitals()
+	set name = "Check Vitals"
+	set category = "Persistence"
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	var/target_ckey = tgui_input_text(usr, "Enter the ckey to check:", "Check Vitals")
+	if(!target_ckey) return
+	target_ckey = ckey(target_ckey)
+
+	var/client/C = GLOB.directory[target_ckey]
+	if(!C || !C.mob)
+		to_chat(usr, SPAN_WARNING("No connected client found for ckey '[target_ckey]'."))
+		return
+
+	var/mob/living/carbon/human/H = C.mob
+	if(!istype(H))
+		to_chat(usr, SPAN_WARNING("[key_name(C)]'s current mob is not a living human ([C.mob.type])."))
+		return
+
+	to_chat(usr, SPAN_NOTICE("<b>Vitals for [H.real_name] ([target_ckey])</b>"))
+	to_chat(usr, SPAN_NOTICE("State: [H.stat == CONSCIOUS ? "Conscious" : (H.stat == UNCONSCIOUS ? "Unconscious" : "Dead")]"))
+	to_chat(usr, SPAN_NOTICE("Health: [H.health]/[H.maxhealth]"))
+	to_chat(usr, SPAN_NOTICE("Nutrition (hunger): [H.nutrition]"))
+	to_chat(usr, SPAN_NOTICE("Hydration (thirst): [H.hydration]"))
+	to_chat(usr, SPAN_NOTICE("Body temperature: [H.bodytemperature]K"))
+
+	var/obj/item/organ/internal/neural_lace/lace = H.internal_organs_by_name["neural_lace"]
+	if(!lace)
+		to_chat(usr, SPAN_WARNING("Neural lace: not installed."))
+	else
+		var/damage_desc
+		if(lace.lace_damage >= 100)
+			damage_desc = "DESTROYED"
+		else if(lace.lace_damage >= 76)
+			damage_desc = "SEVERE ([lace.lace_damage]/100)"
+		else if(lace.lace_damage >= 51)
+			damage_desc = "MODERATE ([lace.lace_damage]/100)"
+		else if(lace.lace_damage >= 26)
+			damage_desc = "MINOR ([lace.lace_damage]/100)"
+		else
+			damage_desc = "NOMINAL"
+		to_chat(usr, SPAN_NOTICE("Neural lace: installed. Integrity: [damage_desc][lace.lace_occupied ? " -- CONSCIOUSNESS STORED" : ""]"))
+
+	log_and_message_admins("checked vitals for [key_name(C)]", usr)
 
 /**
  * Save inventory state for a single mob immediately.
@@ -592,6 +794,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		var/obj/item/I = H.get_equipped_item(slot_id)
 		inv[slot_name] = I ? serializePersistentItem(I) : null
 
+	var/inv_json = json_encode(inv)
 	var/datum/db_query/ins = SSdbcore.NewQuery(
 		{"INSERT INTO ss13_char_inventory (ckey, char_name, inventory_json, saved_at)
 		VALUES (:ckey, :char_name, :inventory_json, NOW())
@@ -599,12 +802,15 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		list(
 			"ckey"           = H.ckey,
 			"char_name"      = H.real_name,
-			"inventory_json" = json_encode(inv)
+			"inventory_json" = inv_json
 		)
 	)
 	ins.Execute()
 	databaseCheckQueryResult(ins, "mobsInventorySaveOne")
 	qdel(ins)
+
+	// Refresh the in-memory cache too -- restore reads the cache, not the DB.
+	GLOB.persistence_inventory_cache["[H.ckey]|[H.real_name]"] = inv_json
 
 /**
  * Recursively serialize an item as a typepath + contents tree.
@@ -627,6 +833,88 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		if(length(contents))
 			data["contents"] = contents
 
+	// Internal storage -- suits-with-pockets, webbing/storage accessories,
+	// helmets: an /obj/item/storage/internal living in the item's contents
+	// rather than the item being a storage itself.
+	var/obj/item/storage/internal/IS = locate() in I
+	if(IS && length(IS.contents))
+		var/list/internal_contents = list()
+		for(var/obj/item/child in IS.contents)
+			var/list/child_data = serializePersistentItem(child)
+			if(child_data)
+				internal_contents += list(child_data)
+		if(length(internal_contents))
+			data["internal_storage"] = internal_contents
+
+	// Clothing accessories (uniforms AND suits): holsters, webbing, armbands...
+	// Each accessory serializes recursively, so its own internal storage /
+	// holstered item comes along.
+	if(istype(I, /obj/item/clothing))
+		var/obj/item/clothing/C = I
+		if(LAZYLEN(C.accessories))
+			var/list/acc_out = list()
+			for(var/obj/item/clothing/accessory/A in C.accessories)
+				var/list/acc_data = serializePersistentItem(A)
+				if(acc_data)
+					acc_out += list(acc_data)
+			if(length(acc_out))
+				data["accessories"] = acc_out
+
+	// Holstered weapon inside a holster accessory
+	if(istype(I, /obj/item/clothing/accessory/holster))
+		var/obj/item/clothing/accessory/holster/HO = I
+		if(HO.holstered)
+			var/list/holstered_data = serializePersistentItem(HO.holstered)
+			if(holstered_data)
+				data["holstered"] = holstered_data
+
+	// Power cells carry their exact charge (Initialize refills them to max,
+	// so the restore must overwrite afterwards)
+	if(istype(I, /obj/item/cell))
+		var/obj/item/cell/PC = I
+		data["cell_charge"] = PC.charge
+	else
+		// Devices holding a cell (flashlights, batons, energy guns...) --
+		// uniform via get_cell()
+		var/obj/item/cell/HC = I.get_cell()
+		if(istype(HC) && HC != I)
+			data["device_cell_charge"] = HC.charge
+
+	// Ballistic guns: internal rounds, chambered state, fitted magazine
+	if(istype(I, /obj/item/gun/projectile))
+		var/obj/item/gun/projectile/G = I
+		var/live_loaded = 0
+		for(var/obj/item/ammo_casing/CS in G.loaded)
+			if(CS.BB)
+				live_loaded++
+		data["gun_loaded"] = live_loaded
+		data["gun_chambered"] = (G.chambered && G.chambered.BB) ? 1 : 0
+		if(G.ammo_magazine)
+			var/mag_live = 0
+			for(var/obj/item/ammo_casing/MC in G.ammo_magazine.stored_ammo)
+				if(MC.BB)
+					mag_live++
+			data["gun_mag"] = list("type" = "[G.ammo_magazine.type]", "live" = mag_live)
+	// Standalone magazines: live round count (refilled with the mag's own
+	// ammo_type -- mixed handloads are out of scope)
+	else if(istype(I, /obj/item/ammo_magazine))
+		var/obj/item/ammo_magazine/M = I
+		var/live = 0
+		for(var/obj/item/ammo_casing/MC in M.stored_ammo)
+			if(MC.BB)
+				live++
+		data["mag_live"] = live
+	// Loose casings: spent or live
+	else if(istype(I, /obj/item/ammo_casing))
+		var/obj/item/ammo_casing/AC = I
+		if(!AC.BB)
+			data["casing_spent"] = 1
+
+	// RFD matter units
+	if(istype(I, /obj/item/rfd))
+		var/obj/item/rfd/R = I
+		data["rfd_matter"] = R.stored_matter
+
 	// Reagent contents (beakers, bottles, syringes, spray bottles, extinguishers, etc.)
 	if(I.reagents && I.reagents.total_volume > 0 && length(I.reagents.reagent_volumes))
 		var/list/reagents = list()
@@ -639,6 +927,22 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		var/obj/item/paper/P = I
 		if(P.info)
 			data["paper_info"] = P.info
+
+	// ID cards -- registered name, assignment, access, bank account, revoked state
+	if(istype(I, /obj/item/card/id))
+		var/obj/item/card/id/ID = I
+		data["id_content"] = ID.persistent_objects_get_content()
+	else
+		// Generic passthrough for any other item type with a
+		// persistent_objects_get_content() override (faction charge cards,
+		// modular computers, invoices, etc) -- catches state that would
+		// otherwise come back blank on a fresh /new item_type(holder).
+		var/list/generic_content = I.persistent_objects_get_content()
+		if(islist(generic_content) && length(generic_content))
+			data["obj_content"] = generic_content
+			// Diagnostic: confirm program lists are captured for computers/PDAs
+			if(istype(I, /obj/item/modular_computer) && islist(generic_content["programs"]))
+				log_subsystem_persistence_info("Modcomp save: [I] programs=[json_encode(generic_content["programs"])]")
 
 	// Stack material amounts
 	if(istype(I, /obj/item/stack))
@@ -708,7 +1012,28 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			equipped.forceMove(get_turf(src))
 			unEquip(equipped, TRUE)
 
+	// Heal saves made before ID serialization carried account numbers:
+	// re-link the worn ID to the restored bank account
+	var/obj/item/card/id/ID = wear_id ? wear_id.GetID() : null
+	if(istype(ID) && !ID.associated_account_number && mind?.initial_account)
+		ID.associated_account_number = mind.initial_account.account_number
+		log_subsystem_persistence_info("MobInventory: Relinked ID card to account #[ID.associated_account_number] for [real_name].")
+
 	log_subsystem_persistence_info("MobInventory: Restored inventory for [real_name] ([ckey]).")
+
+/// Trim or refill a magazine's stored rounds to exactly the given live
+/// count, using the magazine's own ammo_type (Initialize preloads it full).
+/proc/_persistence_set_magazine_rounds(obj/item/ammo_magazine/M, want)
+	if(!istype(M))
+		return
+	want = clamp(want, 0, M.max_ammo)
+	while(length(M.stored_ammo) > want)
+		var/obj/item/ammo_casing/extra = M.stored_ammo[length(M.stored_ammo)]
+		M.stored_ammo -= extra
+		qdel(extra)
+	while(length(M.stored_ammo) < want && M.ammo_type)
+		M.stored_ammo += new M.ammo_type(M)
+	M.update_icon()
 
 /**
  * Recursively deserialize an item from a typepath + contents tree.
@@ -737,6 +1062,99 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			if(child)
 				S.handle_item_insertion(child, TRUE)
 
+	// Internal storage (suit pockets, webbing holds, helmet holds)
+	if(data["internal_storage"])
+		var/obj/item/storage/internal/IS = locate() in I
+		if(IS)
+			for(var/list/child_data in data["internal_storage"])
+				var/obj/item/child = deserializePersistentItem(child_data, IS)
+				if(child)
+					IS.handle_item_insertion(child, TRUE)
+
+	// Clothing accessories -- rebuild and attach through the real attach
+	// proc so overlays/verbs/slowdown wire up like an attackby attach.
+	if(data["accessories"] && istype(I, /obj/item/clothing))
+		var/obj/item/clothing/C = I
+		// Saved state is authoritative: strip the factory-default accessories
+		// spawned at Initialize first, or every save/load cycle stacks another
+		// copy of each default on top (plate carriers etc).
+		if(LAZYLEN(C.accessories))
+			for(var/obj/item/clothing/accessory/default_acc in C.accessories.Copy())
+				C.remove_accessory(null, default_acc)
+				qdel(default_acc)
+		for(var/list/acc_data in data["accessories"])
+			var/obj/item/clothing/accessory/A = deserializePersistentItem(acc_data, C)
+			if(istype(A))
+				C.attach_accessory(null, A)
+			else if(A)
+				// Saved entry wasn't an accessory type -- don't leave it in limbo
+				qdel(A)
+
+	// Holstered weapon
+	if(data["holstered"] && istype(I, /obj/item/clothing/accessory/holster))
+		var/obj/item/clothing/accessory/holster/HO = I
+		if(!HO.holstered)
+			var/obj/item/holstered_item = deserializePersistentItem(data["holstered"], HO)
+			if(holstered_item)
+				holstered_item.forceMove(HO)
+				HO.holstered = holstered_item
+				HO.update_name()
+
+	// Power cell charge (Initialize refilled it to max)
+	if(!isnull(data["cell_charge"]) && istype(I, /obj/item/cell))
+		var/obj/item/cell/PC = I
+		PC.charge = clamp(text2num("[data["cell_charge"]]"), 0, PC.maxcharge)
+	else if(!isnull(data["device_cell_charge"]))
+		var/obj/item/cell/HC = I.get_cell()
+		if(istype(HC))
+			HC.charge = clamp(text2num("[data["device_cell_charge"]]"), 0, HC.maxcharge)
+
+	// Ballistic gun state -- clear the Initialize preload, rebuild to the
+	// saved counts using the gun/magazine's own casing types
+	if(istype(I, /obj/item/gun/projectile) && (!isnull(data["gun_loaded"]) || !isnull(data["gun_chambered"]) || data["gun_mag"]))
+		var/obj/item/gun/projectile/G = I
+		for(var/obj/item/ammo_casing/OC in G.loaded)
+			G.loaded -= OC
+			qdel(OC)
+		if(G.chambered)
+			qdel(G.chambered)
+			G.chambered = null
+		if(G.ammo_magazine)
+			qdel(G.ammo_magazine)
+			G.ammo_magazine = null
+		var/load_n = text2num("[data["gun_loaded"]]") || 0
+		if(G.ammo_type)
+			for(var/j = 1 to min(load_n, G.max_shells))
+				G.loaded += new G.ammo_type(G)
+		if(islist(data["gun_mag"]))
+			var/list/mag_data = data["gun_mag"]
+			var/mag_path = text2path(mag_data["type"])
+			if(mag_path && ispath(mag_path, /obj/item/ammo_magazine))
+				var/obj/item/ammo_magazine/GM = new mag_path(G)
+				_persistence_set_magazine_rounds(GM, text2num("[mag_data["live"]]") || 0)
+				G.ammo_magazine = GM
+		if(text2num("[data["gun_chambered"]]"))
+			var/chamber_type = G.ammo_type || G.ammo_magazine?.ammo_type
+			if(chamber_type)
+				G.chambered = new chamber_type(G)
+		G.update_icon()
+
+	// Standalone magazine round count
+	if(!isnull(data["mag_live"]) && istype(I, /obj/item/ammo_magazine))
+		var/obj/item/ammo_magazine/M = I
+		_persistence_set_magazine_rounds(M, text2num("[data["mag_live"]]") || 0)
+
+	// Spent casing
+	if(data["casing_spent"] && istype(I, /obj/item/ammo_casing))
+		var/obj/item/ammo_casing/AC = I
+		if(AC.BB)
+			AC.expend()
+
+	// RFD matter (starts full; initial() is the documented maximum)
+	if(!isnull(data["rfd_matter"]) && istype(I, /obj/item/rfd))
+		var/obj/item/rfd/R = I
+		R.stored_matter = clamp(text2num("[data["rfd_matter"]]"), 0, initial(R.stored_matter))
+
 	// Reagents
 	if(data["reagents"] && I.reagents)
 		I.reagents.clear_reagents()
@@ -751,6 +1169,13 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	if(data["paper_info"] && istype(I, /obj/item/paper))
 		var/obj/item/paper/P = I
 		P.info = data["paper_info"]
+
+	// ID cards -- restore registered name, assignment, access, bank account, revoked state
+	if(data["id_content"] && istype(I, /obj/item/card/id))
+		var/obj/item/card/id/ID = I
+		ID.persistent_objects_apply_content(data["id_content"], null, null, null)
+	else if(data["obj_content"])
+		I.persistent_objects_apply_content(data["obj_content"], null, null, null)
 
 	// Stack amount
 	if(!isnull(data["stack_amount"]) && istype(I, /obj/item/stack))

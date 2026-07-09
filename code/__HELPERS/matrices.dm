@@ -273,14 +273,18 @@ round(cos_inv_third+sqrt3_sin, 0.001), round(cos_inv_third-sqrt3_sin, 0.001), ro
  */
 /atom/proc/shake_animation(intensity = 8)
 	var/init_px = pixel_x
+	// Copy (not discard) whatever transform is already active -- e.g. a lying
+	// mob's rotation -- so the wobble composes on top of it instead of
+	// snapping the atom back to an upright/identity transform.
+	var/matrix/init_transform = matrix(transform)
 	var/shake_dir = pick(-1, 1)
 	animate(
 		src,
-		transform = matrix().Update(rotation = intensity * shake_dir),
+		transform = matrix(init_transform).Update(rotation = intensity * shake_dir),
 		pixel_x = init_px + 2 * shake_dir,
 		time = 1
 	)
-	animate(transform=null, pixel_x=init_px, time=6, easing=ELASTIC_EASING)
+	animate(transform=init_transform, pixel_x=init_px, time=6, easing=ELASTIC_EASING)
 
 
 ///Returns an identity color matrix which does nothing

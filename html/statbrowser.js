@@ -37,6 +37,10 @@ var menu = document.getElementById('menu');
 var statcontentdiv = document.getElementById('statcontent');
 var storedimages = [];
 var split_admin_tabs = false;
+
+document.getElementById('showcover-btn').onclick = function () {
+  Byond.sendMessage('Show-Cover');
+};
 //The 'default' tab that everyone should have, that we swap to if the tab you're on is deleted or anything similar.
 var defaultTab = 'Status';
 

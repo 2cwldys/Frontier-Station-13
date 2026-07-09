@@ -36,7 +36,15 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 		var/tx = text2num(query.item[1])
 		var/ty = text2num(query.item[2])
 		var/tz = text2num(query.item[3])
-		if(tz in GLOB.persistence_zlevel_skip) continue
+		// Rows can reference dynamic z-levels not loaded (yet) this session --
+		// the z-trait helpers THROW on unmanaged z, and one bad row used to
+		// abort the entire restore. Skip them; the rows stay in the DB.
+		if(tz < 1 || tz > world.maxz) continue
+		// Turf sweeps use the manual skip list plus mining levels only. Mining
+		// z-levels deliberately never save or load turf changes (ore/terrain
+		// regenerates from the map each session); away/template-loaded/player
+		// levels are player space on this server and must persist.
+		if((tz in GLOB.persistence_zlevel_skip) || is_mining_level(tz) || persistence_z_manual_blocked(tz)) continue
 		var/turf_type = text2path(query.item[4])
 		var/base_type = text2path(query.item[5])  // restored base so next save doesn't see type==baseturf
 		var/content_json = query.item[6]
@@ -112,7 +120,7 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 
 	for(var/turf/simulated/floor/F in world)
 		CHECK_TICK
-		if(F.z in GLOB.persistence_zlevel_skip) continue
+		if((F.z in GLOB.persistence_zlevel_skip) || is_mining_level(F.z) || persistence_z_manual_blocked(F.z)) continue
 		if(!F.broken && !F.burnt && !F.color && F.type == F.baseturf)
 			delete_coords += "([F.x],[F.y],[F.z])"
 			continue
@@ -123,7 +131,7 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 
 	for(var/turf/simulated/wall/W in world)
 		CHECK_TICK
-		if(W.z in GLOB.persistence_zlevel_skip) continue
+		if((W.z in GLOB.persistence_zlevel_skip) || is_mining_level(W.z) || persistence_z_manual_blocked(W.z)) continue
 		if(W.type == W.baseturf && W.health >= W.maxhealth)
 			delete_coords += "([W.x],[W.y],[W.z])"
 			continue
@@ -158,7 +166,7 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 	upsert_rows = list()
 	for(var/turf/simulated/T in world)
 		CHECK_TICK
-		if(T.z in GLOB.persistence_zlevel_skip) continue
+		if((T.z in GLOB.persistence_zlevel_skip) || is_mining_level(T.z) || persistence_z_manual_blocked(T.z)) continue
 		if(istype(T, /turf/simulated/floor) || istype(T, /turf/simulated/wall))
 			continue
 		if(T.type == T.baseturf)

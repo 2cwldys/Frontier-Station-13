@@ -104,6 +104,7 @@ GLOBAL_LIST_INIT(admin_verbs_admin, list(
 	/client/proc/wipe_ai,	// allow admins to force-wipe AIs
 	/client/proc/fix_player_list,
 	/client/proc/reset_openturf,
+	/client/proc/view_removed_structures,
 	/client/proc/toggle_aooc,
 	/client/proc/force_away_mission,
 	/client/proc/alooc,
@@ -150,7 +151,6 @@ GLOBAL_LIST_INIT(admin_verbs_fun, list(
 	/datum/admins/proc/ccannoucment,
 	/datum/admins/proc/set_odyssey,
 	/datum/admins/proc/set_odyssey_canonicity,
-	/datum/admins/proc/toggle_persistence,
 	/datum/admins/proc/toggle_autosave_pause
 	))
 
@@ -202,12 +202,23 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/manage_faction_jobs,
 	/datum/admins/proc/give_faction_id,
 	/datum/admins/proc/toggle_zlevel_persistence,
+	/datum/admins/proc/manage_manual_save_list,
+	/datum/admins/proc/manage_persistent_overmap_sites,
+	/datum/admins/proc/generate_away_site,
+	/datum/admins/proc/set_zone_security,
+	/datum/admins/proc/view_overmap,
+	/datum/admins/proc/check_zlevel_info,
+	/datum/admins/proc/reset_zlevel,
 	/datum/admins/proc/debug_character_spawn_lock,
 	/datum/admins/proc/give_credits_to_player,
 	/datum/admins/proc/reset_player_bank_account,
-	/datum/admins/proc/toggle_persistence,
+	// toggle_persistence deliberately unregistered -- persistence is always-on
+	// for this server; the proc remains in code if it's ever needed again
 	/datum/admins/proc/toggle_autosave_pause,
-	/datum/admins/proc/install_neural_lace
+	/datum/admins/proc/install_neural_lace,
+	/datum/admins/proc/check_vitals,
+	/datum/admins/proc/force_vault_all_laces,
+	/datum/admins/proc/whitelist_players
 	))
 
 GLOBAL_LIST_INIT(admin_verbs_debug, list(
@@ -255,6 +266,7 @@ GLOBAL_LIST_INIT(admin_verbs_debug, list(
 	/client/proc/cmd_generate_lag,
 	/client/proc/cmd_ss_panic,
 	/client/proc/reset_openturf,
+	/client/proc/view_removed_structures,
 	/datum/admins/proc/capture_map,
 	/datum/admins/proc/map_template_load,
 	/datum/admins/proc/map_template_load_new_z,
@@ -406,6 +418,7 @@ GLOBAL_LIST_INIT(admin_verbs_hideable, list(
 	/client/proc/investigate_show,
 	/client/proc/cmd_admin_list_open_jobs,
 	/client/proc/reset_openturf,
+	/client/proc/view_removed_structures,
 	/client/proc/Debug2,
 	/client/proc/DebugToggle,
 	/client/proc/DebugToggleAll,

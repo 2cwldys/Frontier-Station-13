@@ -96,6 +96,7 @@
 		/singleton/emote/audible/clap,
 		/singleton/emote/audible/golfclap,
 		/singleton/emote/audible/chuckle,
+		/singleton/emote/audible/throat,
 		/singleton/emote/audible/cough,
 		/singleton/emote/audible/cry,
 		/singleton/emote/audible/sigh,

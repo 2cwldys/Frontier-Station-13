@@ -30,4 +30,14 @@
 		ability_master.toggle_open(2)
 		client.screen -= ability_master
 
+	// Reconnecting to an already-in-world living mob never goes through the
+	// new_player spawn/rejoin paths that normally kick off ambient music, and
+	// disconnecting wipes all ambient_playlist_* client state (client/Destroy
+	// calls stop_ambient_playlist()) -- so without this, music stays silent
+	// until the player happens to cross an area boundary. start_ambient_playlist()
+	// is self-guarding (volume pref, running/ducked checks), so this is a
+	// harmless no-op if it's already playing.
+	if(client)
+		addtimer(CALLBACK(client, /client/proc/start_ambient_playlist), 5 SECONDS)
+
 	return .

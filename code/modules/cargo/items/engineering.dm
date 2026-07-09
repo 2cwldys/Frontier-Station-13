@@ -3,7 +3,7 @@
 /singleton/cargo_item/shuttle_core
 	category = "engineering"
 	name = "shuttle core"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A modular flight core. Place inside a hull structure, then activate to register the area as a persistent shuttle. Requires wrenching in place."
 	price = 2500
 	items = list(
@@ -15,7 +15,7 @@
 /singleton/cargo_item/docking_beacon
 	category = "engineering"
 	name = "docking beacon"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Establishes a docking port at its installed location. Wrench to anchor and activate. Shuttles can navigate to any registered beacon."
 	price = 800
 	items = list(
@@ -28,7 +28,7 @@
 /singleton/cargo_item/docking_beacon_3pack
 	category = "engineering"
 	name = "docking beacons (3-pack)"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Three docking beacons. Establish multiple docking ports across different locations."
 	price = 2100
 	items = list(
@@ -44,7 +44,7 @@
 /singleton/cargo_item/glasssheets
 	category = "engineering"
 	name = "glass sheets"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "50 sheets of glass."
 	price = 55
 	items = list(
@@ -57,7 +57,7 @@
 /singleton/cargo_item/plasteelsheets
 	category = "engineering"
 	name = "plasteel sheets"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "50 sheets of plasteel."
 	price = 120
 	items = list(
@@ -71,7 +71,7 @@
 /singleton/cargo_item/plasticsheets
 	category = "engineering"
 	name = "plastic sheets"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "50 sheets of plastic."
 	price = 45
 	items = list(
@@ -85,7 +85,7 @@
 /singleton/cargo_item/steelsheets
 	category = "engineering"
 	name = "steel sheets"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "50 sheets of steel."
 	price = 75
 	items = list(
@@ -99,7 +99,7 @@
 /singleton/cargo_item/woodplanks
 	category = "engineering"
 	name = "wood planks"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "50 planks of wood."
 	price = 65
 	items = list(
@@ -113,7 +113,7 @@
 /singleton/cargo_item/phoronsheets
 	category = "engineering"
 	name = "phoron crystals"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A bunch of 50 phoron crystals. Highly valuable."
 	price = 2250
 	items = list(
@@ -126,7 +126,7 @@
 /singleton/cargo_item/cardboardsheets
 	category = "engineering"
 	name = "cardboard sheets"
-	supplier = "orion"
+	supplier = "Hub"
 	description = "50 sheets of cardboard."
 	price = 10
 	items = list(
@@ -140,7 +140,7 @@
 /singleton/cargo_item/carpet
 	category = "engineering"
 	name = "carpet (x10)"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Ten carpet sheets. It is the same size as a normal floor tile!"
 	price = 60
 	items = list(
@@ -154,7 +154,7 @@
 /singleton/cargo_item/antifuelgrenade
 	category = "engineering"
 	name = "antifuel grenade"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "This grenade is loaded with a foaming antifuel compound -- the twenty-fifth century standard for eliminating industrial spills."
 	price = 45
 	items = list(
@@ -168,7 +168,7 @@
 /singleton/cargo_item/brownwebbingvest
 	category = "engineering"
 	name = "brown webbing vest"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Worn brownish synthcotton vest with lots of pockets to unload your hands."
 	price = 15
 	items = list(
@@ -182,7 +182,7 @@
 /singleton/cargo_item/circuitboard_bubbleshield
 	category = "engineering"
 	name = T_BOARD("bubble shield generator")
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Looks like a circuit. Probably is."
 	price = 250
 	items = list(
@@ -196,7 +196,7 @@
 /singleton/cargo_item/circuitboard_hullshield
 	category = "engineering"
 	name = T_BOARD("hull shield generator")
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Looks like a circuit. Probably is."
 	price = 250
 	items = list(
@@ -210,7 +210,7 @@
 /singleton/cargo_item/circuitboard_shieldcapacitor
 	category = "engineering"
 	name = T_BOARD("shield capacitor")
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Looks like a circuit. Probably is."
 	price = 250
 	items = list(
@@ -224,7 +224,7 @@
 /singleton/cargo_item/circuitboard_solarcontrol
 	category = "engineering"
 	name = T_BOARD("solar control console")
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Looks like a circuit. Probably is."
 	price = 250
 	items = list(
@@ -238,7 +238,7 @@
 /singleton/cargo_item/coolanttank
 	category = "engineering"
 	name = "coolant tank"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A tank of industrial coolant."
 	price = 10
 	items = list(
@@ -252,7 +252,7 @@
 /singleton/cargo_item/disposalpipedispenser
 	category = "engineering"
 	name = "Disposal Pipe Dispenser"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "It dispenses bigger pipes for things to travel through. No, the pipes aren't green."
 	price = 30
 	items = list(
@@ -266,7 +266,7 @@
 /singleton/cargo_item/toolbox
 	category = "engineering"
 	name = "mechanical toolbox"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Danger. Very robust."
 	price = 45
 	items = list(
@@ -280,7 +280,7 @@
 /singleton/cargo_item/electricaltoolbox
 	category = "engineering"
 	name = "electrical toolbox"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Danger. Very robust."
 	price = 45
 	items = list(
@@ -294,7 +294,7 @@
 /singleton/cargo_item/emergencytoolbox
 	category = "engineering"
 	name = "emergency toolbox"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Danger. Very robust."
 	price = 42
 	items = list(
@@ -308,7 +308,7 @@
 /singleton/cargo_item/emaccelerationchamber
 	category = "engineering"
 	name = "EM Acceleration Chamber"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Part of a Particle Accelerator."
 	price = 1550
 	items = list(
@@ -322,7 +322,7 @@
 /singleton/cargo_item/emcontainmentgridcenter
 	category = "engineering"
 	name = "EM Containment Grid Center"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Part of a Particle Accelerator."
 	price = 1550
 	items = list(
@@ -336,7 +336,7 @@
 /singleton/cargo_item/emcontainmentgridleft
 	category = "engineering"
 	name = "EM Containment Grid Left"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Part of a Particle Accelerator."
 	price = 1550
 	items = list(
@@ -350,7 +350,7 @@
 /singleton/cargo_item/emcontainmentgridright
 	category = "engineering"
 	name = "EM Containment Grid Right"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Part of a Particle Accelerator."
 	price = 1550
 	items = list(
@@ -364,7 +364,7 @@
 /singleton/cargo_item/emergencybluespacerelaycircuit
 	category = "engineering"
 	name = "emergency bluespace relay circuit"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Looks like a circuit. Probably is."
 	price = 620
 	items = list(
@@ -378,7 +378,7 @@
 /singleton/cargo_item/emitter
 	category = "engineering"
 	name = "emitter"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "It is a heavy duty industrial laser."
 	price = 1850
 	items = list(
@@ -392,7 +392,7 @@
 /singleton/cargo_item/doorlock_engineering
 	category = "engineering"
 	name = "magnetic door lock - engineering"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A large, ID locked device used for completely locking down airlocks. It is painted with Engineering colors."
 	price = 48
 	items = list(
@@ -406,7 +406,7 @@
 /singleton/cargo_item/engineeringvoidsuit
 	category = "engineering"
 	name = "engineering voidsuit"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A special suit that protects against hazardous, low pressure environments. Has radiation shielding."
 	price = 800
 	items = list(
@@ -420,7 +420,7 @@
 /singleton/cargo_item/engineeringvoidsuithelmet
 	category = "engineering"
 	name = "engineering voidsuit helmet"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A special helmet designed for work in a hazardous, low-pressure environment. Has radiation shielding."
 	price = 500
 	items = list(
@@ -434,7 +434,7 @@
 /singleton/cargo_item/fieldgenerator
 	category = "engineering"
 	name = "Field Generator"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A large thermal battery that projects a high amount of energy when powered."
 	price = 250
 	items = list(
@@ -448,7 +448,7 @@
 /singleton/cargo_item/fireaxe
 	category = "engineering"
 	name = "fireaxe"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "The fire axe is a wooden handled axe with a heavy steel head intended for firefighting use."
 	price = 25
 	items = list(
@@ -462,7 +462,7 @@
 /singleton/cargo_item/fueltank
 	category = "engineering"
 	name = "fuel tank"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A tank filled with welding fuel."
 	price = 10
 	items = list(
@@ -476,7 +476,7 @@
 /singleton/cargo_item/gasmask
 	category = "engineering"
 	name = "gas mask"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A face-covering mask that can be connected to an air supply. Filters harmful gases from the air."
 	price = 15
 	items = list(
@@ -492,7 +492,7 @@
 /singleton/cargo_item/hardhat
 	category = "engineering"
 	name = "hard hat"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A piece of headgear used in dangerous working conditions to protect the head. Comes with a built-in flashlight."
 	price = 7
 	items = list(
@@ -506,7 +506,7 @@
 /singleton/cargo_item/hazardvest
 	category = "engineering"
 	name = "hazard vest"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A high-visibility vest used in work zones."
 	price = 5
 	items = list(
@@ -520,7 +520,7 @@
 /singleton/cargo_item/toolbelt
 	category = "engineering"
 	name = "full toolbelt"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A toolbelt, filled with basic mechanics' tools."
 	price = 80
 	items = list(
@@ -534,7 +534,7 @@
 /singleton/cargo_item/highcapacitypowercell
 	category = "engineering"
 	name = "high-capacity power cell"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A high-capacity rechargable electrochemical power cell."
 	price = 45
 	items = list(
@@ -548,7 +548,7 @@
 /singleton/cargo_item/powercell
 	category = "engineering"
 	name = "power cell"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A rechargable electrochemical power cell."
 	price = 20
 	items = list(
@@ -562,7 +562,7 @@
 /singleton/cargo_item/hoistkit
 	category = "engineering"
 	name = "hoist kit"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A setup kit for a hoist that can be used to lift things. The hoist will deploy in the direction you're facing."
 	price = 40
 	items = list(
@@ -576,7 +576,7 @@
 /singleton/cargo_item/inflatablebarrierbox
 	category = "engineering"
 	name = "inflatable barrier box"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Contains inflatable walls and doors."
 	price = 65
 	items = list(
@@ -590,7 +590,7 @@
 /singleton/cargo_item/insulatedgloves
 	category = "engineering"
 	name = "insulated gloves"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "These gloves will protect the wearer from electric shock."
 	price = 72
 	items = list(
@@ -604,7 +604,7 @@
 /singleton/cargo_item/tajaranelectricalgloves
 	category = "engineering"
 	name = "tajaran electrical gloves"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "These gloves will protect the wearer from electric shock. Made special for Tajaran use."
 	price = 74
 	items = list(
@@ -618,7 +618,7 @@
 /singleton/cargo_item/unathielectricalgloves
 	category = "engineering"
 	name = "unathi electrical gloves"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "These gloves will protect the wearer from electric shock. Made special for Unathi use."
 	price = 74
 	items = list(
@@ -632,7 +632,7 @@
 /singleton/cargo_item/debugger
 	category = "engineering"
 	name = "debugger"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Used to debug electronic equipment."
 	price = 12
 	items = list(
@@ -646,7 +646,7 @@
 /singleton/cargo_item/powerdrill
 	category = "engineering"
 	name = "impact wrench"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Wrenches and screws things. Faster."
 	price = 12
 	items = list(
@@ -660,7 +660,7 @@
 /singleton/cargo_item/paintgun
 	category = "engineering"
 	name = "paint gun"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Useful for designating areas and pissing off coworkers."
 	price = 25
 	items = list(
@@ -674,7 +674,7 @@
 /singleton/cargo_item/particleacceleratorcontrolcomputer
 	category = "engineering"
 	name = "Particle Accelerator Control Computer"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "This controls the density of the particles."
 	price = 2250
 	items = list(
@@ -688,7 +688,7 @@
 /singleton/cargo_item/particlefocusingemlens
 	category = "engineering"
 	name = "Particle Focusing EM Lens"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Part of a Particle Accelerator."
 	price = 1250
 	items = list(
@@ -702,7 +702,7 @@
 /singleton/cargo_item/portableladder
 	category = "engineering"
 	name = "portable ladder"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A lightweight deployable ladder, which you can use to move up or down. Or alternatively, you can bash some faces in."
 	price = 40
 	items = list(
@@ -716,7 +716,7 @@
 /singleton/cargo_item/radiationhood
 	category = "engineering"
 	name = "radiation Hood"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A hood with radiation protective properties. Label: Made with lead, do not eat insulation."
 	price = 70
 	items = list(
@@ -730,7 +730,7 @@
 /singleton/cargo_item/radiationsuit
 	category = "engineering"
 	name = "radiation suit"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A suit that protects against radiation. Label: Made with lead, do not eat insulation."
 	price = 120
 	items = list(
@@ -744,7 +744,7 @@
 /singleton/cargo_item/researchshuttleconsoleboard
 	category = "engineering"
 	name = "research shuttle console board"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A replacement board for the research shuttle console, in case the original console is destroyed."
 	price = 125
 	items = list(
@@ -758,7 +758,7 @@
 /singleton/cargo_item/singularitygenerator
 	category = "engineering"
 	name = "singularity generator"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Used to generate a Singularity. It is not adviced to use this on the asteroid."
 	price = 17000
 	items = list(
@@ -772,7 +772,7 @@
 /singleton/cargo_item/superconductivemagneticcoil
 	category = "engineering"
 	name = "superconductive magnetic coil"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Standard superconductive magnetic coil with average capacity and I/O rating."
 	price = 800
 	items = list(
@@ -786,7 +786,7 @@
 /singleton/cargo_item/supermattercore
 	category = "engineering"
 	name = "supermatter crystal"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "An unstable, radioactive crystal that forms the power source of several experimental ships and stations. Extremely dangerous."
 	price = 18500
 	items = list(
@@ -800,7 +800,7 @@
 /singleton/cargo_item/thermoelectricgenerator
 	category = "engineering"
 	name = "thermoelectric generator kit"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A kit that comes with a thermoelectric generator and two circulators that attach to it. For usage in high-power energy generation."
 	price = 1200
 	items = list(
@@ -816,7 +816,7 @@
 /singleton/cargo_item/solarpanelassembly
 	category = "engineering"
 	name = "solar panel assembly"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A solar panel assembly kit, allows constructions of a solar panel, or with a tracking circuit board, a solar tracker."
 	price = 350
 	items = list(
@@ -830,7 +830,7 @@
 /singleton/cargo_item/trackerelectronics
 	category = "engineering"
 	name = "tracker electronics"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Electronic guidance systems for a solar array."
 	price = 100
 	items = list(
@@ -844,7 +844,7 @@
 /singleton/cargo_item/watertank
 	category = "engineering"
 	name = "watertank"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A tank filled with water."
 	price = 10
 	items = list(
@@ -858,7 +858,7 @@
 /singleton/cargo_item/weldinghelmet
 	category = "engineering"
 	name = "welding helmet"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A head-mounted face cover designed to protect the wearer completely from space-arc eye."
 	price = 20
 	items = list(
@@ -872,7 +872,7 @@
 /singleton/cargo_item/alphaparticlegenerationarray
 	category = "engineering"
 	name = "Alpha Particle Generation Array"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Part of a Particle Accelerator."
 	price = 1550
 	items = list(
@@ -886,7 +886,7 @@
 /singleton/cargo_item/rad_collector
 	category = "engineering"
 	name = "radiation collector array"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A radiation collector array. Used to augment the power generation of a generator that emits ionising radiation."
 	price = 650
 	items = list(
@@ -900,11 +900,78 @@
 /singleton/cargo_item/engineeringcart
 	category = "engineering"
 	name = "engineering cart"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A cart for your engineering-related storage needs."
 	price = 100
 	items = list(
 		/obj/structure/cart/storage/engineeringcart
+	)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/telecommunications_crate
+	category = "engineering"
+	name = "Telecommunications Crate"
+	supplier = "Hub"
+	description = "A crate of circuit boards and subspace components for constructing or repairing telecommunications machinery."
+	price = 3500
+	items = list(
+		/obj/item/circuitboard/telecomms/receiver,
+		/obj/item/circuitboard/telecomms/bus,
+		/obj/item/circuitboard/telecomms/processor,
+		/obj/item/circuitboard/telecomms/broadcaster,
+		/obj/item/stack/cable_coil,
+		/obj/item/stock_parts/manipulator,
+		/obj/item/stock_parts/manipulator,
+		/obj/item/stock_parts/manipulator,
+		/obj/item/stock_parts/manipulator,
+		/obj/item/stock_parts/manipulator,
+		/obj/item/stock_parts/manipulator,
+		/obj/item/stock_parts/manipulator,
+		/obj/item/stock_parts/manipulator,
+		/obj/item/stock_parts/manipulator,
+		/obj/item/stock_parts/scanning_module,
+		/obj/item/stock_parts/micro_laser/high,
+		/obj/item/stock_parts/micro_laser/high,
+		/obj/item/stock_parts/micro_laser/high,
+		/obj/item/stock_parts/subspace/filter,
+		/obj/item/stock_parts/subspace/filter,
+		/obj/item/stock_parts/subspace/filter,
+		/obj/item/stock_parts/subspace/filter,
+		/obj/item/stock_parts/subspace/ansible,
+		/obj/item/stock_parts/subspace/ansible,
+		/obj/item/stock_parts/subspace/ansible,
+		/obj/item/stock_parts/subspace/crystal,
+		/obj/item/stock_parts/subspace/analyzer,
+		/obj/item/stock_parts/subspace/amplifier,
+		/obj/item/stock_parts/subspace/treatment,
+		/obj/item/stock_parts/subspace/treatment
+	)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/airlock_cycler_crate
+	category = "engineering"
+	name = "Airlock Cycler Crate"
+	supplier = "Hub"
+	description = "Wall frames, circuit boards, and cable for building a complete airlock cycler control setup: one controller, two access buttons, two pressure sensors. Does not include the airlock itself -- build that from a standard airlock assembly."
+	price = 1200
+	items = list(
+		/obj/item/frame/airlock_controller,
+		/obj/item/airlock_cycler_electronics/airlock_controller,
+		/obj/item/frame/access_button,
+		/obj/item/airlock_cycler_electronics/access_button,
+		/obj/item/frame/access_button,
+		/obj/item/airlock_cycler_electronics/access_button,
+		/obj/item/frame/airlock_sensor,
+		/obj/item/airlock_cycler_electronics/airlock_sensor,
+		/obj/item/frame/airlock_sensor,
+		/obj/item/airlock_cycler_electronics/airlock_sensor,
+		/obj/item/stack/cable_coil
 	)
 	access = ACCESS_ENGINE
 	container_type = "crate"

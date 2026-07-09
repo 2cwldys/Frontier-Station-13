@@ -3,6 +3,10 @@
 	var/name
 	var/id
 	var/notes = "No notes found."
+	/// Normalized faction UID this record belongs to, "" = station-wide
+	/// (visible to every unshackled console -- see record_faction_visible()).
+	/// Deliberately NOT in any excluded_fields list so Copy() propagates it.
+	var/faction_uid = ""
 
 	var/cmp_field = "id"
 	var/list/excluded_fields
@@ -166,6 +170,7 @@
 		species = H.get_species(FALSE, TRUE)
 		citizenship = SSrecords.get_citizenship_record_name(H.citizenship)
 		employer = H.employer_faction
+		faction_uid = normalize_faction_uid(H.employer_faction)
 		religion = SSrecords.get_religion_record_name(H.religion)
 		ccia_record = H.ccia_record
 		ccia_actions = H.ccia_actions

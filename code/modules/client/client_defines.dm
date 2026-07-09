@@ -4,6 +4,7 @@
 
 /client
 	parent_type = /datum
+	mouse_pointer_icon = 'icons/hud/cursor/normal.dmi'
 
 // Admin
 	var/datum/admins/holder = null
@@ -18,6 +19,9 @@
 // Sounds
 	var/ambient_hum_playing = null // Is the ambient hum playing?
 	var/ambience_last_played_time = null // "world.time".
+
+// HUD
+	var/show_save_timer = TRUE // On-screen autosave countdown (Toggle Save Timer verb)
 
 // Security
 	var/info_sent = 0
@@ -50,6 +54,7 @@
 
 // Other
 	var/datum/preferences/prefs
+	var/datum/chatOutput/chatOutput = null
 	var/datum/tooltip/tooltips
 	var/move_delay		= 1
 	var/moving			= null

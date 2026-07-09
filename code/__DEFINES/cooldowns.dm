@@ -58,6 +58,7 @@
 
 // mob cooldowns
 #define COOLDOWN_YAWN_PROPAGATION "yawn_propagation_cooldown"
+#define COOLDOWN_VERBAL_EMOTE "verbal_emote_cooldown"
 
 // admin verb cooldowns
 #define COOLDOWN_INTERNET_SOUND "internet_sound"

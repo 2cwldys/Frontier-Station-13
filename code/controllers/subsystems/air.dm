@@ -160,9 +160,9 @@ Total Unsimulated Turfs: [world.maxx*world.maxy*world.maxz - simulated_turf_coun
 
 		admin_notice(SPAN_DANGER("Air settling completed in [(REALTIMEOFDAY - starttime)/10] seconds!"), R_DEBUG)
 
-	// Apply persisted atmospheric zone gas states now that zones are built and settled
-	if(GLOB.config.sql_enabled)
-		SSpersistence.atmosApply()
+	// NOTE: persisted zone gas is applied by SSpersistence.Initialize(), which runs
+	// AFTER this subsystem (INIT_ORDER_PERSISTENCE -10 < INIT_ORDER_AIR -1). Calling
+	// atmosApply() here would see an empty cache and no-op.
 
 	return SS_INIT_SUCCESS
 

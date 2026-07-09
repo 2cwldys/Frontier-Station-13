@@ -25,7 +25,11 @@
 	stored_cases = GLOB.case_dossier_cases
 
 /datum/computer_file/program/case_dossier/Destroy()
-	stored_cases.Cut()
+	// stored_cases IS GLOB.case_dossier_cases by reference (see New()), NOT a
+	// copy -- Cut()ing it here would wipe every faction's cases the moment
+	// any single console/PDA running this program is destroyed. Just drop
+	// our reference to the shared global list instead.
+	stored_cases = null
 	open_case = null
 	return ..()
 
@@ -52,8 +56,13 @@
 		open_case.send_photo_resources(user)
 		data["open_case"] = open_case.tgui_data()
 
+	// Faction instancing: a shackled console only sees its own faction's
+	// cases; unshackled consoles see the full station-wide list, unchanged.
+	var/net = computer ? normalize_faction_uid(computer.persistent_network) : ""
 	if(stored_cases)
 		for(var/datum/investigation_case/C in stored_cases)
+			if(!record_faction_visible(C.faction_uid, net))
+				continue
 			data["cases"] += list(C.tgui_data(TRUE))
 
 	return data
@@ -226,6 +235,7 @@
 /// Starts a new case
 /datum/computer_file/program/case_dossier/proc/create_new_case(var/mob/user)
 	var/datum/investigation_case/C = new /datum/investigation_case(creator = user)
+	C.faction_uid = computer ? normalize_faction_uid(computer.persistent_network) : ""
 
 	stored_cases += C
 	open_case = C
@@ -235,8 +245,9 @@
 	if(!id)
 		return null
 
+	var/net = computer ? normalize_faction_uid(computer.persistent_network) : ""
 	for(var/datum/investigation_case/C in stored_cases)
-		if("[C.case_id]" == "[id]")
+		if("[C.case_id]" == "[id]" && record_faction_visible(C.faction_uid, net))
 			return C
 
 	return null

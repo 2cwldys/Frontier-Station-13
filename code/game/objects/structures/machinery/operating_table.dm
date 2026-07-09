@@ -99,6 +99,17 @@
 			occupant = null //Null the weakref
 			release_view(potential_patient)
 
+			// Walking off the table (or otherwise leaving) shouldn't require a
+			// separate "Rest" press afterward to stand back up -- clear the
+			// voluntary resting flag so exiting is one step, same as a
+			// cryopod. Safe even if they're actually incapacitated: lying is
+			// independently forced by update_canmove()'s incapacitation
+			// check, so this only affects the voluntary case.
+			if(potential_patient.resting)
+				potential_patient.resting = FALSE
+				potential_patient.update_canmove()
+				potential_patient.update_icon()
+
 		//Reprocess the icon state at the end
 		refresh_icon_state()
 
@@ -190,11 +201,38 @@
 		icon_state = "[modify_state]-idle"
 
 
+/// Override to reject a specific patient from becoming the occupant (e.g. autodoc refusing anyone still wearing an outer suit). Return FALSE to refuse.
+/obj/structure/machinery/optable/proc/patient_acceptable(mob/living/carbon/human/H)
+	return TRUE
+
+/obj/structure/machinery/optable/verb/eject_occupant()
+	set name = "Eject Occupant"
+	set category = "Object"
+	set src in view(1)
+
+	var/mob/living/carbon/human/occupant_resolved = occupant?.resolve()
+	if(!occupant_resolved)
+		to_chat(usr, SPAN_WARNING("\The [src] has no occupant to eject."))
+		return
+	unmark_patient(src, occupant_resolved)
+	visible_message(SPAN_NOTICE("[usr] ejects [occupant_resolved] from \the [src]."))
+
 /obj/structure/machinery/optable/proc/check_occupant(seconds_per_tick)
 	SHOULD_NOT_SLEEP(TRUE)
 
 	refresh_icon_state()
 	var/mob/living/carbon/human/occupant_resolved = occupant?.resolve()
+
+	// Standing up (rest verb) doesn't move the mob off the tile, so it never
+	// fires the COMSIG_ATOM_EXITED signal unmark_patient() relies on -- check
+	// for that here too, or the table (and the patient's locked camera) stay
+	// stuck thinking they're still occupied.
+	if(occupant_resolved && occupant_must_be_lying && !occupant_resolved.lying)
+		suppressing = FALSE
+		occupant = null
+		release_view(occupant_resolved)
+		refresh_icon_state()
+		return FALSE
 
 	//If the occupant is not set
 	if(!occupant_resolved)
@@ -206,6 +244,8 @@
 		var/mob/living/carbon/human/new_occupant = locate() in loc
 		if(istype(new_occupant))
 			if(occupant_must_be_lying && !new_occupant.lying)
+				return FALSE
+			if(!patient_acceptable(new_occupant))
 				return FALSE
 			//Set the occupant weakref and get his view
 			occupant = WEAKREF(new_occupant)

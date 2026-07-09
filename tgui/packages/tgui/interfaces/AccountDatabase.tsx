@@ -57,7 +57,7 @@ export const AccountDatabase = (props) => {
             </LabeledList.Item>
             {data.access_level ? (
               <LabeledList.Item label="Assigned Conglomerate Funds">
-                {data.station_account_money.toFixed(2)}电
+                {data.station_account_money.toFixed(2)}₵
               </LabeledList.Item>
             ) : (
               ''
@@ -137,7 +137,7 @@ export const AccountWindow = (props) => {
                 />
                 <NumberInput
                   value={new_funds}
-                  unit="电"
+                  unit="₵"
                   minValue={0}
                   maxValue={data.station_account_money}
                   step={50}
@@ -223,7 +223,7 @@ export const SpecificAccountData = (props) => {
                 {account.owner}
               </LabeledList.Item>
               <LabeledList.Item label="Balance">
-                {account.money.toFixed(2)}电
+                {account.money.toFixed(2)}₵
               </LabeledList.Item>
               <LabeledList.Item label="Status">
                 <Box as="span" color={account.suspended ? 'red' : 'good'}>
@@ -243,7 +243,7 @@ export const SpecificAccountData = (props) => {
                     <>
                       <NumberInput
                         value={funds_to_add}
-                        unit="电"
+                        unit="₵"
                         step={1}
                         minValue={0}
                         maxValue={10000}
@@ -275,7 +275,7 @@ export const SpecificAccountData = (props) => {
                       <NumberInput
                         value={funds_to_remove}
                         step={1}
-                        unit="电"
+                        unit="₵"
                         minValue={0}
                         maxValue={10000}
                         onChange={(value) => setFundsToRemove(value)}
@@ -314,7 +314,7 @@ export const SpecificAccountData = (props) => {
                     </Table.Cell>
                     <Table.Cell>{transaction.target_name}</Table.Cell>
                     <Table.Cell>{transaction.purpose}</Table.Cell>
-                    <Table.Cell>{transaction.amount.toFixed(2)}电</Table.Cell>
+                    <Table.Cell>{transaction.amount.toFixed(2)}₵</Table.Cell>
                     <Table.Cell>{transaction.source_terminal}</Table.Cell>
                   </Table.Row>
                 ))}

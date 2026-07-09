@@ -146,6 +146,20 @@ ALLOW_ADMIN_OOCCOLOR
 ## If metadata is supported
 # ALLOW_METADATA
 
+## disables emergency shuttle calls, the Restart/Crew Transfer votes, and nuke
+## self-destruct round-ending while persistence is active -- for persistent
+## worlds that should never go through a traditional round end
+DISABLE_ROUND_END
+
+## flips z-level persistence from opt-out to opt-in: ONLY z-levels explicitly
+## enabled through the in-game "Toggle Z-Level Persistence" admin verb (stored
+## in the ss13_zlevel_persistence database table) will save/load. Everything
+## on unlisted z-levels is skipped entirely -- turf/wall changes, objects,
+## floor items, atmos, machinery state, bots -- which also speeds up saves by
+## skipping whole z-levels. Global data (characters, factions, research,
+## whitelists) is unaffected.
+# MANUAL_AREA_SAVE
+
 ## allow players to initiate a restart vote
 ALLOW_VOTE_RESTART
 
@@ -185,6 +199,12 @@ ALLOW_ANTAG_HUD
 
 ## If ghosts use antagHUD they are no longer allowed to join the round.
 ANTAG_HUD_RESTRICTED
+
+## If uncommented, players can drag their mob onto another consenting player to open the intimate interaction menu. Both players must also individually opt in via the "Toggle Intimate Interactions" preference.
+#ALLOW_INTIMATE_INTERACTIONS
+
+## If uncommented, intimate interactions respect each participant's "Toggle Intimate Interactions" preference (the default, off, means that preference is ignored and anyone can be targeted).
+#REQUIRE_CONSENT
 
 ## How much time a drone fabricator will take to produce a single drone. In deciseconds.
 #DRONE_BUILD_TIME 1200

@@ -1,6 +1,8 @@
 /datum/persistent_menu
 	var/mob/abstract/new_player/new_player_mob
 	var/spawning = FALSE  // set TRUE when Play is clicked; prevents ui_close() from reopening
+	var/opening = FALSE   // guards the window between ui.open() start and open_uis registration;
+	                      // ui_data's blocking DB query defeats try_update_ui during that gap
 
 /datum/persistent_menu/New(mob/abstract/new_player/NP)
 	src.new_player_mob = NP
@@ -17,8 +19,15 @@
 /datum/persistent_menu/ui_interact(mob/user, datum/tgui/ui)
 	ui = SStgui.try_update_ui(user, src, ui)
 	if(!ui)
-		ui = new /datum/tgui(user, src, "PersistentMenu", "Character Select", 420, 520)
-		ui.open()
+		if(opening)
+			return
+		opening = TRUE
+		try
+			ui = new /datum/tgui(user, src, "PersistentMenu", "Character Select", 420, 520)
+			ui.open()
+		catch(var/exception/menu_e)
+			log_debug("persistent_menu: ui open failed: [menu_e]")
+		opening = FALSE
 
 /datum/persistent_menu/ui_data(mob/user)
 	var/list/data = list()
@@ -39,6 +48,15 @@
 	data["slot_limit"]        = slot_limit
 	data["can_create"]        = length(chars_out) < slot_limit
 	data["persistence_ready"] = GLOB.persistence_ready
+	data["save_in_progress"]  = SSpersistence.save_in_progress ? TRUE : FALSE
+	// Whitelist gate mirrors enter_allowed: applies to non-admins only
+	data["whitelisted"]       = (check_rights(R_ADMIN, 0, user) || persistence_is_whitelisted(ckey)) ? TRUE : FALSE
+	// Admins can still Play while joining is locked -- matches PersistentAutoSpawn()'s
+	// own admin bypass. NOTE: with AUTO_LOCAL_ADMIN in the config, any connection
+	// from the host machine is silently full-admin, so the button will NOT grey
+	// out for a host-connected account even when the server is locked -- that is
+	// the bypass working as intended, not the lock failing.
+	data["enter_allowed"]     = GLOB.config.enter_allowed || check_rights(R_ADMIN, 0, user)
 
 	return data
 
@@ -49,6 +67,29 @@
 
 	switch(action)
 		if("play")
+			// Defense-in-depth: the frontend already greys the Play button out
+			// for these same conditions (ui_data()'s enter_allowed/persistence_ready),
+			// but never trust client-side disabling alone -- a bypassed/replayed
+			// action could still reach here. Checking before committing to
+			// spawning = TRUE / ui.close() means a blocked attempt leaves the
+			// menu open with a message instead of closing on a doomed spawn
+			// (closing it here with nothing to ever reset spawning back to
+			// FALSE would otherwise strand the player with no menu at all).
+			if(!GLOB.persistence_ready)
+				to_chat(NP, SPAN_WARNING("The server is still loading. Please wait a moment and try again."))
+				return TRUE
+			if(SSpersistence.save_in_progress)
+				to_chat(NP, SPAN_WARNING("Cannot join server while a save is in progress."))
+				return TRUE
+			if(!GLOB.config.enter_allowed && !check_rights(R_ADMIN, 0, NP))
+				to_chat(NP, SPAN_NOTICE("Joining is currently disabled by an administrator."))
+				return TRUE
+			if(!persistence_is_whitelisted(NP.ckey) && !check_rights(R_ADMIN, 0, NP))
+				to_chat(NP, SPAN_WARNING("You are not whitelisted to join this server. Contact an administrator."))
+				return TRUE
+			if(SSticker.current_state != GAME_STATE_PLAYING)
+				to_chat(NP, SPAN_WARNING("The round is not ready yet."))
+				return TRUE
 			var/char_name = params["name"]
 			spawning = TRUE
 			NP.PersistentAutoSpawn(char_name)

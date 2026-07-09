@@ -7,7 +7,7 @@
 	var/name = "generic cargo item"
 
 	/// The category this item belongs to. This MUST match the cargo_supplier "short_name" this item belongs to.
-	var/supplier = "generic_supplier"
+	var/supplier = "Hub"
 
 	/// The description of this item.
 	var/description = "A basic cargo item."

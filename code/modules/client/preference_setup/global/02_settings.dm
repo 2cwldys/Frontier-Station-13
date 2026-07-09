@@ -9,6 +9,7 @@
 	S["sfx_toggles"]        >> pref.sfx_toggles
 	S["toggles_secondary"] >> pref.toggles_secondary
 	S["lobby_music_vol"] >> pref.lobby_music_vol
+	S["ambient_playlist_vol"] >> pref.ambient_playlist_vol
 
 /datum/category_item/player_setup_item/player_global/settings/save_preferences(var/savefile/S)
 	S["lastchangelog"]    << pref.lastchangelog
@@ -17,6 +18,7 @@
 	S["sfx_toggles"]        << pref.sfx_toggles
 	S["toggles_secondary"] << pref.toggles_secondary
 	S["lobby_music_vol"] << pref.lobby_music_vol
+	S["ambient_playlist_vol"] << pref.ambient_playlist_vol
 
 /datum/category_item/player_setup_item/player_global/settings/gather_load_query()
 	return list(
@@ -27,7 +29,8 @@
 				"toggles",
 				"sfx_toggles",
 				"toggles_secondary",
-				"lobby_music_vol"
+				"lobby_music_vol",
+				"ambient_playlist_vol"
 			),
 			"args" = list("ckey")
 		)
@@ -46,6 +49,7 @@
 			"ckey" = 1,
 			"toggles_secondary",
 			"lobby_music_vol",
+			"ambient_playlist_vol",
 		)
 	)
 
@@ -57,7 +61,8 @@
 		"toggles" = pref.toggles,
 		"sfx_toggles" = pref.sfx_toggles,
 		"toggles_secondary" = pref.toggles_secondary,
-		"lobby_music_vol" = pref.lobby_music_vol
+		"lobby_music_vol" = pref.lobby_music_vol,
+		"ambient_playlist_vol" = pref.ambient_playlist_vol
 	)
 
 /datum/category_item/player_setup_item/player_global/settings/sanitize_preferences(var/sql_load = 0)
@@ -71,6 +76,7 @@
 	pref.sfx_toggles      = sanitize_integer(text2num(pref.sfx_toggles), 0, BITFIELDMAX, initial(pref.toggles))
 	pref.toggles_secondary  = sanitize_integer(text2num(pref.toggles_secondary), 0, BITFIELDMAX, initial(pref.toggles_secondary))
 	pref.lobby_music_vol = sanitize_integer(text2num(pref.lobby_music_vol), 0, BITFIELDMAX, initial(pref.lobby_music_vol))
+	pref.ambient_playlist_vol = sanitize_integer(text2num(pref.ambient_playlist_vol), 0, BITFIELDMAX, initial(pref.ambient_playlist_vol))
 
 /datum/category_item/player_setup_item/player_global/settings/content(mob/user)
 	var/list/dat = list(

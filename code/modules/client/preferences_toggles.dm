@@ -183,3 +183,27 @@
 	prefs.toggles_secondary ^= HIDE_ITEM_TOOLTIPS
 	prefs.save_preferences()
 	to_chat(src, SPAN_NOTICE("Item tooltips are now [prefs.toggles_secondary & HIDE_ITEM_TOOLTIPS ? "disabled" : "enabled"]."))
+
+/client/verb/toggle_intimate_interactions()
+	set name = "Toggle Intimate Interactions"
+	set desc = "Toggles whether other players can open the intimate interaction menu on your mob by dragging themselves onto you. Both participants must have this enabled."
+	set category = "Preferences.Game"
+
+	prefs.toggles_secondary ^= INTIMATE_INTERACTIONS_ENABLED
+	prefs.save_preferences()
+	var/enabled = prefs.toggles_secondary & INTIMATE_INTERACTIONS_ENABLED
+	to_chat(src, SPAN_NOTICE("Intimate interactions are now [enabled ? "enabled" : "disabled"]."))
+	if(ishuman(mob))
+		if(enabled)
+			add_verb(mob, /mob/living/carbon/human/verb/masturbate)
+		else
+			remove_verb(mob, /mob/living/carbon/human/verb/masturbate)
+
+/client/verb/toggle_muttering()
+	set name = "Toggle Muttering"
+	set desc = "Toggles whether you hear other characters' ambient mumbling sounds when they speak nearby."
+	set category = "Preferences.Game"
+
+	prefs.toggles_secondary ^= TOGGLE_MUTTERING
+	prefs.save_preferences()
+	to_chat(src, SPAN_NOTICE("Muttering sounds are now [prefs.toggles_secondary & TOGGLE_MUTTERING ? "audible" : "muted"]."))

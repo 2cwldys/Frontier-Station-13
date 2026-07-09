@@ -13,6 +13,7 @@
 #define CHANNEL_MACHINERY 1013
 #define CHANNEL_INSTRUMENTS 1012
 #define CHANNEL_MOB_SOUNDS 1011
+#define CHANNEL_AMBIENT_PLAYLIST 1010
 
 /// Default range of a sound.
 #define SOUND_RANGE 17
@@ -30,7 +31,7 @@
 //THIS SHOULD ALWAYS BE THE LOWEST ONE!
 //KEEP IT UPDATED
 
-#define CHANNEL_HIGHEST_AVAILABLE 1011
+#define CHANNEL_HIGHEST_AVAILABLE 1010
 
 #define MAX_INSTRUMENT_CHANNELS (128 * 6)
 
@@ -76,6 +77,11 @@
 
 //"sound areas": easy way of keeping different types of areas consistent.
 #define SOUND_AREA_STANDARD_STATION SOUND_ENVIRONMENT_PARKING_LOT
+
+// Super Hug cap "audio lag" effect (see playsound_local() in sound.dm and
+// apply_euphoric_rainbow() in intimate_interactions.dm) -- well below the normal
+// get_rand_frequency() variance band (32000-55000), for a deliberately deep/slowed sound.
+#define AUDIO_LAG_FREQUENCY 20000
 #define SOUND_AREA_LARGE_ENCLOSED SOUND_ENVIRONMENT_QUARRY
 #define SOUND_AREA_SMALL_ENCLOSED SOUND_ENVIRONMENT_BATHROOM
 #define SOUND_AREA_TUNNEL_ENCLOSED SOUND_ENVIRONMENT_STONEROOM

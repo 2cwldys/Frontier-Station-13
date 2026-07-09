@@ -12,6 +12,13 @@
  */
 
 /obj/structure/closet/worldstate_get_content()
+	// A closet promoted to dynamic tracking (relocated from its map-placed
+	// origin -- see closets.dm Moved()) is fully owned by the
+	// persistent_objects_* system now; worldstate must stay out of its way
+	// entirely, or a stale/duplicate row here could clobber the
+	// dynamically-restored instance on a future boot.
+	if(persistent_objects_track_active)
+		return null
 	var/list/items = list()
 	for(var/obj/item/I in src)
 		var/list/data = serializePersistentItem(I)
@@ -33,6 +40,8 @@
 	return content
 
 /obj/structure/closet/worldstate_apply_content(list/content)
+	if(persistent_objects_track_active)
+		return
 	// Clear any default map-placed contents before restoring saved state
 	for(var/atom/movable/AM in src)
 		if(istype(AM, /obj/item))

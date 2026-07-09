@@ -59,6 +59,140 @@
 	maptext_height = 480
 	maptext_width = 480
 
+/// Top-center countdown to the next persistence autosave. Same blue glow
+/// styling as the mouseover hovertext. Toggled per-client via the
+/// Toggle Save Timer verb (client.show_save_timer, on by default).
+/atom/movable/screen/text/save_timer
+	// TOP:16 lifts it half a tile above the hovertext line (hovertext anchors
+	// at CENTER+7, which is the same row as TOP on the default view size).
+	screen_loc = "CENTER-7,TOP:16"
+	maptext_height = 32
+	maptext_width = 480
+
+/atom/movable/screen/text/save_timer/Initialize()
+	. = ..()
+	START_PROCESSING(SSprocessing, src)
+	update_timer_text()
+
+/atom/movable/screen/text/save_timer/Destroy()
+	STOP_PROCESSING(SSprocessing, src)
+	return ..()
+
+/atom/movable/screen/text/save_timer/process()
+	update_timer_text()
+
+/atom/movable/screen/text/save_timer/proc/update_timer_text()
+	if(!GLOB.config.sql_enabled || !SSpersistence)
+		maptext = ""
+		return
+	var/label
+	if(SSpersistence.save_in_progress)
+		// world.time-driven so the dots alternate each second with no extra state
+		label = "SAVING [(world.time % 20) < 10 ? ".." : "..."]"
+	else if(SSpersistence.autosave_paused)
+		label = "AUTOSAVE PAUSED"
+	else
+		var/remaining = max(0, SSpersistence.next_fire - world.time)
+		var/total_seconds = round(remaining / 10)
+		label = "NEXT SAVE: [add_zero("[round(total_seconds / 60)]", 2)]:[add_zero("[total_seconds % 60]", 2)]"
+	maptext = "<center><span style=\"color:#535AB2;font-weight:bold;text-shadow:0 0 15px #535AB2;font-family:'Bahnschrift',Constantia,sans-serif;\">[label]</span></center>"
+
+/// Top-right security-zone shield: recolors green/yellow/red by the owner's
+/// current zone level (grayscale 32x32 source so color multiply tints
+/// cleanly); mouseover shows the zone name, examine explains the system.
+/atom/movable/screen/zone_security_indicator
+	name = "nullsec"
+	icon = 'icons/hud/security_shield.png'
+	icon_state = ""
+	screen_loc = "EAST:-6,NORTH:-4"
+	mouse_opacity = MOUSE_OPACITY_ICON
+	var/mob/owner
+
+/atom/movable/screen/zone_security_indicator/Initialize(mapload, mob/holder)
+	. = ..()
+	owner = holder
+	START_PROCESSING(SSprocessing, src)
+	update_zone_shield()
+
+/atom/movable/screen/zone_security_indicator/Destroy()
+	STOP_PROCESSING(SSprocessing, src)
+	owner = null
+	return ..()
+
+/atom/movable/screen/zone_security_indicator/process()
+	update_zone_shield()
+
+/atom/movable/screen/zone_security_indicator/proc/update_zone_shield()
+	// get_turf pierces containers -- inside a cryopod/locker the mob's loc
+	// is the object (z 0), but they are still standing in the zone
+	var/turf/owner_turf = QDELETED(owner) ? null : get_turf(owner)
+	if(!owner_turf)
+		alpha = 0
+		return
+	alpha = 255
+	switch(zone_security_get(owner_turf.z))
+		if(ZONE_HIGHSEC)
+			color = "#54c556"
+			name = "highsec"
+			desc = "You are in a HIGHSEC area: piracy and combat are outlawed, Hub law is enforced, and offenses alert Hub security."
+		if(ZONE_MEDSEC)
+			color = "#e8bb4a"
+			name = "medsec"
+			desc = "You are in a MEDSEC area: piracy is outlawed, factions enforce their own laws."
+		else
+			color = "#e04545"
+			name = "nullsec"
+			desc = "You are in a NULLSEC area: Hub and faction laws are not enforced here."
+
+/atom/movable/screen/zone_security_indicator/get_examine_text(mob/user, distance, is_adjacent, infix, suffix, show_extended)
+	. = ..()
+	. += SPAN_NOTICE("Security zone legend:")
+	. += SPAN_COLOR("#54c556", "  HIGHSEC (green) -- piracy and combat outlawed: Hub law enforced, violent offenses alert Hub security.")
+	. += SPAN_COLOR("#e8bb4a", "  MEDSEC (yellow) -- piracy outlawed: factions enforce their own laws.")
+	. += SPAN_COLOR("#e04545", "  NULLSEC (red) -- no laws enforced: piracy unchecked.")
+
+/// Screen objects can't be targeted by the examine verb (they live in
+/// client.screen, not world view) -- clicking the shield prints the info
+/atom/movable/screen/zone_security_indicator/Click(location, control, params)
+	if(!usr)
+		return
+	to_chat(usr, SPAN_NOTICE("Current zone: [SPAN_STYLE("color:[color]; text-shadow: 1px 1px 2px #000000; font-size: 1.15em;", uppertext(name))]"))
+	to_chat(usr, SPAN_NOTICE("Security zone legend:"))
+	to_chat(usr, SPAN_COLOR("#54c556", "  HIGHSEC (green) -- piracy and combat outlawed: Hub law enforced, violent offenses alert Hub security."))
+	to_chat(usr, SPAN_COLOR("#e8bb4a", "  MEDSEC (yellow) -- piracy outlawed: factions enforce their own laws."))
+	to_chat(usr, SPAN_COLOR("#e04545", "  NULLSEC (red) -- no laws enforced: piracy unchecked."))
+	return TRUE
+
+/client/verb/toggle_zone_shield()
+	set name = "Toggle Security Level Shield"
+	set category = "Preferences"
+	set desc = "Show or hide the top-right security zone shield. Saved to your preferences."
+
+	prefs.toggles ^= HIDE_ZONE_SHIELD
+	var/shown = !(prefs.toggles & HIDE_ZONE_SHIELD)
+	var/mob/living/carbon/human/H = mob
+	if(istype(H) && H.zone_indicator)
+		if(shown)
+			screen |= H.zone_indicator
+		else
+			screen -= H.zone_indicator
+	prefs.save_preferences()
+	to_chat(src, SPAN_INFO("Security zone shield [shown ? "shown" : "hidden"]."))
+
+/client/verb/toggle_save_timer()
+	set name = "Toggle Save Timer"
+	set category = "Preferences"
+	set desc = "Show or hide the on-screen autosave countdown."
+
+	show_save_timer = !show_save_timer
+	var/mob/living/carbon/human/H = mob
+	if(istype(H) && H.save_timer)
+		if(show_save_timer)
+			screen |= H.save_timer
+		else
+			screen -= H.save_timer
+	to_chat(src, SPAN_INFO("Autosave countdown [show_save_timer ? "shown" : "hidden"]."))
+
 /atom/movable/screen/inventory
 	/// The identifier for the slot. It has nothing to do with ID cards.
 	var/slot_id
@@ -187,8 +321,10 @@
 		usr.ClickOn(master)
 	return TRUE
 
+// Character doll zone selector — uses puppet_new.dmi from Serenity
 /atom/movable/screen/zone_sel
 	name = "damage zone"
+	icon = 'icons/hud/mob/puppet_new.dmi'
 	icon_state = "zone_sel"
 	screen_loc = ui_zonesel
 	var/selecting = BP_CHEST
@@ -235,7 +371,7 @@
 
 
 /obj/effect/overlay/zone_sel
-	icon = 'icons/hud/mob/zone_sel.dmi'
+	icon = 'icons/hud/mob/zone_sel_newer.dmi'
 	mouse_opacity = MOUSE_OPACITY_TRANSPARENT
 	alpha = 128
 	anchored = TRUE
@@ -246,49 +382,53 @@
 		remove_vis_contents(hover_overlays_cache[hovering_choice])
 		hovering_choice = null
 
+// Pixel coordinate map calibrated for puppet_new.dmi (Serenity character doll)
 /atom/movable/screen/zone_sel/proc/get_zone_at(icon_x, icon_y)
 	switch(icon_y)
-		if(1 to 3) //Feet
+		if(5 to 8) //Feet
 			switch(icon_x)
-				if(10 to 15)
+				if(7 to 15)
 					return BP_R_FOOT
-				if(17 to 22)
+				if(18 to 26)
 					return BP_L_FOOT
-		if(4 to 9) //Legs
+		if(9 to 27) //Legs
 			switch(icon_x)
-				if(10 to 15)
+				if(10 to 16)
 					return BP_R_LEG
-				if(17 to 22)
+				if(18 to 23)
 					return BP_L_LEG
-		if(10 to 13) //Hands and groin
+		if(28 to 34) //Hands and groin
 			switch(icon_x)
-				if(8 to 11)
+				if(4 to 8)
 					return BP_R_HAND
-				if(12 to 20)
+				if(12 to 21)
 					return BP_GROIN
-				if(21 to 24)
+				if(24 to 29)
 					return BP_L_HAND
-		if(14 to 22) //Chest and arms to shoulders
+		if(31 to 49) //Chest and arms to shoulders
 			switch(icon_x)
-				if(8 to 11)
+				if(7 to 11)
 					return BP_R_ARM
-				if(12 to 20)
+				if(12 to 21)
 					return BP_CHEST
-				if(21 to 24)
+				if(22 to 26)
 					return BP_L_ARM
-		if(23 to 30) //Head, but we need to check for eye or mouth
-			if(icon_x in 12 to 20)
-				switch(icon_y)
-					if(23 to 24)
-						if(icon_x in 15 to 17)
-							return BP_MOUTH
-					if(26) //Eyeline, eyes are on 15 and 17
-						if(icon_x in 14 to 18)
-							return BP_EYES
-					if(25 to 27)
-						if(icon_x in 15 to 17)
-							return BP_EYES
-				return BP_HEAD
+		if(50 to 52) //Neck
+			switch(icon_x)
+				if(14 to 19)
+					return BP_THROAT
+		if(53 to 60) //Head
+			switch(icon_x)
+				if(10 to 23)
+					return BP_HEAD
+		if(69 to 72) //Mouth
+			switch(icon_x)
+				if(13 to 20)
+					return BP_MOUTH
+		if(77 to 81) //Eyes
+			switch(icon_x)
+				if(11 to 22)
+					return BP_EYES
 
 /atom/movable/screen/zone_sel/proc/set_selected_zone(choice, mob/user)
 	if(isobserver(user))
@@ -300,8 +440,38 @@
 
 /atom/movable/screen/zone_sel/update_icon()
 	ClearOverlays()
-	selecting_appearance = mutable_appearance('icons/hud/mob/zone_sel.dmi', "[selecting]")
+	selecting_appearance = mutable_appearance('icons/hud/mob/zone_sel_newer.dmi', "[selecting]")
 	AddOverlays(selecting_appearance)
+
+// Intent is handled by Aurora's DrawBox system in human.dm — no custom type needed
+
+// Combat intent — strong/defend/quick/aim
+/atom/movable/screen/combat_intent
+	name = "combat_intent"
+	icon = 'icons/hud/mob/screen/dark.dmi'
+	icon_state = "aim"
+	screen_loc = ui_atk_intents
+	var/intent = I_STRONG
+
+/atom/movable/screen/combat_intent/Click(location, control, params)
+	var/list/P = params2list(params)
+	var/icon_x = text2num(P["icon-x"])
+	var/icon_y = text2num(P["icon-y"])
+	intent = I_STRONG
+	if(icon_x <= world.icon_size / 2)
+		if(icon_y <= world.icon_size / 2)
+			intent = I_DEFEND
+		else
+			intent = I_AIM
+	else if(icon_y <= world.icon_size / 2)
+		intent = I_QUICK
+	update_icon()
+	if(istype(usr, /mob/living))
+		var/mob/living/L = usr
+		L.c_intent = intent
+
+/atom/movable/screen/combat_intent/update_icon()
+	icon_state = "[intent]"
 
 /atom/movable/screen/Click(location, control, params)
 	if(!usr)
@@ -446,6 +616,11 @@
 					return
 				R.uneq_active()
 
+		if("rest")
+			if(isliving(usr))
+				var/mob/living/L = usr
+				L.lay_down()
+
 		else
 			return 0
 	return 1
@@ -545,6 +720,9 @@
 			if(M_WALK)
 				if(!(usr.get_species() in BLACKLIST_SPECIES_RUNNING))
 					usr.m_intent = M_RUN
+
+		// Update the walk/run icon immediately after toggling
+		src.update_move_icon(istype(usr, /mob/living) ? usr : null)
 
 		if(modifiers["button"] == "middle")
 			C.lay_down()

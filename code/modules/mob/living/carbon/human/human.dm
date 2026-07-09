@@ -881,6 +881,94 @@
 		check_attacks()
 		return 1
 
+	if(href_list["intimate_action"])
+		if(usr != src)
+			return
+
+		if(!GLOB.config.intimate_interactions_allowed)
+			return
+
+		var/mob/living/carbon/human/target = locate(href_list["intimate_target"])
+		if(!istype(target) || target == src)
+			return
+
+		if(!client)
+			return
+
+		if(GLOB.config.require_consent && !(client.prefs.toggles_secondary & INTIMATE_INTERACTIONS_ENABLED))
+			return
+
+		if(stat || restrained())
+			return
+
+		// Same ckey-based NPC exemption as mouse_drop_receive() (intimate_interactions.dm) --
+		// a ckey means this body is or was a real player, so their consent (preference) and
+		// state (conscious, unrestrained) still apply even if they're currently SSD (no
+		// client). Only a genuinely unpossessed NPC skips both checks.
+		if(target.ckey)
+			if(!target.client)
+				return
+			if(GLOB.config.require_consent && !(target.client.prefs.toggles_secondary & INTIMATE_INTERACTIONS_ENABLED))
+				return
+			if(target.stat || target.restrained())
+				return
+
+		if(!Adjacent(target))
+			to_chat(src, SPAN_WARNING("You're not close enough to [target] anymore."))
+			return
+
+		switch(href_list["intimate_action"])
+			if("hug")
+				visible_message(SPAN_NOTICE("[src] hugs [target]."))
+				playsound(src, 'sound/effects/interactions/hug.ogg', 50, TRUE)
+			if("supergrab")
+				target.receive_mount(src)
+			if("superhug")
+				target.receive_fuck(src)
+			if("throatfuck")
+				target.receive_throat_fuck(src)
+			if("suck")
+				target.receive_suck(src)
+			if("handshake")
+				visible_message(SPAN_NOTICE("[src] shakes [target]'s hand."))
+			if("wave")
+				visible_message(SPAN_NOTICE("[src] waves at [target]."))
+			if("bow")
+				visible_message(SPAN_NOTICE("[src] bows to [target]."))
+			if("pet")
+				visible_message(SPAN_NOTICE("[src] pats [target] on the head."))
+			if("kiss")
+				visible_message(SPAN_NOTICE("[src] gives [target] a kiss on the cheek."))
+				// TODO: placeholder sound, swap for a dedicated kiss/smooch asset when one exists
+				playsound(src, 'sound/effects/pop.ogg', 50, TRUE)
+			if("cheer")
+				visible_message(SPAN_NOTICE("[src] cheers for [target]!"))
+			if("five")
+				visible_message(SPAN_NOTICE("[src] gives [target] a high five!"))
+				playsound(src, 'sound/effects/interactions/slap.ogg', 25, TRUE)
+			if("slap")
+				visible_message(SPAN_NOTICE("[src] slaps [target]!"))
+				playsound(src, 'sound/effects/interactions/slap.ogg', 25, TRUE)
+			if("slapass")
+				visible_message(SPAN_NOTICE("[src] has slapped [target]'s ass!"))
+				playsound(src, 'sound/effects/interactions/slap.ogg', 25, TRUE)
+				target.shake_animation()
+			if("fuckyou")
+				visible_message(SPAN_NOTICE("[src] flips off [target]!"))
+			if("knock")
+				visible_message(SPAN_NOTICE("[src] knocks on [target]."))
+			if("spit")
+				visible_message(SPAN_NOTICE("[src] spits at [target]!"))
+			if("threaten")
+				visible_message(SPAN_NOTICE("[src] threatens [target]!"))
+			if("tongue")
+				visible_message(SPAN_NOTICE("[src] sticks their tongue out at [target]."))
+			// EXTENSION POINT: add further intimate_action cases here, matching the hrefs added
+			// in /mob/living/carbon/human/proc/open_intimate_menu() (intimate_interactions.dm).
+			// See docs/erp_interaction_port_notes.md for the source procs this deliberately does
+			// not port (fuck/cum/moan) and the anatomy checks they depend on.
+		return
+
 	..()
 	return
 
