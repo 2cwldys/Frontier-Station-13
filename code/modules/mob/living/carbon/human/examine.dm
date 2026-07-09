@@ -283,6 +283,9 @@
 	if(cryo_exited_at && !wear_suit && world.time - cryo_exited_at < 10 MINUTES)
 		msg += "<span style='color: #40e0d0; text-shadow: 0 0 4px #40e0d0;'>[get_pronoun("He")] [get_pronoun("has")] recently exited a cryopod.</span>\n"
 
+	if(user == src && world.time < recently_came_until)
+		msg += "<span style='color: #ff69b4; text-shadow: 0 0 4px #ff69b4;'>You have recently came, lucky you!</span>\n"
+
 	if(species.show_ssd && (!species.has_organ[BP_BRAIN] || has_brain()) && stat != DEAD && !(status_flags & FAKEDEATH))
 		if(!vr_mob && !key)
 			msg += "<span class='deadsay'>[get_pronoun("He")] [get_pronoun("is")] [species.show_ssd]. It doesn't look like [get_pronoun("he")] [get_pronoun("is")] waking up anytime soon.</span>\n"

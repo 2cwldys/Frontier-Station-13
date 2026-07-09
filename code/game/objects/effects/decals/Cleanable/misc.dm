@@ -191,6 +191,21 @@ ABSTRACT_TYPE(/obj/effect/decal/cleanable/greenglow/radioactive)
 	icon = 'icons/effects/tomatodecal.dmi'
 	random_icon_states = list("smashed_pie")
 
+/obj/effect/decal/cleanable/cum //honk
+	name = "cum"
+	desc = "It's pie cream from a cream pie. Or not..."
+	density = 0
+	icon = 'honk/icons/effects/cum.dmi'
+	blood_DNA = list()
+	anchored = 1
+	random_icon_states = list("cum1", "cum3", "cum4", "cum5", "cum6", "cum7", "cum8", "cum9", "cum10", "cum11", "cum12")
+
+/obj/effect/decal/cleanable/cum/New()
+	..()
+	for(var/obj/effect/decal/cleanable/cum/jizz in src.loc)
+		if(jizz != src)
+			qdel(jizz)
+
 /obj/effect/decal/cleanable/fruit_smudge
 	name = "smudge"
 	desc = "Some kind of fruit smear."

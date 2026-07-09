@@ -2869,6 +2869,7 @@
 #include "code\modules\mob\living\carbon\human\human_organs.dm"
 #include "code\modules\mob\living\carbon\human\human_powers.dm"
 #include "code\modules\mob\living\carbon\human\human_species.dm"
+#include "code\modules\mob\living\carbon\human\intimate_interactions.dm"
 #include "code\modules\mob\living\carbon\human\intoxication.dm"
 #include "code\modules\mob\living\carbon\human\inventory.dm"
 #include "code\modules\mob\living\carbon\human\life.dm"

@@ -77,6 +77,11 @@
 
 //"sound areas": easy way of keeping different types of areas consistent.
 #define SOUND_AREA_STANDARD_STATION SOUND_ENVIRONMENT_PARKING_LOT
+
+// Super Hug cap "audio lag" effect (see playsound_local() in sound.dm and
+// apply_euphoric_rainbow() in intimate_interactions.dm) -- well below the normal
+// get_rand_frequency() variance band (32000-55000), for a deliberately deep/slowed sound.
+#define AUDIO_LAG_FREQUENCY 20000
 #define SOUND_AREA_LARGE_ENCLOSED SOUND_ENVIRONMENT_QUARRY
 #define SOUND_AREA_SMALL_ENCLOSED SOUND_ENVIRONMENT_BATHROOM
 #define SOUND_AREA_TUNNEL_ENCLOSED SOUND_ENVIRONMENT_STONEROOM

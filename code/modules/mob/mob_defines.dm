@@ -99,6 +99,7 @@
 	var/eye_blurry = null				//Carbon
 	var/ear_deaf = null					//Carbon
 	var/ear_damage = null				//Carbon
+	var/audio_lag_until = 0 // world.time until sounds heard by this mob are forced to AUDIO_LAG_FREQUENCY
 	var/stuttering = null
 	var/slurring = null
 	var/brokejaw = null

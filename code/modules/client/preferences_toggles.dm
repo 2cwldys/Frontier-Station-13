@@ -183,3 +183,12 @@
 	prefs.toggles_secondary ^= HIDE_ITEM_TOOLTIPS
 	prefs.save_preferences()
 	to_chat(src, SPAN_NOTICE("Item tooltips are now [prefs.toggles_secondary & HIDE_ITEM_TOOLTIPS ? "disabled" : "enabled"]."))
+
+/client/verb/toggle_intimate_interactions()
+	set name = "Toggle Intimate Interactions"
+	set desc = "Toggles whether other players can open the intimate interaction menu on your mob by dragging themselves onto you. Both participants must have this enabled."
+	set category = "Preferences.Game"
+
+	prefs.toggles_secondary ^= INTIMATE_INTERACTIONS_ENABLED
+	prefs.save_preferences()
+	to_chat(src, SPAN_NOTICE("Intimate interactions are now [prefs.toggles_secondary & INTIMATE_INTERACTIONS_ENABLED ? "enabled" : "disabled"]."))

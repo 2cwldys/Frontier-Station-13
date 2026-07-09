@@ -130,6 +130,13 @@
 	else if( istype(M, /mob/living/silicon/robot ))
 		new /obj/effect/decal/cleanable/blood/oil(src)
 
+//returns TRUE if has cum, returns FALSE otherwise
+/turf/simulated/proc/add_cum(mob/living/carbon/human/M as mob)
+	if(locate(/obj/effect/decal/cleanable/cum) in contents)
+		return TRUE //already has cum
+	new /obj/effect/decal/cleanable/cum(src)
+	return TRUE
+
 /turf/simulated/Destroy()
 	if (zone && !zone.invalid)
 		// Try to remove it gracefully first.

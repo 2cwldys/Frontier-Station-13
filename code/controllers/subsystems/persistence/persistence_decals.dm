@@ -21,10 +21,13 @@
 	// so they don't double-register here.
 	if(!GLOB.config.sql_enabled || mapload || !ROUND_IS_STARTED)
 		return
-	// Blacklisted: blood, oil, gibs (transient combat mess), and dirt (ambient grime).
+	// Blacklisted: blood, oil, gibs (transient combat mess), dirt (ambient grime), and
+	// cum (Super Hug cap novelty decal, not meant to persist across rounds).
 	if(istype(src, /obj/effect/decal/cleanable/blood))
 		return
 	if(istype(src, /obj/effect/decal/cleanable/dirt))
+		return
+	if(istype(src, /obj/effect/decal/cleanable/cum))
 		return
 	var/turf/T = get_turf(src)
 	if(!T || !T.z)

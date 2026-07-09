@@ -200,6 +200,9 @@ ALLOW_ANTAG_HUD
 ## If ghosts use antagHUD they are no longer allowed to join the round.
 ANTAG_HUD_RESTRICTED
 
+## If uncommented, players can drag their mob onto another consenting player to open the intimate interaction menu. Both players must also individually opt in via the "Toggle Intimate Interactions" preference.
+#ALLOW_INTIMATE_INTERACTIONS
+
 ## How much time a drone fabricator will take to produce a single drone. In deciseconds.
 #DRONE_BUILD_TIME 1200
 
