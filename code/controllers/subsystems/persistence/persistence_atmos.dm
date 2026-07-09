@@ -87,11 +87,10 @@ GLOBAL_LIST_EMPTY(persistence_atmos_cache)
 		if(!entry)
 			continue
 
-		var/list/gas_data = json_decode(entry["gas_json"])
-		if(!gas_data || !islist(gas_data))
-			continue
-
 		try
+			var/list/gas_data = json_decode(entry["gas_json"])
+			if(!gas_data || !islist(gas_data))
+				continue
 			Z.air.gas = gas_data
 			Z.air.temperature = entry["temperature"]
 			Z.air.update_values()

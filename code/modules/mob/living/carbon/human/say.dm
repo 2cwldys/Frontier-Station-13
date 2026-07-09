@@ -262,6 +262,12 @@
 	var/list/returns = ..()
 	returns = species.handle_speech_sound(src, returns)
 	if(!returns[1] && COOLDOWN_FINISHED(src, mumble_sound_cd))
+		if(istype(wear_suit, /obj/item/clothing/suit/space))
+			return returns // sealed hardsuit -- no audible mutter
+		var/turf/T = get_turf(src)
+		var/datum/gas_mixture/env = T?.return_air()
+		if(!env || XGM_PRESSURE(env) < SOUND_MINIMUM_PRESSURE)
+			return returns // vacuum/breach -- nothing to carry the sound
 		var/sound/mumble = sound(gender == MALE ? 'sound/voice/emotes/mumble_male.ogg' : 'sound/voice/emotes/mumble_female.ogg')
 		if(prob(25))
 			mumble.frequency = -get_rand_frequency() // negative frequency = reversed playback

@@ -206,11 +206,20 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	if(!databaseCheckConnection("worldstateFinalize"))
 		return
 
-	// Delete all previous worldstate data  destroyed objects won't be re-inserted
-	var/datum/db_query/delete_all = SSdbcore.NewQuery("DELETE FROM ss13_worldstate_objects")
-	delete_all.Execute()
-	databaseCheckQueryResult(delete_all, "worldstateFinalize delete all")
-	qdel(delete_all)
+	// DB-side clock (not DM's) to avoid clock skew. Anything re-saved below
+	// gets a fresh saved_at via ON DUPLICATE KEY UPDATE and survives the
+	// cutoff; only rows nothing touched this cycle (destroyed objects) get
+	// removed, and only after the resave loop below completes. If the loop
+	// is interrupted (crash, disconnect), nothing is deleted at all -- the
+	// previous save stays intact instead of being wiped up front.
+	var/datum/db_query/clock = SSdbcore.NewQuery("SELECT NOW(6)")
+	clock.Execute()
+	var/cutoff
+	if(databaseCheckQueryResult(clock, "worldstateFinalize clock") && clock.NextRow())
+		cutoff = clock.item[1]
+	qdel(clock)
+	if(!cutoff)
+		return
 
 	var/saved = 0
 
@@ -225,6 +234,11 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	for(var/obj/item/modular_computer/MC in world)
 		if(persistence_z_excluded(MC.z)) continue
 		saved += worldstateSaveOneMachine(MC)
+
+	var/datum/db_query/delete_stale = SSdbcore.NewQuery("DELETE FROM ss13_worldstate_objects WHERE saved_at < :cutoff", list("cutoff" = cutoff))
+	delete_stale.Execute()
+	databaseCheckQueryResult(delete_stale, "worldstateFinalize delete stale")
+	qdel(delete_stale)
 
 	log_subsystem_persistence_info("Worldstate: Saved state for [saved] machines.")
 

@@ -57,13 +57,16 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 		"SELECT z, sec_level FROM ss13_zone_security", list())
 	zq.Execute()
 	var/loaded = 0
-	while(zq.NextRow())
-		var/row_z = text2num(zq.item[1])
-		var/row_level = text2num(zq.item[2])
-		GLOB.zone_security_by_z["[row_z]"] = row_level
-		log_subsystem_persistence_info("Zone security: loaded z=[row_z] -> [zone_security_name(row_level)] from ss13_zone_security.")
-		loaded++
+	if(databaseCheckQueryResult(zq, "zoneSecurityInitialize"))
+		while(zq.NextRow())
+			var/row_z = text2num(zq.item[1])
+			var/row_level = text2num(zq.item[2])
+			GLOB.zone_security_by_z["[row_z]"] = row_level
+			log_subsystem_persistence_info("Zone security: loaded z=[row_z] -> [zone_security_name(row_level)] from ss13_zone_security.")
+			loaded++
 	qdel(zq)
+	// Still paint the overmap even if the query above failed -- pinned-site
+	// zones registered before this proc ran should still show correctly.
 	zone_security_update_overmap()
 	if(loaded)
 		log_subsystem_persistence_info("Zone security: loaded [loaded] z-level zone(s). Final map: [json_encode(GLOB.zone_security_by_z)]")

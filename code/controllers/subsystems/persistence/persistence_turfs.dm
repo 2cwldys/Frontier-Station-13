@@ -56,11 +56,10 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 		if(!istype(T))
 			continue
 
-		var/list/content = json_decode(content_json)
-		if(!content)
-			continue
-
 		try
+			var/list/content = json_decode(content_json)
+			if(!content)
+				continue
 			T.ChangeTurf(turf_type)
 			// Restore original baseturf so the next turfsFinalize() doesn't treat this
 			// as "back to default" (type==baseturf) and delete it from the DB.

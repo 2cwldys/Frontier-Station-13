@@ -310,22 +310,86 @@ SUBSYSTEM_DEF(persistence)
 /datum/controller/subsystem/persistence/proc/forceSaveAll()
 	if(!databaseCheckConnection("forceSaveAll"))
 		return
-	economyFinalize()
-	recordsFinalize()
-	researchFinalize()
-	factionFinalize()
-	factionResearchFinalize()
-	areasFinalize()
-	worldstateFinalize()
-	mobsHealthFinalize()
-	mobsInventoryFinalize()
-	charIdentityFinalize()
-	mobsPositionFinalizeAll()
-	turfsFinalize()
-	atmosFinalize()
-	objectsFinalize()
-	floorItemsFinalize()
-	botsFinalize()
+
+	try
+		economyFinalize()
+	catch(var/exception/economy_e)
+		log_subsystem_persistence_panic("Unhandled exception during economy persistence finalization: [economy_e]")
+
+	try
+		recordsFinalize()
+	catch(var/exception/records_e)
+		log_subsystem_persistence_panic("Unhandled exception during records persistence finalization: [records_e]")
+
+	try
+		researchFinalize()
+	catch(var/exception/research_e)
+		log_subsystem_persistence_panic("Unhandled exception during research persistence finalization: [research_e]")
+
+	try
+		factionFinalize()
+	catch(var/exception/faction_e)
+		log_subsystem_persistence_panic("Unhandled exception during faction persistence finalization: [faction_e]")
+
+	try
+		factionResearchFinalize()
+	catch(var/exception/faction_research_e)
+		log_subsystem_persistence_panic("Unhandled exception during faction research persistence finalization: [faction_research_e]")
+
+	try
+		areasFinalize()
+	catch(var/exception/areas_e)
+		log_subsystem_persistence_panic("Unhandled exception during area persistence finalization: [areas_e]")
+
+	try
+		worldstateFinalize()
+	catch(var/exception/ws_e)
+		log_subsystem_persistence_panic("Unhandled exception during worldstate persistence finalization: [ws_e]")
+
+	try
+		mobsHealthFinalize()
+	catch(var/exception/health_e)
+		log_subsystem_persistence_panic("Unhandled exception during mob health persistence finalization: [health_e]")
+
+	try
+		mobsInventoryFinalize()
+	catch(var/exception/inv_e)
+		log_subsystem_persistence_panic("Unhandled exception during mob inventory persistence finalization: [inv_e]")
+
+	try
+		charIdentityFinalize()
+	catch(var/exception/id_e)
+		log_subsystem_persistence_panic("Unhandled exception during character identity persistence finalization: [id_e]")
+
+	try
+		mobsPositionFinalizeAll()
+	catch(var/exception/pos_e)
+		log_subsystem_persistence_panic("Unhandled exception during mob position persistence finalization: [pos_e]")
+
+	try
+		turfsFinalize()
+	catch(var/exception/turfs_e)
+		log_subsystem_persistence_panic("Unhandled exception during turf persistence finalization: [turfs_e]")
+
+	try
+		atmosFinalize()
+	catch(var/exception/atmos_e)
+		log_subsystem_persistence_panic("Unhandled exception during atmos persistence finalization: [atmos_e]")
+
+	try
+		objectsFinalize()
+	catch(var/exception/objs_e)
+		log_subsystem_persistence_panic("Unhandled exception during persistent objects finalization: [objs_e]")
+
+	try
+		floorItemsFinalize()
+	catch(var/exception/floor_e)
+		log_subsystem_persistence_panic("Unhandled exception during floor item persistence finalization: [floor_e]")
+
+	try
+		botsFinalize()
+	catch(var/exception/bots_e)
+		log_subsystem_persistence_panic("Unhandled exception during bot persistence finalization: [bots_e]")
 
 /**
  * Initialization of the persistence subsystem.
@@ -344,82 +408,97 @@ SUBSYSTEM_DEF(persistence)
 	var/datum/db_query/zlq = SSdbcore.NewQuery(
 		"SELECT z, enabled FROM ss13_zlevel_persistence", list())
 	zlq.Execute()
-	while(zlq.NextRow())
-		var/toggle_z = text2num(zlq.item[1])
-		if(text2num(zlq.item[2]))
-			GLOB.persistence_zlevel_allow += toggle_z
-		else
-			GLOB.persistence_zlevel_skip += toggle_z
+	if(databaseCheckQueryResult(zlq, "Initialize zlevel toggles"))
+		while(zlq.NextRow())
+			var/toggle_z = text2num(zlq.item[1])
+			if(text2num(zlq.item[2]))
+				GLOB.persistence_zlevel_allow += toggle_z
+			else
+				GLOB.persistence_zlevel_skip += toggle_z
 	qdel(zlq)
 	if(length(GLOB.persistence_zlevel_skip))
 		log_subsystem_persistence_info("Z-Level skip list loaded: [GLOB.persistence_zlevel_skip.Join(", ")]")
 	if(GLOB.config.manual_area_save)
 		log_subsystem_persistence_info("MANUAL_AREA_SAVE active: only z-levels \[[GLOB.persistence_zlevel_allow.Join(", ")]\] will save/load.")
 
+	var/init_start_time = world.time
+
+	log_subsystem_persistence_info("Starting zone security initialization...")
 	try
 		zoneSecurityInitialize()
 	catch(var/exception/zs_e)
 		log_subsystem_persistence_error("Zone security init failed: [zs_e] on [zs_e.file]:[zs_e.line]")
 
+	log_subsystem_persistence_info("Starting join whitelist initialization...")
 	try
 		// Loaded first so the join gate is armed before anyone can hit Play.
 		whitelistInitialize()
 	catch(var/exception/wl_e)
 		log_subsystem_persistence_panic("Unhandled exception during join whitelist initialization: [wl_e]")
 
+	log_subsystem_persistence_info("Starting persistent objects initialization...")
 	try
 		objectsInitialize()
 	catch(var/exception/objs_e)
 		log_subsystem_persistence_panic("Unhandled exception during persistent objects initialization: [objs_e]")
-		return SS_INIT_FAILURE
 
 	// Floor items runs immediately after objects so machines/structures are recreated
 	// before worldstateInitialize applies their saved state vars.
+	log_subsystem_persistence_info("Starting floor item initialization...")
 	try
 		floorItemsInitialize()
 	catch(var/exception/floor_e)
 		log_subsystem_persistence_panic("Unhandled exception during floor item persistence initialization: [floor_e]")
 
+	log_subsystem_persistence_info("Starting bot initialization...")
 	try
 		botsInitialize()
 	catch(var/exception/bots_e)
 		log_subsystem_persistence_panic("Unhandled exception during bot persistence initialization: [bots_e]")
 
+	log_subsystem_persistence_info("Starting removed structures initialization...")
 	try
 		removedStructuresInitialize()
 	catch(var/exception/rs_e)
 		log_subsystem_persistence_panic("Unhandled exception during removed structures initialization: [rs_e]")
 
+	log_subsystem_persistence_info("Starting economy initialization...")
 	try
 		economyInitialize()
 	catch(var/exception/economy_e)
 		log_subsystem_persistence_panic("Unhandled exception during economy persistence initialization: [economy_e]")
 
+	log_subsystem_persistence_info("Starting records initialization...")
 	try
 		recordsInitialize()
 	catch(var/exception/records_e)
 		log_subsystem_persistence_panic("Unhandled exception during records persistence initialization: [records_e]")
 
+	log_subsystem_persistence_info("Starting research initialization...")
 	try
 		researchInitialize()
 	catch(var/exception/research_e)
 		log_subsystem_persistence_panic("Unhandled exception during research persistence initialization: [research_e]")
 
+	log_subsystem_persistence_info("Starting faction initialization...")
 	try
 		factionInitialize()
 	catch(var/exception/faction_e)
 		log_subsystem_persistence_panic("Unhandled exception during faction persistence initialization: [faction_e]")
 
+	log_subsystem_persistence_info("Starting faction research initialization...")
 	try
 		factionResearchInitialize()
 	catch(var/exception/faction_res_e)
 		log_subsystem_persistence_panic("Unhandled exception during faction research initialization: [faction_res_e]")
 
+	log_subsystem_persistence_info("Starting template pending check...")
 	try
 		templateCheckPending()
 	catch(var/exception/templates_e)
 		log_subsystem_persistence_panic("Unhandled exception during template pending check: [templates_e]")
 
+	log_subsystem_persistence_info("Starting area initialization...")
 	try
 		// Before worldstateInitialize() -- a restored APC's get_area(src) must
 		// already resolve to the correct custom area by the time its worldstate
@@ -428,22 +507,26 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/areas_e)
 		log_subsystem_persistence_panic("Unhandled exception during area persistence initialization: [areas_e]")
 
+	log_subsystem_persistence_info("Starting worldstate initialization...")
 	try
 		worldstateInitialize()
 	catch(var/exception/ws_e)
 		log_subsystem_persistence_panic("Unhandled exception during worldstate persistence initialization: [ws_e]")
 
+	log_subsystem_persistence_info("Starting lace vault initialization...")
 	try
 		// After worldstate so vaults exist and have their networks applied.
 		laceVaultInitialize()
 	catch(var/exception/vault_e)
 		log_subsystem_persistence_panic("Unhandled exception during lace vault initialization: [vault_e]")
 
+	log_subsystem_persistence_info("Starting turf initialization...")
 	try
 		turfsInitialize()
 	catch(var/exception/turfs_e)
 		log_subsystem_persistence_panic("Unhandled exception during turf persistence initialization: [turfs_e]")
 
+	log_subsystem_persistence_info("Starting powernet rebuild...")
 	try
 		// Restored cables/turfs above may have left segments on isolated powernets
 		// (SSmachinery built the grid long before persistence ran). Rebuild from
@@ -453,6 +536,7 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/pn_e)
 		log_subsystem_persistence_panic("Unhandled exception during powernet rebuild: [pn_e]")
 
+	log_subsystem_persistence_info("Starting atmos initialization...")
 	try
 		atmosInitialize()
 		// The turf restore above queued ZAS updates -- settle them so zone geometry
@@ -464,6 +548,7 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/atmos_e)
 		log_subsystem_persistence_panic("Unhandled exception during atmos persistence initialization: [atmos_e]")
 
+	log_subsystem_persistence_info("Starting power state finalization...")
 	try
 		// Must run after makepowernets(): re-derives APC channels from restored
 		// cell charge, writes area power flags, and rebroadcasts power state so
@@ -472,6 +557,7 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/ps_e)
 		log_subsystem_persistence_panic("Unhandled exception during power state finalization: [ps_e]")
 
+	log_subsystem_persistence_info("Starting atmos alarm reset...")
 	try
 		// After atmosApply(): clear alarm/shutter state latched on transient
 		// boot air -- alarms re-sample the restored air next tick.
@@ -479,21 +565,25 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/aar_e)
 		log_subsystem_persistence_panic("Unhandled exception during atmos alarm reset: [aar_e]")
 
+	log_subsystem_persistence_info("Starting mob health initialization...")
 	try
 		mobsHealthInitialize()
 	catch(var/exception/health_e)
 		log_subsystem_persistence_panic("Unhandled exception during mob health persistence initialization: [health_e]")
 
+	log_subsystem_persistence_info("Starting mob inventory initialization...")
 	try
 		mobsInventoryInitialize()
 	catch(var/exception/inv_e)
 		log_subsystem_persistence_panic("Unhandled exception during mob inventory persistence initialization: [inv_e]")
 
+	log_subsystem_persistence_info("Starting character identity initialization...")
 	try
 		charIdentityInitialize()
 	catch(var/exception/id_e)
 		log_subsystem_persistence_panic("Unhandled exception during character identity persistence initialization: [id_e]")
 
+	log_subsystem_persistence_info("Starting mob position initialization...")
 	try
 		mobPositionInitialize()
 	catch(var/exception/pos_e)
@@ -510,6 +600,8 @@ SUBSYSTEM_DEF(persistence)
 
 	// Prevent an immediate fire() right after init  first autosave should be 30 min after startup
 	next_fire = world.time + wait
+
+	log_subsystem_persistence_info("Persistence initialization: all steps completed in [(world.time - init_start_time) / 10] seconds. Check the lines above for any PANIC/ERROR entries from individual steps.")
 	return SS_INIT_SUCCESS
 
 /**

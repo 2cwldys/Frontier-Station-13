@@ -32,6 +32,14 @@
 		return
 	add_fingerprint(user)
 
+	// Sector registration can lose the race with this item's LateInitialize()
+	// on boot, leaving the eye component permanently unattached. Retry here
+	// so a later, successful lookup self-heals instead of bricking the item
+	// for the rest of the round (matches /obj/item/blueprints/outpost's
+	// existing retry below for the same class of race).
+	if(!GetComponent(/datum/component/eye) && set_valid_z_levels())
+		create_blueprint_component()
+
 	// Always present a choice menu, not just when show_wires is set --
 	// outpost blueprints (show_wires = FALSE) previously skipped this
 	// entirely, so the quick area-action shortcuts below never reached them,
@@ -81,6 +89,7 @@
 	desc = "Blueprints of the [station_name()]. There is a \"Classified\" stamp and several coffee stains on it."
 	area_prefix = station_name()
 	valid_z_levels = SSmapping.levels_by_trait(ZTRAIT_STATION)
+	return TRUE
 
 /obj/item/blueprints/proc/create_blueprint_component() //So that subtypes can override
 	AddComponent(/datum/component/eye/blueprints)

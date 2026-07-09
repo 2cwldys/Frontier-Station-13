@@ -868,6 +868,19 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			if(holstered_data)
 				data["holstered"] = holstered_data
 
+	// Hardsuit components -- helmet/chest/gloves/boots are separate obj/item
+	// instances parented to the rig, rebuilt fresh (to the rig's defaults)
+	// by Initialize() every time, so without this a saved/restored rig
+	// silently discards whatever the player actually had attached. The
+	// rig's own cell is handled by the generic get_cell() branch below --
+	// /obj/item/rig/get_cell() already returns its `cell` var directly.
+	if(istype(I, /obj/item/rig))
+		var/obj/item/rig/R = I
+		data["rig_helmet"] = serializePersistentItem(R.helmet)
+		data["rig_chest"]  = serializePersistentItem(R.chest)
+		data["rig_gloves"] = serializePersistentItem(R.gloves)
+		data["rig_boots"]  = serializePersistentItem(R.boots)
+
 	// Power cells carry their exact charge (Initialize refills them to max,
 	// so the restore must overwrite afterwards)
 	if(istype(I, /obj/item/cell))
@@ -1099,6 +1112,31 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 				holstered_item.forceMove(HO)
 				HO.holstered = holstered_item
 				HO.update_name()
+
+	// Hardsuit components -- replace Initialize()'s freshly auto-generated
+	// defaults with whatever was actually saved. "in data" (key existence,
+	// not just truthiness) distinguishes an old save made before this fix
+	// existed (key absent -- leave Initialize()'s default alone) from a
+	// component that was genuinely absent when saved (key present, value
+	// null -- wipe it to match).
+	if(istype(I, /obj/item/rig))
+		var/obj/item/rig/R = I
+		if("rig_helmet" in data)
+			if(R.helmet)
+				qdel(R.helmet)
+			R.helmet = data["rig_helmet"] ? deserializePersistentItem(data["rig_helmet"], R) : null
+		if("rig_chest" in data)
+			if(R.chest)
+				qdel(R.chest)
+			R.chest = data["rig_chest"] ? deserializePersistentItem(data["rig_chest"], R) : null
+		if("rig_gloves" in data)
+			if(R.gloves)
+				qdel(R.gloves)
+			R.gloves = data["rig_gloves"] ? deserializePersistentItem(data["rig_gloves"], R) : null
+		if("rig_boots" in data)
+			if(R.boots)
+				qdel(R.boots)
+			R.boots = data["rig_boots"] ? deserializePersistentItem(data["rig_boots"], R) : null
 
 	// Power cell charge (Initialize refilled it to max)
 	if(!isnull(data["cell_charge"]) && istype(I, /obj/item/cell))

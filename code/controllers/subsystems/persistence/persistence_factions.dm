@@ -29,60 +29,69 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 		return
 
 	// Load faction info + balances
-	var/datum/db_query/q = SSdbcore.NewQuery(
-		{"SELECT f.uid, f.name, f.abbreviation, COALESCE(a.balance, 0), COALESCE(a.cards_epoch, 0)
-		FROM ss13_factions f
-		LEFT JOIN ss13_faction_accounts a ON a.faction_uid = f.uid"},
-		list()
-	)
-	q.Execute()
-	if(databaseCheckQueryResult(q, "factionInitialize factions"))
-		while(q.NextRow())
-			// Normalize keys on load -- legacy rows may carry raw display-name uids
-			GLOB.persistence_faction_cache[normalize_faction_uid(q.item[1])] = list(
-				"name"         = q.item[2],
-				"abbreviation" = q.item[3],
-				"balance"      = text2num(q.item[4]) || 0,
-				"cards_epoch"  = text2num(q.item[5]) || 0
-			)
-	qdel(q)
+	try
+		var/datum/db_query/q = SSdbcore.NewQuery(
+			{"SELECT f.uid, f.name, f.abbreviation, COALESCE(a.balance, 0), COALESCE(a.cards_epoch, 0)
+			FROM ss13_factions f
+			LEFT JOIN ss13_faction_accounts a ON a.faction_uid = f.uid"},
+			list()
+		)
+		q.Execute()
+		if(databaseCheckQueryResult(q, "factionInitialize factions"))
+			while(q.NextRow())
+				// Normalize keys on load -- legacy rows may carry raw display-name uids
+				GLOB.persistence_faction_cache[normalize_faction_uid(q.item[1])] = list(
+					"name"         = q.item[2],
+					"abbreviation" = q.item[3],
+					"balance"      = text2num(q.item[4]) || 0,
+					"cards_epoch"  = text2num(q.item[5]) || 0
+				)
+		qdel(q)
+	catch(var/exception/faction_info_e)
+		log_subsystem_persistence_error("Factions: failed to load faction info: [faction_info_e]")
 
 	// Load faction jobs
-	var/datum/db_query/jq = SSdbcore.NewQuery(
-		"SELECT id, faction_uid, title, access_json, pay_rate, rank FROM ss13_faction_jobs ORDER BY faction_uid, rank DESC, title ASC",
-		list()
-	)
-	jq.Execute()
-	if(databaseCheckQueryResult(jq, "factionInitialize jobs"))
-		while(jq.NextRow())
-			var/fuid = normalize_faction_uid(jq.item[2])
-			if(!(fuid in GLOB.persistence_faction_jobs_cache))
-				GLOB.persistence_faction_jobs_cache[fuid] = list()
-			GLOB.persistence_faction_jobs_cache[fuid] += list(list(
-				"id"       = text2num(jq.item[1]),
-				"title"    = jq.item[3],
-				"access"   = jq.item[4] ? json_decode(jq.item[4]) : list(),
-				"pay_rate" = text2num(jq.item[5]) || 500,
-				"rank"     = text2num(jq.item[6]) || 0
-			))
-	qdel(jq)
+	try
+		var/datum/db_query/jq = SSdbcore.NewQuery(
+			"SELECT id, faction_uid, title, access_json, pay_rate, rank FROM ss13_faction_jobs ORDER BY faction_uid, rank DESC, title ASC",
+			list()
+		)
+		jq.Execute()
+		if(databaseCheckQueryResult(jq, "factionInitialize jobs"))
+			while(jq.NextRow())
+				var/fuid = normalize_faction_uid(jq.item[2])
+				if(!(fuid in GLOB.persistence_faction_jobs_cache))
+					GLOB.persistence_faction_jobs_cache[fuid] = list()
+				GLOB.persistence_faction_jobs_cache[fuid] += list(list(
+					"id"       = text2num(jq.item[1]),
+					"title"    = jq.item[3],
+					"access"   = jq.item[4] ? json_decode(jq.item[4]) : list(),
+					"pay_rate" = text2num(jq.item[5]) || 500,
+					"rank"     = text2num(jq.item[6]) || 0
+				))
+		qdel(jq)
+	catch(var/exception/faction_jobs_e)
+		log_subsystem_persistence_error("Factions: failed to load faction jobs: [faction_jobs_e]")
 
 	// Load faction members (include account_number for payroll; column may not exist yet on old DBs)
-	var/datum/db_query/mq = SSdbcore.NewQuery(
-		"SELECT ckey, faction_uid, real_name, job_title, rank, IFNULL(account_number, 0) FROM ss13_faction_members",
-		list()
-	)
-	mq.Execute()
-	if(databaseCheckQueryResult(mq, "factionInitialize members"))
-		while(mq.NextRow())
-			var/mkey = "[mq.item[1]]|[normalize_faction_uid(mq.item[2])]"
-			GLOB.persistence_faction_members_cache[mkey] = list(
-				"real_name"      = mq.item[3],
-				"job_title"      = mq.item[4],
-				"rank"           = text2num(mq.item[5]) || 0,
-				"account_number" = text2num(mq.item[6]) || 0
-			)
-	qdel(mq)
+	try
+		var/datum/db_query/mq = SSdbcore.NewQuery(
+			"SELECT ckey, faction_uid, real_name, job_title, rank, IFNULL(account_number, 0) FROM ss13_faction_members",
+			list()
+		)
+		mq.Execute()
+		if(databaseCheckQueryResult(mq, "factionInitialize members"))
+			while(mq.NextRow())
+				var/mkey = "[mq.item[1]]|[normalize_faction_uid(mq.item[2])]"
+				GLOB.persistence_faction_members_cache[mkey] = list(
+					"real_name"      = mq.item[3],
+					"job_title"      = mq.item[4],
+					"rank"           = text2num(mq.item[5]) || 0,
+					"account_number" = text2num(mq.item[6]) || 0
+				)
+		qdel(mq)
+	catch(var/exception/faction_members_e)
+		log_subsystem_persistence_error("Factions: failed to load faction members: [faction_members_e]")
 
 	log_subsystem_persistence_info("Factions: Loaded [length(GLOB.persistence_faction_cache)] factions, [length(GLOB.persistence_faction_members_cache)] members.")
 
@@ -269,11 +278,14 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	q.Execute()
 	if(databaseCheckQueryResult(q, "factionResearchInitialize"))
 		while(q.NextRow())
-			var/fuid     = q.item[1]
-			var/tech_raw = q.item[2]
-			var/list/tech_list = tech_raw ? json_decode(tech_raw) : list()
-			if(islist(tech_list))
-				GLOB.persistence_faction_research_cache[fuid] = tech_list
+			try
+				var/fuid     = q.item[1]
+				var/tech_raw = q.item[2]
+				var/list/tech_list = tech_raw ? json_decode(tech_raw) : list()
+				if(islist(tech_list))
+					GLOB.persistence_faction_research_cache[fuid] = tech_list
+			catch(var/exception/e)
+				log_subsystem_persistence_error("FactionResearch: failed to load a research row: [e]")
 	qdel(q)
 	log_subsystem_persistence_info("FactionResearch: Loaded research for [length(GLOB.persistence_faction_research_cache)] factions.")
 

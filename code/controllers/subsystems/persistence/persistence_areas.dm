@@ -39,65 +39,68 @@
 
 	var/restored = 0
 	while(query.NextRow())
-		var/area_name = query.item[1]
-		var/area_type = text2path(query.item[2])
-		var/list/coords = json_decode(query.item[3])
-		var/network = query.item[4]
+		try
+			var/area_name = query.item[1]
+			var/area_type = text2path(query.item[2])
+			var/list/coords = json_decode(query.item[3])
+			var/network = query.item[4]
 
-		if(!area_type || !ispath(area_type, /area))
-			area_type = /area
-		if(!islist(coords) || !length(coords))
-			continue
+			if(!area_type || !ispath(area_type, /area))
+				area_type = /area
+			if(!islist(coords) || !length(coords))
+				continue
 
-		var/area/A = new area_type()
-		A.name = area_name
-		A.is_blueprint_area = TRUE
-		A.power_equip = FALSE
-		A.power_light = FALSE
-		A.power_environ = FALSE
-		A.always_unpowered = FALSE
-		if(network)
-			A.persistent_network = network
+			var/area/A = new area_type()
+			A.name = area_name
+			A.is_blueprint_area = TRUE
+			A.power_equip = FALSE
+			A.power_light = FALSE
+			A.power_environ = FALSE
+			A.always_unpowered = FALSE
+			if(network)
+				A.persistent_network = network
 
-		var/moved = 0
-		var/skipped_unsafe = 0
-		for(var/list/triple in coords)
-			if(!islist(triple) || length(triple) < 3)
-				continue
-			var/tx = triple[1]
-			var/ty = triple[2]
-			var/tz = triple[3]
-			if(tz < 1 || tz > world.maxz)
-				continue
-			if((tz in GLOB.persistence_zlevel_skip) || is_mining_level(tz) || persistence_z_manual_blocked(tz))
-				continue
-			var/turf/T = locate(tx, ty, tz)
-			if(!istype(T))
-				continue
-			var/area/current = T.loc
-			if(!current)
-				continue
-			// Never steal a turf that's now part of a real, mapped-in area --
-			// only reclaim background turf or a turf that's already
-			// blueprint-owned (same rule the interactive tool enforces, see
-			// check_turf_validity_for_area() in blueprints.dm).
-			if(!current.is_blueprint_area && !(current.area_flags & AREA_FLAG_IS_BACKGROUND))
-				skipped_unsafe++
-				log_subsystem_persistence_info("Areas: SKIPPED ([tx],[ty],[tz]) for '[area_name]' -- currently owned by real area '[current.name]' ([current.type]).")
-				continue
-			T.change_area(T.loc, A)
-			moved++
-			log_subsystem_persistence_info("Areas: moved ([tx],[ty],[tz]) from '[current.name]' ([current.type]) into restored blueprint area '[area_name]'.")
+			var/moved = 0
+			var/skipped_unsafe = 0
+			for(var/list/triple in coords)
+				if(!islist(triple) || length(triple) < 3)
+					continue
+				var/tx = triple[1]
+				var/ty = triple[2]
+				var/tz = triple[3]
+				if(tz < 1 || tz > world.maxz)
+					continue
+				if((tz in GLOB.persistence_zlevel_skip) || is_mining_level(tz) || persistence_z_manual_blocked(tz))
+					continue
+				var/turf/T = locate(tx, ty, tz)
+				if(!istype(T))
+					continue
+				var/area/current = T.loc
+				if(!current)
+					continue
+				// Never steal a turf that's now part of a real, mapped-in area --
+				// only reclaim background turf or a turf that's already
+				// blueprint-owned (same rule the interactive tool enforces, see
+				// check_turf_validity_for_area() in blueprints.dm).
+				if(!current.is_blueprint_area && !(current.area_flags & AREA_FLAG_IS_BACKGROUND))
+					skipped_unsafe++
+					log_subsystem_persistence_info("Areas: SKIPPED ([tx],[ty],[tz]) for '[area_name]' -- currently owned by real area '[current.name]' ([current.type]).")
+					continue
+				T.change_area(T.loc, A)
+				moved++
+				log_subsystem_persistence_info("Areas: moved ([tx],[ty],[tz]) from '[current.name]' ([current.type]) into restored blueprint area '[area_name]'.")
 
-		if(skipped_unsafe)
-			log_subsystem_persistence_info("Areas: '[area_name]' had [skipped_unsafe] unsafe turf(s) skipped (now owned by a real area).")
+			if(skipped_unsafe)
+				log_subsystem_persistence_info("Areas: '[area_name]' had [skipped_unsafe] unsafe turf(s) skipped (now owned by a real area).")
 
-		if(!moved)
-			qdel(A)
-			continue
+			if(!moved)
+				qdel(A)
+				continue
 
-		restored++
-		CHECK_TICK
+			restored++
+			CHECK_TICK
+		catch(var/exception/e)
+			log_subsystem_persistence_error("Areas: Failed to restore a saved area: [e]")
 
 	qdel(query)
 	log_subsystem_persistence_info("Areas: Restored [restored] blueprint-created areas for map [SSatlas.current_map.path].")

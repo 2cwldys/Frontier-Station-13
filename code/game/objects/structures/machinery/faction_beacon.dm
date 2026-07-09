@@ -13,8 +13,8 @@
 /obj/structure/machinery/faction_beacon
 	name = "faction beacon"
 	desc = "An anchor beacon that ties nearby infrastructure to a faction network."
-	icon = 'icons/obj/machinery/cryopod.dmi'
-	icon_state = "cryo_pod"
+	icon = 'icons/obj/machinery/telecomms.dmi'
+	icon_state = "bspacerelay"
 	anchored = TRUE
 	density = FALSE
 	layer = OBJ_LAYER
@@ -138,9 +138,9 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 
 /obj/structure/machinery/faction_beacon/update_icon()
 	if(active && faction_uid)
-		icon_state = "cryo_pod"
+		icon_state = "bspacerelay"
 	else
-		icon_state = "cryo_pod"
+		icon_state = "bspacerelay"
 
 /obj/structure/machinery/faction_beacon/verb/configure_faction_beacon()
 	set name = "Configure Faction Beacon"

@@ -207,7 +207,12 @@
 		// resume normal Life() ticking -- including the SSD auto-sleep path
 		// re-triggering Sleeping() every few minutes -- forever.
 		log_subsystem_persistence_info("Cryo: [H.real_name] stored  no telepad found, removing mob.")
-		qdel(H)
+		// Deferred, not immediate -- the calling verb (store_character()) still
+		// needs to transfer H's attached client to a new lobby mob right after
+		// this proc returns, with no sleep() in between. Deleting H synchronously
+		// here would sever that in-flight handoff and strand the client instead
+		// of returning it to the main menu.
+		QDEL_IN(H, 0)
 		return TRUE
 
 	return TRUE

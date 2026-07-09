@@ -55,43 +55,47 @@
 	var/restored = 0
 	var/skipped = 0
 	for(var/list/data in rows)
-		var/bz = data["z"]
-		if(bz < 1 || bz > world.maxz)
+		try
+			var/bz = data["z"]
+			if(bz < 1 || bz > world.maxz)
+				skipped++
+				continue
+			var/path = text2path(data["type"])
+			if(!path || !ispath(path, /mob/living/bot))
+				skipped++
+				continue
+			var/turf/T = locate(data["x"], data["y"], bz)
+			if(!T)
+				skipped++
+				continue
+			var/mob/living/bot/B = new path(T)
+			if(data["dir"])
+				B.set_dir(data["dir"])
+			if(data["name"])
+				B.name = data["name"]
+			B.locked  = data["locked"] ? TRUE : FALSE
+			B.emagged = data["emagged"] || 0
+			// Restore per-bot appearance quirks (e.g. medbot's randomly-rolled
+			// first-aid kit) so the sprite stays consistent across saves.
+			if(data["extra"] && istype(B, /mob/living/bot/medbot))
+				var/list/extra = json_decode(data["extra"])
+				if(islist(extra) && extra["firstaid"])
+					var/kit_path = text2path(extra["firstaid"])
+					if(kit_path && ispath(kit_path, /obj/item/storage/firstaid))
+						var/mob/living/bot/medbot/MB = B
+						if(MB.firstaid_item)
+							qdel(MB.firstaid_item)
+						MB.firstaid_item = new kit_path(MB)
+						MB.underlays.Cut()
+						MB.update_icon()
+			if(data["is_on"])
+				B.turn_on()
+			else
+				B.turn_off()
+			restored++
+		catch(var/exception/e)
 			skipped++
-			continue
-		var/path = text2path(data["type"])
-		if(!path || !ispath(path, /mob/living/bot))
-			skipped++
-			continue
-		var/turf/T = locate(data["x"], data["y"], bz)
-		if(!T)
-			skipped++
-			continue
-		var/mob/living/bot/B = new path(T)
-		if(data["dir"])
-			B.set_dir(data["dir"])
-		if(data["name"])
-			B.name = data["name"]
-		B.locked  = data["locked"] ? TRUE : FALSE
-		B.emagged = data["emagged"] || 0
-		// Restore per-bot appearance quirks (e.g. medbot's randomly-rolled
-		// first-aid kit) so the sprite stays consistent across saves.
-		if(data["extra"] && istype(B, /mob/living/bot/medbot))
-			var/list/extra = json_decode(data["extra"])
-			if(islist(extra) && extra["firstaid"])
-				var/kit_path = text2path(extra["firstaid"])
-				if(kit_path && ispath(kit_path, /obj/item/storage/firstaid))
-					var/mob/living/bot/medbot/MB = B
-					if(MB.firstaid_item)
-						qdel(MB.firstaid_item)
-					MB.firstaid_item = new kit_path(MB)
-					MB.underlays.Cut()
-					MB.update_icon()
-		if(data["is_on"])
-			B.turn_on()
-		else
-			B.turn_off()
-		restored++
+			log_subsystem_persistence_error("Bots: failed to restore a saved bot: [e]")
 
 	log_subsystem_persistence_info("Bots: Restored [restored] bot(s)[skipped ? ", skipped [skipped]" : ""][wiped ? ", wiped [wiped] stale" : ""].")
 

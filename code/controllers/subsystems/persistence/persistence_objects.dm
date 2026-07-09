@@ -7,10 +7,17 @@
 	GLOB.persistence_object_track_register = list()
 
 	// Delete all persistent objects in the database that have expired and have passed the cleanup grace period (PERSISTENT_EXPIRATION_CLEANUP_DELAY_DAYS)
-	objectsDatabaseCleanEntries()
+	try
+		objectsDatabaseCleanEntries()
+	catch(var/exception/clean_e)
+		log_subsystem_persistence_error("Persistent objects: cleanup pass failed: [clean_e]")
 
 	// Retrieve all persistent data that is not expired
-	var/list/persistent_data = objectsDatabaseGetActiveEntries()
+	var/list/persistent_data = list()
+	try
+		persistent_data = objectsDatabaseGetActiveEntries()
+	catch(var/exception/fetch_e)
+		log_subsystem_persistence_error("Persistent objects: failed to fetch active entries: [fetch_e]")
 	log_subsystem_persistence_info("Persistent objects: Retrieved [length(persistent_data)] entries for instancing this round.")
 
 	// Instantiate all remaining entries based of their type
@@ -63,18 +70,21 @@
 		catch(var/exception/e)
 			log_subsystem_persistence_error("Persistent objects: Failed to instantiate [data["type"]] (id=[data["id"]]): [e]")
 
-	for(var/obj/structure/ladder/L in world)
-		if(!(L.allowed_directions & DOWN)) continue
-		if(L.target_down) continue
-		var/turf/LT = get_turf(L)
-		if(!LT) continue
-		var/turf/below = GET_TURF_BELOW(LT)
-		if(!below) continue
-		for(var/obj/structure/ladder/BL in below)
-			if(BL.allowed_directions & UP)
-				L.target_down = BL
-				BL.target_up = L
-				break
+	try
+		for(var/obj/structure/ladder/L in world)
+			if(!(L.allowed_directions & DOWN)) continue
+			if(L.target_down) continue
+			var/turf/LT = get_turf(L)
+			if(!LT) continue
+			var/turf/below = GET_TURF_BELOW(LT)
+			if(!below) continue
+			for(var/obj/structure/ladder/BL in below)
+				if(BL.allowed_directions & UP)
+					L.target_down = BL
+					BL.target_up = L
+					break
+	catch(var/exception/ladder_e)
+		log_subsystem_persistence_error("Persistent objects: ladder relink pass failed: [ladder_e]")
 
 /**
  * Finalize persistent object tracking.
