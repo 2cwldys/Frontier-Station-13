@@ -151,8 +151,8 @@
 		for(var/obj/item/It in hidden_candidates)
 			if(!isturf(It.loc))
 				continue
-			if(istype(It, /obj/item/modular_computer/console))
-				continue // anchored console -- a fixture, not a loose floor item
+			if(istype(It, /obj/item/modular_computer/console) || istype(It, /obj/item/radio/intercom/ship))
+				continue // anchored fixtures -- not loose floor items, always visible
 			I = image(null, It)
 			I.override = TRUE
 			src.client.images    += I

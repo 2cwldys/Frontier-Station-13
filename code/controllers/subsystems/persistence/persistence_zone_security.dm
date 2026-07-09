@@ -174,14 +174,57 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 			GLOB.highsec_offense_log.Cut(1, 2)
 		zone_security_alert_responders(attacker, anchor)
 
+/// ckey -> world.time of their last distress call. Separate from the offense
+/// tracking map so a distress can't be swallowed by an unrelated offense cooldown.
+GLOBAL_LIST_EMPTY(hub_distress_last_called)
+#define DISTRESS_CALL_COOLDOWN (30 MINUTES)
+
+/**
+ * Civilian distress call: reports the caller's location to Hub security as a
+ * First Responder offense-log entry (so responders can jump straight to
+ * them, and their PDAs beep exactly like a normal offense), gated to highsec
+ * zones only -- Hub law doesn't reach medsec/nullsec. Per-ckey cooldown,
+ * separate from the offense-tracking cooldown above. Admin chat gets the
+ * same unconditional JMP-linked escalation a normal offense does.
+ */
+/proc/zone_security_record_distress(mob/caller)
+	if(!caller || !caller.ckey)
+		return FALSE
+	// Hub law only applies in highsec -- no distress line to Hub police from
+	// medsec (factions enforce their own laws) or nullsec (no laws at all).
+	if(zone_security_get(caller.z) != ZONE_HIGHSEC)
+		return FALSE
+	var/last = GLOB.hub_distress_last_called[caller.ckey]
+	if(last && (world.time - last) < DISTRESS_CALL_COOLDOWN)
+		return FALSE
+	GLOB.hub_distress_last_called[caller.ckey] = world.time
+	var/area/A = get_area(caller)
+	message_admins("<span class='danger'>DISTRESS CALL:</span> [key_name(caller)] requests Hub security in [A ? A.name : "unknown location"] (<a href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[caller.x];Y=[caller.y];Z=[caller.z]'>JMP</a>)")
+	log_game("[key_name(caller)] sent a First Responder distress call at ([caller.x],[caller.y],[caller.z]).")
+	GLOB.highsec_offense_log += list(list(
+		"name" = "[caller.name] (distress call)",
+		"ref"  = WEAKREF(caller),
+		"x"    = caller.x,
+		"y"    = caller.y,
+		"z"    = caller.z,
+		"time" = world.time
+	))
+	if(length(GLOB.highsec_offense_log) > HIGHSEC_OFFENSE_LOG_MAX)
+		GLOB.highsec_offense_log.Cut(1, 2)
+	// Same PDA-beep alert path a normal offense uses (zone_security_alert_responders below).
+	zone_security_alert_responders(caller, caller, "DISTRESS CALL: [caller.name] requests Hub security in [A ? A.name : "unknown location"]! Open First Responder to respond.")
+	return TRUE
+
 /**
  * Beep every Hub-network computer/PDA carrying the First Responder program --
  * PDA-message-style alert: chat line with the device icon plus an audible
- * twobeep (get_notification handles the silent toggle).
+ * twobeep (get_notification handles the silent toggle). alert_text defaults
+ * to the standard HIGHSEC OFFENSE wording; distress calls pass their own.
  */
-/proc/zone_security_alert_responders(mob/attacker, mob/anchor)
+/proc/zone_security_alert_responders(mob/attacker, mob/anchor, alert_text)
 	var/area/offense_area = get_area(anchor)
-	var/alert_text = "HIGHSEC OFFENSE: [attacker ? attacker.name : "unknown"] in [offense_area ? offense_area.name : "unknown location"]! Open First Responder to respond."
+	if(!alert_text)
+		alert_text = "HIGHSEC OFFENSE: [attacker ? attacker.name : "unknown"] in [offense_area ? offense_area.name : "unknown location"]! Open First Responder to respond."
 	for(var/obj/item/modular_computer/MC in world)
 		// get_turf pierces nested containers -- a PDA in a pocket/backpack
 		// must still receive the alert

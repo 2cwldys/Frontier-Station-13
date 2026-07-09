@@ -13,7 +13,7 @@
 	/// Looping sound played while a repair cycle is in progress.
 	var/looping_sound_type = /datum/looping_sound/autodoc
 	VAR_PRIVATE/datum/looping_sound/autodoc_looping_sound
-	COOLDOWN_DECLARE(suit_warning_cd)
+	COOLDOWN_DECLARE(autodoc_warning_cd)
 
 /obj/structure/machinery/autodoc/Destroy()
 	QDEL_NULL(autodoc_looping_sound)
@@ -23,11 +23,23 @@
 // chat message instead, throttled so it doesn't spam every process tick
 // while they remain lying there suited up.
 /obj/structure/machinery/autodoc/patient_acceptable(mob/living/carbon/human/H)
+	if(H.stat == DEAD)
+		if(COOLDOWN_FINISHED(src, autodoc_warning_cd))
+			playsound(src, 'sound/machines/buzz-sigh.ogg', 50, TRUE)
+			visible_message(SPAN_WARNING("\The [src] buzzes an error -- patient is deceased."))
+			COOLDOWN_START(src, autodoc_warning_cd, 3 SECONDS)
+		return FALSE
+	if(H.isSynthetic())
+		if(COOLDOWN_FINISHED(src, autodoc_warning_cd))
+			playsound(src, 'sound/machines/buzz-sigh.ogg', 50, TRUE)
+			visible_message(SPAN_WARNING("\The [src] buzzes an error -- incompatible synthetic chassis detected."))
+			COOLDOWN_START(src, autodoc_warning_cd, 3 SECONDS)
+		return FALSE
 	if(H.wear_suit)
-		if(COOLDOWN_FINISHED(src, suit_warning_cd))
+		if(COOLDOWN_FINISHED(src, autodoc_warning_cd))
 			playsound(src, 'sound/machines/buzz-sigh.ogg', 50, TRUE)
 			to_chat(H, SPAN_WARNING("\The [src] buzzes an error -- remove your [H.wear_suit.name] before use."))
-			COOLDOWN_START(src, suit_warning_cd, 3 SECONDS)
+			COOLDOWN_START(src, autodoc_warning_cd, 3 SECONDS)
 		return FALSE
 	return TRUE
 

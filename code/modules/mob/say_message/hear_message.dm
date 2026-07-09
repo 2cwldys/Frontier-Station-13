@@ -259,11 +259,13 @@
 	var/mob/speaker = msg.speaker
 	if(!msg.speech_sound)
 		return
-	if(client && !(client.prefs.toggles_secondary & TOGGLE_MUTTERING))
+	if(client && (client.prefs.toggles_secondary & MUTE_MUTTERING))
 		return
 	if(get_dist(speaker, src) <= world.view && src.z == speaker?.z)
 		var/turf/source = speaker ? get_turf(speaker) : get_turf(src)
-		playsound(source, msg.speech_sound, sound_vol, vary = TRUE)
+		var/sound/S = msg.speech_sound
+		var/preset_frequency = istype(S) && S.frequency ? S.frequency : null
+		playsound(source, msg.speech_sound, sound_vol, vary = TRUE, frequency = preset_frequency)
 
 /proc/say_timestamp()
 	return "<span class='say_quote'>\[[worldtime2text()]\]</span>"

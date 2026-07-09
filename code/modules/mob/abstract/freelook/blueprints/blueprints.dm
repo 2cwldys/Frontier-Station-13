@@ -53,7 +53,24 @@
 		owner.client.images.Cut()
 	. = ..()
 
+/// Resolves the acting mob's faction UID + rank from their ID card, via the
+/// same get_faction_member() lookup used by telepad/faction-beacon gating
+/// elsewhere. rank is -1 with no ID/faction/membership record.
+/mob/abstract/eye/blueprints/proc/get_faction_tier(mob/user)
+	var/obj/item/card/id/ID = user.GetIdCard()
+	if(!ID || !ID.employer_faction)
+		return list("uid" = null, "rank" = -1)
+	var/uid = normalize_faction_uid(ID.employer_faction)
+	var/list/member = get_faction_member(user.ckey, uid)
+	return list("uid" = uid, "rank" = member ? (member["rank"] || 0) : -1)
+
 /mob/abstract/eye/blueprints/proc/create_area()
+	if(!check_rights(R_ADMIN, 0, owner))
+		var/list/tier = get_faction_tier(owner)
+		if(tier["rank"] < 1)
+			to_chat(owner, SPAN_WARNING("You need officer access in a faction to modify blueprint areas."))
+			return
+
 	var/area_name = sanitizeSafe(tgui_input_text(owner, "New area name: ", "Area Creation", "", MAX_NAME_LEN))
 	if(!area_name || !length(area_name))
 		return
@@ -87,6 +104,14 @@
 	var/area/A = get_area(src)
 	if(!check_modification_validity())
 		return
+	if(!check_rights(R_ADMIN, 0, owner))
+		var/list/tier = get_faction_tier(owner)
+		if(tier["rank"] < 2)
+			to_chat(owner, SPAN_WARNING("You need command access in a faction to remove areas."))
+			return
+		if(A.persistent_network && A.persistent_network != tier["uid"])
+			to_chat(owner, SPAN_WARNING("This area belongs to [get_faction_name(A.persistent_network)]'s territory -- only their command staff can remove it."))
+			return
 	if(A.apc)
 		to_chat(owner, SPAN_WARNING("You must remove the APC from this area before you can remove it from the blueprints!"))
 		return
@@ -163,6 +188,12 @@
 /// reassignment, so extending an odd-shaped claim doesn't require avoiding
 /// your own existing tiles).
 /mob/abstract/eye/blueprints/proc/add_to_area()
+	if(!check_rights(R_ADMIN, 0, owner))
+		var/list/tier = get_faction_tier(owner)
+		if(tier["rank"] < 1)
+			to_chat(owner, SPAN_WARNING("You need officer access in a faction to modify blueprint areas."))
+			return
+
 	var/area/target = get_area(src)
 	if(!check_modification_validity())
 		return

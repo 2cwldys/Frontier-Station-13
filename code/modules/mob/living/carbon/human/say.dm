@@ -262,7 +262,10 @@
 	var/list/returns = ..()
 	returns = species.handle_speech_sound(src, returns)
 	if(!returns[1] && COOLDOWN_FINISHED(src, mumble_sound_cd))
-		returns[1] = sound(gender == MALE ? 'sound/voice/emotes/mumble_male.ogg' : 'sound/voice/emotes/mumble_female.ogg')
+		var/sound/mumble = sound(gender == MALE ? 'sound/voice/emotes/mumble_male.ogg' : 'sound/voice/emotes/mumble_female.ogg')
+		if(prob(25))
+			mumble.frequency = -get_rand_frequency() // negative frequency = reversed playback
+		returns[1] = mumble
 		returns[2] = 50
 		COOLDOWN_START(src, mumble_sound_cd, 3 SECONDS)
 	return returns

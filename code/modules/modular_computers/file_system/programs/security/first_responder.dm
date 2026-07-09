@@ -19,9 +19,12 @@
 	filedesc = "First Responder"
 	program_icon_state = "security"
 	program_key_icon_state = "red_key"
-	extended_desc = "Hub security rapid-response system. Alerts accredited responders to highsec offenses and opens short-lived bluespace portals to the scene, with a return link to the faction's security telepad."
-	required_access_run = ACCESS_SECURITY
-	required_access_download = ACCESS_SECURITY
+	extended_desc = "Hub security rapid-response system. Alerts accredited responders to highsec offenses and opens short-lived bluespace portals to the scene, with a return link to the faction's security telepad. Anyone can also send a distress call to Hub security from a highsec zone."
+	// Open to everyone -- privileged actions (respond/return/prisoner tagging)
+	// are gated per-action via can_run() below instead, so civilians can still
+	// download and open this to send a distress call.
+	required_access_run = null
+	required_access_download = null
 	usage_flags = PROGRAM_CONSOLE | PROGRAM_LAPTOP | PROGRAM_TABLET
 	requires_ntnet = FALSE
 	available_on_ntnet = TRUE
@@ -49,6 +52,10 @@
 	data["is_hub"]       = (net == "hub")
 	data["has_telepad"]  = net ? !!persistence_find_security_telepad(net) : FALSE
 	data["cooldown"]     = max(0, round((next_jump_time - world.time) / 10))
+	data["can_secure"]   = can_run(user, FALSE, ACCESS_SECURITY, PROGRAM_ACCESS_ONE)
+	data["in_highsec"]   = (zone_security_get(user.z) == ZONE_HIGHSEC)
+	var/last_distress = user.ckey ? GLOB.hub_distress_last_called[user.ckey] : null
+	data["distress_cooldown"] = last_distress ? max(0, round((last_distress + DISTRESS_CALL_COOLDOWN - world.time) / 10)) : 0
 
 	// Prisoners tagged for transport on the next Return
 	var/list/tagged = list()
@@ -92,7 +99,20 @@
 		return
 
 	switch(action)
+		if("distress")
+			if(zone_security_get(user.z) != ZONE_HIGHSEC)
+				to_chat(user, SPAN_WARNING("No response -- Hub law is only enforced in highsec zones."))
+				return TRUE
+			if(!zone_security_record_distress(user))
+				to_chat(user, SPAN_WARNING("You've already sent a distress call recently."))
+				return TRUE
+			to_chat(user, SPAN_NOTICE("Distress call sent -- Hub security has been notified of your location."))
+			playsound(get_turf(computer), 'sound/machines/twobeep.ogg', 30, 1)
+			return TRUE
+
 		if("respond")
+			if(!can_run(user, TRUE, ACCESS_SECURITY, PROGRAM_ACCESS_ONE))
+				return TRUE
 			var/net = normalize_faction_uid(computer.persistent_network)
 			if(net != "hub")
 				to_chat(user, SPAN_WARNING("Response jumps require a Hub-network terminal."))
@@ -121,6 +141,8 @@
 			return TRUE
 
 		if("return")
+			if(!can_run(user, TRUE, ACCESS_SECURITY, PROGRAM_ACCESS_ONE))
+				return TRUE
 			if(world.time < next_jump_time)
 				to_chat(user, SPAN_WARNING("Teleporter recharging."))
 				return TRUE
@@ -148,6 +170,8 @@
 			return TRUE
 
 		if("untag")
+			if(!can_run(user, TRUE, ACCESS_SECURITY, PROGRAM_ACCESS_ONE))
+				return TRUE
 			var/target_ref = params["ref"]
 			for(var/datum/weakref/pwr in tagged_prisoners)
 				if("\ref[pwr]" == target_ref)
@@ -200,6 +224,8 @@
 /// restrained, unconscious, or dead.
 /datum/computer_file/program/security/first_responder/proc/toggle_prisoner_tag(mob/living/target, mob/user)
 	if(!istype(target))
+		return
+	if(!can_run(user, TRUE, ACCESS_SECURITY, PROGRAM_ACCESS_ONE))
 		return
 	// Untag if already tagged
 	for(var/datum/weakref/pwr in tagged_prisoners)

@@ -1152,6 +1152,15 @@ modules/mob/living/carbon/human/life.dm if you die, you will be zoomed out.
 	set category = "Object"
 	set src in view(1)
 
+	// BYOND resolves src for "set src in view()" verbs invoked from the
+	// right-click menu by name-matching atoms in view -- an ID card named
+	// after its owner can lose that resolution to the owner's own mob
+	// (distance 0), leaving src bound to a mob and turning the
+	// UnarmedAttack(src) below into an intent-based self-attack.
+	if(!isitem(src))
+		log_world("verb_pickup: mis-bound src=[src] ([REF(src)]) for usr=[usr] ([REF(usr)]) -- refusing.")
+		return
+
 	if(use_check_and_message(usr))
 		return
 	if(!iscarbon(usr) || istype(usr, /mob/living/carbon/brain))
@@ -1169,7 +1178,6 @@ modules/mob/living/carbon/human/life.dm if you die, you will be zoomed out.
 	if(!isturf(loc))
 		to_chat(usr, SPAN_WARNING("You can't pick that up!"))
 		return
-	log_world("verb_pickup: usr=[usr] ([REF(usr)]) attacking src=[src] ([REF(src)]), src.loc=[src.loc] ([REF(src.loc)]).")
 	usr.UnarmedAttack(src)
 
 /obj/item/proc/use_tool(atom/target, mob/living/user, delay, amount = 0, volume = 0, datum/callback/extra_checks)

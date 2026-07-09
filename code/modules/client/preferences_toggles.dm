@@ -204,6 +204,6 @@
 	set desc = "Toggles whether you hear other characters' ambient mumbling sounds when they speak nearby."
 	set category = "Preferences.Game"
 
-	prefs.toggles_secondary ^= TOGGLE_MUTTERING
+	prefs.toggles_secondary ^= MUTE_MUTTERING
 	prefs.save_preferences()
-	to_chat(src, SPAN_NOTICE("Muttering sounds are now [prefs.toggles_secondary & TOGGLE_MUTTERING ? "audible" : "muted"]."))
+	to_chat(src, SPAN_NOTICE("Muttering sounds are now [prefs.toggles_secondary & MUTE_MUTTERING ? "muted" : "audible"]."))

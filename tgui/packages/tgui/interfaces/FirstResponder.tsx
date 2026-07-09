@@ -29,6 +29,9 @@ type FirstResponderData = {
   is_hub: BooleanLike;
   has_telepad: BooleanLike;
   cooldown: number;
+  can_secure: BooleanLike;
+  in_highsec: BooleanLike;
+  distress_cooldown: number;
   offenses: OffenseEntry[];
   tagged: TaggedEntry[];
 };
@@ -41,6 +44,9 @@ export const FirstResponder = (props) => {
     is_hub,
     has_telepad,
     cooldown,
+    can_secure,
+    in_highsec,
+    distress_cooldown,
     offenses,
     tagged,
   } = data;
@@ -48,6 +54,29 @@ export const FirstResponder = (props) => {
   return (
     <NtosWindow resizable width={560} height={520}>
       <NtosWindow.Content scrollable>
+        <Section title="Civilian Distress Call">
+          <NoticeBox info>
+            Anyone can request Hub security from a highsec zone. Your
+            location is reported to nearby hub responders. Security-level
+            access is required for everything else in this program.
+          </NoticeBox>
+          <Button
+            icon="exclamation-triangle"
+            color="bad"
+            disabled={!in_highsec || distress_cooldown > 0}
+            tooltip={
+              !in_highsec
+                ? 'Hub law is only enforced in highsec zones.'
+                : distress_cooldown > 0
+                  ? `You've already sent a distress call recently (${distress_cooldown}s remaining).`
+                  : 'Alert nearby Hub security to your location.'
+            }
+            onClick={() => act('distress')}
+          >
+            Request Hub Security
+            {distress_cooldown > 0 ? ` (${distress_cooldown}s)` : ''}
+          </Button>
+        </Section>
         <Section title="First Responder — Hub Security Rapid Response">
           {!faction_uid && (
             <NoticeBox>
@@ -60,6 +89,12 @@ export const FirstResponder = (props) => {
               This terminal is on the {faction_name ?? faction_uid} network.
               Response jumps require a Hub-network terminal; only the return
               teleport to your faction&apos;s security telepad is available.
+            </NoticeBox>
+          )}
+          {!can_secure && (
+            <NoticeBox>
+              You lack Hub security access. Response jumps, prisoner
+              transport, and tagging are unavailable to you.
             </NoticeBox>
           )}
           <Box mb={1}>
@@ -77,13 +112,15 @@ export const FirstResponder = (props) => {
           <Button
             icon="reply"
             color={has_telepad ? 'good' : 'grey'}
-            disabled={!has_telepad || cooldown > 0}
+            disabled={!can_secure || !has_telepad || cooldown > 0}
             tooltip={
-              has_telepad
-                ? tagged.length > 0
-                  ? `Teleport back to your faction security telepad with ${tagged.length} tagged prisoner(s). Tags are cleared afterward.`
-                  : 'Teleport back to your faction security telepad.'
-                : 'No security telepad found for this faction network.'
+              !can_secure
+                ? 'Requires Hub security access.'
+                : has_telepad
+                  ? tagged.length > 0
+                    ? `Teleport back to your faction security telepad with ${tagged.length} tagged prisoner(s). Tags are cleared afterward.`
+                    : 'Teleport back to your faction security telepad.'
+                  : 'No security telepad found for this faction network.'
             }
             onClick={() => act('return')}
           >
@@ -122,7 +159,12 @@ export const FirstResponder = (props) => {
                     <Button
                       icon="times"
                       color="average"
-                      tooltip="Remove this transport tag."
+                      disabled={!can_secure}
+                      tooltip={
+                        can_secure
+                          ? 'Remove this transport tag.'
+                          : 'Requires Hub security access.'
+                      }
                       onClick={() => act('untag', { ref: prisoner.ref })}
                     >
                       Untag
@@ -160,11 +202,13 @@ export const FirstResponder = (props) => {
                     <Button
                       icon="bolt"
                       color="bad"
-                      disabled={!is_hub || cooldown > 0}
+                      disabled={!can_secure || !is_hub || cooldown > 0}
                       tooltip={
-                        is_hub
-                          ? 'Open a bluespace portal near this offender.'
-                          : 'Response jumps require a Hub-network terminal.'
+                        !can_secure
+                          ? 'Requires Hub security access.'
+                          : is_hub
+                            ? 'Open a bluespace portal near this offender.'
+                            : 'Response jumps require a Hub-network terminal.'
                       }
                       onClick={() =>
                         act('respond', { index: offense.index })
