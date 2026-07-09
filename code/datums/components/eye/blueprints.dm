@@ -11,6 +11,30 @@
 	button_icon_state = "pencil"
 	target_type = EYE_TARGET
 
+/datum/action/eye/blueprints/detect_room
+	name = "Detect Room"
+	procname = "detect_room"
+	button_icon_state = "template_insert"
+	target_type = EYE_TARGET
+
+/datum/action/eye/blueprints/add_to_area
+	name = "Add to Area"
+	procname = "add_to_area"
+	button_icon_state = "pencil"
+	target_type = EYE_TARGET
+
+/datum/action/eye/blueprints/highlight_area
+	name = "Highlight Area"
+	procname = "highlight_area"
+	button_icon_state = "edit_area"
+	target_type = EYE_TARGET
+
+/datum/action/eye/blueprints/modify_area
+	name = "Modify Area"
+	procname = "modify_area"
+	button_icon_state = "eraser"
+	target_type = EYE_TARGET
+
 /datum/action/eye/blueprints/remove_selection
 	name = "Remove Selection"
 	procname = "remove_selection"

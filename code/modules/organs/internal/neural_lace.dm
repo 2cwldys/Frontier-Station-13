@@ -341,6 +341,7 @@
 	set name = "Assign Consciousness"
 	set category = "Persistence"
 	set src in view(1)
+	set hidden = TRUE
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -403,6 +404,7 @@
 	set name = "Assign Body"
 	set category = "Persistence"
 	set src in view(1)
+	set hidden = TRUE
 
 	if(!check_rights(R_ADMIN))
 		return

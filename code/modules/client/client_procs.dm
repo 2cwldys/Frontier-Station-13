@@ -67,6 +67,8 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 		nuke_chat()
 	if(href_list["reload_statbrowser"])
 		stat_panel.reinitialize()
+	if(href_list["hide_stat_cover"])
+		hide_stat_cover()
 
 	if (href_list["EMERG"] && href_list["EMERG"] == "action")
 		if (!info_sent)
@@ -502,6 +504,7 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 		inline_css = file("html/statbrowser.css"),
 	)
 	addtimer(CALLBACK(src, PROC_REF(check_panel_loaded)), 30 SECONDS)
+	show_stat_cover()
 
 	// Window title: "Frontier Station 13 - Mapname"
 	var/map_title = (SSatlas?.current_map?.full_name) ? SSatlas.current_map.full_name : "Unknown Sector"
@@ -1157,6 +1160,8 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 		if("Set-Tab")
 			stat_tab = payload["tab"]
 			SSstatpanels.immediate_send_stat_data(src)
+		if("Show-Cover")
+			show_stat_cover()
 
 /// compiles a full list of verbs and sends it to the browser
 /client/proc/init_verbs()

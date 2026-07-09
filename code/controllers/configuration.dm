@@ -206,6 +206,7 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 	var/antag_hud_allowed = 0			// Ghosts can turn on Antagovision to see a HUD of who is the bad guys this round.
 	var/antag_hud_restricted = 0                    // Ghosts that turn on Antagovision cannot rejoin the round.
 	var/intimate_interactions_allowed = 0			// Drag-onto-mob intimate interaction menu is available (still gated per-player by opt-in preference).
+	var/require_consent = 0			// If set, intimate interactions respect each participant's "Toggle Intimate Interactions" preference. If unset, that preference is ignored and anyone can be targeted.
 	var/list/mode_names = list()
 	var/list/modes = list()				// allowed modes
 	var/list/votable_modes = list()		// votable modes
@@ -809,6 +810,9 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 
 				if("allow_intimate_interactions")
 					GLOB.config.intimate_interactions_allowed = 1
+
+				if("require_consent")
+					GLOB.config.require_consent = 1
 
 				if("ipc_timelock_active")
 					ipc_timelock_active = TRUE

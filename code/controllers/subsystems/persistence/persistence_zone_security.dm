@@ -52,17 +52,21 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 	// before this proc runs
 	if(!databaseCheckConnection("zoneSecurityInitialize"))
 		return
+	log_subsystem_persistence_info("Zone security: pinned_site_z=[GLOB.persistence_pinned_site_z ? english_list(GLOB.persistence_pinned_site_z) : "(empty)"] before ss13_zone_security load.")
 	var/datum/db_query/zq = SSdbcore.NewQuery(
 		"SELECT z, sec_level FROM ss13_zone_security", list())
 	zq.Execute()
 	var/loaded = 0
 	while(zq.NextRow())
-		GLOB.zone_security_by_z["[text2num(zq.item[1])]"] = text2num(zq.item[2])
+		var/row_z = text2num(zq.item[1])
+		var/row_level = text2num(zq.item[2])
+		GLOB.zone_security_by_z["[row_z]"] = row_level
+		log_subsystem_persistence_info("Zone security: loaded z=[row_z] -> [zone_security_name(row_level)] from ss13_zone_security.")
 		loaded++
 	qdel(zq)
 	zone_security_update_overmap()
 	if(loaded)
-		log_subsystem_persistence_info("Zone security: loaded [loaded] z-level zone(s).")
+		log_subsystem_persistence_info("Zone security: loaded [loaded] z-level zone(s). Final map: [json_encode(GLOB.zone_security_by_z)]")
 
 /**
  * Paint every overmap sector marker with its zone's outline color
@@ -184,6 +188,11 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 		if(!get_turf(MC))
 			continue
 		if(normalize_faction_uid(MC.persistent_network) != "hub")
+			continue
+		// A dead-battery/powered-off PDA can't display the alert -- computer_use_power()
+		// with its default zero-usage argument is a read-only power check, it doesn't
+		// additionally drain the computer just to test this.
+		if(!MC.enabled || !MC.screen_on || !MC.computer_use_power())
 			continue
 		if(!MC.hard_drive || !MC.hard_drive.find_file_by_name("firstresponder"))
 			continue

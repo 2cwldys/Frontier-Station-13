@@ -207,6 +207,9 @@ ANTAG_HUD_RESTRICTED
 ## If uncommented, players can drag their mob onto another consenting player (or a humanoid NPC) to open the intimate interaction menu. Players must also individually opt in via the "Toggle Intimate Interactions" preference.
 ALLOW_INTIMATE_INTERACTIONS
 
+## If uncommented, intimate interactions respect each participant's "Toggle Intimate Interactions" preference (the default, off, means that preference is ignored and anyone can be targeted).
+#REQUIRE_CONSENT
+
 ## How much time a drone fabricator will take to produce a single drone. In deciseconds.
 #DRONE_BUILD_TIME 1200
 

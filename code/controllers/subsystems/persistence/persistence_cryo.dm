@@ -198,7 +198,17 @@
 		H.status_flags |= GODMODE  // Prevent hunger/thirst/health damage while stored
 		log_subsystem_persistence_info("Cryo: [H.real_name] stored at telepad ([hold_turf.x],[hold_turf.y],[hold_turf.z]).")
 	else
-		log_subsystem_persistence_info("Cryo: [H.real_name] stored  no telepad found, mob remains at current location.")
+		// No hold turf available -- the character save above already fully
+		// completed, so it's safe to remove the mob outright, matching
+		// persistence_cryo_despawn()/_persistence_dead_despawn()'s existing
+		// pattern in this same file. Leaving it in place without GODMODE (the
+		// success branch above applies stat/density/GODMODE together as one
+		// unit) left a live, un-flagged mob sitting in the world that would
+		// resume normal Life() ticking -- including the SSD auto-sleep path
+		// re-triggering Sleeping() every few minutes -- forever.
+		log_subsystem_persistence_info("Cryo: [H.real_name] stored  no telepad found, removing mob.")
+		qdel(H)
+		return TRUE
 
 	return TRUE
 

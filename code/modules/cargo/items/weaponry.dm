@@ -3,7 +3,7 @@
 /singleton/cargo_item/tasergun
 	category = "weaponry"
 	name = "taser gun"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "The NT Mk30 NL is a small, low capacity gun used for non-lethal takedowns."
 	price = 310
 	items = list(
@@ -17,7 +17,7 @@
 /singleton/cargo_item/pistol45
 	category = "weaponry"
 	name = ".45 pistol"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "The NanoTrasen Mk58 .45-caliber pistol. Inexpensive, reliable, and ubiquitous among security forces galaxy-wide."
 	price = 800
 	items = list(
@@ -31,7 +31,7 @@
 /singleton/cargo_item/machinepistol
 	category = "weaponry"
 	name = "machine pistol"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "The ZI 550 Saber is a cheap self-defense weapon, mass-produced by Zavodskoi Interstellar for paramilitary and private use."
 	price = 1200
 	items = list(
@@ -45,7 +45,7 @@
 /singleton/cargo_item/ballisticcarbine
 	category = "weaponry"
 	name = "ballistic carbine"
-	supplier = "virgo"
+	supplier = "Hub"
 	description = "A durable, rugged looking semi-automatic weapon of a make popular on the frontier worlds. Uses 5.56mm rounds."
 	price = 1500
 	items = list(
@@ -59,7 +59,7 @@
 /singleton/cargo_item/bullpupassaultcarbine
 	category = "weaponry"
 	name = "Z8 bullpup assault carbine"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "The ZI Bulldog 5.56mm bullpup assault carbine, Zavodskoi Industries' answer to any problem that can be solved by an assault rifle."
 	price = 1750
 	items = list(
@@ -73,7 +73,7 @@
 /singleton/cargo_item/combatshotgun
 	category = "weaponry"
 	name = "combat shotgun"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "Built for close quarters combat, the Hephaestus Industries KS-40 is widely regarded as a weapon of choice for repelling boarders."
 	price = 1300
 	items = list(
@@ -87,7 +87,7 @@
 /singleton/cargo_item/energycarbine
 	category = "weaponry"
 	name = "energy carbine"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "An energy-based carbine with two settings: Stun and kill."
 	price = 1200
 	items = list(
@@ -101,7 +101,7 @@
 /singleton/cargo_item/energypistol
 	category = "weaponry"
 	name = "energy pistol"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "A basic energy-based pistol gun with two settings: Stun and kill."
 	price = 750
 	items = list(
@@ -115,7 +115,7 @@
 /singleton/cargo_item/ionrifle
 	category = "weaponry"
 	name = "ion rifle"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "The NT Mk60 EW Halicon is a man portable anti-armor weapon designed to disable mechanical threats."
 	price = 1200
 	items = list(
@@ -128,7 +128,7 @@
 /singleton/cargo_item/marksmanenergyrifle
 	category = "weaponry"
 	name = "marksman energy rifle"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "The HI L.W.A.P. is an older design of Hephaestus Industries. A designated marksman rifle capable of shooting powerful ionized bolts."
 	price = 2100
 	items = list(
@@ -142,7 +142,7 @@
 /singleton/cargo_item/laserrifle
 	category = "weaponry"
 	name = "laser rifle"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "A common laser weapon, designed to kill with concentrated energy blasts."
 	price = 1400
 	items = list(
@@ -156,7 +156,7 @@
 /singleton/cargo_item/peac
 	category = "weaponry"
 	name = "point entry anti-materiel cannon"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "An SCC-designed, man-portable cannon meant to neutralize mechanized threats. Spectacularly effective, though equally spectacularly unwieldy."
 	price = 2200
 	items = list(
@@ -170,7 +170,7 @@
 /singleton/cargo_item/adhomianrecoillessrifle
 	category = "weaponry"
 	name = "adhomian recoilless rifle"
-	supplier = "zharkov"
+	supplier = "Hub"
 	description = "Shoulder-fired man-portable anti-tank recoilless rifle with a single shot. Relatively inexpensive and does its job."
 	price = 1200
 	items = list(
@@ -184,7 +184,7 @@
 /singleton/cargo_item/boltactionrifle
 	category = "weaponry"
 	name = "bolt action rifle"
-	supplier = "zharkov"
+	supplier = "Hub"
 	description = "An Adhomian bolt-action rifle."
 	price = 750
 	items = list(
@@ -198,7 +198,7 @@
 /singleton/cargo_item/prarifle
 	category = "weaponry"
 	name = "Tsarrayut'yan automatic rifle"
-	supplier = "zharkov"
+	supplier = "Hub"
 	description = "An Adhomian assault rifle from the People's Republic of Adhomai."
 	price = 1650
 	items = list(
@@ -212,7 +212,7 @@
 /singleton/cargo_item/derringer
 	category = "weaponry"
 	name = "derringer"
-	supplier = "zharkov"
+	supplier = "Hub"
 	description = "A blast from the past that can fit in your pocket."
 	price = 650
 	items = list(
@@ -226,7 +226,7 @@
 /singleton/cargo_item/silencedpistol
 	category = "weaponry"
 	name = "silenced pistol"
-	supplier = "zharkov"
+	supplier = "Hub"
 	description = "Internally silenced for stealthy operations."
 	price = 1350
 	items = list(
@@ -242,7 +242,7 @@
 /singleton/cargo_item/ammunitionbox_beanbag
 	category = "weaponry"
 	name = "shotgun ammunition box (beanbag shells)"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "A box of less-lethal beanbag shells."
 	price = 65
 	items = list(
@@ -256,7 +256,7 @@
 /singleton/cargo_item/ammunitionbox_haywire
 	category = "weaponry"
 	name = "shotgun ammunition box (haywire shells)"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "A box of EMP-inducing 'haywire' shotgun shells."
 	price = 90
 	items = list(
@@ -270,7 +270,7 @@
 /singleton/cargo_item/ammunitionbox_incendiary
 	category = "weaponry"
 	name = "shotgun ammunition box (incendiary shells)"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "A box of incendiary shotgun shells."
 	price = 95
 	items = list(
@@ -284,7 +284,7 @@
 /singleton/cargo_item/ammunitionbox_shells
 	category = "weaponry"
 	name = "shotgun ammunition box (buckshot)"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "A box of shotgun buckshot shells."
 	price = 70
 	items = list(
@@ -298,7 +298,7 @@
 /singleton/cargo_item/ammunitionbox_slugs
 	category = "weaponry"
 	name = "shotgun ammunition box (slug)"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "A box of shotgun slugs."
 	price = 80
 	items = list(
@@ -312,7 +312,7 @@
 /singleton/cargo_item/illuminationshells_box
 	category = "weaponry"
 	name = "shotgun ammunition box (illumination)"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "A box of illuminating shotgun shells."
 	price = 65
 	items = list(
@@ -326,7 +326,7 @@
 /singleton/cargo_item/anti_materiel_cannon_cartridge
 	category = "weaponry"
 	name = "anti-materiel cannon cartridge"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "A single use cartridge for a point-entry anti-materiel cannon."
 	price = 300
 	items = list(
@@ -340,7 +340,7 @@
 /singleton/cargo_item/carbinemagazine_556
 	category = "weaponry"
 	name = "C-type carbine magazine (5.56mm)"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "Civilian-issue 5.56mm magazine with reduced capacity. Fits most private-issue 5.56mm weapons."
 	price = 45
 	items = list(
@@ -354,7 +354,7 @@
 /singleton/cargo_item/apcarbinemagazine_556
 	category = "weaponry"
 	name = "C-type armor-piercing carbine magazine (5.56mm)"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "Civilian-issue 5.56mm magazine with reduced capacity. Fits most private-issue 5.56mm weapons."
 	price = 55
 	items = list(
@@ -368,7 +368,7 @@
 /singleton/cargo_item/magazine_556
 	category = "weaponry"
 	name = "M-type rifle magazine (5.56mm)"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "A 5.56 ammo magazine for military assault rifles. Incompatible with weapons that take C-type magazines."
 	price = 60
 	items = list(
@@ -382,7 +382,7 @@
 /singleton/cargo_item/magazine_556/ap
 	category = "weaponry"
 	name = "M-type armor-piercing rifle magazine (5.56mm)"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "A 5.56 AP ammo magazine for military assault rifles. Incompatible with weapons that take C-type magazines."
 	price = 70
 	items = list(
@@ -396,7 +396,7 @@
 /singleton/cargo_item/magazine_762
 	category = "weaponry"
 	name = "rifle magazine (7.62mm)"
-	supplier = "zharkov"
+	supplier = "Hub"
 	description = "A 7.62mm rifle magazine."
 	price = 65
 	items = list(
@@ -410,7 +410,7 @@
 /singleton/cargo_item/clip_68
 	category = "weaponry"
 	name = "rifle clip (6.8mm)"
-	supplier = "zharkov"
+	supplier = "Hub"
 	description = "A clip of 6.8mm for Adhomian rifles."
 	price = 30
 	items = list(
@@ -424,7 +424,7 @@
 /singleton/cargo_item/magazine_68
 	category = "weaponry"
 	name = "rifle magazine (6.8mm)"
-	supplier = "zharkov"
+	supplier = "Hub"
 	description = "A 6.8mm rifle magazine."
 	price = 65
 	items = list(
@@ -438,7 +438,7 @@
 /singleton/cargo_item/magazine_68ap
 	category = "weaponry"
 	name = "rifle magazine (6.8mm AP)"
-	supplier = "zharkov"
+	supplier = "Hub"
 	description = "An AP 6.8mm rifle magazine."
 	price = 80
 	items = list(
@@ -452,7 +452,7 @@
 /singleton/cargo_item/magazine_68sniper
 	category = "weaponry"
 	name = "sniper rifle magazine (6.8mm AP)"
-	supplier = "zharkov"
+	supplier = "Hub"
 	description = "An AP 6.8mm rifle magazine."
 	price = 70
 	items = list(
@@ -466,7 +466,7 @@
 /singleton/cargo_item/magazine_9
 	category = "weaponry"
 	name = "pistol magazine (9mm)"
-	supplier = "zharkov"
+	supplier = "Hub"
 	description = "A 9mm pistol magazine."
 	price = 25
 	items = list(
@@ -480,7 +480,7 @@
 /singleton/cargo_item/magazine_45
 	category = "weaponry"
 	name = "pistol magazine (.45)"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "A .45-caliber pistol magazine."
 	price = 30
 	items = list(
@@ -494,7 +494,7 @@
 /singleton/cargo_item/magazine_45flash
 	category = "weaponry"
 	name = "pistol magazine (.45 flash)"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "A .45-caliber less-lethal flash magazine."
 	price = 35
 	items = list(
@@ -508,7 +508,7 @@
 /singleton/cargo_item/topmounted_9mm
 	category = "weaponry"
 	name = "top mounted magazine (9mm)"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "A top-mounted 9mm magazine designed for the ZI 550 machine pistol. Contains lethal rounds."
 	price = 40
 	items = list(
@@ -522,7 +522,7 @@
 /singleton/cargo_item/topmounted_9mmrubber
 	category = "weaponry"
 	name = "top mounted magazine (9mm rubber)"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "A top-mounted 9mm magazine designed for the ZI 550 machine pistol. Contains less-lethal rubber rounds."
 	price = 35
 	items = list(
@@ -536,7 +536,7 @@
 /singleton/cargo_item/tranquilizerdarts_50cal_pps
 	category = "security"
 	name = "tranquilizer darts (.50 cal PPS)"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "A box of 50-caliber tranquilizer darts."
 	price = 50
 	items = list(
@@ -550,7 +550,7 @@
 /singleton/cargo_item/duslug
 	category = "weaponry"
 	name = "depleted uranium gauss slugs"
-	supplier = "virgo"
+	supplier = "Hub"
 	description = "A box with several depleted uranium slugs, aimed for use in older gauss rifles."
 	price = 125
 	items = list(
@@ -564,7 +564,7 @@
 /singleton/cargo_item/franciscaapammo
 	category = "weaponry"
 	name = "francisca rotary cannon AP ammunition box"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "A box of 40mm AP ammo for the francisca rotary cannon."
 	price = 850
 	items = list(
@@ -578,7 +578,7 @@
 /singleton/cargo_item/franciscafmjammo
 	category = "weaponry"
 	name = "francisca rotary cannon FMJ ammunition box"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "A box of 40mm FMJ ammo for a Francisca-type rotary cannon."
 	price = 800
 	items = list(
@@ -592,7 +592,7 @@
 /singleton/cargo_item/franciscafmjammo
 	category = "weaponry"
 	name = "francisca rotary cannon fragmentation ammunition box"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "A box of 40mm fragmentation ammo for a Francisca-type rotary cannon."
 	price = 800
 	items = list(
@@ -606,7 +606,7 @@
 /singleton/cargo_item/grauwolfapflak
 	category = "weaponry"
 	name = "grauwolf AP flak shells"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "Armor-Piercing shells for a Grauwolf-type flak battery."
 	price = 1800
 	items = list(
@@ -620,7 +620,7 @@
 /singleton/cargo_item/grauwolfheflak
 	category = "weaponry"
 	name = "grauwolf HE flak shells"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "High-explosive shells for a Grauwolf-type flak battery."
 	price = 1600
 	items = list(
@@ -634,7 +634,7 @@
 /singleton/cargo_item/longbowcasing
 	category = "weaponry"
 	name = "longbow casing"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "A casing for a 406mm warhead, designed for a Longbow-type cannon."
 	price = 1000
 	items = list(
@@ -648,7 +648,7 @@
 /singleton/cargo_item/longbowapwarhead
 	category = "weaponry"
 	name = "longbow AP warhead"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "An armor-piercing 406mm warhead, designed for a Longbow-type cannon."
 	price = 1800
 	items = list(
@@ -662,7 +662,7 @@
 /singleton/cargo_item/longbowepwarhead
 	category = "weaponry"
 	name = "longbow EP warhead"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "A bunker-buster 406mm warhead, designed for a Longbow-type cannon."
 	price = 2200
 	items = list(
@@ -676,7 +676,7 @@
 /singleton/cargo_item/longbowhewarhead
 	category = "weaponry"
 	name = "longbow HE warhead"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "A high-explosive 406mm warhead, designed for a Longbow-type cannon."
 	price = 1650
 	items = list(
@@ -690,7 +690,7 @@
 /singleton/cargo_item/highpowerlongbowprimer
 	category = "weaponry"
 	name = "high-power longbow primer"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "A high-power primer for a 406mm warhead, designed for a Longbow-type cannon."
 	price = 800
 	items = list(
@@ -704,7 +704,7 @@
 /singleton/cargo_item/longbowwarheadprimer
 	category = "weaponry"
 	name = "longbow warhead primer"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "A standard primer for a 406mm warhead, designed for a Longbow-type cannon."
 	price = 500
 	items = list(
@@ -718,7 +718,7 @@
 /singleton/cargo_item/lowpowerlongbowprimer
 	category = "weaponry"
 	name = "low-power longbow primer"
-	supplier = "zavodskoi"
+	supplier = "Hub"
 	description = "A low-power primer for a 406mm warhead, designed for a Longbow-type cannon."
 	price = 350
 	items = list(

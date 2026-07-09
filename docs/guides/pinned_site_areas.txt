@@ -1,0 +1,129 @@
+PINNED SITE AREAS -- how to mark out and power your own territory
+====================================================================
+
+WHICH ITEM TO USE
+--------------------------------------------------------------------
+Use OUTPOST BLUEPRINTS specifically, not the base station blueprints.
+Outpost blueprints are CE-access-locked. Base station blueprints only
+ever work on the station's own Z-levels -- they will never work on a
+pinned/away site, no matter what.
+
+OPENING THE MENU
+--------------------------------------------------------------------
+Use the blueprints in-hand (activate them). A menu opens with:
+  - Use Blueprints      -- general entry point, pick your own action
+                            once you're in scanning mode.
+  - Add to Area         -- shortcut into scanning mode, meant for
+                            expanding an area you're already standing in.
+  - Highlight Area      -- shortcut into scanning mode, meant for seeing
+                            what an existing area currently covers.
+  - Modify Area         -- shortcut into scanning mode, meant for
+                            shrinking an area you're already standing in.
+  - Remove Area         -- shortcut into scanning mode, meant for
+                            deleting an area you're already standing in.
+Picking any option other than "Use Blueprints" still drops you into the
+same scanning mode -- it just reminds you which on-screen button to use
+once you've made your selection. The actual work happens with the
+on-screen buttons described below.
+
+SELECTING TILES
+--------------------------------------------------------------------
+Once in scanning mode, left-click one tile to drop the first corner of
+your selection, then left-click a second tile to select the full
+rectangle between them. Either corner, either order -- doesn't matter.
+
+Shift-click while selecting REMOVES tiles from your current selection.
+Ctrl-click CLEARS your whole selection.
+
+Selected tiles show a live overlay: GREEN means valid, RED means
+invalid. You do not need to manually check for overlap with another
+area -- the tool already rejects any tile that's part of another named
+area (you'll see it turn red, and creation is blocked outright if you
+try to include it). You can only claim genuinely unclaimed space.
+
+Size cap: 300 tiles per area. The selection must also be one single
+contiguous block -- no disconnected patches counted as one area.
+
+ON-SCREEN BUTTONS (while in scanning mode)
+--------------------------------------------------------------------
+  Mark New Area     -- turns your current (valid) selection into a
+                        brand new area. Prompts you for a name.
+  Detect Room        -- stand anywhere inside a fully enclosed room and
+                        use this instead of box-selecting: it flood-fills
+                        outward through open floor, stops at the walls (or
+                        closed doors) around you, and immediately prompts
+                        you for a name to turn the whole room -- walls
+                        included -- straight into a new area in one action,
+                        no separate "Mark New Area" click needed. All doors
+                        bounding the room must be closed first, or the fill
+                        leaks into whatever's beyond them and the detection
+                        is refused outright rather than guessing a
+                        boundary. Handles irregular rooms and hallway
+                        offshoots without needing several manual
+                        box-selects.
+  Add to Area        -- adds your current selection onto the area you
+                        are physically standing in. The selection may
+                        include background tiles and/or tiles already
+                        part of that same area.
+  Highlight Area      -- briefly flashes every tile currently in the
+                        area you're standing in, so you can see its
+                        full extent before deciding where to expand.
+  Modify Area          -- removes your current selection FROM the area
+                        you're standing in, reverting those tiles back
+                        to background. Use this to shrink an area.
+  Remove Area        -- deletes the entire area you're standing in
+                        (blocked if it still has an APC installed --
+                        remove the APC first). Reverted tiles fall back
+                        to a generic background area on a pinned site
+                        (not anything site-specific).
+  Edit Area          -- renames the area you're standing in. Also
+                        renames nearby APCs/alarms/vents/doors to
+                        match. Renaming persists across a restart the
+                        same as everything else about the area.
+  Remove Selection   -- clears your current tile selection.
+  Help               -- reminder of the click controls.
+
+"SUBAREAS"
+--------------------------------------------------------------------
+There's no true nested/parent-child area support -- every area is a
+flat, non-overlapping region. If you want multiple distinct named
+zones on one site (e.g. a "Brig" carved out separately from a larger
+"Barracks"), create the smaller/more specific areas FIRST. Once a
+region is claimed by one area, you can't punch a new area out of it
+without removing it first (Remove Area, which requires no APC
+installed).
+
+POWER: SETTING UP AN APC
+--------------------------------------------------------------------
+A newly created area starts completely unpowered -- you still need to
+physically build and wire an APC, exactly like anywhere else:
+  1. Build/place the APC frame in the area.
+  2. Insert the power control board.
+  3. Screwdriver to secure the electronics.
+  4. Cable coil (10x) on the floor tile in front of the APC to build
+     and connect the power terminal. You must remove the floor plating
+     on that tile first.
+  5. Insert a power cell.
+Binding to the area itself is automatic -- the APC just reads whatever
+area its own tile belongs to. No extra step needed once it's built and
+wired.
+
+PERSISTENCE
+--------------------------------------------------------------------
+Everything about a blueprint-created area -- its name, its exact
+boundary, and (if a faction beacon has claimed it) its faction
+ownership -- survives a server restart. A rename via Edit Area, or
+tiles added/removed via Add to Area/Modify Area, are all captured on
+the next save, not just whatever the area looked like at creation.
+
+FACTION OWNERSHIP
+--------------------------------------------------------------------
+A faction beacon placed anywhere on the same Z-level as a blueprint-
+created area will claim that area for its faction automatically, the
+same way it already claims nearby cryopods/telepads/modular computers/
+telecomms machinery. The beacon's reach is the WHOLE Z-level it's on,
+not just nearby tiles. Only one beacon can be active per Z-level at a
+time -- an already-placed, still-active beacon takes precedence, and a
+second beacon on the same Z will be refused until the first one is
+destroyed or its faction is cleared. An ordinary mapped station area
+is never claimed this way, only areas created through blueprints.

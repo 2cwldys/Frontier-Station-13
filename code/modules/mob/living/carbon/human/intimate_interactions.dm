@@ -20,6 +20,7 @@
 */
 
 #define FUCK_CAP 40
+#define MASTURBATE_CAP 30
 #define FUCK_COOLDOWN (5 MINUTES)
 #define EUPHORIC_RAINBOW_DURATION (25 SECONDS)
 
@@ -148,11 +149,20 @@ GLOBAL_LIST_INIT(throat_fuck_pops, list(
 	popup.open()
 
 /mob/living/carbon/human/var/fuck_count = 0
+/mob/living/carbon/human/var/masturbate_count = 0
 /mob/living/carbon/human/var/fuck_cooldown_until = 0
 /mob/living/carbon/human/var/recently_came_until = 0
 /mob/living/carbon/human/var/list/fuck_recent_uses = list()
 /mob/living/carbon/human/var/mob/living/carbon/human/mounting = null // who I am currently Super Grabbing
 /mob/living/carbon/human/var/mob/living/carbon/human/mounted_by = null // who is currently Super Grabbing me
+/mob/living/carbon/human/var/list/recent_action_given = list() // REF(target) -> list(verb, time) of the last thing I did to them
+
+/// TRUE if I did `verb` to `target` within the last 3 seconds -- used to pair up complementary
+/// simultaneous acts (e.g. throat-fucking someone while they suck you) towards both participants'
+/// counts instead of just the receiver's.
+/mob/living/carbon/human/proc/gave_recently(mob/living/carbon/human/target, verb)
+	var/list/entry = recent_action_given[REF(target)]
+	return entry && entry[1] == verb && entry[2] >= world.time - 3 SECONDS
 
 /mob/living/carbon/human/proc/receive_mount(mob/living/carbon/human/grabber)
 	// Using Super Grab again on someone you're already Super Grabbing toggles it off.
@@ -210,7 +220,9 @@ GLOBAL_LIST_INIT(throat_fuck_pops, list(
 	mounted_by = null
 
 /mob/living/carbon/human/proc/receive_fuck(mob/living/carbon/human/hugger)
-	if(mounted_by != hugger)
+	// Either side of an existing mount can initiate -- they're already mounted
+	// together, so a second/reverse mount isn't required for the other to fuck back.
+	if(mounted_by != hugger && mounting != hugger)
 		to_chat(hugger, SPAN_WARNING("You need to mount [src] before you can fuck them."))
 		return
 
@@ -232,7 +244,7 @@ GLOBAL_LIST_INIT(throat_fuck_pops, list(
 
 	fuck_recent_uses += world.time
 
-	visible_message(SPAN_NOTICE("[hugger] mounts [src]!"))
+	visible_message(SPAN_NOTICE("[hugger] fucks [src]!"))
 	// Placeholder pop #1 -- swap for a dedicated "hug squeeze" sound when one exists
 	playsound(src, pick(GLOB.fuck_bang_pops), rand(35, 45), TRUE)
 	// Placeholder pop #2, a tick behind the first, for a "double pop" cadence -- swap alongside pop #1
@@ -240,6 +252,8 @@ GLOBAL_LIST_INIT(throat_fuck_pops, list(
 	hugger.quick_jitter(3 SECONDS)
 
 	fuck_count++
+	// Already mounted together -- this is inherently mutual, so it counts towards both.
+	hugger.fuck_count++
 
 	// Every 4th hug, an extra pop plays based on the hugger's real gender. 25% of the time,
 	// both the hugger's-gender and target's-gender pops play together instead, staggered --
@@ -256,7 +270,11 @@ GLOBAL_LIST_INIT(throat_fuck_pops, list(
 	if(fuck_count >= FUCK_CAP)
 		fuck_count = 0
 		fuck_cooldown_until = world.time + FUCK_COOLDOWN
-		if(hugger.gender == FEMALE)
+		if(hugger.gender == FEMALE && src.gender == FEMALE)
+			src.recently_came_until = world.time + FUCK_COOLDOWN
+			hugger.recently_came_until = world.time + FUCK_COOLDOWN
+			visible_message(SPAN_DANGER("[hugger] cums together with [src]!"))
+		else if(hugger.gender == FEMALE)
 			src.recently_came_until = world.time + FUCK_COOLDOWN
 			visible_message(SPAN_DANGER("[src] has came inside of [hugger]!"))
 		else
@@ -276,6 +294,35 @@ GLOBAL_LIST_INIT(throat_fuck_pops, list(
 		apply_euphoric_rainbow() // src (the target) gets it too now
 		hugger.quick_jitter(10 SECONDS)
 		quick_jitter(10 SECONDS)
+
+	// Independent check for hugger's own count -- normally in lockstep with src's (since
+	// mounted-together pairing above increments both every time), but kept separate in case
+	// hugger had a head start from an unrelated earlier interaction.
+	if(hugger.fuck_count >= FUCK_CAP)
+		hugger.fuck_count = 0
+		hugger.fuck_cooldown_until = world.time + FUCK_COOLDOWN
+		if(src.gender == FEMALE && hugger.gender == FEMALE)
+			hugger.recently_came_until = world.time + FUCK_COOLDOWN
+			src.recently_came_until = world.time + FUCK_COOLDOWN
+			visible_message(SPAN_DANGER("[src] cums together with [hugger]!"))
+		else if(src.gender == FEMALE)
+			hugger.recently_came_until = world.time + FUCK_COOLDOWN
+			visible_message(SPAN_DANGER("[hugger] has came inside of [src]!"))
+		else
+			src.recently_came_until = world.time + FUCK_COOLDOWN
+			visible_message(SPAN_DANGER("[src] has came inside of [hugger]!"))
+		playsound(hugger, pick(GLOB.fuck_bang_pops), 100, TRUE)
+		playsound(hugger, 'honk/sound/interactions/swallow.ogg', 10, TRUE)
+		playsound(hugger, 'honk/sound/interactions/swallow.ogg', 20, TRUE)
+		playsound(hugger, 'honk/sound/interactions/swallow.ogg', 30, TRUE)
+		playsound(hugger, pick(src.gender == FEMALE ? GLOB.fuck_female_pops : GLOB.fuck_male_pops), 100, TRUE)
+		var/turf/simulated/hugger_location = get_turf(hugger)
+		if(istype(hugger_location, /turf/simulated))
+			hugger_location.add_cum(hugger)
+		src.apply_euphoric_rainbow()
+		hugger.apply_euphoric_rainbow()
+		quick_jitter(10 SECONDS)
+		hugger.quick_jitter(10 SECONDS)
 
 /mob/living/carbon/human/proc/receive_throat_fuck(mob/living/carbon/human/hugger)
 	if(hugger.wear_suit || hugger.w_uniform || src.wear_suit || src.w_uniform)
@@ -300,7 +347,13 @@ GLOBAL_LIST_INIT(throat_fuck_pops, list(
 	playsound(src, pick(GLOB.throat_fuck_pops), rand(35, 45), TRUE)
 	hugger.quick_jitter(3 SECONDS)
 
+	// Paired with a recent "suck" the other way (69-style) -- counts towards both.
+	var/mutual = src.gave_recently(hugger, "suck")
+	hugger.recent_action_given[REF(src)] = list("throat_fuck", world.time)
+
 	fuck_count++
+	if(mutual)
+		hugger.fuck_count++
 
 	if(fuck_count % 4 == 0)
 		playsound(src, pick(GLOB.throat_fuck_pops), 50, TRUE)
@@ -324,6 +377,27 @@ GLOBAL_LIST_INIT(throat_fuck_pops, list(
 		hugger.apply_euphoric_rainbow()
 		apply_euphoric_rainbow()
 		hugger.quick_jitter(10 SECONDS)
+
+	// Independent check for hugger's own count, paired here via the recent mutual "suck" --
+	// hugger is on the receiving end of that, so the climax fires from src's throat-fuck.
+	if(mutual && hugger.fuck_count >= FUCK_CAP)
+		hugger.fuck_count = 0
+		hugger.fuck_cooldown_until = world.time + FUCK_COOLDOWN
+		src.recently_came_until = world.time + FUCK_COOLDOWN
+		visible_message(SPAN_DANGER("[src] makes [hugger] cum!"))
+		playsound(hugger, pick(GLOB.throat_fuck_pops), 100, TRUE)
+		playsound(hugger, pick(GLOB.fuck_male_pops), 100, TRUE)
+		playsound(hugger, 'honk/sound/interactions/swallow.ogg', 40, TRUE)
+		playsound(hugger, 'honk/sound/interactions/swallow.ogg', 55, TRUE)
+		playsound(hugger, 'honk/sound/interactions/swallow.ogg', 70, TRUE)
+		playsound(hugger, 'honk/sound/interactions/swallow.ogg', 85, TRUE)
+		playsound(hugger, 'honk/sound/interactions/swallow.ogg', 100, TRUE)
+		var/turf/simulated/hugger_location = get_turf(hugger)
+		if(istype(hugger_location, /turf/simulated))
+			hugger_location.add_cum(hugger)
+		src.apply_euphoric_rainbow()
+		hugger.apply_euphoric_rainbow()
+		src.quick_jitter(10 SECONDS)
 
 /mob/living/carbon/human/proc/receive_suck(mob/living/carbon/human/hugger)
 	if(src.gender != MALE)
@@ -352,7 +426,13 @@ GLOBAL_LIST_INIT(throat_fuck_pops, list(
 	playsound(src, pick(GLOB.throat_fuck_pops), rand(35, 45), TRUE)
 	hugger.quick_jitter(3 SECONDS)
 
+	// Paired with a recent "throat_fuck" the other way (69-style) -- counts towards both.
+	var/mutual = src.gave_recently(hugger, "throat_fuck")
+	hugger.recent_action_given[REF(src)] = list("suck", world.time)
+
 	fuck_count++
+	if(mutual)
+		hugger.fuck_count++
 
 	if(fuck_count % 4 == 0)
 		playsound(src, pick(GLOB.throat_fuck_pops), 50, TRUE)
@@ -374,6 +454,69 @@ GLOBAL_LIST_INIT(throat_fuck_pops, list(
 		if(istype(location, /turf/simulated))
 			location.add_cum(src)
 		hugger.apply_euphoric_rainbow()
+		apply_euphoric_rainbow()
+		quick_jitter(10 SECONDS)
+
+	// Independent check for hugger's own count, paired here via the recent mutual
+	// "throat_fuck" -- hugger is on the receiving end of that, so the climax fires
+	// from src's suck.
+	if(mutual && hugger.fuck_count >= FUCK_CAP)
+		hugger.fuck_count = 0
+		hugger.fuck_cooldown_until = world.time + FUCK_COOLDOWN
+		hugger.recently_came_until = world.time + FUCK_COOLDOWN
+		visible_message(SPAN_DANGER("[src] has came down [hugger]'s throat!"))
+		playsound(hugger, pick(GLOB.throat_fuck_pops), 100, TRUE)
+		playsound(hugger, pick(GLOB.fuck_male_pops), 100, TRUE)
+		playsound(hugger, 'honk/sound/interactions/swallow.ogg', 40, TRUE)
+		playsound(hugger, 'honk/sound/interactions/swallow.ogg', 55, TRUE)
+		playsound(hugger, 'honk/sound/interactions/swallow.ogg', 70, TRUE)
+		playsound(hugger, 'honk/sound/interactions/swallow.ogg', 85, TRUE)
+		playsound(hugger, 'honk/sound/interactions/swallow.ogg', 100, TRUE)
+		var/turf/simulated/hugger_location = get_turf(hugger)
+		if(istype(hugger_location, /turf/simulated))
+			hugger_location.add_cum(hugger)
+		src.apply_euphoric_rainbow()
+		hugger.apply_euphoric_rainbow()
+		hugger.quick_jitter(10 SECONDS)
+
+/mob/living/carbon/human/verb/masturbate()
+	set name = "Masturbate"
+	set category = "IC"
+	set hidden = TRUE
+
+	if(!GLOB.config.intimate_interactions_allowed)
+		return
+	if(!client || !(client.prefs.toggles_secondary & INTIMATE_INTERACTIONS_ENABLED))
+		to_chat(src, SPAN_WARNING("You need to enable the 'Toggle Intimate Interactions' preference before you can do this."))
+		return
+	if(stat || restrained())
+		return
+	if(wear_suit || w_uniform)
+		to_chat(src, SPAN_WARNING("You need to be out of your suit and uniform first."))
+		return
+	if(world.time < fuck_cooldown_until)
+		to_chat(src, SPAN_WARNING("You've had enough for now."))
+		return
+
+	visible_message(SPAN_NOTICE("[src] masturbates."), SPAN_NOTICE("You masturbate."))
+	playsound(src, pick(GLOB.fuck_bang_pops), rand(35, 45), TRUE)
+	quick_jitter(3 SECONDS)
+
+	masturbate_count++
+
+	if(masturbate_count % 4 == 0)
+		playsound(src, pick(gender == FEMALE ? GLOB.fuck_female_pops : GLOB.fuck_male_pops), 50, TRUE)
+
+	if(masturbate_count >= MASTURBATE_CAP)
+		masturbate_count = 0
+		fuck_cooldown_until = world.time + FUCK_COOLDOWN
+		recently_came_until = world.time + FUCK_COOLDOWN
+		visible_message(SPAN_DANGER("[src] cums!"))
+		playsound(src, pick(GLOB.fuck_bang_pops), 100, TRUE)
+		playsound(src, pick(gender == FEMALE ? GLOB.fuck_female_pops : GLOB.fuck_male_pops), 100, TRUE)
+		var/turf/simulated/location = get_turf(src)
+		if(istype(location, /turf/simulated))
+			location.add_cum(src)
 		apply_euphoric_rainbow()
 		quick_jitter(10 SECONDS)
 

@@ -1,7 +1,7 @@
 /singleton/cargo_item/meat
 	category = "hospitality"
 	name = "meat (x5)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Slabs of real meat, from real animals. Freshly frozen and extremely not-vegan."
 	price = 55
 	items = list(
@@ -15,7 +15,7 @@
 /singleton/cargo_item/chicken
 	category = "hospitality"
 	name = "chicken breast (x5)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Boneless chicken breast fillets, for chicken-y recipes."
 	price = 65
 	items = list(
@@ -29,7 +29,7 @@
 /singleton/cargo_item/synthmeat
 	category = "hospitality"
 	name = "synthetic meat (x5)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Slabs of synthetic meat, grown in a factory. More or less identical to the real thing, but without the animal sacrifice."
 	price = 55
 	items = list(
@@ -43,7 +43,7 @@
 /singleton/cargo_item/adhomianmeat
 	category = "hospitality"
 	name = "adhomian meat (x5)"
-	supplier = "zharkov"
+	supplier = "Hub"
 	description = "A handful of meat slices from Adhomian animals. Freshly frozen."
 	price = 75
 	items = list(
@@ -57,7 +57,7 @@
 /singleton/cargo_item/fishfillet
 	category = "hospitality"
 	name = "fish fillet (x5)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Raw fish fillets, sourced from an aquaponics farm. Freshly frozen."
 	price = 55
 	items = list(
@@ -71,7 +71,7 @@
 /singleton/cargo_item/moghresianmeat
 	category = "hospitality"
 	name = "moghresian meat (x5)"
-	supplier = "arizi"
+	supplier = "Hub"
 	description = "Slabs of meat from animals native to Moghes. Freshly frozen."
 	price = 80
 	items = list(
@@ -85,7 +85,7 @@
 /singleton/cargo_item/squidmeat
 	category = "hospitality"
 	name = "squid meat (x5)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Squid meat, meat from squid. Makes for some tasty calamari."
 	price = 65
 	items = list(
@@ -99,7 +99,7 @@
 /singleton/cargo_item/wormfillet
 	category = "hospitality"
 	name = "worm fillet (x5)"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "Exotic meat from a Cavern Dweller. Mildly toxic if prepared improperly."
 	price = 90
 	items = list(
@@ -113,7 +113,7 @@
 /singleton/cargo_item/roesack
 	category = "hospitality"
 	name = "roe sack (x5)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A fleshy organ filled with fish eggs."
 	price = 80
 	items = list(
@@ -127,7 +127,7 @@
 /singleton/cargo_item/crablegs_box
 	category = "hospitality"
 	name = "box of Silversun crab legs"
-	supplier = "idris"
+	supplier = "Hub"
 	description = "A box filled with high-quality crab legs from Silversun. Shipped by popular demand!"
 	price = 120
 	items = list(
@@ -141,7 +141,7 @@
 /singleton/cargo_item/rasvalclams_box
 	category = "hospitality"
 	name = "box of Ras'val clams"
-	supplier = "zharkov"
+	supplier = "Hub"
 	description = "A box filled with clams from the Ras'val sea, imported from Adhomai."
 	price = 85
 	items = list(
@@ -155,7 +155,7 @@
 /singleton/cargo_item/hmatrrafillet
 	category = "hospitality"
 	name = "Hma'trra fillet"
-	supplier = "zharkov"
+	supplier = "Hub"
 	description = "A fillet of glacier worm meat."
 	price = 45
 	items = list(
@@ -169,7 +169,7 @@
 /singleton/cargo_item/producebox
 	category = "hospitality"
 	name = "produce box"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "A large box of random, leftover produce."
 	price = 35
 	items = list(
@@ -183,7 +183,7 @@
 /singleton/cargo_item/producebox_adhomai
 	category = "hospitality"
 	name = "adhomian produce box"
-	supplier = "zharkov"
+	supplier = "Hub"
 	description = "A large box of random, leftover produce from Adhomai."
 	price = 45
 	items = list(
@@ -197,7 +197,7 @@
 /singleton/cargo_item/producebox_moghes
 	category = "hospitality"
 	name = "moghresian produce box"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A large box of random, leftover produce from Moghes."
 	price = 45
 	items = list(
@@ -211,7 +211,7 @@
 /singleton/cargo_item/producebox_nralakk
 	category = "hospitality"
 	name = "skrellian produce box"
-	supplier = "hephaestus"
+	supplier = "Hub"
 	description = "A large box of random, leftover produce from various Skrellian worlds."
 	price = 50
 	items = list(
@@ -225,7 +225,7 @@
 /singleton/cargo_item/spacespices
 	category = "hospitality"
 	name = "space spices (x2)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "An exotic blend of spices for cooking. It must flow."
 	price = 15
 	items = list(
@@ -239,7 +239,7 @@
 /singleton/cargo_item/sliced_bread
 	category = "hospitality"
 	name = "sliced bread"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Factory-grade, machine-baked, machine-sliced, machine-bagged bread. Just like mama used to make."
 	price = 8
 	items = list(
@@ -253,7 +253,7 @@
 /singleton/cargo_item/packaged_shrimp
 	category = "hospitality"
 	name = "packaged shrimp"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Frozen shrimp available at reasonable prices for any place in the Spur that can't get them fresh! Each pack contains 4 servings' worth of shrimp."
 	price = 90
 	items = list(
@@ -267,7 +267,7 @@
 /singleton/cargo_item/peppermill
 	category = "hospitality"
 	name = "pepper mill"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Often used to flavor food or make people sneeze."
 	price = 12
 	items = list(
@@ -281,7 +281,7 @@
 /singleton/cargo_item/saltshaker
 	category = "hospitality"
 	name = "salt shaker"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Salt. From space oceans, presumably."
 	price = 5
 	items = list(
@@ -295,7 +295,7 @@
 /singleton/cargo_item/barbecuesauce
 	category = "hospitality"
 	name = "barbecue sauce"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A bottle of tangy barbecue sauce."
 	price = 8
 	items = list(
@@ -309,7 +309,7 @@
 /singleton/cargo_item/hotsauce
 	category = "hospitality"
 	name = "hot sauce"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A bottle of spicy hot sauce."
 	price = 8
 	items = list(
@@ -323,7 +323,7 @@
 /singleton/cargo_item/garlicsauce
 	category = "hospitality"
 	name = "garlic sauce"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A bottle of pungent garlic sauce."
 	price = 8
 	items = list(
@@ -337,7 +337,7 @@
 /singleton/cargo_item/honey
 	category = "hospitality"
 	name = "honey"
-	supplier = "vysoka"
+	supplier = "Hub"
 	description = "A premium bottle of bee honey."
 	price = 20
 	items = list(
@@ -351,7 +351,7 @@
 /singleton/cargo_item/soy_sauce
 	category = "hospitality"
 	name = "soy sauce"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Savory, savory soy sauce."
 	price = 8
 	items = list(
@@ -365,7 +365,7 @@
 /singleton/cargo_item/ketchup
 	category = "hospitality"
 	name = "ketchup"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Tomato ketchup. The condiment that needs no introduction."
 	price = 6
 	items = list(
@@ -379,7 +379,7 @@
 /singleton/cargo_item/mayonnaise
 	category = "hospitality"
 	name = "mayonnaise"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A bottle of creamy mayonnaise."
 	price = 6
 	items = list(
@@ -393,7 +393,7 @@
 /singleton/cargo_item/NTella_jar
 	category = "hospitality"
 	name = "NTella jar"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A jar of popular NTella-brand hazelnut chocolate spread."
 	price = 12
 	items = list(
@@ -407,7 +407,7 @@
 /singleton/cargo_item/peanutbutterjar
 	category = "hospitality"
 	name = "peanut butter jar"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Simultaneously smooth and chunky."
 	price = 9
 	items = list(
@@ -421,7 +421,7 @@
 /singleton/cargo_item/cherryjellyjar
 	category = "hospitality"
 	name = "cherry jelly jar"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A cherry jelly jar."
 	price = 11
 	items = list(
@@ -435,7 +435,7 @@
 /singleton/cargo_item/grapejellyjar
 	category = "hospitality"
 	name = "grape jelly jar"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A grape jelly jar."
 	price = 11
 	items = list(
@@ -449,7 +449,7 @@
 /singleton/cargo_item/triglyceridebottle
 	category = "hospitality"
 	name = "triglyceride bottle"
-	supplier = "virgo"
+	supplier = "Hub"
 	description = "A small bottle. Contains triglyceride."
 	price = 20
 	items = list(
@@ -463,7 +463,7 @@
 /singleton/cargo_item/drinkingglasses_box
 	category = "hospitality"
 	name = "box of drinking glasses"
-	supplier = "virgo"
+	supplier = "Hub"
 	description = "A box of drinking glasses, for drinking purposes."
 	price = 25
 	items = list(
@@ -477,7 +477,7 @@
 /singleton/cargo_item/eggcarton
 	category = "hospitality"
 	name = "egg carton"
-	supplier = "vysoka"
+	supplier = "Hub"
 	description = "Eggs from mostly chicken."
 	price = 25
 	items = list(
@@ -491,7 +491,7 @@
 /singleton/cargo_item/floursack
 	category = "hospitality"
 	name = "flour sack"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A big bag of flour. Good for baking!"
 	price = 25
 	items = list(
@@ -505,7 +505,7 @@
 /singleton/cargo_item/sugarsack
 	category = "hospitality"
 	name = "sugar sack"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A big bag of sugar. Highly addictive."
 	price = 20
 	items = list(
@@ -519,7 +519,7 @@
 /singleton/cargo_item/ricesack
 	category = "hospitality"
 	name = "rice sack"
-	supplier = "vysoka"
+	supplier = "Hub"
 	description = "A big bag of rice. For all your rice needs."
 	price = 22
 	items = list(
@@ -533,7 +533,7 @@
 /singleton/cargo_item/universalenzyme
 	category = "hospitality"
 	name = "universal enzyme"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Used in cooking various dishes."
 	price = 15
 	items = list(
@@ -547,7 +547,7 @@
 /singleton/cargo_item/milk
 	category = "hospitality"
 	name = "milk carton"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "It's milk. White and nutritious goodness!"
 	price = 5
 	items = list(
@@ -561,7 +561,7 @@
 /singleton/cargo_item/soymilk
 	category = "hospitality"
 	name = "soymilk carton"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "It's soy milk. White and nutritious vegan goodness!"
 	price = 3.50
 	items = list(
@@ -575,7 +575,7 @@
 /singleton/cargo_item/cream
 	category = "hospitality"
 	name = "milk cream carton"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "It's cream. Made from milk. What else did you think you'd find in there?"
 	price = 3.50
 	items = list(
@@ -589,7 +589,7 @@
 /singleton/cargo_item/cream_cheese
 	category = "hospitality"
 	name = "cream cheese container"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A single container of cheese, it seems to be of the creamed variety."
 	price = 4.50
 	items = list(
@@ -603,7 +603,7 @@
 /singleton/cargo_item/fatshouters
 	category = "hospitality"
 	name = "fatshouters milk carton"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Fatty fatshouters milk in a carton."
 	price = 8.50
 	items = list(
@@ -617,7 +617,7 @@
 /singleton/cargo_item/orangejuice
 	category = "hospitality"
 	name = "orange juice carton"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Full of vitamins and deliciousness!"
 	price = 4
 	items = list(
@@ -631,7 +631,7 @@
 /singleton/cargo_item/tomatojuice
 	category = "hospitality"
 	name = "tomato juice carton"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Well, at least it LOOKS like tomato juice. You can't tell with all that redness."
 	price = 4
 	items = list(
@@ -645,7 +645,7 @@
 /singleton/cargo_item/limejuice
 	category = "hospitality"
 	name = "lime juice carton"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Sweet-sour goodness."
 	price = 4
 	items = list(
@@ -659,7 +659,7 @@
 /singleton/cargo_item/cranberryjuice
 	category = "hospitality"
 	name = "cranberry juice carton"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Tart and sweet. A unique flavor for a unique berry."
 	price = 4
 	items = list(
@@ -673,7 +673,7 @@
 /singleton/cargo_item/lemonjuice
 	category = "hospitality"
 	name = "lemon juice carton"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "This juice is VERY sour."
 	price = 4
 	items = list(
@@ -687,7 +687,7 @@
 /singleton/cargo_item/dynjuice
 	category = "hospitality"
 	name = "dyn juice carton"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Juice from a Skrell medicinal herb. It's supposed to be diluted."
 	price = 4
 	items = list(
@@ -701,7 +701,7 @@
 /singleton/cargo_item/applejuice
 	category = "hospitality"
 	name = "apple juice carton"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Juice from an apple. Yes."
 	price = 4
 	items = list(
@@ -715,7 +715,7 @@
 /singleton/cargo_item/chipmultipackcrate
 	category = "hospitality"
 	name = "chip multipack crate"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A Getmore supply crate of multipack chip bags."
 	price = 25
 	items = list(
@@ -734,7 +734,7 @@
 /singleton/cargo_item/dryrag
 	category = "hospitality"
 	name = "dry rags (x5)"
-	supplier = "blam"
+	supplier = "Hub"
 	description = "For cleaning up messes, you suppose."
 	price = 10
 	items = list(
@@ -748,7 +748,7 @@
 /singleton/cargo_item/flask
 	category = "hospitality"
 	name = "flask"
-	supplier = "virgo"
+	supplier = "Hub"
 	description = "For those who can't be bothered to hang out at the bar to drink."
 	price = 15
 	items = list(
@@ -762,7 +762,7 @@
 /singleton/cargo_item/goldschlager
 	category = "hospitality"
 	name = "Goldschlager"
-	supplier = "zharkov"
+	supplier = "Hub"
 	description = "A gold laced drink imported from noble houses within S'rand'marr."
 	price = 40
 	items = list(
@@ -776,7 +776,7 @@
 /singleton/cargo_item/champagne
 	category = "hospitality"
 	name = "Silverport champagne"
-	supplier = "idris"
+	supplier = "Hub"
 	description = "A rather fancy bottle of champagne, fit for collecting and storing in a cellar for decades."
 	price = 40
 	items = list(
@@ -790,7 +790,7 @@
 /singleton/cargo_item/wrappartistepatron
 	category = "hospitality"
 	name = "Wrapp Artiste patron"
-	supplier = "idris"
+	supplier = "Hub"
 	description = "Silver laced tequila, served in space night clubs across the galaxy."
 	price = 45
 	items = list(
@@ -804,7 +804,7 @@
 /singleton/cargo_item/sarezhiwine
 	category = "hospitality"
 	name = "Sarezhi Wine"
-	supplier = "arizi"
+	supplier = "Hub"
 	description = "A premium Moghean wine made from Sareszhi berries. Bottled by the Arizi Guild for over 200 years."
 	price = 35
 	items = list(
@@ -818,7 +818,7 @@
 /singleton/cargo_item/shaker
 	category = "hospitality"
 	name = "shaker"
-	supplier = "virgo"
+	supplier = "Hub"
 	description = "A metal shaker to mix drinks in."
 	price = 20
 	items = list(
@@ -832,7 +832,7 @@
 /singleton/cargo_item/pizzabox_margherita
 	category = "hospitality"
 	name = "pizza box, margherita"
-	supplier = "orion"
+	supplier = "Hub"
 	description = "Classic Orion Express Pizza, delivered across the galaxy piping hot and ready to eat."
 	price = 10
 	items = list(
@@ -846,7 +846,7 @@
 /singleton/cargo_item/pizzabox_meat
 	category = "hospitality"
 	name = "pizza box, meat"
-	supplier = "orion"
+	supplier = "Hub"
 	description = "Meaty Orion Express Pizza, delivered across the galaxy piping hot and ready to eat."
 	price = 10
 	items = list(
@@ -860,7 +860,7 @@
 /singleton/cargo_item/pizzabox_mushroom
 	category = "hospitality"
 	name = "pizza box, mushroom"
-	supplier = "orion"
+	supplier = "Hub"
 	description = "Earthy Orion Express Pizza, delivered across the galaxy piping hot and ready to eat."
 	price = 10
 	items = list(
@@ -874,7 +874,7 @@
 /singleton/cargo_item/pizzabox_pineapple
 	category = "hospitality"
 	name = "pizza box, pineapple"
-	supplier = "orion"
+	supplier = "Hub"
 	description = "Tropical Orion Express Pizza, delivered across the galaxy piping hot and ready to eat."
 	price = 10
 	items = list(
@@ -887,7 +887,7 @@
 /singleton/cargo_item/pizzabox_vegetable
 	category = "hospitality"
 	name = "pizza box, vegetable"
-	supplier = "orion"
+	supplier = "Hub"
 	description = "Vegetarian Orion Express Pizza, delivered across the galaxy piping hot and ready to eat."
 	price = 10
 	items = list(
@@ -901,7 +901,7 @@
 /singleton/cargo_item/pizzabox_pepperoni
 	category = "hospitality"
 	name = "pizza box, pepperoni"
-	supplier = "orion"
+	supplier = "Hub"
 	description = "Traditional Orion Express Pizza, delivered across the galaxy piping hot and ready to eat."
 	price = 10
 	items = list(
@@ -915,7 +915,7 @@
 /singleton/cargo_item/pizzabox_random
 	category = "hospitality"
 	name = "pizza box, random"
-	supplier = "orion"
+	supplier = "Hub"
 	description = "An order of Orion Express ready-to-eat pizza with special instructions, 'Surprise Me'."
 	price = 10
 	items = list(
@@ -929,7 +929,7 @@
 /singleton/cargo_item/redlipstick
 	category = "hospitality"
 	name = "red lipstick"
-	supplier = "nanotrasen"
+	supplier = "Hub"
 	description = "A generic brand of lipstick."
 	price = 5
 	items = list(
@@ -943,7 +943,7 @@
 /singleton/cargo_item/xuizijuicekeg
 	category = "hospitality"
 	name = "xuizi juice keg"
-	supplier = "virgo"
+	supplier = "Hub"
 	description = "A keg full of Xuizi juice, blended flower buds from the Moghean Xuizi cactus. The export stamp of the Arizi Guild is imprinted on the side."
 	price = 80
 	items = list(
@@ -957,7 +957,7 @@
 /singleton/cargo_item/beerkeg
 	category = "hospitality"
 	name = "beer keg"
-	supplier = "virgo"
+	supplier = "Hub"
 	description = "A keg of refreshing, intoxicating beer."
 	price = 220
 	items = list(
@@ -971,7 +971,7 @@
 /singleton/cargo_item/meadbarrel
 	category = "hospitality"
 	name = "mead barrel"
-	supplier = "virgo"
+	supplier = "Hub"
 	description = "A wooden mead barrel."
 	price = 300
 	items = list(
@@ -985,7 +985,7 @@
 /singleton/cargo_item/beer
 	category = "hospitality"
 	name = "Virklunder beer (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Virklunder beers, for cracking open a cold one."
 	price = 18
 	items = list(
@@ -998,7 +998,7 @@
 /singleton/cargo_item/ebisu
 	category = "hospitality"
 	name = "Ebisu Super Dry rice beer (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Ebisu Super Dry rice beer, for cracking open a cold one."
 	price = 22
 	items = list(
@@ -1011,7 +1011,7 @@
 /singleton/cargo_item/shimauma
 	category = "hospitality"
 	name = "Shimauma Ichiban rice beer (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Shimauma Ichiban rice beer, for cracking open a cold one."
 	price = 20
 	items = list(
@@ -1024,7 +1024,7 @@
 /singleton/cargo_item/moonlabor
 	category = "hospitality"
 	name = "Moonlabor Malt's rice beer (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Moonlabor Malt's rice beer, for cracking open a cold one."
 	price = 18
 	items = list(
@@ -1037,7 +1037,7 @@
 /singleton/cargo_item/earthmover
 	category = "hospitality"
 	name = "Inverkeithing Imports Earthmover ale (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Inverkeithing Imports Earthmover ale, for cracking open a cold one."
 	price = 21
 	items = list(
@@ -1050,7 +1050,7 @@
 /singleton/cargo_item/whistlingforest
 	category = "hospitality"
 	name = "Whistling Forest Pale Ale (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Whistling Forest Pale Ale, for cracking open a cold one."
 	price = 23
 	items = list(
@@ -1063,7 +1063,7 @@
 /singleton/cargo_item/cola
 	category = "hospitality"
 	name = "Comet Cola (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Comet Cola for cracking open a cold one."
 	price = 8
 	items = list(
@@ -1076,7 +1076,7 @@
 /singleton/cargo_item/space_mountain_wind
 	category = "hospitality"
 	name = "Stellar Jolt (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Stellar Jolt for cracking open a cold one."
 	price = 8
 	items = list(
@@ -1089,7 +1089,7 @@
 /singleton/cargo_item/thirteenloko
 	category = "hospitality"
 	name = "Getmore Energy (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Getmore Energy for cracking open a cold one."
 	price = 8
 	items = list(
@@ -1102,7 +1102,7 @@
 /singleton/cargo_item/dr_gibb
 	category = "hospitality"
 	name = "Getmore Root-Cola (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Getmore Root-Cola for cracking open a cold one."
 	price = 8
 	items = list(
@@ -1115,7 +1115,7 @@
 /singleton/cargo_item/starkist
 	category = "hospitality"
 	name = "Orange Starshine (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Orange Starshine for cracking open a cold one."
 	price = 8
 	items = list(
@@ -1128,7 +1128,7 @@
 /singleton/cargo_item/vacuum_fizz
 	category = "hospitality"
 	name = "Vacuum Fizz (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Vacuum Fizz for cracking open a cold one."
 	price = 8
 	items = list(
@@ -1141,7 +1141,7 @@
 /singleton/cargo_item/lemon_lime
 	category = "hospitality"
 	name = "Lemon-Lime soda (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Lemon-Lime for cracking open a cold one."
 	price = 8
 	items = list(
@@ -1154,7 +1154,7 @@
 /singleton/cargo_item/iced_tea
 	category = "hospitality"
 	name = "Silversun Wave Iced Tea (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Silversun Wave Iced Tea for cracking open a cold one."
 	price = 8
 	items = list(
@@ -1167,7 +1167,7 @@
 /singleton/cargo_item/grape_juice
 	category = "hospitality"
 	name = "Grapel Juice (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Grapel Juice for cracking open a cold one."
 	price = 8
 	items = list(
@@ -1180,7 +1180,7 @@
 /singleton/cargo_item/tonic
 	category = "hospitality"
 	name = "T-Borg's Tonic Water (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of T-Borg's Tonic Water for cracking open a cold one."
 	price = 8
 	items = list(
@@ -1193,7 +1193,7 @@
 /singleton/cargo_item/sodawater
 	category = "hospitality"
 	name = "Soda Water (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Soda Water for cracking open a cold one."
 	price = 8
 	items = list(
@@ -1206,7 +1206,7 @@
 /singleton/cargo_item/root_beer
 	category = "hospitality"
 	name = "Getmore Root Beer (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Getmore Root Beer for cracking open a cold one."
 	price = 8
 	items = list(
@@ -1219,7 +1219,7 @@
 /singleton/cargo_item/diet_cola
 	category = "hospitality"
 	name = "Diet Comet Cola (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Diet Comet Cola for cracking open a cold one."
 	price = 8
 	items = list(
@@ -1232,7 +1232,7 @@
 /singleton/cargo_item/peach_soda
 	category = "hospitality"
 	name = "Xanu Rush! Peach Soda (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Xanu Rush! Peach Soda for cracking open a cold one."
 	price = 8
 	items = list(
@@ -1245,7 +1245,7 @@
 /singleton/cargo_item/melon_soda
 	category = "hospitality"
 	name = "Kansumi Melon Soda (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Kansumi Melon Soda for cracking open a cold one."
 	price = 8
 	items = list(
@@ -1258,7 +1258,7 @@
 /singleton/cargo_item/himeokvass
 	category = "hospitality"
 	name = "Dorshafen Deluxe Kvass (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Dorshafen Deluxe Kvass for cracking open a cold one."
 	price = 22
 	items = list(
@@ -1271,7 +1271,7 @@
 /singleton/cargo_item/xanuchai
 	category = "hospitality"
 	name = "Brown Palace Champion Chai (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Brown Palace Champion Chai for cracking open a cold one."
 	price = 10
 	items = list(
@@ -1284,7 +1284,7 @@
 /singleton/cargo_item/beetle_milk
 	category = "hospitality"
 	name = "Hakhma Beetle Milk (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A 6-pack yoke of Hakhma Beetle Milk for cracking open a cold one."
 	price = 8
 	items = list(
@@ -1297,7 +1297,7 @@
 /singleton/cargo_item/burszi_ale
 	category = "hospitality"
 	name = "Burszi-ale (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A half-dozen pack of Burszi-ale bottles, for cracking open a cold one."
 	price = 22
 	items = list(
@@ -1310,7 +1310,7 @@
 /singleton/cargo_item/beer
 	category = "hospitality"
 	name = "Virklunder Beer (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A half-dozen pack of Virklunder beers, for cracking open a cold one."
 	price = 17
 	items = list(
@@ -1323,7 +1323,7 @@
 /singleton/cargo_item/skrellbeerdyn
 	category = "hospitality"
 	name = "Qel'Zvol Hospitality's Prestige Dyn Beer (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A half-dozen pack of Qel'Zvol Hospitality's Prestige dyn beers, for cracking open a cold one."
 	price = 21
 	items = list(
@@ -1336,7 +1336,7 @@
 /singleton/cargo_item/xuizijuice
 	category = "hospitality"
 	name = "Xuizi Juice (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A half-dozen pack of Xuiji Juice, for cracking open a cold one."
 	price = 14
 	items = list(
@@ -1349,7 +1349,7 @@
 /singleton/cargo_item/khlibnyz
 	category = "hospitality"
 	name = "Khlibnyz (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A half-dozen pack of Khlibnyz, for cracking open a cold one."
 	price = 12
 	items = list(
@@ -1362,7 +1362,7 @@
 /singleton/cargo_item/cola_bottle
 	category = "hospitality"
 	name = "Comet Cola Bottles (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A half-dozen pack of Comet Cola, for cracking open a cold one."
 	price = 8
 	items = list(
@@ -1375,7 +1375,7 @@
 /singleton/cargo_item/space_mountain_wind_bottle
 	category = "hospitality"
 	name = "Stellar Jolt Bottles (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A half-dozen pack of Stellar Jolt, for cracking open a cold one."
 	price = 8
 	items = list(
@@ -1388,7 +1388,7 @@
 /singleton/cargo_item/space_up_bottle
 	category = "hospitality"
 	name = "Space Up Bottles (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A half-dozen pack of Space Up, for cracking open a cold one."
 	price = 8
 	items = list(
@@ -1401,7 +1401,7 @@
 /singleton/cargo_item/hrozamal_soda
 	category = "hospitality"
 	name = "Hrozamal Soda (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A half-dozen pack of Hrozamal Soda, for cracking open a cold one."
 	price = 12
 	items = list(
@@ -1414,7 +1414,7 @@
 /singleton/cargo_item/midynhr_water
 	category = "hospitality"
 	name = "Midynhr Water (x6)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A half-dozen pack of Midynhr Water, for cracking open a cold one."
 	price = 18
 	items = list(
@@ -1427,7 +1427,7 @@
 /singleton/cargo_item/dental_hygiene
 	category = "hospitality"
 	name = "Dental Hygiene Kit"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A box containing a toothbrush, a tube of toothpaste, and a bottle of mouthwash."
 	price = 25
 	items = list(
@@ -1440,7 +1440,7 @@
 /singleton/cargo_item/sencha
 	category = "hospitality"
 	name = "Sencha Tins (x7)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A box containing some tins of green tea leaves."
 	price = 20
 	items = list(
@@ -1453,7 +1453,7 @@
 /singleton/cargo_item/tieguanyin
 	category = "hospitality"
 	name = "Tieguanyin-cha Tins (x7)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A box containing some tins of oolong tea leaves."
 	price = 20
 	items = list(
@@ -1466,7 +1466,7 @@
 /singleton/cargo_item/jaekseol
 	category = "hospitality"
 	name = "Jaeksol-cha Tins (x7)"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A box containing some tins of black tea leaves."
 	price = 20
 	items = list(
@@ -1479,7 +1479,7 @@
 /singleton/cargo_item/vkrexi_organ
 	category = "hospitality"
 	name = "V'krexi Swollen Organ"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A traditional Sedantian alcoholic drink, packaged in the stomach it's fermented in."
 	price = 50
 	items = list(
@@ -1492,7 +1492,7 @@
 /singleton/cargo_item/dominian_wine
 	category = "hospitality"
 	name = "Jadrani Consecrated Geneboosted Wine"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A bottle of artisanally-crafted, highly sought-after Dominian red wine. Sanctified and exported via House Caladius."
 	price = 50
 	items = list(
@@ -1506,7 +1506,7 @@
 /singleton/cargo_item/algae_wine
 	category = "hospitality"
 	name = "Reacher's Triumph 2423 Algae Wine"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A bottle of wine, brewed from algae, made in the traditional style of the Imperial Viceroyalty of Sun Reach, a Dominian frontier-world."
 	price = 50
 	items = list(
@@ -1520,7 +1520,7 @@
 /singleton/cargo_item/assunzione_wine
 	category = "hospitality"
 	name = "Assunzioni Sera Stellata di Dalyan Wine"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A bottle of velvety smooth red wine from the underground vineyards of Dalyan, Assunzione."
 	price = 50
 	items = list(
@@ -1534,7 +1534,7 @@
 /singleton/cargo_item/skrellwineylpha
 	category = "hospitality"
 	name = "Federation's Finest Ylpha Wine"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A popular type of Skrell wine made from fermented ylpha berries."
 	price = 30
 	items = list(
@@ -1548,7 +1548,7 @@
 /singleton/cargo_item/mushroomvodka
 	category = "hospitality"
 	name = "Inverkeithing Import Mushroom Vodka"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A mushroom-based vodka imported from the breweries of Inverkeithing on Himeo."
 	price = 35
 	items = list(
@@ -1562,7 +1562,7 @@
 /singleton/cargo_item/victorygin
 	category = "hospitality"
 	name = "Victory Gin"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A Tajaran gin considered to be the official drink of the People's Republic of Adhomai."
 	price = 25
 	items = list(
@@ -1576,7 +1576,7 @@
 /singleton/cargo_item/sugartree_liquor
 	category = "hospitality"
 	name = "Sugar Tree Liquor"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "Called Nm'shaan Liquor in native Siik'maas, this strong Adhomian liquor is reserved for special occasions. A label on the bottle recommends diluting it with icy water before drinking."
 	price = 35
 	items = list(
@@ -1590,7 +1590,7 @@
 /singleton/cargo_item/messa_mead
 	category = "hospitality"
 	name = "messa's mead"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A bottle of Messa's mead. Bottled somewhere in the icy world of Adhomai."
 	price = 30
 	items = list(
@@ -1604,7 +1604,7 @@
 /singleton/cargo_item/kvass
 	category = "hospitality"
 	name = "Neubach Original Kvass"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A bottle of authentic Fisanduhian kvass, a cereal alcohol."
 	price = 20
 	items = list(
@@ -1618,7 +1618,7 @@
 /singleton/cargo_item/tarasun
 	category = "hospitality"
 	name = "Frostdancer Distillery Tarasun"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A bottle of Lyodii tarasun, an alcoholic beverage made from tenelote milk."
 	price = 25
 	items = list(
@@ -1632,7 +1632,7 @@
 /singleton/cargo_item/valokki_wine
 	category = "hospitality"
 	name = "Frostdancer Distillery Valokki Wine"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A bottle of wine distilled from the Morozi cloudberry."
 	price = 42
 	items = list(
@@ -1646,7 +1646,7 @@
 /singleton/cargo_item/twentytwoseventyfive
 	category = "hospitality"
 	name = "2275 Classic Brandy"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A bottle of Xanan mid-range brandy."
 	price = 35
 	items = list(
@@ -1660,7 +1660,7 @@
 /singleton/cargo_item/saintjacques
 	category = "hospitality"
 	name = "Saint-Jacques Black Label Cognac"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "An expensive bottle of Saint-Jacques Black Label, a Xanan luxury cognac."
 	price = 40
 	items = list(
@@ -1674,7 +1674,7 @@
 /singleton/cargo_item/nemiik
 	category = "hospitality"
 	name = "Vrozka Farms Ne'miik"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A bottle of Ne'miik under the label 'Vrozka Farms' from Caprice. The Vaurcan analogue for milk."
 	price = 12
 	items = list(
@@ -1688,7 +1688,7 @@
 /singleton/cargo_item/ogogoro
 	category = "hospitality"
 	name = "Ogogoro Jar"
-	supplier = "getmore"
+	supplier = "Hub"
 	description = "A traditional Eridani palm wine drink, stored in a mason jar."
 	price = 16
 	items = list(

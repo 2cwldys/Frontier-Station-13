@@ -52,7 +52,7 @@
 // The universal supplier: every cargo item is bound to this supplier at load
 // time (load_cargo_items), regardless of its declared supplier string.
 /singleton/cargo_supplier/generic_supplier
-	name = "Universal Supply Consortium"
+	name = "Hub"
 	description = "A galaxy-spanning logistics conglomerate handling freight for every major manufacturer in the Spur."
 	tag_line = "If it exists, we ship it."
 

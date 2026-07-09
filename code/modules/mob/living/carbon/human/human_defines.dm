@@ -1,4 +1,6 @@
 /mob/living/carbon/human
+	COOLDOWN_DECLARE(mumble_sound_cd)
+
 	// Vision cone screen objects
 	var/atom/movable/screen/fov
 	var/atom/movable/screen/fov_mask

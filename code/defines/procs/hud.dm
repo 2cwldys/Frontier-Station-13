@@ -31,6 +31,12 @@ the HUD updates properly! */
 	for(var/mob/living/carbon/human/patient in P.Mob.in_view(P.Turf))
 		if(patient.is_invisible_to(M))
 			continue
+		if(patient in P.Mob.hidden_mobs)
+			P.Client.images -= patient.hud_list[HEALTH_HUD]
+			P.Client.images -= patient.hud_list[STATUS_HUD]
+			P.Client.images -= patient.hud_list[TRIAGE_HUD]
+			P.Client.images -= patient.hud_list[LIFE_HUD]
+			continue
 
 		if(local_scanner)
 			P.Client.images += patient.hud_list[HEALTH_HUD]
@@ -51,6 +57,13 @@ the HUD updates properly! */
 	var/datum/arranged_hud_process/P = arrange_hud_process(M, Alt, GLOB.sec_hud_users)
 	for(var/mob/living/carbon/human/perp in P.Mob.in_view(P.Turf))
 		if(perp.is_invisible_to(M))
+			continue
+		if(perp in P.Mob.hidden_mobs)
+			P.Client.images -= perp.hud_list[ID_HUD]
+			P.Client.images -= perp.hud_list[WANTED_HUD]
+			P.Client.images -= perp.hud_list[IMPTRACK_HUD]
+			P.Client.images -= perp.hud_list[IMPLOYAL_HUD]
+			P.Client.images -= perp.hud_list[IMPCHEM_HUD]
 			continue
 
 		P.Client.images += perp.hud_list[ID_HUD]

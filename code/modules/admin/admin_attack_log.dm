@@ -32,8 +32,10 @@
 	// the per-admin attack-log toggle) and feed the First Responder offense
 	// list. Hub-faction security personnel are exempt (they ARE the law).
 	if(zone_security_get(attacker ? attacker.z : 0) == ZONE_HIGHSEC || zone_security_get(victim ? victim.z : 0) == ZONE_HIGHSEC)
-		// Self-harm is not an offense -- it must not summon security
-		if(!zone_security_exempt(attacker) && !(attacker && attacker == victim))
+		// Self-harm is not an offense -- it must not summon security.
+		// Non-player mobs (wildlife, NPCs) can't be prosecuted and shouldn't
+		// summon a response -- both sides must be actual player characters.
+		if(!zone_security_exempt(attacker) && !(attacker && attacker == victim) && attacker?.ckey && (!victim || victim.ckey))
 			zone_security_record_offense(attacker, victim, admin_message)
 		else
 			// Silent to chat by design, but auditable -- and it explains

@@ -1391,6 +1391,7 @@
 		src.throw_icon.icon_state = "act_throw_on"
 	if(client)
 		client.mouse_pointer_icon = THROW_MODE_ICON
+	playsound(src, 'sound/effects/ui_toggle.ogg', 50, TRUE)
 
 #undef THROW_MODE_ICON
 #undef NORMAL_CURSOR_ICON

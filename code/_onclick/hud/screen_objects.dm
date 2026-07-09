@@ -104,7 +104,7 @@
 	name = "nullsec"
 	icon = 'icons/hud/security_shield.png'
 	icon_state = ""
-	screen_loc = "EAST,NORTH"
+	screen_loc = "EAST:-6,NORTH:-4"
 	mouse_opacity = MOUSE_OPACITY_ICON
 	var/mob/owner
 
@@ -147,20 +147,20 @@
 /atom/movable/screen/zone_security_indicator/get_examine_text(mob/user, distance, is_adjacent, infix, suffix, show_extended)
 	. = ..()
 	. += SPAN_NOTICE("Security zone legend:")
-	. += SPAN_COLOR("#54c556", "  HIGHSEC (green) -- piracy and combat outlawed; Hub law enforced, offenses alert Hub security.")
-	. += SPAN_COLOR("#e8bb4a", "  MEDSEC (yellow) -- piracy outlawed; factions enforce their own laws.")
-	. += SPAN_COLOR("#e04545", "  NULLSEC (red) -- no laws enforced; piracy unchecked.")
+	. += SPAN_COLOR("#54c556", "  HIGHSEC (green) -- piracy and combat outlawed: Hub law enforced, violent offenses alert Hub security.")
+	. += SPAN_COLOR("#e8bb4a", "  MEDSEC (yellow) -- piracy outlawed: factions enforce their own laws.")
+	. += SPAN_COLOR("#e04545", "  NULLSEC (red) -- no laws enforced: piracy unchecked.")
 
 /// Screen objects can't be targeted by the examine verb (they live in
 /// client.screen, not world view) -- clicking the shield prints the info
 /atom/movable/screen/zone_security_indicator/Click(location, control, params)
 	if(!usr)
 		return
-	to_chat(usr, SPAN_NOTICE("Current zone: [name] -- [desc]"))
+	to_chat(usr, SPAN_NOTICE("Current zone: [SPAN_STYLE("color:[color]; text-shadow: 1px 1px 2px #000000; font-size: 1.15em;", uppertext(name))]"))
 	to_chat(usr, SPAN_NOTICE("Security zone legend:"))
-	to_chat(usr, SPAN_COLOR("#54c556", "  HIGHSEC (green) -- piracy and combat outlawed; Hub law enforced, offenses alert Hub security."))
-	to_chat(usr, SPAN_COLOR("#e8bb4a", "  MEDSEC (yellow) -- piracy outlawed; factions enforce their own laws."))
-	to_chat(usr, SPAN_COLOR("#e04545", "  NULLSEC (red) -- no laws enforced; piracy unchecked."))
+	to_chat(usr, SPAN_COLOR("#54c556", "  HIGHSEC (green) -- piracy and combat outlawed: Hub law enforced, violent offenses alert Hub security."))
+	to_chat(usr, SPAN_COLOR("#e8bb4a", "  MEDSEC (yellow) -- piracy outlawed: factions enforce their own laws."))
+	to_chat(usr, SPAN_COLOR("#e04545", "  NULLSEC (red) -- no laws enforced: piracy unchecked."))
 	return TRUE
 
 /client/verb/toggle_zone_shield()

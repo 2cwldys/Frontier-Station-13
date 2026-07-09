@@ -974,6 +974,7 @@ window "mapwindow"
 		font-family = "Grand9K Pixel"
 		font-size = 7pt
 		is-default = true
+		letterbox = false
 		saved-params = "letterbox;zoom-mode"
 		style = ".center { text-align: center; } .maptext { font-family: 'Grand9K Pixel'; font-size: 6pt; -dm-text-outline: 1px black; color: white; line-height: 1.0; } .command_headset { font-weight: bold; } .context { font-family: 'Pixellari'; font-size: 12pt; -dm-text-outline: 1px black; }  .subcontext { font-family: 'TinyUnicode'; font-size: 12pt; line-height: 0.75; } .small { font-family: 'Spess Font'; font-size: 6pt; line-height: 1.4; } .big { font-family: 'Pixellari'; font-size: 12pt; } .reallybig { font-size: 12pt; } .extremelybig { font-size: 12pt; } .greentext { color: #00FF00; font-size: 6pt; } .redtext { color: #FF0000; font-size: 6pt; } .clown { color: #FF69BF; font-weight: bold; } .his_grace { color: #15D512; } .hypnophrase { color: #0d0d0d; font-weight: bold; } .yell { font-weight: bold; } .italics { font-family: 'Spess Font'; font-size: 6pt; line-height: 1.4; }"
 	elem "status_bar"
@@ -997,14 +998,14 @@ window "info_and_buttons"
 		anchor2 = 100,100
 		saved-params = "pos;size;is-minimized;is-maximized"
 		is-pane = true
-		background-color = #202020
+		background-color = #0d1b33
 	elem "info_button_child"
 		type = CHILD
 		pos = 0,0
 		size = 640x477
 		anchor1 = 0,0
 		anchor2 = 100,100
-		background-color = #202020
+		background-color = #0d1b33
 		saved-params = "splitter"
 		left = "infobuttons"
 		right = "infowindow"
@@ -1363,6 +1364,14 @@ window "statwindow"
 		type = BROWSER
 		pos = 0,0
 		size = 640x480
+		anchor1 = 0,0
+		anchor2 = 100,100
+		is-visible = false
+		saved-params = ""
+	elem "statcover"
+		type = BROWSER
+		pos = 0,0
+		size = 880x507
 		anchor1 = 0,0
 		anchor2 = 100,100
 		is-visible = false

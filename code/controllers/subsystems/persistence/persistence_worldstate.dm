@@ -301,7 +301,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		modcomp_restore_programs(json_decode(content["programs"]))
 
 /obj/structure/machinery/door/airlock
-	worldstate_vars = list("welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access")
+	worldstate_vars = list("welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access", "id_tag", "frequency")
 
 /obj/structure/machinery/door/airlock/worldstate_get_content()
 	var/list/content = ..()
@@ -316,6 +316,12 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		var/list/cut = json_decode(content["cut_wires"])
 		if(islist(cut))
 			wires.cut_wires = cut
+	// The generic apply above only sets the raw frequency var -- it takes an
+	// actual set_frequency() call to re-register with SSradio, or a restored
+	// door with a restored id_tag would sit on the right frequency var but
+	// never actually receive anything.
+	if(frequency)
+		set_frequency(frequency)
 
 /obj/structure/machinery/door/blast
 	worldstate_vars = list("density")
@@ -330,7 +336,121 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	worldstate_vars = list("use_power", "scrubbing", "welded")
 
 /obj/structure/machinery/atmospherics/unary/vent_pump
-	worldstate_vars = list("use_power", "pump_direction", "external_pressure_bound", "internal_pressure_bound", "pressure_checks", "welded")
+	worldstate_vars = list("use_power", "pump_direction", "external_pressure_bound", "internal_pressure_bound", "pressure_checks", "welded", "frequency")
+
+/obj/structure/machinery/atmospherics/unary/vent_pump/worldstate_apply_content(list/content)
+	..()
+	if(frequency)
+		set_frequency(frequency)
+
+/obj/structure/machinery/portable_atmospherics/canister
+	worldstate_vars = list("valve_open", "release_pressure", "release_flow_rate", "can_label")
+
+/obj/structure/machinery/portable_atmospherics/canister/worldstate_get_content()
+	var/list/content = ..()
+	if(air_contents)
+		content["air_gas"] = json_encode(air_contents.gas)
+		content["air_temperature"] = air_contents.temperature
+	return content
+
+/obj/structure/machinery/portable_atmospherics/canister/worldstate_apply_content(list/content)
+	..()
+	if(!air_contents || !content["air_gas"])
+		return
+	var/list/gases = json_decode(content["air_gas"])
+	if(islist(gases))
+		air_contents.gas = gases
+	if(!isnull(content["air_temperature"]))
+		air_contents.temperature = text2num(content["air_temperature"])
+	air_contents.update_values()
+
+// Airlock cycler parts (section 8): buildstage/panel_open + dir so a still-
+// under-construction frame/circuit survives a restart mid-build, plus every
+// tag/frequency link a multitool sets up, so a player-built cycler doesn't
+// need to be rewired after a restart.
+/obj/structure/machinery/airlock_sensor
+	worldstate_vars = list("buildstage", "panel_open", "dir", "id_tag", "master_tag", "frequency", "on")
+
+/obj/structure/machinery/airlock_sensor/worldstate_apply_content(list/content)
+	..()
+	if(frequency)
+		set_frequency(frequency)
+
+/obj/structure/machinery/access_button
+	worldstate_vars = list("buildstage", "panel_open", "dir", "master_tag", "frequency", "on")
+
+/obj/structure/machinery/access_button/worldstate_apply_content(list/content)
+	..()
+	if(frequency)
+		set_frequency(frequency)
+
+/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller
+	worldstate_vars = list("buildstage", "panel_open", "dir", "id_tag", "frequency", "tag_exterior_door", "tag_interior_door", "tag_airpump", "tag_chamber_sensor", "tag_exterior_sensor", "tag_interior_sensor")
+
+/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/worldstate_apply_content(list/content)
+	..()
+	if(frequency)
+		set_frequency(frequency)
+
+// ------- Telecomms machinery (section 9) -------
+// Full override instead of worldstate_vars: freq_listening is list-valued
+// (json-encoded, same as camera's network list above) and links/
+// links_by_telecomms_type are object references, not JSON-safe -- saved as
+// [x,y,z] coordinates and restored via add_new_link(), which already
+// rebuilds links_by_telecomms_type as a side effect (it's a derived index,
+// not independently saved). Message logs (pda_msgs/rc_msgs -- themselves
+// unfinished, see the TODO already in message_server.dm) and the server's
+// NTSL2 script (rawcode is dead/unreferenced outside its own declaration;
+// the actual compiled Program datum isn't a simple var dump) are both
+// deliberately NOT persisted here -- out of scope for this pass, flagged
+// rather than silently skipped.
+/obj/structure/machinery/telecomms/worldstate_get_content()
+	var/list/link_coords = list()
+	for(var/obj/structure/machinery/telecomms/L in links)
+		link_coords += list(list(L.x, L.y, L.z))
+	return list(
+		"id" = id,
+		"network" = network,
+		"use_power" = use_power,
+		"integrity" = integrity,
+		"persistent_network" = persistent_network,
+		"freq_listening" = json_encode(freq_listening),
+		"links" = json_encode(link_coords),
+	)
+
+/obj/structure/machinery/telecomms/worldstate_apply_content(list/content)
+	if(content["id"])
+		id = content["id"]
+	if(content["network"])
+		network = content["network"]
+	if(!isnull(content["use_power"]))
+		use_power = text2num(content["use_power"])
+	if(!isnull(content["integrity"]))
+		integrity = text2num(content["integrity"])
+	if(!isnull(content["persistent_network"]))
+		persistent_network = normalize_faction_uid(content["persistent_network"]) || ""
+	if(content["freq_listening"])
+		var/list/freqs = json_decode(content["freq_listening"])
+		if(islist(freqs))
+			freq_listening = freqs
+	if(content["links"])
+		var/list/coords = json_decode(content["links"])
+		if(islist(coords))
+			for(var/list/pair in coords)
+				if(!islist(pair) || length(pair) < 3)
+					continue
+				var/turf/T = locate(pair[1], pair[2], pair[3])
+				if(!T)
+					continue
+				for(var/obj/structure/machinery/telecomms/other in T)
+					add_new_link(other)
+	update_icon()
+
+/obj/structure/machinery/telecomms/bus
+	worldstate_vars = list("change_frequency")
+
+/obj/structure/machinery/telecomms/message_server
+	worldstate_vars = list("decryptkey", "spamfilter_limit")
 
 /obj/structure/machinery/light
 	worldstate_vars = list("status")

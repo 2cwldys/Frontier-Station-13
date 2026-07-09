@@ -240,6 +240,7 @@ SUBSYSTEM_DEF(persistence)
 	SSpersistence.recordsFinalize()
 	SSpersistence.researchFinalize()
 	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("3/8")] Saving machinery states..."))
+	SSpersistence.areasFinalize()
 	SSpersistence.worldstateFinalize()
 	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("4/8")] Saving mob health, inventory, identity, position..."))
 	SSpersistence.mobsHealthFinalize()
@@ -263,6 +264,46 @@ SUBSYSTEM_DEF(persistence)
 	feedback_add_details("admin_verb","FPS")
 
 /**
+ * Sweeps the whole world and vaults every dead/unclaimed neural lace, plus
+ * any sitting loose. Never touches a lace still installed in a living
+ * owner -- that check must run before _auto_transfer_to_storage() is ever
+ * called, not after, so a living person's lace is never even momentarily
+ * touched. Shared by the admin verb (manual, mid-round) and Shutdown()
+ * (automatic, on every real reboot -- not the periodic autosave, which
+ * never touches this).
+ */
+/datum/controller/subsystem/persistence/proc/vaultAllLaces()
+	var/vaulted = 0
+	var/skipped_alive = 0
+	for(var/obj/item/organ/internal/neural_lace/L in world)
+		if(istype(L.loc, /obj/structure/machinery/lace_storage))
+			continue // already vaulted, nothing to do
+
+		if(L.owner && L.owner.stat != DEAD)
+			skipped_alive++
+			continue
+
+		L._auto_transfer_to_storage()
+		vaulted++
+
+	log_subsystem_persistence_info("Lace vault sweep: [vaulted] vaulted, [skipped_alive] skipped (alive owner).")
+	return list("vaulted" = vaulted, "skipped_alive" = skipped_alive)
+
+/datum/admins/proc/force_vault_all_laces()
+	set name = "Force Vault All Laces"
+	set category = "Persistence"
+	set desc = "Immediately vaults every neural lace belonging to a dead/unclaimed body, plus any sitting loose in the world. Never touches a living person's installed lace. Use before a server reboot."
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	var/list/result = SSpersistence.vaultAllLaces()
+	to_chat(usr, SPAN_NOTICE("Force-vaulted [result["vaulted"]] neural lace\s ([result["skipped_alive"]] skipped -- still alive)."))
+	log_admin("[key_name(usr)] used Force Vault All Laces -- [result["vaulted"]] processed, [result["skipped_alive"]] skipped (alive owner).")
+
+	feedback_add_details("admin_verb","FVAL")
+
+/**
  * Public proc: save all persistence data immediately (economy, records, research, worldstate, turfs, atmos, objects, mob health, inventory).
  * Called by the force-save admin verb and by fire() for periodic saves.
  */
@@ -274,6 +315,7 @@ SUBSYSTEM_DEF(persistence)
 	researchFinalize()
 	factionFinalize()
 	factionResearchFinalize()
+	areasFinalize()
 	worldstateFinalize()
 	mobsHealthFinalize()
 	mobsInventoryFinalize()
@@ -379,6 +421,14 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_panic("Unhandled exception during template pending check: [templates_e]")
 
 	try
+		// Before worldstateInitialize() -- a restored APC's get_area(src) must
+		// already resolve to the correct custom area by the time its worldstate
+		// restore runs.
+		areasInitialize()
+	catch(var/exception/areas_e)
+		log_subsystem_persistence_panic("Unhandled exception during area persistence initialization: [areas_e]")
+
+	try
 		worldstateInitialize()
 	catch(var/exception/ws_e)
 		log_subsystem_persistence_panic("Unhandled exception during worldstate persistence initialization: [ws_e]")
@@ -475,7 +525,18 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_panic("SQL error during persistence subsystem shutdown. Cannot finalise persistence of the round.")
 		return
 
-	//  PRIORITY 1: Player data  must survive even if server is killed mid-shutdown 
+	//  PRIORITY 0: Vault laces before anything else touches mob/organ state
+	// Runs automatically on every real reboot (admin verb, vote, round-end
+	// auto-restart, remote command) -- Shutdown() is the one proc every
+	// world.Reboot() path funnels through via Master.Shutdown(). Does NOT
+	// run on the periodic 30-minute autosave (fire()), which never restarts
+	// the server.
+	try
+		vaultAllLaces()
+	catch(var/exception/lace_e)
+		log_subsystem_persistence_panic("Unhandled exception during pre-reboot lace vault sweep: [lace_e]")
+
+	//  PRIORITY 1: Player data  must survive even if server is killed mid-shutdown
 	try
 		mobsHealthFinalize()
 	catch(var/exception/health_e)
@@ -512,7 +573,12 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/objs_e)
 		log_subsystem_persistence_panic("Unhandled exception during persistent objects finalization: [objs_e]")
 
-	//  PRIORITY 3: World state  machinery, turfs, atmos 
+	//  PRIORITY 3: World state  machinery, turfs, atmos
+	try
+		areasFinalize()
+	catch(var/exception/areas_e)
+		log_subsystem_persistence_panic("Unhandled exception during area persistence finalization: [areas_e]")
+
 	try
 		worldstateFinalize()
 	catch(var/exception/ws_e)

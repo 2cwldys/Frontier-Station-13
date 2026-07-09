@@ -42,6 +42,12 @@ GLOBAL_LIST_INIT(ambient_playlist_tracks, list(
 	'sound/music/ambient_playlist/ss13_endless_space.ogg',
 	'sound/music/ambient_playlist/thief_deadly_shadows_old_quarter.ogg',
 	'sound/music/ambient_playlist/thomas_bangalter_rectum.ogg',
+	'sound/music/ambient_playlist/spookyspace1.ogg',
+	'sound/music/ambient_playlist/spookyspace2.ogg',
+	'sound/music/ambient_playlist/ops1.ogg',
+	'sound/music/ambient_playlist/orbital_deck1.ogg',
+	'sound/music/ambient_playlist/NEambi.ogg',
+	'sound/music/ambient_playlist/arrivals.ogg',
 ))
 
 /// Duration of each track in deciseconds, buffered a few deciseconds short so
@@ -69,6 +75,12 @@ GLOBAL_LIST_INIT(ambient_playlist_durations, list(
 	'sound/music/ambient_playlist/ss13_endless_space.ogg' = 2135,
 	'sound/music/ambient_playlist/thief_deadly_shadows_old_quarter.ogg' = 2588,
 	'sound/music/ambient_playlist/thomas_bangalter_rectum.ogg' = 3829,
+	'sound/music/ambient_playlist/spookyspace1.ogg' = 980,
+	'sound/music/ambient_playlist/spookyspace2.ogg' = 990,
+	'sound/music/ambient_playlist/ops1.ogg' = 2270,
+	'sound/music/ambient_playlist/orbital_deck1.ogg' = 510,
+	'sound/music/ambient_playlist/NEambi.ogg' = 2030,
+	'sound/music/ambient_playlist/arrivals.ogg' = 210,
 ))
 
 /// Crossfade length (deciseconds) when area ambience ducks/hands back the playlist.

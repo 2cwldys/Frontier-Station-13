@@ -69,6 +69,24 @@
 
 	return ..()
 
+/obj/item/tank/persistent_objects_get_content()
+	var/list/content = ..()
+	if(air_contents)
+		content["air_gas"] = json_encode(air_contents.gas)
+		content["air_temperature"] = air_contents.temperature
+	return content
+
+/obj/item/tank/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content) || !air_contents || !content["air_gas"])
+		return
+	var/list/gases = json_decode(content["air_gas"])
+	if(islist(gases))
+		air_contents.gas = gases
+	if(!isnull(content["air_temperature"]))
+		air_contents.temperature = text2num(content["air_temperature"])
+	air_contents.update_values()
+
 /obj/item/tank/attackby(obj/item/attacking_item, mob/user)
 	..()
 	if ((istype(attacking_item, /obj/item/analyzer)) && get_dist(user, src) <= 1)

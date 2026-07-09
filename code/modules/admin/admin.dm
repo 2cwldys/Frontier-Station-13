@@ -31,7 +31,7 @@ var/global/enabled_spooking = 0
 	// Direct callers never fed the offense escalation/responder list --
 	// record here unless admin_attack_log() already did. Matching ckey args
 	// mean self-harm (both are key_name() strings): not an offense.
-	if(!offense_recorded && ismob(usr) && !zone_security_exempt(usr) && !(ckey && ckey == ckey_target))
+	if(!offense_recorded && ismob(usr) && !zone_security_exempt(usr) && !(ckey && ckey == ckey_target) && usr.ckey)
 		zone_security_record_offense(usr, null, text)
 	var/rendered = "<span class=\"log_message\"><span class=\"prefix\">ATTACK:</span> <span class=\"message\">[text]</span></span>"
 	for(var/s in GLOB.staff)

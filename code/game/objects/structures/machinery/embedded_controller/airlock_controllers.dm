@@ -84,7 +84,132 @@
 	name = "Airlock Controller"
 	tag_secure = TRUE
 
+	/// 2 = complete/wired, 1 = circuit inserted but unwired, 0 = frame only.
+	/// Player-built via /obj/item/frame/airlock_controller; mapped-in/preset
+	/// controllers default to 2 (already finished).
+	/// panel_open is inherited from base /obj/structure/machinery.
+	var/buildstage = 2
+
+/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/Initialize(mapload, var/dir, var/building = 0)
+	. = ..(mapload)
+	if(building)
+		if(dir)
+			set_dir(dir)
+		buildstage = 0
+	update_icon()
+
+/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/update_icon()
+	if(buildstage < 2)
+		ClearOverlays()
+		return
+	return ..()
+
+/// Auto-assigns a unique id_tag the first time this controller is linked to
+/// a door/sensor/button -- there's no in-game tool to type in a custom tag,
+/// and a blank/null id_tag would make every untagged controller match every
+/// other untagged device's blank slot.
+/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/proc/_ensure_id_tag()
+	if(!id_tag)
+		id_tag = "cycler_[REF(src)]"
+	return id_tag
+
+/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/attackby(obj/item/attacking_item, mob/user)
+	if(_handle_construction(attacking_item, user))
+		return TRUE
+	if(buildstage < 2)
+		to_chat(user, SPAN_WARNING("\The [src] isn't wired up yet."))
+		return TRUE
+	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
+		var/obj/item/multitool/MT = attacking_item
+		var/obj/structure/machinery/door/airlock/door = MT.get_buffer(/obj/structure/machinery/door/airlock)
+		if(door)
+			door._link_to_controller(src, user)
+			return TRUE
+		var/obj/structure/machinery/airlock_sensor/sensor = MT.get_buffer(/obj/structure/machinery/airlock_sensor)
+		if(sensor)
+			sensor._link_to_controller(src, user)
+			return TRUE
+		var/obj/structure/machinery/access_button/button = MT.get_buffer(/obj/structure/machinery/access_button)
+		if(button)
+			button._link_to_controller(src, user)
+			return TRUE
+		var/obj/structure/machinery/atmospherics/unary/vent_pump/pump = MT.get_buffer(/obj/structure/machinery/atmospherics/unary/vent_pump)
+		if(pump)
+			_link_to_airpump(pump, user)
+			return TRUE
+		MT.set_buffer(src)
+		to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
+		return TRUE
+	return ..()
+
+/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/proc/_handle_construction(obj/item/attacking_item, mob/user)
+	switch(buildstage)
+		if(0)
+			if(attacking_item.tool_behaviour == TOOL_WRENCH)
+				set_dir(turn(dir, -90))
+				to_chat(user, SPAN_NOTICE("You rotate \the [src]."))
+				return TRUE
+			if(istype(attacking_item, /obj/item/airlock_cycler_electronics/airlock_controller))
+				to_chat(user, SPAN_NOTICE("You insert the circuit board."))
+				qdel(attacking_item)
+				buildstage = 1
+				update_icon()
+				return TRUE
+			if(attacking_item.tool_behaviour == TOOL_CROWBAR)
+				to_chat(user, SPAN_NOTICE("You remove \the [src] from the wall."))
+				new /obj/item/frame/airlock_controller(get_turf(user))
+				attacking_item.play_tool_sound(get_turf(src), 50)
+				qdel(src)
+				return TRUE
+		if(1)
+			if(attacking_item.tool_behaviour == TOOL_CABLECOIL)
+				var/obj/item/stack/cable_coil/C = attacking_item
+				if(C.use(5))
+					to_chat(user, SPAN_NOTICE("You wire \the [src]."))
+					buildstage = 2
+					update_icon()
+				else
+					to_chat(user, SPAN_WARNING("You need 5 pieces of cable to wire \the [src]."))
+				return TRUE
+			if(attacking_item.tool_behaviour == TOOL_CROWBAR)
+				to_chat(user, SPAN_NOTICE("You pry out the circuit board."))
+				new /obj/item/airlock_cycler_electronics/airlock_controller(get_turf(user))
+				attacking_item.play_tool_sound(get_turf(src), 50)
+				buildstage = 0
+				update_icon()
+				return TRUE
+		if(2)
+			if(attacking_item.tool_behaviour == TOOL_SCREWDRIVER)
+				panel_open = !panel_open
+				to_chat(user, SPAN_NOTICE("You [panel_open ? "open" : "close"] \the [src]'s panel."))
+				return TRUE
+			if(panel_open && attacking_item.tool_behaviour == TOOL_WIRECUTTER)
+				to_chat(user, SPAN_NOTICE("You cut \the [src]'s wires."))
+				new /obj/item/stack/cable_coil(get_turf(src), 5)
+				buildstage = 1
+				update_icon()
+				return TRUE
+	return FALSE
+
+/// Toggle-links (or unlinks) an air vent to this controller's chamber pump
+/// slot (tag_airpump) -- the "pressurize/depressurize" pump the controller
+/// commands during a cycle. Vents already have a guaranteed non-null id_tag
+/// (auto-assigned on their own Initialize()), so no _ensure_id_tag() step
+/// is needed here, unlike doors/sensors/buttons.
+/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/proc/_link_to_airpump(obj/structure/machinery/atmospherics/unary/vent_pump/pump, mob/user)
+	_ensure_id_tag()
+	if(tag_airpump == pump.id_tag)
+		tag_airpump = null
+		to_chat(user, SPAN_NOTICE("You unlink \the [pump] from \the [src]."))
+		return
+	tag_airpump = pump.id_tag
+	pump.set_frequency(frequency)
+	to_chat(user, SPAN_NOTICE("You link \the [pump] to \the [src] and tune it to the controller's frequency."))
+
 /obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/ui_interact(mob/user, datum/tgui/ui)
+	if(buildstage < 2)
+		to_chat(user, SPAN_WARNING("\The [src] isn't wired up yet."))
+		return
 	ui = SStgui.try_update_ui(user, src, ui)
 	if(!ui)
 		ui = new(user, src, "AirlockConsoleStandard", name, ui_x=470, ui_y=290)

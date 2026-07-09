@@ -191,4 +191,19 @@
 
 	prefs.toggles_secondary ^= INTIMATE_INTERACTIONS_ENABLED
 	prefs.save_preferences()
-	to_chat(src, SPAN_NOTICE("Intimate interactions are now [prefs.toggles_secondary & INTIMATE_INTERACTIONS_ENABLED ? "enabled" : "disabled"]."))
+	var/enabled = prefs.toggles_secondary & INTIMATE_INTERACTIONS_ENABLED
+	to_chat(src, SPAN_NOTICE("Intimate interactions are now [enabled ? "enabled" : "disabled"]."))
+	if(ishuman(mob))
+		if(enabled)
+			add_verb(mob, /mob/living/carbon/human/verb/masturbate)
+		else
+			remove_verb(mob, /mob/living/carbon/human/verb/masturbate)
+
+/client/verb/toggle_muttering()
+	set name = "Toggle Muttering"
+	set desc = "Toggles whether you hear other characters' ambient mumbling sounds when they speak nearby."
+	set category = "Preferences.Game"
+
+	prefs.toggles_secondary ^= TOGGLE_MUTTERING
+	prefs.save_preferences()
+	to_chat(src, SPAN_NOTICE("Muttering sounds are now [prefs.toggles_secondary & TOGGLE_MUTTERING ? "audible" : "muted"]."))

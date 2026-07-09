@@ -1169,6 +1169,7 @@ modules/mob/living/carbon/human/life.dm if you die, you will be zoomed out.
 	if(!isturf(loc))
 		to_chat(usr, SPAN_WARNING("You can't pick that up!"))
 		return
+	log_world("verb_pickup: usr=[usr] ([REF(usr)]) attacking src=[src] ([REF(src)]), src.loc=[src.loc] ([REF(src.loc)]).")
 	usr.UnarmedAttack(src)
 
 /obj/item/proc/use_tool(atom/target, mob/living/user, delay, amount = 0, volume = 0, datum/callback/extra_checks)

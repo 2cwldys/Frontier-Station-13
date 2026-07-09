@@ -895,7 +895,7 @@
 		if(!client)
 			return
 
-		if(!(client.prefs.toggles_secondary & INTIMATE_INTERACTIONS_ENABLED))
+		if(GLOB.config.require_consent && !(client.prefs.toggles_secondary & INTIMATE_INTERACTIONS_ENABLED))
 			return
 
 		if(stat || restrained())
@@ -908,7 +908,7 @@
 		if(target.ckey)
 			if(!target.client)
 				return
-			if(!(target.client.prefs.toggles_secondary & INTIMATE_INTERACTIONS_ENABLED))
+			if(GLOB.config.require_consent && !(target.client.prefs.toggles_secondary & INTIMATE_INTERACTIONS_ENABLED))
 				return
 			if(target.stat || target.restrained())
 				return

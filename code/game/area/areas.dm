@@ -34,6 +34,16 @@
 	/// The base turf type of the area, which can be used to override the z-level's base turf.
 	var/turf/base_turf
 
+	/// TRUE if this area was created via the blueprints tool (finalize_area()),
+	/// as opposed to being mapped in. Used to scope area persistence (section 7)
+	/// and faction beacon tagging (section 13) to player-created areas only --
+	/// never a normal mapped station area.
+	var/is_blueprint_area = FALSE
+	/// Faction UID this area belongs to, if claimed by a faction beacon.
+	/// Matches the persistent_network convention used on cryopods/telepads/
+	/// modular computers/telecomms machines.
+	var/persistent_network = ""
+
 	/// If this area has a light switch (or multiple), do the lights start on or off? FALSE = off, TRUE = on.
 	var/lightswitch = TRUE
 
