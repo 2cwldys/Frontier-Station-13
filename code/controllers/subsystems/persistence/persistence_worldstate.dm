@@ -121,6 +121,11 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		A.update()               // write area power flags (broadcasts on change)
 		if(A.area)
 			apc_areas |= A.area
+			// Flags the exact bug class where an APC got recreated before its
+			// real area was restored, permanently binding it to the background
+			// area instead -- self-reporting if this ever regresses.
+			if(A.area.area_flags & AREA_FLAG_IS_BACKGROUND)
+				log_subsystem_persistence_error("Worldstate: APC '[A.name]' at ([A.x],[A.y],[A.z]) resolved to background area '[A.area.name]' -- likely restored before its real area, or was never claimed by one.")
 		apc_count++
 
 	var/solar_count = 0
@@ -315,7 +320,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		modcomp_restore_programs(json_decode(content["programs"]))
 
 /obj/structure/machinery/door/airlock
-	worldstate_vars = list("welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access", "id_tag", "frequency")
+	worldstate_vars = list("name", "welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access", "id_tag", "frequency")
 
 /obj/structure/machinery/door/airlock/worldstate_get_content()
 	var/list/content = ..()
@@ -555,6 +560,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 
 /obj/structure/machinery/power/apc/worldstate_get_content()
 	var/list/content = list()
+	content["name"]       = name
 	content["lighting"]   = lighting
 	content["equipment"]  = equipment
 	content["environ"]    = environ
@@ -567,6 +573,12 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	return content
 
 /obj/structure/machinery/power/apc/worldstate_apply_content(list/content)
+	// Only overrides the formula-derived "[area] APC" name when it was
+	// actually customized (e.g. via an area bulk-rename) -- the areasInitialize()
+	// reorder above already makes the formula-derived name correct on its own,
+	// this just preserves a manual override on top of that.
+	if(!isnull(content["name"]) && length(content["name"]))
+		name = content["name"]
 	if(!isnull(content["lighting"]))   lighting   = content["lighting"]
 	if(!isnull(content["equipment"]))  equipment  = content["equipment"]
 	if(!isnull(content["environ"]))    environ    = content["environ"]

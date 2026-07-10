@@ -960,30 +960,38 @@
 	QDEL_NULL(holding)
 	return ..()
 
-/obj/item/clothing/shoes/proc/draw_knife()
-	set name = "Draw Boot Knife"
-	set desc = "Pull out your boot knife."
-	set category = "Object.Held"
-	set src in usr
-
-	if(use_check_and_message(usr))
+/obj/item/clothing/shoes/proc/_draw_knife(mob/user)
+	if(!holding)
+		return
+	if(use_check_and_message(user))
 		return
 
-	holding.forceMove(get_turf(usr))
+	holding.forceMove(get_turf(user))
 
-	if(usr.put_in_hands(holding))
-		usr.visible_message(SPAN_DANGER("\The [usr] pulls \a [holding] out of their boot!"))
+	if(user.put_in_hands(holding))
+		user.visible_message(SPAN_DANGER("\The [user] pulls \a [holding] out of their boot!"))
 		holding = null
 		playsound(get_turf(src), 'sound/weapons/holster/unholster_knife.ogg', 25)
 	else
-		to_chat(usr, SPAN_WARNING("Your need an empty, unbroken hand to do that."))
+		to_chat(user, SPAN_WARNING("Your need an empty, unbroken hand to do that."))
 		holding.forceMove(src)
 
 	if(!holding)
 		verbs -= /obj/item/clothing/shoes/proc/draw_knife
 
 	update_icon()
-	return
+
+/obj/item/clothing/shoes/proc/draw_knife()
+	set name = "Draw Boot Knife"
+	set desc = "Pull out your boot knife."
+	set category = "Object.Held"
+	set src in usr
+	_draw_knife(usr)
+
+/obj/item/clothing/shoes/AltClick(mob/user)
+	. = ..()
+	if(holding && (loc == user || (ishuman(user) && user:shoes == src)))
+		_draw_knife(user)
 
 
 /obj/item/clothing/shoes/attackby(obj/item/attacking_item, mob/user)

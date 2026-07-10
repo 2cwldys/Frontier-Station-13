@@ -223,7 +223,15 @@ GLOBAL_LIST_EMPTY(persistence_identity_cache)
 		return
 
 	var/flavor_json   = length(H.flavor_texts) ? json_encode(H.flavor_texts) : null
-	var/language_json = length(H.languages)   ? json_encode(H.languages)   : null
+
+	// Languages are live /datum/language object references, not primitives --
+	// JSON can't represent a BYOND object reference, so they must be
+	// stringified by name first (matching add_language()'s own GLOB.all_languages
+	// lookup-by-name convention) or the round trip silently loses them.
+	var/list/lang_names = list()
+	for(var/datum/language/L in H.languages)
+		lang_names += L.name
+	var/language_json = length(lang_names) ? json_encode(lang_names) : null
 
 	var/datum/db_query/ins = SSdbcore.NewQuery(
 		{"INSERT INTO ss13_char_identity (ckey, char_name, citizenship, special_voice, flavor_texts, languages_json)
@@ -272,9 +280,15 @@ GLOBAL_LIST_EMPTY(persistence_identity_cache)
 			flavor_texts = ft
 
 	if(length(entry["languages_json"]))
-		var/list/langs = json_decode(entry["languages_json"])
-		if(langs && islist(langs))
-			languages = langs
+		var/list/lang_names = json_decode(entry["languages_json"])
+		if(islist(lang_names) && length(lang_names))
+			var/list/restored_langs = list()
+			for(var/lname in lang_names)
+				var/datum/language/L = GLOB.all_languages[lname]
+				if(istype(L))
+					restored_langs += L
+			if(length(restored_langs))
+				languages = restored_langs
 
 	log_subsystem_persistence_info("CharIdentity: Restored identity for [real_name] ([ckey]).")
 
@@ -868,6 +882,14 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			if(holstered_data)
 				data["holstered"] = holstered_data
 
+	// Boot knife (or shard/utensil) shoved into a shoe's hidden knife slot
+	if(istype(I, /obj/item/clothing/shoes))
+		var/obj/item/clothing/shoes/SH = I
+		if(SH.holding)
+			var/list/knife_data = serializePersistentItem(SH.holding)
+			if(knife_data)
+				data["boot_knife"] = knife_data
+
 	// Hardsuit components -- helmet/chest/gloves/boots are separate obj/item
 	// instances parented to the rig, rebuilt fresh (to the rig's defaults)
 	// by Initialize() every time, so without this a saved/restored rig
@@ -1112,6 +1134,16 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 				holstered_item.forceMove(HO)
 				HO.holstered = holstered_item
 				HO.update_name()
+
+	// Boot knife
+	if(data["boot_knife"] && istype(I, /obj/item/clothing/shoes))
+		var/obj/item/clothing/shoes/SH = I
+		if(!SH.holding)
+			var/obj/item/knife_item = deserializePersistentItem(data["boot_knife"], SH)
+			if(knife_item)
+				SH.holding = knife_item
+				SH.verbs |= /obj/item/clothing/shoes/proc/draw_knife
+				SH.update_icon()
 
 	// Hardsuit components -- replace Initialize()'s freshly auto-generated
 	// defaults with whatever was actually saved. "in data" (key existence,

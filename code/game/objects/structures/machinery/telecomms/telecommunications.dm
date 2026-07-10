@@ -75,6 +75,30 @@
 	///Private variable to store the looping sound's ID
 	VAR_PRIVATE/datum/looping_sound/telecomms_looping_sound
 
+// Faction assignment is configured via the faction tagger tool now (see
+// faction_tagger_set() in persistence_faction_tagger.dm). This admin-only
+// quick-access verb stays for a "raw" session where nobody has a faction ID
+// yet, or for admins who don't want to dig out a tagger item.
+/obj/structure/machinery/telecomms/verb/configure_faction_network()
+	set name = "Configure Faction Network"
+	set category = "Admin"
+	set desc = "Force-set or clear this telecomms machine's faction network."
+	set src in oview(1)
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	to_chat(usr, SPAN_NOTICE("Current network: [persistent_network ? persistent_network : "(none)"]"))
+
+	var/new_network = tgui_input_text(usr, "Enter network ID (a faction UID, 'public', or leave blank to clear):", "Configure Faction Network", persistent_network, max_length = 32)
+	if(new_network == null)
+		return
+
+	var/new_uid = new_network ? normalize_faction_uid(new_network) : null
+	if(faction_tagger_set(new_uid, usr))
+		to_chat(usr, SPAN_GOOD("Telecomms network set to: [persistent_network ? persistent_network : "(none)"]"))
+		log_admin("[key_name(usr)] force-configured telecomms at ([x],[y],[z]) network to '[persistent_network]' via admin verb.")
+
 /obj/structure/machinery/telecomms/condition_hints(mob/user, distance, is_adjacent)
 	. += ..()
 	if(integrity < initial(integrity))

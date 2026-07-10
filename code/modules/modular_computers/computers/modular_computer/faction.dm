@@ -106,87 +106,13 @@ GLOBAL_LIST_INIT(modcomp_factory_default_programs, list("computerconfig", "clien
 		else
 			log_subsystem_persistence_error("Modcomp restore: hard drive full -- could not install '[fname]' on [src].")
 
-/obj/item/modular_computer/verb/link_faction_network()
-	set name = "Link to Faction"
-	set category = "Object"
-	set src in view(1)
-
-	var/mob/user = usr
-	// Prefer the ID inserted in the device's own card slot (the natural PDA
-	// flow), fall back to the ID the user is wearing/holding
-	var/obj/item/card/id/I = card_slot ? card_slot.stored_card : null
-	if(!I || !I.employer_faction)
-		I = user.GetIdCard()
-	if(!I || !I.employer_faction)
-		to_chat(user, SPAN_WARNING("Insert a faction-issued ID into \the [src] or carry one on you."))
-		return
-
-	// IDs carry the faction display name; the faction cache/DB key is the
-	// normalized uid -- convert before storing or comparing
-	var/card_faction = normalize_faction_uid(I.employer_faction)
-
-	if(faction_shackled && persistent_network != card_faction)
-		to_chat(user, SPAN_WARNING("This computer is shackled to [get_faction_name(persistent_network)] ([persistent_network]). Only an officer of that faction can release it."))
-		return
-
-	if(faction_shackled && persistent_network == card_faction)
-		// Same faction: this button doubles as the unshackle toggle
-		// (officer+ of the faction or admin, mirroring release_faction_shackle)
-		var/toggle_is_admin = check_rights(R_ADMIN, 0, user)
-		if(!toggle_is_admin)
-			var/list/toggle_member = get_faction_member(user.ckey, card_faction)
-			var/toggle_rank = toggle_member ? (toggle_member["rank"] || 0) : -1
-			if(toggle_rank < 1)
-				to_chat(user, SPAN_WARNING("This computer is shackled to [get_faction_name(card_faction)]. You need officer access to release it."))
-				return
-		var/release_confirm = tgui_alert(user, "This computer is already shackled to [get_faction_name(card_faction)]. Release the shackle?", "Release Faction Shackle", list("Release", "Cancel"))
-		if(release_confirm != "Release")
-			return
-		persistent_network = ""
-		faction_shackled   = FALSE
-		to_chat(user, SPAN_GOOD("Shackle released. Computer is now unclaimed."))
-		log_game("[key_name(user)] released faction shackle on [src] at ([x],[y],[z]) (was '[card_faction]') via Link to Faction toggle.")
-		return
-
-	var/confirm = tgui_alert(user, "Shackle this computer to [get_faction_name(card_faction)] ([card_faction])? Only officers of that faction will be able to release it.", "Link to Faction", list("Confirm", "Cancel"))
-	if(confirm != "Confirm")
-		return
-
-	persistent_network = card_faction
-	faction_shackled   = TRUE
-	to_chat(user, SPAN_GOOD("Computer shackled to [get_faction_name(card_faction)]. Programs on this machine will now operate under that faction."))
-	log_game("[key_name(user)] shackled [src] at ([x],[y],[z]) to faction '[card_faction]'.")
-
-/obj/item/modular_computer/verb/release_faction_shackle()
-	set name = "Release Faction Shackle"
-	set category = "Object"
-	set src in view(1)
-
-	var/mob/user = usr
-
-	if(!faction_shackled || !persistent_network)
-		to_chat(user, SPAN_WARNING("This computer is not currently shackled to any faction."))
-		return
-
-	var/current_faction = persistent_network
-	var/is_admin = check_rights(R_ADMIN, 0, user)
-
-	if(!is_admin)
-		var/list/member = get_faction_member(user.ckey, current_faction)
-		var/user_rank = member ? (member["rank"] || 0) : -1
-		if(user_rank < 1)
-			to_chat(user, SPAN_WARNING("You need officer access in [get_faction_name(current_faction)] to release this shackle."))
-			return
-
-	var/confirm = tgui_alert(user, "Release this computer from [get_faction_name(current_faction)]? It will be unclaimed and anyone can re-link it.", "Release Shackle", list("Release", "Cancel"))
-	if(confirm != "Release")
-		return
-
-	persistent_network = ""
-	faction_shackled   = FALSE
-	to_chat(user, SPAN_GOOD("Shackle released. Computer is now unclaimed."))
-	log_game("[key_name(user)] released faction shackle on [src] at ([x],[y],[z]) (was '[current_faction]').")
-
+// Player-facing faction shackling for modular computers is configured via
+// the faction tagger tool now (code/game/objects/items/devices/faction_tagger.dm
+// + faction_tagger_compatible()/get_uid()/set() overrides in
+// code/controllers/subsystems/persistence/persistence_faction_tagger.dm) --
+// the player-facing link/release verbs that used to live here are gone.
+// This admin-only quick-access verb stays for admins who don't want to dig
+// out a tagger item.
 /obj/item/modular_computer/verb/check_faction_network()
 	set name = "Check Faction Network"
 	set category = "Admin"

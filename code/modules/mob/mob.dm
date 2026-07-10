@@ -1384,6 +1384,9 @@
 	// explicit, removing any ambiguity about what "initial" resolves to.
 	if(client)
 		client.mouse_pointer_icon = NORMAL_CURSOR_ICON
+	var/sound/off_sound = sound('sound/effects/ui_toggle.ogg', volume = 50)
+	off_sound.frequency = -28000 // reversed AND deeper -- lower magnitude than the 45000 neutral rate, still negative for reverse
+	SEND_SOUND(src, off_sound)
 
 /mob/proc/throw_mode_on()
 	src.in_throw_mode = 1

@@ -188,8 +188,13 @@
 	if(!GLOB.config.sql_enabled)
 		return
 	// Stop the map-authored duplicate from respawning at the original tile
-	// every boot -- the real closet now lives wherever it ends up.
-	SSpersistence.saveStructureRemovalAt(type, persistence_mapload_origin)
+	// every boot -- the real closet now lives wherever it ends up. Only
+	// promote to dynamic tracking (and only forget the origin) once the
+	// tombstone actually lands -- a silently-failed write here used to
+	// proceed anyway, permanently losing the ability to retry and leaving
+	// the original to duplicate alongside the relocated copy on next boot.
+	if(!SSpersistence.saveStructureRemovalAt(type, persistence_mapload_origin))
+		return
 	SSpersistence.objectsRegisterTrack(src)
 	persistence_mapload_origin = null
 

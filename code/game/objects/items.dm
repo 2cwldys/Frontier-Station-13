@@ -1152,33 +1152,49 @@ modules/mob/living/carbon/human/life.dm if you die, you will be zoomed out.
 	set category = "Object"
 	set src in view(1)
 
-	// BYOND resolves src for "set src in view()" verbs invoked from the
-	// right-click menu by name-matching atoms in view -- an ID card named
-	// after its owner can lose that resolution to the owner's own mob
-	// (distance 0), leaving src bound to a mob and turning the
-	// UnarmedAttack(src) below into an intent-based self-attack.
+	// BYOND's native right-click resolution for "set src in view()" verbs can
+	// bind src to usr's own mob instead of the clicked item -- confirmed via
+	// live server logs (every real occurrence has src == usr, same mob
+	// instance, not a bystander and not a duplicate item). Most common with a
+	// persistence-restored ID card sitting near its reconnecting owner, since
+	// the card's name embeds the owner's name. Since the failure mode is
+	// confirmed to be specifically "src resolved to usr", self-correct by
+	// re-deriving the candidate the verb's own src-in-view(1) clause should
+	// have picked: if exactly one pickup-eligible item is in view, use that.
 	if(!isitem(src))
 		log_world("verb_pickup: mis-bound src=[src] ([REF(src)]) for usr=[usr] ([REF(usr)]) -- refusing.")
+		if(src == usr)
+			var/list/candidates = list()
+			for(var/obj/item/I in view(1, usr))
+				if(isturf(I.loc) && !I.anchored)
+					candidates += I
+			if(length(candidates) == 1)
+				candidates[1]._do_pickup(usr)
+				return
+		to_chat(usr, SPAN_WARNING("Something else is in the way -- try clicking directly on it, or step onto its tile first."))
 		return
 
-	if(use_check_and_message(usr))
+	_do_pickup(usr)
+
+/obj/item/proc/_do_pickup(mob/user)
+	if(use_check_and_message(user))
 		return
-	if(!iscarbon(usr) || istype(usr, /mob/living/carbon/brain))
-		to_chat(usr, SPAN_WARNING("You can't pick things up!"))
+	if(!iscarbon(user) || istype(user, /mob/living/carbon/brain))
+		to_chat(user, SPAN_WARNING("You can't pick things up!"))
 		return
 	if(anchored)
-		to_chat(usr, SPAN_WARNING("You can't pick that up!"))
+		to_chat(user, SPAN_WARNING("You can't pick that up!"))
 		return
-	if(!usr.hand && usr.r_hand)
-		to_chat(usr, SPAN_WARNING("Your right hand is full."))
+	if(!user.hand && user.r_hand)
+		to_chat(user, SPAN_WARNING("Your right hand is full."))
 		return
-	if(usr.hand && usr.l_hand)
-		to_chat(usr, SPAN_WARNING("Your left hand is full."))
+	if(user.hand && user.l_hand)
+		to_chat(user, SPAN_WARNING("Your left hand is full."))
 		return
 	if(!isturf(loc))
-		to_chat(usr, SPAN_WARNING("You can't pick that up!"))
+		to_chat(user, SPAN_WARNING("You can't pick that up!"))
 		return
-	usr.UnarmedAttack(src)
+	user.UnarmedAttack(src)
 
 /obj/item/proc/use_tool(atom/target, mob/living/user, delay, amount = 0, volume = 0, datum/callback/extra_checks)
 	// No delay means there is no start message, and no reason to call tool_start_check before use_tool.

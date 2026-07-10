@@ -334,6 +334,47 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 
 	log_subsystem_persistence_info("FactionResearch: Saved research for [saved] factions.")
 
+/**
+ * Shared authorization check for anything that shackles/configures an
+ * object's faction ownership (modular computers, telepads, cryopods, lace
+ * storage, telecomms, the faction beacon) -- admins always pass; otherwise
+ * requires at least rank_required standing (default 1 = officer) in the
+ * target faction. Replaces the ad-hoc admin-or-rank checks that used to be
+ * copy-pasted (and inconsistently applied) in each type's own verbs.
+ */
+/proc/can_configure_faction_shackle(mob/user, faction_uid, rank_required = 1)
+	if(check_rights(R_ADMIN, 0, user))
+		return TRUE
+	if(!faction_uid)
+		return FALSE
+	var/list/member = get_faction_member(user.ckey, faction_uid)
+	var/rank = member ? (member["rank"] || 0) : -1
+	return rank >= rank_required
+
+/**
+ * Write a Z-level's persistence enabled/notes to ss13_zlevel_persistence and
+ * update the in-memory allow/skip lists immediately. Shared by the admin
+ * toggle verb and by faction beacon claim/destruction (a beacon claiming a
+ * Z should make sure it's actually in the save list; losing a beacon should
+ * take it back out).
+ */
+/datum/controller/subsystem/persistence/proc/setZLevelPersistence(z, enabled, notes)
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		{"INSERT INTO ss13_zlevel_persistence (z, enabled, notes)
+		VALUES (:z, :enabled, :notes)
+		ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), notes = VALUES(notes)"},
+		list("z" = z, "enabled" = enabled, "notes" = notes)
+	)
+	q.Execute()
+	databaseCheckQueryResult(q, "setZLevelPersistence")
+	qdel(q)
+	if(enabled)
+		GLOB.persistence_zlevel_skip -= z
+		GLOB.persistence_zlevel_allow |= z
+	else
+		GLOB.persistence_zlevel_skip |= z
+		GLOB.persistence_zlevel_allow -= z
+
 // ============================================================
 // ADMIN VERBS
 // ============================================================
@@ -386,23 +427,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		currently_persists = !(z_pick in GLOB.persistence_zlevel_skip)
 	var/new_enabled = currently_persists ? 0 : 1  // toggle
 
-	var/datum/db_query/q = SSdbcore.NewQuery(
-		{"INSERT INTO ss13_zlevel_persistence (z, enabled, notes)
-		VALUES (:z, :enabled, :notes)
-		ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), notes = VALUES(notes)"},
-		list("z" = z_pick, "enabled" = new_enabled, "notes" = (new_notes != "" ? new_notes : null))
-	)
-	q.Execute()
-	SSpersistence.databaseCheckQueryResult(q, "toggle_zlevel_persistence")
-	qdel(q)
-
-	// Update in-memory skip + allow lists immediately
-	if(new_enabled)
-		GLOB.persistence_zlevel_skip -= z_pick
-		GLOB.persistence_zlevel_allow |= z_pick
-	else
-		GLOB.persistence_zlevel_skip |= z_pick
-		GLOB.persistence_zlevel_allow -= z_pick
+	SSpersistence.setZLevelPersistence(z_pick, new_enabled, new_notes != "" ? new_notes : null)
 
 	var/state = new_enabled ? "PERSIST" : "SKIP"
 	to_chat(usr, SPAN_GOOD("Z=[z_pick] set to [state][new_notes != "" ? " ([new_notes])" : ""]. Takes effect on next save/load cycle."))

@@ -347,6 +347,30 @@
 	/// Never expire spawned cryopods
 	persistant_objects_expiration_time_days = 36500
 
+// Faction assignment is configured via the faction tagger tool now (see
+// faction_tagger_set() in persistence_faction_tagger.dm). This admin-only
+// quick-access verb stays for a "raw" session where nobody has a faction ID
+// yet, or for admins who don't want to dig out a tagger item.
+/obj/structure/machinery/cryopod/verb/configure_faction_network()
+	set name = "Configure Faction Network"
+	set category = "Admin"
+	set desc = "Force-set or clear this cryopod's faction network."
+	set src in oview(1)
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	to_chat(usr, SPAN_NOTICE("Current network: [persistent_network ? persistent_network : "(none)"] | spawn=[persistent_spawn]"))
+
+	var/new_network = tgui_input_text(usr, "Enter network ID (a faction UID, 'public', or leave blank to clear):", "Configure Faction Network", persistent_network, max_length = 32)
+	if(new_network == null)
+		return
+
+	var/new_uid = new_network ? normalize_faction_uid(new_network) : null
+	if(faction_tagger_set(new_uid, usr))
+		to_chat(usr, SPAN_GOOD("Cryopod network set to: [persistent_network ? persistent_network : "(none)"][persistent_spawn ? " (spawn point)" : ""]"))
+		log_admin("[key_name(usr)] force-configured cryopod at ([x],[y],[z]) network to '[persistent_network]' via admin verb.")
+
 /obj/structure/machinery/cryopod/Initialize(mapload, ...)
 	. = ..()
 	if(mapload)
@@ -662,41 +686,13 @@
 	feedback_add_details("admin_verb", "INL")
 
 // ============================================================
-// CRYOPOD NETWORK ADMIN VERB
+// CRYOPOD NETWORK CONFIGURATION
 // ============================================================
-
-/obj/structure/machinery/cryopod/verb/configure_network()
-	set name = "Configure Cryopod Network"
-	set category = "Persistence"
-	set desc = "Set this cryopod's persistent network and spawn designation."
-	set src in oview(1)
-
-	if(!check_rights(R_ADMIN))
-		return
-
-	var/current = "[persistent_network ? persistent_network : "(none)"] | spawn=[persistent_spawn]"
-	to_chat(usr, SPAN_NOTICE("Current config: [current]"))
-
-	var/new_network = tgui_input_text(usr, "Enter network ID ('public' for public spawn, a faction UID for faction-only, or leave blank to clear):", "Configure Cryopod", persistent_network, max_length = 32)
-	if(new_network == null)
-		return
-
-	persistent_network = (new_network == "public") ? new_network : normalize_faction_uid(new_network)
-
-	if(new_network == "public")
-		var/spawn_choice = tgui_alert(usr, "Mark this pod as a public spawn point (new arrivals emerge here)?", "Configure Cryopod", list("Yes", "No"))
-		persistent_spawn = (spawn_choice == "Yes")
-	else
-		persistent_spawn = FALSE
-
-	var/label = persistent_network ? "[persistent_network][persistent_spawn ? " (spawn)" : ""]" : "unrestricted"
-	to_chat(usr, SPAN_GOOD("Cryopod network set to: [label]"))
-	log_admin("[key_name(usr)] configured cryopod at ([x],[y],[z]) network='[persistent_network]' spawn=[persistent_spawn]")
-
-	// Spawned cryopods register with persistent_objects so they are re-created on server restart.
-	// Map-placed cryopods use worldstate instead (handled automatically).
-	if(!persistence_map_placed && GLOB.config.sql_enabled && GLOB.persistence_ready)
-		SSpersistence.objectsRegisterTrack(src)
+// Faction-network assignment AND the "public spawn point" designation are
+// both configured via the faction tagger tool now (see faction_tagger_set()
+// in persistence_faction_tagger.dm and the "toggle_public_spawn" ui_act
+// handler in code/game/objects/items/devices/faction_tagger.dm, admin-only)
+// -- no standalone verb lives here anymore.
 
 // ============================================================
 // CHARACTER SLOT SYSTEM

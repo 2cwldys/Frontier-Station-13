@@ -123,6 +123,7 @@ SUBSYSTEM_DEF(machinery)
 		qdel(powernet)
 	powernets.Cut()
 	setup_powernets_for_cables(GLOB.cable_list)
+	log_subsystem_persistence_info("Powernets: rebuilt [length(powernets)] powernet(s) from [length(GLOB.cable_list)] cable(s).")
 
 /datum/controller/subsystem/machinery/proc/setup_powernets_for_cables(list/cables)
 	for (var/obj/structure/cable/cable as anything in cables)

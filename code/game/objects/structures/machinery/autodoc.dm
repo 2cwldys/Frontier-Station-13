@@ -14,10 +14,37 @@
 	var/looping_sound_type = /datum/looping_sound/autodoc
 	VAR_PRIVATE/datum/looping_sound/autodoc_looping_sound
 	COOLDOWN_DECLARE(autodoc_warning_cd)
+	/// Faction UID this autodoc is restricted to, or "" for unrestricted. Set via the faction tagger.
+	var/persistent_network = ""
+	worldstate_vars = list("persistent_network")
 
 /obj/structure/machinery/autodoc/Destroy()
 	QDEL_NULL(autodoc_looping_sound)
 	. = ..()
+
+// Faction assignment is configured via the faction tagger tool now (see
+// faction_tagger_set() in persistence_faction_tagger.dm). This admin-only
+// quick-access verb stays for a "raw" session where nobody has a faction ID
+// yet, or for admins who don't want to dig out a tagger item.
+/obj/structure/machinery/autodoc/verb/configure_faction_network()
+	set name = "Configure Faction Network"
+	set category = "Admin"
+	set desc = "Force-set or clear this autodoc's faction network."
+	set src in oview(1)
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	to_chat(usr, SPAN_NOTICE("Current network: [persistent_network ? persistent_network : "(none)"]"))
+
+	var/new_network = tgui_input_text(usr, "Enter network ID (a faction UID, 'public', or leave blank to clear):", "Configure Faction Network", persistent_network, max_length = 32)
+	if(new_network == null)
+		return
+
+	var/new_uid = new_network ? normalize_faction_uid(new_network) : null
+	if(faction_tagger_set(new_uid, usr))
+		to_chat(usr, SPAN_GOOD("Autodoc network set to: [persistent_network ? persistent_network : "(none)"]"))
+		log_admin("[key_name(usr)] force-configured autodoc at ([x],[y],[z]) network to '[persistent_network]' via admin verb.")
 
 // Refuses to accept a patient still wearing an outer suit -- error buzz +
 // chat message instead, throttled so it doesn't spam every process tick
@@ -35,6 +62,20 @@
 			visible_message(SPAN_WARNING("\The [src] buzzes an error -- incompatible synthetic chassis detected."))
 			COOLDOWN_START(src, autodoc_warning_cd, 3 SECONDS)
 		return FALSE
+	if(persistent_network && persistent_network != "public")
+		// If someone else is actively dragging the patient onto the table,
+		// THEY are the one who needs to be authorized -- otherwise the
+		// patient has to authorize themselves via their own worn ID.
+		var/mob/living/authorizer = H.pulledby || H
+		if(!check_rights(R_ADMIN, 0, authorizer))
+			var/obj/item/card/id/ID = authorizer.GetIdCard()
+			var/auth_uid = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+			if(auth_uid != persistent_network)
+				if(COOLDOWN_FINISHED(src, autodoc_warning_cd))
+					playsound(src, 'sound/machines/buzz-sigh.ogg', 50, TRUE)
+					visible_message(SPAN_WARNING("\The [src] buzzes an error -- [authorizer == H ? "[H] is" : "[authorizer] is"] not authorized for [get_faction_name(persistent_network)]'s medical systems."))
+					COOLDOWN_START(src, autodoc_warning_cd, 3 SECONDS)
+				return FALSE
 	if(H.wear_suit)
 		if(COOLDOWN_FINISHED(src, autodoc_warning_cd))
 			playsound(src, 'sound/machines/buzz-sigh.ogg', 50, TRUE)

@@ -2176,6 +2176,8 @@ About the new airlock wires panel:
 		var/obj/item/card/id/I = M ? M.GetIdCard() : null
 		if(!I) return FALSE
 		var/list/faction_access = I.GetFactionAccess(req_access_faction)
+		if(!length(faction_access))
+			return FALSE // no department configured on the board shouldn't mean "anyone passes"
 		return has_access(req_access, req_one_access, faction_access)
 	return ..()
 

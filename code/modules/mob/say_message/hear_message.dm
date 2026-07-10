@@ -252,7 +252,11 @@
 	if(msg.say_mode != SAYMODE_RADIO)
 		play_speech_sound(msg, sound_vol)
 	else
-		playsound(get_turf(src), 'sound/effects/radio_chatter.ogg', sound_vol, vary = TRUE)
+		// Client-only, not playsound() -- this is heard through the
+		// listener's own radio/headset, not the physical air, so it must
+		// never be silenced by vacuum/pressure falloff or leak to bystanders
+		// who aren't actually receiving the transmission.
+		SEND_SOUND(src, sound('sound/effects/radio_chatter.ogg', volume = sound_vol))
 
 /// Plays the speech sound for a given message.
 /mob/proc/play_speech_sound(datum/say_message/msg, sound_vol)

@@ -436,6 +436,18 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/wl_e)
 		log_subsystem_persistence_panic("Unhandled exception during join whitelist initialization: [wl_e]")
 
+	log_subsystem_persistence_info("Starting area initialization...")
+	try
+		// Before objectsInitialize()/worldstateInitialize() -- a restored
+		// player-built APC's get_area(src)/loc.loc must already resolve to the
+		// correct custom blueprint area by the time it's recreated, or it bakes
+		// in the wrong name/.area binding permanently (no refresh hook exists
+		// to fix this after the fact -- see faction_beacon/APC persistence
+		// investigation).
+		areasInitialize()
+	catch(var/exception/areas_e)
+		log_subsystem_persistence_panic("Unhandled exception during area persistence initialization: [areas_e]")
+
 	log_subsystem_persistence_info("Starting persistent objects initialization...")
 	try
 		objectsInitialize()
@@ -497,15 +509,6 @@ SUBSYSTEM_DEF(persistence)
 		templateCheckPending()
 	catch(var/exception/templates_e)
 		log_subsystem_persistence_panic("Unhandled exception during template pending check: [templates_e]")
-
-	log_subsystem_persistence_info("Starting area initialization...")
-	try
-		// Before worldstateInitialize() -- a restored APC's get_area(src) must
-		// already resolve to the correct custom area by the time its worldstate
-		// restore runs.
-		areasInitialize()
-	catch(var/exception/areas_e)
-		log_subsystem_persistence_panic("Unhandled exception during area persistence initialization: [areas_e]")
 
 	log_subsystem_persistence_info("Starting worldstate initialization...")
 	try

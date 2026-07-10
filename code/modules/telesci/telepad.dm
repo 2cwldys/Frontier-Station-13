@@ -74,67 +74,12 @@
 	/// FALSE (security telepads) -- supplies can never land on non-cargo pads.
 	var/accepts_cargo      = TRUE
 
-/obj/structure/machinery/telepad_cargo/verb/link_faction_network()
-	set name = "Link to Faction"
-	set category = "Object"
-	set src in oview(1)
-
-	var/mob/user = usr
-	var/obj/item/card/id/I = user.GetIdCard()
-	if(!I || !I.employer_faction)
-		to_chat(user, SPAN_WARNING("Your ID is not issued by a faction."))
-		return
-
-	var/card_faction = normalize_faction_uid(I.employer_faction)
-
-	if(faction_shackled && persistent_network != card_faction)
-		to_chat(user, SPAN_WARNING("This telepad is claimed by [get_faction_name(persistent_network)]. Only their officers can release it."))
-		return
-
-	if(faction_shackled && persistent_network == card_faction)
-		to_chat(user, SPAN_NOTICE("This telepad is already linked to [get_faction_name(card_faction)]."))
-		return
-
-	var/confirm = tgui_alert(user, "Link this cargo telepad to [get_faction_name(card_faction)] ([card_faction])? Only officers of that faction can release it.", "Link to Faction", list("Confirm", "Cancel"))
-	if(confirm != "Confirm")
-		return
-
-	persistent_network = card_faction
-	persistent_spawn   = TRUE
-	faction_shackled   = TRUE
-	to_chat(user, SPAN_GOOD("Cargo telepad linked to [get_faction_name(card_faction)]. It will now receive deliveries for that faction."))
-	log_game("[key_name(user)] linked cargo telepad at ([x],[y],[z]) to faction '[card_faction]'.")
-
-/obj/structure/machinery/telepad_cargo/verb/release_faction_link()
-	set name = "Release Faction Link"
-	set category = "Object"
-	set src in oview(1)
-
-	var/mob/user = usr
-
-	if(!faction_shackled || !persistent_network)
-		to_chat(user, SPAN_WARNING("This telepad is not currently linked to a faction."))
-		return
-
-	var/cur_faction = persistent_network
-	var/is_admin = check_rights(R_ADMIN, 0, user)
-	if(!is_admin)
-		var/list/member = get_faction_member(user.ckey, cur_faction)
-		var/user_rank = member ? (member["rank"] || 0) : -1
-		if(user_rank < 1)
-			to_chat(user, SPAN_WARNING("You need officer access in [get_faction_name(cur_faction)] to release this link."))
-			return
-
-	var/confirm = tgui_alert(user, "Release this telepad from [get_faction_name(cur_faction)]? It will become unclaimed.", "Release Faction Link", list("Release", "Cancel"))
-	if(confirm != "Release")
-		return
-
-	persistent_network = ""
-	persistent_spawn   = FALSE
-	faction_shackled   = FALSE
-	to_chat(user, SPAN_GOOD("Faction link released. Telepad is now unclaimed."))
-	log_game("[key_name(user)] released faction link on cargo telepad at ([x],[y],[z]) (was '[cur_faction]').")
-
+// Player-facing faction linking for cargo/security telepads is configured
+// via the faction tagger tool now (code/game/objects/items/devices/faction_tagger.dm
+// + faction_tagger_compatible()/get_uid()/set() overrides in
+// code/controllers/subsystems/persistence/persistence_faction_tagger.dm) --
+// the player-facing link/release verbs and the ID-swipe attackby() path
+// that used to live here are gone. This admin-only quick-access verb stays.
 /obj/structure/machinery/telepad_cargo/verb/configure_supply_network()
 	set name = "Configure Supply Network"
 	set category = "Admin"
@@ -164,44 +109,6 @@
 	log_admin("[key_name(usr)] configured cargo telepad at ([x],[y],[z]) network='[persistent_network]' spawn=[persistent_spawn]")
 
 /obj/structure/machinery/telepad_cargo/attackby(obj/item/attacking_item, mob/user, params)
-	// ID card swipe — link or release faction
-	if(istype(attacking_item, /obj/item/card/id))
-		var/obj/item/card/id/I = attacking_item
-		if(!I.employer_faction)
-			to_chat(user, SPAN_WARNING("This ID is not issued by a faction."))
-			return TRUE
-		var/card_faction = normalize_faction_uid(I.employer_faction)
-
-		if(faction_shackled && persistent_network == card_faction)
-			// Same faction — offer to release if officer+
-			var/list/member = get_faction_member(user.ckey, card_faction)
-			var/rank = member ? (member["rank"] || 0) : -1
-			if(rank < 1 && !check_rights(R_ADMIN, 0, user))
-				to_chat(user, SPAN_WARNING("This telepad is linked to [get_faction_name(card_faction)]. You need officer rank to release it."))
-				return TRUE
-			var/confirm = tgui_alert(user, "Release this telepad from [get_faction_name(card_faction)]?", "Release Faction Link", list("Release", "Cancel"))
-			if(confirm == "Release")
-				persistent_network = ""
-				persistent_spawn   = FALSE
-				faction_shackled   = FALSE
-				to_chat(user, SPAN_GOOD("Faction link released. Telepad is now unclaimed."))
-				log_game("[key_name(user)] released cargo telepad at ([x],[y],[z]) from faction '[card_faction]' via ID swipe.")
-			return TRUE
-
-		if(faction_shackled && persistent_network != card_faction)
-			to_chat(user, SPAN_WARNING("This telepad is claimed by [get_faction_name(persistent_network)]. Only their officers can release it."))
-			return TRUE
-
-		// Unclaimed — link to this faction
-		var/confirm = tgui_alert(user, "Link this telepad to [get_faction_name(card_faction)]?", "Link to Faction", list("Confirm", "Cancel"))
-		if(confirm == "Confirm")
-			persistent_network = card_faction
-			persistent_spawn   = TRUE
-			faction_shackled   = TRUE
-			to_chat(user, SPAN_GOOD("Cargo telepad linked to [get_faction_name(card_faction)]."))
-			log_game("[key_name(user)] linked cargo telepad at ([x],[y],[z]) to faction '[card_faction]' via ID swipe.")
-		return TRUE
-
 	if(attacking_item.tool_behaviour == TOOL_WRENCH)
 		attacking_item.play_tool_sound(get_turf(src), 50)
 		if(anchored)
@@ -228,16 +135,16 @@
 
 /*
  * Security telepad -- the return point for First Responder teleports.
- * Subtype of the cargo telepad so it inherits the faction link/release
- * verbs, ID-swipe handling, tool interactions, and worldstate persistence;
- * cargo delivery lookups explicitly exclude this type so supplies never
- * land on it. Red tint is a PLACEHOLDER over the cargo pad sprite until
- * dedicated sprite work is done.
+ * Subtype of the cargo telepad so it inherits tool interactions and
+ * worldstate persistence; cargo delivery lookups explicitly exclude this
+ * type so supplies never land on it. Faction configuration is via the
+ * faction tagger tool, same as the base cargo telepad. Red tint is a
+ * PLACEHOLDER over the cargo pad sprite until dedicated sprite work is done.
  */
 /obj/structure/machinery/telepad_security
 	parent_type = /obj/structure/machinery/telepad_cargo
 	name = "security telepad"
-	desc = "A tuned telepad that serves as the return point for accredited security first responders. Swipe a faction ID or use the Link to Faction verb to tie it to a faction network."
+	desc = "A tuned telepad that serves as the return point for accredited security first responders. Use a faction tagger to tie it to a faction network."
 	color = "#ff4444"
 	accepts_cargo = FALSE
 

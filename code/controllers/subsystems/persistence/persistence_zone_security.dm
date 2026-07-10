@@ -334,39 +334,57 @@ GLOBAL_LIST_EMPTY(hub_distress_last_called)
 		return
 	var/new_level = level_choices[level_pick]
 
+	var/where_stored = persistence_set_zone_security(z_pick, new_level)
+
+	switch(where_stored)
+		if("pinned")
+			to_chat(usr, SPAN_GOOD("Z=[z_pick] is now [uppertext(level_pick)]. Stored on the pinned site -- the zone follows it across reboots."))
+			log_and_message_admins("set pinned-site z-level [z_pick] security zone to [level_pick]", usr)
+		if("dynamic")
+			to_chat(usr, SPAN_GOOD("Z=[z_pick] is now [uppertext(level_pick)] for THIS SESSION ONLY -- dynamic sites reshuffle each boot. Pin the site (Persistent Overmap Sites) to make its zone permanent."))
+			log_and_message_admins("set dynamic-site z-level [z_pick] security zone to [level_pick] (session only)", usr)
+		else
+			to_chat(usr, SPAN_GOOD("Z=[z_pick] is now [uppertext(level_pick)]. Stored to DB; overmap updated."))
+			log_and_message_admins("set z-level [z_pick] security zone to [level_pick]", usr)
+
+/**
+ * Sets a z-level's security zone in whatever storage is correct for that z
+ * (pinned site row, session-only for dynamic/away sites, or the plain
+ * ss13_zone_security table), updates the in-memory map, and repaints the
+ * overmap. Returns "pinned", "dynamic", or "normal" so callers can message
+ * appropriately. Shared by the admin verb above and the faction beacon's
+ * claim/destruction hooks.
+ */
+/proc/persistence_set_zone_security(z, new_level)
 	// Where the zone is stored depends on what the z IS. Away-site z-numbers
 	// reshuffle each boot, so a z-keyed row would leak onto whatever spawns
 	// at that number next session.
-	if(z_pick in GLOB.persistence_pinned_site_z)
+	if(z in GLOB.persistence_pinned_site_z)
 		// Pinned site: zone lives on the pin row and follows the site across boots
 		var/datum/db_query/pin_q = SSdbcore.NewQuery(
 			"UPDATE ss13_persistent_away_sites SET sec_zone = :lvl WHERE last_z = :z AND map_path = :mp",
-			list("lvl" = new_level, "z" = z_pick, "mp" = "[SSatlas.current_map.path]")
+			list("lvl" = new_level, "z" = z, "mp" = "[SSatlas.current_map.path]")
 		)
 		pin_q.Execute()
 		SSpersistence.databaseCheckQueryResult(pin_q, "set_zone_security pinned")
 		qdel(pin_q)
-		GLOB.zone_security_by_z["[z_pick]"] = new_level
+		GLOB.zone_security_by_z["[z]"] = new_level
 		zone_security_update_overmap()
-		to_chat(usr, SPAN_GOOD("Z=[z_pick] is now [uppertext(level_pick)]. Stored on the pinned site -- the zone follows it across reboots."))
-		log_and_message_admins("set pinned-site z-level [z_pick] security zone to [level_pick]", usr)
-	else if(is_away_level(z_pick) || (z_pick in GLOB.persistence_template_loaded_z))
+		return "pinned"
+	if(is_away_level(z) || (z in GLOB.persistence_template_loaded_z))
 		// Dynamic site: session-only, no DB row (would misapply next boot)
-		GLOB.zone_security_by_z["[z_pick]"] = new_level
+		GLOB.zone_security_by_z["[z]"] = new_level
 		zone_security_update_overmap()
-		to_chat(usr, SPAN_GOOD("Z=[z_pick] is now [uppertext(level_pick)] for THIS SESSION ONLY -- dynamic sites reshuffle each boot. Pin the site (Persistent Overmap Sites) to make its zone permanent."))
-		log_and_message_admins("set dynamic-site z-level [z_pick] security zone to [level_pick] (session only)", usr)
-	else
-		var/datum/db_query/q = SSdbcore.NewQuery(
-			{"INSERT INTO ss13_zone_security (z, sec_level)
-			VALUES (:z, :lvl)
-			ON DUPLICATE KEY UPDATE sec_level = VALUES(sec_level)"},
-			list("z" = z_pick, "lvl" = new_level)
-		)
-		q.Execute()
-		SSpersistence.databaseCheckQueryResult(q, "set_zone_security")
-		qdel(q)
-		GLOB.zone_security_by_z["[z_pick]"] = new_level
-		zone_security_update_overmap()
-		to_chat(usr, SPAN_GOOD("Z=[z_pick] is now [uppertext(level_pick)]. Stored to DB; overmap updated."))
-		log_and_message_admins("set z-level [z_pick] security zone to [level_pick]", usr)
+		return "dynamic"
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		{"INSERT INTO ss13_zone_security (z, sec_level)
+		VALUES (:z, :lvl)
+		ON DUPLICATE KEY UPDATE sec_level = VALUES(sec_level)"},
+		list("z" = z, "lvl" = new_level)
+	)
+	q.Execute()
+	SSpersistence.databaseCheckQueryResult(q, "set_zone_security")
+	qdel(q)
+	GLOB.zone_security_by_z["[z]"] = new_level
+	zone_security_update_overmap()
+	return "normal"

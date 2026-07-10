@@ -38,7 +38,7 @@
 /obj/structure/machinery/lace_storage/proc/has_free_slot()
 	return !capacity || length(stored_laces) < capacity
 
-/obj/structure/machinery/lace_storage/examine(mob/user)
+/obj/structure/machinery/lace_storage/get_examine_text(mob/user, distance, is_adjacent, infix, suffix)
 	. = ..()
 	if(capacity)
 		. += SPAN_NOTICE("It holds [length(stored_laces)] of [capacity] neural laces.")
@@ -182,10 +182,14 @@
 			retrieve_lace(text2num(params["index"]), usr)
 			return TRUE
 
-/obj/structure/machinery/lace_storage/verb/configure_lace_network()
-	set name = "Configure Faction Network"
+// Faction-network assignment moved to the faction tagger tool (see
+// faction_tagger_set() in persistence_faction_tagger.dm). This verb now
+// only handles the "public vault" designation, which isn't a faction
+// concept and the tagger doesn't cover.
+/obj/structure/machinery/lace_storage/verb/configure_public_vault()
+	set name = "Configure Public Vault"
 	set category = "Persistence"
-	set desc = "Set this vault's faction network ('public' vaults receive anyone's auto-transferred laces)."
+	set desc = "Mark this vault as public (receives anyone's auto-transferred laces), or clear it."
 	set src in oview(1)
 
 	if(!check_rights(R_ADMIN))
@@ -193,45 +197,13 @@
 
 	to_chat(usr, SPAN_NOTICE("Current network: [persistent_network ? persistent_network : "(unmanaged)"]"))
 
-	var/new_network = tgui_input_text(usr, "Enter network ID ('public' to receive anyone's laces, a faction UID for faction-only, or leave blank to clear):", "Configure Faction Network", persistent_network, max_length = 32)
-	if(new_network == null) return
+	var/confirm = tgui_alert(usr, "Mark this vault public (receives anyone's laces)? This clears any faction tag currently set.", "Configure Public Vault", list("Mark Public", "Clear", "Cancel"))
+	if(confirm == "Cancel" || !confirm)
+		return
 
-	persistent_network = (new_network == "public") ? new_network : normalize_faction_uid(new_network)
+	persistent_network = (confirm == "Mark Public") ? "public" : ""
 	to_chat(usr, SPAN_GOOD("Lace vault network set to: [persistent_network ? persistent_network : "(unmanaged)"]"))
 	log_admin("[key_name(usr)] configured lace vault at ([x],[y],[z]) network='[persistent_network]'")
-
-/// Player-facing faction linking via ID swipe, mirroring the modular
-/// computer's Link to Faction verb: your faction's members claim the vault
-/// so faction laces auto-route here instead of a public vault.
-/obj/structure/machinery/lace_storage/verb/link_faction_network()
-	set name = "Link to Faction"
-	set category = "Object"
-	set src in oview(1)
-
-	var/mob/user = usr
-	var/obj/item/card/id/I = user.GetIdCard()
-	if(!I || !I.employer_faction)
-		to_chat(user, SPAN_WARNING("Your ID is not issued by a faction."))
-		return
-
-	// IDs carry the faction display name; the faction cache/DB key is the
-	// normalized uid -- convert before storing or comparing
-	var/card_faction = normalize_faction_uid(I.employer_faction)
-
-	if(persistent_network == card_faction)
-		to_chat(user, SPAN_NOTICE("This vault is already linked to [get_faction_name(card_faction)] ([card_faction])."))
-		return
-	if(persistent_network && persistent_network != "public")
-		to_chat(user, SPAN_WARNING("This vault is linked to [get_faction_name(persistent_network)] ([persistent_network]). An admin must clear it first."))
-		return
-
-	var/confirm = tgui_alert(user, "Link this vault to [get_faction_name(card_faction)] ([card_faction])? Faction laces will auto-route here.", "Link to Faction", list("Confirm", "Cancel"))
-	if(confirm != "Confirm")
-		return
-
-	persistent_network = card_faction
-	to_chat(user, SPAN_GOOD("Vault linked to [get_faction_name(card_faction)]."))
-	log_game("[key_name(user)] linked lace vault at ([x],[y],[z]) to faction '[card_faction]'.")
 
 /obj/structure/machinery/lace_storage/worldstate_get_content()
 	if(!persistent_network)

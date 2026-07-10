@@ -32,6 +32,20 @@
 		return
 	add_fingerprint(user)
 
+	// Beacon-claimed territory requires a matching faction ID to use the
+	// blueprints at all -- blocks the whole tool (menu included) upfront,
+	// not just the mutating actions the eye component gates separately.
+	// Shuttles aren't faction-beacon-networked, so they're excluded.
+	if(!istype(src, /obj/item/blueprints/shuttle))
+		var/obj/structure/machinery/faction_beacon/beacon = GLOB.faction_beacon_by_z["[GET_Z(user)]"]
+		if(beacon && !QDELETED(beacon) && beacon.active && beacon.faction_uid)
+			if(!check_rights(R_ADMIN, 0, user))
+				var/obj/item/card/id/ID = user.GetIdCard()
+				var/user_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+				if(user_faction != beacon.faction_uid)
+					to_chat(user, SPAN_WARNING("These blueprints require a [get_faction_name(beacon.faction_uid)] identification card to use in this territory."))
+					return
+
 	// Sector registration can lose the race with this item's LateInitialize()
 	// on boot, leaving the eye component permanently unattached. Retry here
 	// so a later, successful lookup self-heals instead of bricking the item

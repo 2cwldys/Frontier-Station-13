@@ -14,6 +14,34 @@
 	groupable = TRUE
 	spawn_amount = 2
 
+/singleton/cargo_item/factiontagger
+	category = "operations"
+	name = "faction tagger"
+	supplier = "Hub"
+	description = "A configurator for tagging station infrastructure to a faction network."
+	price = 1000
+	items = list(
+		/obj/item/faction_tagger
+	)
+	access = 0
+	container_type = "box"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/factionbeacon
+	category = "operations"
+	name = "faction beacon"
+	supplier = "Hub"
+	description = "An anchor beacon that ties nearby infrastructure to a faction network."
+	price = 100000
+	items = list(
+		/obj/structure/machinery/faction_beacon
+	)
+	access = 0
+	container_type = "crate"
+	groupable = FALSE
+	spawn_amount = 1
+
 /singleton/cargo_item/cargotraintrolley
 	category = "operations"
 	name = "cargo train trolley"
