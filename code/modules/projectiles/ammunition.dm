@@ -20,6 +20,11 @@
 	pickup_sound = 'sound/items/pickup/ring.ogg'
 	var/reload_sound = 'sound/weapons/reload_bullet.ogg' //sound that plays when inserted into gun.
 
+	// Mirrors /obj/effect/decal/cleanable's own claim-tracking vars -- lets
+	// cleanbots target casings through the same claim/path/clean machinery.
+	var/being_cleaned = FALSE
+	var/datum/weakref/clean_marked = null
+
 /obj/item/ammo_casing/feedback_hints(mob/user, distance, is_adjacent)
 	. += ..()
 	if (!BB)

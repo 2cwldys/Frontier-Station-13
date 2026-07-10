@@ -20,6 +20,11 @@
 	drop_sound = 'sound/effects/glass_step.ogg'
 	surgerysound = 'sound/items/surgery/scalpel.ogg'
 
+	// Mirrors /obj/effect/decal/cleanable's own claim-tracking vars -- lets
+	// cleanbots target litter through the same claim/path/clean machinery.
+	var/being_cleaned = FALSE
+	var/datum/weakref/clean_marked = null
+
 /obj/item/material/shard/Initialize(newloc, material_key)
 	. = ..()
 
@@ -69,6 +74,12 @@
 	return ..()
 
 /obj/item/material/shard/proc/on_entered(datum/source, atom/movable/arrived, atom/old_loc, list/atom/old_locs)
+	try
+		_on_entered_inner(arrived)
+	catch(var/exception/e)
+		log_world("shard on_entered() error: [e]")
+
+/obj/item/material/shard/proc/_on_entered_inner(atom/movable/arrived)
 	if(isliving(arrived))
 		var/mob/M = arrived
 

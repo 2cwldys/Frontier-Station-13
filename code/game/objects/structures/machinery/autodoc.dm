@@ -275,9 +275,14 @@
 
 	// External rejuvenate() also clears wounds/broken bones/cut arteries/
 	// tendons and extracts embedded shrapnel, cascading to any internal
-	// organs it houses.
-	for(var/obj/item/organ/external/E in H.organs)
-		E.rejuvenate()
+	// organs it houses. Walks the same has_limbs/get_organ() enumeration
+	// is_patient_fully_healthy() uses (including the limb just regrown
+	// above), instead of H.organs, so every limb the health-check considers
+	// is guaranteed to actually get rejuvenated.
+	for(var/limb_zone in H.species.has_limbs)
+		var/obj/item/organ/external/E = H.get_organ(limb_zone)
+		if(E)
+			E.rejuvenate()
 
 	H.restore_blood()
 

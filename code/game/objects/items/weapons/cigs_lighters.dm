@@ -554,6 +554,11 @@ ABSTRACT_TYPE(/obj/item/clothing/mask/smokable)
 	drop_sound = 'sound/items/cigs_lighters/cig_snuff.ogg'
 	pickup_sound = 'sound/items/pickup/food.ogg'
 
+	// Mirrors /obj/effect/decal/cleanable's own claim-tracking vars -- lets
+	// cleanbots target litter through the same claim/path/clean machinery.
+	var/being_cleaned = FALSE
+	var/datum/weakref/clean_marked = null
+
 /obj/item/trash/cigbutt/Initialize()
 	. = ..()
 	randpixel_xy()

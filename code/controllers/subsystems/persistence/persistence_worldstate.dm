@@ -140,6 +140,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		if(!SC.powernet)
 			SC.connect_to_network()
 		SC.search_for_connected()
+		SC.update() // sync cdir/panel angle to the current sun position immediately, instead of waiting up to SSsun's 1-minute tick
 		solar_count++
 
 	// Force every machine to re-read its area's power flags: machines cache

@@ -9,6 +9,15 @@ GLOBAL_LIST_INIT_TYPED(cleanbot_types, /obj/effect/decal/cleanable, typesof(/obj
 						/obj/effect/decal/cleanable/crayon, /obj/effect/decal/cleanable/liquid_fuel, /obj/effect/decal/cleanable/mucus, /obj/effect/decal/cleanable/dirt, \
 						/obj/effect/decal/cleanable/cum))
 
+///A list of non-decal item *types* (litter) that cleanbots will also look for -- these
+///aren't /obj/effect/decal/cleanable, so they need their own claim-tracking vars
+///(added directly on each type below) instead of the ones cleanable decals share.
+GLOBAL_LIST_INIT_TYPED(cleanbot_litter_types, /obj/item, list(
+	/obj/item/ammo_casing,
+	/obj/item/trash/cigbutt,
+	/obj/item/material/shard,
+))
+
 /obj/effect/decal/cleanable
 	var/being_cleaned = FALSE
 	///A reference to a `/mob/living/bot/cleanbot` that wants to clean this turf, or null
@@ -93,9 +102,10 @@ GLOBAL_LIST_INIT_TYPED(cleanbot_types, /obj/effect/decal/cleanable, typesof(/obj
 	return ..()
 
 /mob/living/bot/cleanbot/proc/handle_target()
-	//Get the actual cleanable decal to target
-	var/obj/effect/decal/cleanable/cleaning_target_cache = cleaning_target?.resolve()
-	var/mob/living/bot/cleanbot/turf_targeting_cleanbot = cleaning_target_cache?.clean_marked?.resolve()
+	//Get the actual cleanable decal (or ammo casing) to target
+	var/atom/movable/cleaning_target_cache = cleaning_target?.resolve()
+	var/datum/weakref/marked_by = cleaning_target_cache?.vars["clean_marked"]
+	var/mob/living/bot/cleanbot/turf_targeting_cleanbot = marked_by?.resolve()
 
 	//If already marked by another borg, ignore it
 	if(turf_targeting_cleanbot != src)
@@ -104,11 +114,15 @@ GLOBAL_LIST_INIT_TYPED(cleanbot_types, /obj/effect/decal/cleanable, typesof(/obj
 		ignorelist |= cleaning_target
 		return
 
-	//If we are over it, clean it up
+	//If we are over it, clean it up -- true whether we just started cleaning
+	//this tick or are already mid-cycle, either way there's no path to (re)compute:
+	//falling through to the path-finding below would ask for a path to our own
+	//tile, get an empty/zero-length result back, and misread that as
+	//"unreachable", abandoning a target we're actively cleaning.
 	if(get_turf(src) == get_turf(cleaning_target_cache))
 		if(!cleaning)
 			UnarmedAttack(cleaning_target_cache)
-			return TRUE
+		return TRUE
 
 	//Try to get a path to the location if you don't have one
 	if(!length(path))
@@ -116,7 +130,8 @@ GLOBAL_LIST_INIT_TYPED(cleanbot_types, /obj/effect/decal/cleanable, typesof(/obj
 		//No length means there's no path to reach it, add it to the exclusions
 		if(!length(path))
 			ignorelist |= cleaning_target
-			cleaning_target_cache.clean_marked = null
+			addtimer(CALLBACK(src, PROC_REF(remove_from_ignore), cleaning_target), 100) // 10s -- retry instead of waiting on the random Life() prune
+			cleaning_target_cache.vars["clean_marked"] = null
 			cleaning_target = null
 			path = list()
 
@@ -137,7 +152,8 @@ GLOBAL_LIST_INIT_TYPED(cleanbot_types, /obj/effect/decal/cleanable, typesof(/obj
 				//This is the second failure, invalidate the target
 				else
 					ignorelist |= cleaning_target
-					cleaning_target_cache.clean_marked = null
+					addtimer(CALLBACK(src, PROC_REF(remove_from_ignore), cleaning_target), 100) // 10s -- retry instead of waiting on the random Life() prune
+					cleaning_target_cache.vars["clean_marked"] = null
 					cleaning_target = null
 					path = list()
 					break
@@ -232,6 +248,49 @@ GLOBAL_LIST_INIT_TYPED(cleanbot_types, /obj/effect/decal/cleanable, typesof(/obj
 					cleaning_target = null // Otherwise we want to try the next cleanable in view, if any.
 					D.clean_marked = null
 
+		// No decal target found this tick -- also look for litter items lying
+		// around (bullet casings, cig/cigar butts, glass shards -- see
+		// GLOB.cleanbot_litter_types), same claim/path logic as decals, just
+		// a different object family (pickupable items, not cleanable decals).
+		// Gated on found_spot alone, NOT cleaning_target -- cleaning_target
+		// stays set for the bot's entire multi-tick pursuit of a litter
+		// target (it's not a "did we just find something" flag), so gating
+		// on it here would block the exact tick this loop needs to run: the
+		// one right after the bot's path empties out on arrival, when
+		// cleaning_target is still (correctly) set to the item it just
+		// walked over to and this loop is what re-triggers handle_target()
+		// to notice that and actually start cleaning.
+		if(!found_spot)
+			for(var/obj/item/I in view(maximum_search_range, src))
+				if(!is_type_in_list(I, GLOB.cleanbot_litter_types))
+					continue
+
+				var/datum/weakref/litter_weakref = WEAKREF(I)
+
+				var/datum/weakref/litter_marked_by = I.vars["clean_marked"]
+				var/mob/living/bot/cleanbot/turf_targeting_cleanbot = litter_marked_by?.resolve()
+
+				//Someone already wants this litter and it's not us, keep looking
+				if(!isnull(turf_targeting_cleanbot) && turf_targeting_cleanbot != src)
+					continue
+
+				var/mob/living/bot/cleanbot/other_bot = locate() in get_turf(I)
+				if(other_bot && other_bot.cleaning && other_bot != src)
+					continue
+
+				if((litter_weakref in ignorelist))
+					continue
+
+				patrol_path = list()
+				cleaning_target = litter_weakref
+				I.vars["clean_marked"] = WEAKREF(src)
+				found_spot = handle_target()
+				if(found_spot)
+					break
+				else
+					cleaning_target = null
+					I.vars["clean_marked"] = null
+
 
 		if(!found_spot && !cleaning_target) // No targets in range
 			if(!patrol_path || !patrol_path.len)
@@ -266,36 +325,46 @@ GLOBAL_LIST_INIT_TYPED(cleanbot_types, /obj/effect/decal/cleanable, typesof(/obj
 					patrol_path -= patrol_path[1]
 
 
-/mob/living/bot/cleanbot/UnarmedAttack(var/obj/effect/decal/cleanable/D, var/proximity)
+/mob/living/bot/cleanbot/UnarmedAttack(var/atom/movable/D, var/proximity)
 	. = ..()
 	if(!.)
 		return
 
 	if(isturf(D))
-		D = locate(/obj/effect/decal/cleanable) in D
-	if(!istype(D))
+		var/turf/T = D
+		D = null
+		for(var/atom/movable/possible in T)
+			if(istype(possible, /obj/effect/decal/cleanable) || is_type_in_list(possible, GLOB.cleanbot_litter_types))
+				D = possible
+				break
+	if(!istype(D, /obj/effect/decal/cleanable) && !is_type_in_list(D, GLOB.cleanbot_litter_types))
 		return
 
 	if(!src.Adjacent(D))
 		return
 
 	cleaning = TRUE
-	D.being_cleaned = TRUE
+	D.vars["being_cleaned"] = TRUE
 	update_icon()
 	var/clean_time = istype(D, /obj/effect/decal/cleanable/dirt) ? 10 : 50
+	log_game("[src] began cleaning [D] ([D.type]) at [get_turf(D)].")
 	addtimer(CALLBACK(src, PROC_REF(do_clean), D), clean_time)
 
-/mob/living/bot/cleanbot/proc/do_clean(var/obj/effect/decal/cleanable/D)
+/mob/living/bot/cleanbot/proc/do_clean(var/atom/movable/D)
 	if(D)
 		if(istype(D.loc, /turf/simulated))
 			var/turf/simulated/f = loc
 			f.dirt = 0
 
 		if(!D)
+			log_game("[src] finished a cleaning cycle but its target was already gone.")
+			cleaning = FALSE
+			update_icon()
 			return
 
-		D.clean_marked = null
-		D.being_cleaned = FALSE
+		log_game("[src] finished cleaning [D] ([D.type]).")
+		D.vars["clean_marked"] = null
+		D.vars["being_cleaned"] = FALSE
 		cleaning_target = null
 
 		qdel(D)
@@ -350,6 +419,14 @@ GLOBAL_LIST_INIT_TYPED(cleanbot_types, /obj/effect/decal/cleanable, typesof(/obj
 
 	for(var/obj/effect/decal/cleanable/cleanable_type as anything in target_types)
 		cleanables_names |= capitalize_first_letters(initial(cleanable_type.name))
+
+	// GLOB.cleanbot_litter_types items don't map to friendly names via
+	// initial(name) the way decals do (e.g. shard and shrapnel would both
+	// just show "Shard") -- list them explicitly instead.
+	cleanables_names |= "Bullet Casings"
+	cleanables_names |= "Glass Shards"
+	cleanables_names |= "Shrapnel"
+	cleanables_names |= "Cigarette/Cigar Butts"
 
 	data["cleanable_types"] = cleanables_names
 	return data

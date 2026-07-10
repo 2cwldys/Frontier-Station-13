@@ -161,6 +161,10 @@
 			continue
 		if(istype(I, /obj/item/ammo_casing))
 			continue  // Bullet casings are transient combat debris
+		if(istype(I, /obj/item/trash/cigbutt))
+			continue  // Cigarette/cigar butts are transient litter
+		if(istype(I, /obj/item/material/shard))
+			continue  // Glass/material shards are transient debris
 
 		var/type_str  = replacetext("[I.type]", "'", "''")
 		var/name_str  = (I.name != initial(I.name)) ? replacetext(copytext(I.name, 1, 129), "'", "''") : null
