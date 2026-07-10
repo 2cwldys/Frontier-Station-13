@@ -352,6 +352,35 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	return rank >= rank_required
 
 /**
+ * Private, faction-scoped heads-up notification -- separate from (and layered
+ * alongside) the global Arrivals Announcer, which stays untouched. Only other
+ * members of the same faction as `character` (resolved via their ID's
+ * employer_faction, not the unrelated mob-level lore faction var) see it.
+ */
+/proc/announce_faction_event(mob/living/carbon/human/character, message_suffix)
+	if(SSticker.current_state != GAME_STATE_PLAYING || !istype(character))
+		return
+	var/obj/item/card/id/ID = character.GetIdCard()
+	var/arriving_uid = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+	if(!arriving_uid)
+		return
+	var/fname = get_faction_name(arriving_uid)
+	for(var/mob/living/carbon/human/H in GLOB.player_list)
+		if(H == character || !H.client)
+			continue
+		var/obj/item/card/id/HID = H.GetIdCard()
+		var/h_uid = (HID && HID.employer_faction) ? normalize_faction_uid(HID.employer_faction) : null
+		if(h_uid != arriving_uid)
+			continue
+		to_chat(H, SPAN_NOTICE("<b>[fname]:</b> [character.real_name] [message_suffix]"))
+
+/proc/announce_faction_cryo_exit(mob/living/carbon/human/character)
+	announce_faction_event(character, "has exited cryogenic storage.")
+
+/proc/announce_faction_cryo_enter(mob/living/carbon/human/character)
+	announce_faction_event(character, "has entered cryogenic storage.")
+
+/**
  * Write a Z-level's persistence enabled/notes to ss13_zlevel_persistence and
  * update the in-memory allow/skip lists immediately. Shared by the admin
  * toggle verb and by faction beacon claim/destruction (a beacon claiming a

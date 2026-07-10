@@ -19,6 +19,13 @@
 	var/user_tracking_id = 0 //Tracking id of the user
 	var/user_tracking_code = 0 //Tracking Code of the user
 
+/// TRUE if this console is faction-shackled AND its Z-level has an operational
+/// piracy beacon -- gates the syndicate uplink terminal cargo item.
+/datum/computer_file/program/civilian/cargoorder/proc/can_order_syndicate_uplink()
+	if(!computer || !computer.persistent_network)
+		return FALSE
+	return piracy_beacon_active_on_z(GET_Z(computer))
+
 /datum/computer_file/program/civilian/cargoorder/ui_data(mob/user)	//Check if a cargo order exists. If not create a new one
 	if(!co)
 		var/datum/cargo_order/crord = new
@@ -51,6 +58,11 @@
 
 		//Pass a list of items in the selected category
 		data["category_items"] = SScargo.get_items_for_category(selected_category)
+		if(!can_order_syndicate_uplink())
+			for(var/list/entry in data["category_items"])
+				var/singleton/cargo_item/ci = SScargo.cargo_items[entry["name"]]
+				if(ci?.requires_piracy_beacon)
+					data["category_items"] -= entry
 
 	else if (page == "tracking")
 		data["tracking_id"] = user_tracking_id
@@ -118,6 +130,11 @@
 		if("add_item")
 			var/datum/cargo_order_item/coi = new
 			var/singleton/cargo_item/ci = SScargo.cargo_items[params["add_item"]]
+			if(ci?.requires_piracy_beacon && !can_order_syndicate_uplink())
+				status_message = "Unable to locate item in sales database - Internal Error 602."
+				LOG_DEBUG("Cargo Order: Warning - Attempted to order piracy-beacon-gated item [ci.name] without an eligible console.")
+				qdel(coi)
+				return TRUE
 			if(ci)
 				coi.ci = ci
 				coi.calculate_price()

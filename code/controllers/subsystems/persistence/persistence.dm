@@ -311,6 +311,8 @@ SUBSYSTEM_DEF(persistence)
 	if(!databaseCheckConnection("forceSaveAll"))
 		return
 
+	log_subsystem_persistence_info("forceSaveAll: Starting full persistence save.")
+
 	try
 		economyFinalize()
 	catch(var/exception/economy_e)
@@ -390,6 +392,13 @@ SUBSYSTEM_DEF(persistence)
 		botsFinalize()
 	catch(var/exception/bots_e)
 		log_subsystem_persistence_panic("Unhandled exception during bot persistence finalization: [bots_e]")
+
+	try
+		shuttleStateFinalize()
+	catch(var/exception/shuttle_e)
+		log_subsystem_persistence_panic("Unhandled exception during shuttle state persistence finalization: [shuttle_e]")
+
+	log_subsystem_persistence_info("forceSaveAll: Full persistence save complete.")
 
 /**
  * Initialization of the persistence subsystem.
@@ -704,6 +713,16 @@ SUBSYSTEM_DEF(persistence)
 		researchFinalize()
 	catch(var/exception/research_e)
 		log_subsystem_persistence_panic("Unhandled exception during research persistence finalization: [research_e]")
+
+	try
+		factionFinalize()
+	catch(var/exception/faction_e)
+		log_subsystem_persistence_panic("Unhandled exception during faction persistence finalization: [faction_e]")
+
+	try
+		factionResearchFinalize()
+	catch(var/exception/faction_research_e)
+		log_subsystem_persistence_panic("Unhandled exception during faction research persistence finalization: [faction_research_e]")
 
 	try
 		shuttleStateFinalize()

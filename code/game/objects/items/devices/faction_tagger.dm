@@ -24,10 +24,28 @@
 	/// The atom currently open in this tagger's UI, if any.
 	var/atom/movable/current_target
 
+// Never let a click target's own attackby() consume this click (e.g. an
+// airlock opening/closing, a locker toggling open) -- the tagger is a
+// deliberate, single-purpose tool, and its own afterattack() below should
+// always get the chance to decide what happens, not whatever generic
+// "unrecognized item" fallback the target happens to have. Exempts storage
+// containers specifically -- attackby() is how "click the backpack sprite
+// while holding an item" insertion actually happens, so that needs to run
+// normally (matches afterattack()'s own storage exemption below).
+/obj/item/faction_tagger/resolve_attackby(atom/A, mob/user, click_parameters)
+	if(!istype(A, /obj/item/storage))
+		pre_attack(A, user)
+		add_fingerprint(user)
+		log_attack("[A] at [A?.loc]/[A.x]-[A.y]-[A.z] got ITEM attacked by [usr]/[usr?.ckey] on INTENT [usr?.a_intent] with [src]")
+		return FALSE
+	return ..()
+
 /obj/item/faction_tagger/afterattack(atom/target, mob/user, proximity_flag, click_parameters)
 	. = ..()
 	if(!proximity_flag)
 		return
+	if(target == user)
+		return // accidental self-click (e.g. default use-in-hand keybind) shouldn't produce a warning
 	if(istype(target, /obj/item/storage))
 		return // let normal storage insertion happen -- don't second-guess it as a tag target
 	if(!istype(target, /atom/movable))
@@ -89,6 +107,10 @@
 	if(is_admin && istype(current_target, /obj/structure/machinery/lace_storage))
 		data["is_lace_storage"] = TRUE
 		data["is_public_lace"] = (current_uid == "public")
+
+	if(istype(current_target, /obj/structure/machinery/door/airlock))
+		data["is_airlock"] = TRUE
+		data["is_public_airlock"] = (current_uid == "public")
 
 	return data
 
@@ -194,3 +216,79 @@
 				to_chat(user, SPAN_GOOD("Lace vault marked public -- receives anyone's auto-transferred laces."))
 				log_admin("[key_name(user)] marked a lace vault at [get_turf(LS)] public via faction tagger.")
 			. = TRUE
+		if("configure_door_access")
+			if(!istype(current_target, /obj/structure/machinery/door/airlock))
+				return
+			var/obj/structure/machinery/door/airlock/AL = current_target
+			var/door_uid = AL.faction_tagger_get_uid()
+			if(!door_uid || door_uid == "public")
+				to_chat(user, SPAN_WARNING("Tag this door to a faction first."))
+				return
+			if(!can_configure_faction_shackle(user, door_uid, 1))
+				to_chat(user, SPAN_WARNING("You need officer access in [get_faction_name(door_uid)] to configure this door's access."))
+				return
+			_configure_airlock_access(AL, user)
+			. = TRUE
+		if("toggle_public_airlock")
+			if(!check_rights(R_ADMIN, 0, user) || !istype(current_target, /obj/structure/machinery/door/airlock))
+				return
+			var/obj/structure/machinery/door/airlock/AL = current_target
+			if(AL.req_access_faction == "public")
+				AL.req_access_faction = ""
+				to_chat(user, SPAN_GOOD("Airlock cleared -- no longer public."))
+				log_admin("[key_name(user)] cleared the public designation on an airlock at [get_turf(AL)] via faction tagger.")
+			else
+				AL.req_access_faction = "public"
+				to_chat(user, SPAN_GOOD("Airlock marked public -- open to anyone."))
+				log_admin("[key_name(user)] marked an airlock at [get_turf(AL)] public via faction tagger.")
+			. = TRUE
+
+/// Same sequential add/remove access-code picker "Manage Faction Jobs" uses
+/// (persistence_factions.dm), reused here so a faction officer can pick
+/// which access codes gate a door they've already tagged to their faction --
+/// writes into req_one_access (any-of), clearing req_access, replacing
+/// whatever the door had left over from mapping.
+/obj/item/faction_tagger/proc/_configure_airlock_access(obj/structure/machinery/door/airlock/AL, mob/user)
+	var/list/new_access = LAZYLEN(AL.req_one_access) ? AL.req_one_access.Copy() : list()
+	while(TRUE)
+		var/summary = length(new_access) ? "[length(new_access)] codes set" : "none (all faction members)"
+		var/sub = tgui_input_list(user, "Door access -- currently: [summary]", "Configure Door Access", list("Add Access Code", "Add by Region", "Remove Access Code", "Done"))
+		if(!sub || sub == "Done")
+			break
+		if(sub == "Add Access Code")
+			var/list/all_acc = get_all_station_access()
+			var/list/addable = list()
+			for(var/acc in all_acc)
+				if(!(acc in new_access))
+					addable["[get_access_desc(acc)] ([acc])"] = acc
+			if(!length(addable))
+				to_chat(user, SPAN_NOTICE("All access codes already assigned."))
+				continue
+			var/add_pick = tgui_input_list(user, "Select access to add:", "Add Access Code", addable)
+			if(!add_pick) continue
+			new_access += addable[add_pick]
+		else if(sub == "Add by Region")
+			var/list/regions = list()
+			for(var/ri = 1; ri <= 7; ri++)
+				regions[get_region_accesses_name(ri)] = ri
+			var/reg_pick = tgui_input_list(user, "Select a region:", "Add by Region", regions)
+			if(!reg_pick) continue
+			var/list/reg_acc = get_region_accesses(regions[reg_pick])
+			for(var/racc in reg_acc)
+				if(!(racc in new_access))
+					new_access += racc
+		else if(sub == "Remove Access Code")
+			if(!length(new_access))
+				to_chat(user, SPAN_NOTICE("No access codes to remove."))
+				continue
+			var/list/removable = list()
+			for(var/rem_acc in new_access)
+				removable["[get_access_desc(rem_acc)] ([rem_acc])"] = rem_acc
+			var/rem_pick = tgui_input_list(user, "Select access to remove:", "Remove Access Code", removable)
+			if(!rem_pick) continue
+			new_access -= removable[rem_pick]
+
+	AL.req_access = null
+	AL.req_one_access = length(new_access) ? new_access : null
+	to_chat(user, SPAN_GOOD("\The [AL] now requires: [length(new_access) ? "[new_access.len] access code(s)" : "no extra access (all faction members)"]."))
+	log_game("[key_name(user)] set door access on [AL] at [get_turf(AL)] via faction tagger: [length(new_access) ? new_access.Join(", ") : "(cleared)"].")

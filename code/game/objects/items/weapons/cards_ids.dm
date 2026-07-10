@@ -373,11 +373,19 @@
 		return list()
 	return access
 
-/obj/item/card/id/proc/GetFactionAccess(faction_uid)
+/// Returns null if this ID's holder is not a member of faction_uid, or a
+/// (possibly empty) list of access codes their job grants if they are --
+/// callers must check isnull(), not length(), to tell "not a member" apart
+/// from "member, job has no extra access codes configured". holder, if
+/// passed, is trusted directly for ckey resolution -- needed because a card
+/// nested inside a PDA's card_slot has loc == the PDA, not a mob, so the
+/// caller (which already resolved the holder via GetIdCard()) should pass it
+/// through instead of relying on this card's own loc.
+/obj/item/card/id/proc/GetFactionAccess(faction_uid, mob/holder)
 	if(revoked || !faction_uid)
-		return list()
-	var/ckey_owner = null
-	if(ismob(loc))
+		return null
+	var/ckey_owner = holder ? holder.ckey : null
+	if(!ckey_owner && ismob(loc))
 		var/mob/M = loc
 		ckey_owner = M.ckey
 	if(!ckey_owner && registered_name)
@@ -386,10 +394,10 @@
 				ckey_owner = H.ckey
 				break
 	if(!ckey_owner)
-		return list()
+		return null
 	var/list/member = get_faction_member(ckey_owner, faction_uid)
 	if(!member)
-		return list()
+		return null
 	var/job = member["job_title"]
 	if(!job)
 		return list()

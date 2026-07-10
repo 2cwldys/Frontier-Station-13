@@ -6,10 +6,17 @@
 	name = "autodoc"
 	desc = "An automated surgical suite. Lie down and it will diagnose and repair anything a surgeon could fix."
 
-	/// How long a repair cycle takes once a patient is detected lying on the table.
-	var/heal_duration = 20 SECONDS
 	/// Timer id for the pending heal, so it can be cancelled if the patient gets up early.
 	var/heal_timer_id
+	/// Damage snapshots taken when a repair cycle starts (suppressing goes TRUE) --
+	/// process() clamps the occupant's damage back down to these each tick so
+	/// their condition can't worsen mid-cycle (bleeding out, suffocating, etc).
+	var/stabilize_brute = 0
+	var/stabilize_fire = 0
+	var/stabilize_tox = 0
+	var/stabilize_oxy = 0
+	var/stabilize_clone = 0
+	COOLDOWN_DECLARE(autodoc_operate_message_cd)
 	/// Looping sound played while a repair cycle is in progress.
 	var/looping_sound_type = /datum/looping_sound/autodoc
 	VAR_PRIVATE/datum/looping_sound/autodoc_looping_sound
@@ -121,11 +128,50 @@
 				visible_message(SPAN_NOTICE("\The [src] beeps -- [H] is already at full health."))
 				return
 			suppressing = TRUE
+			stabilize_brute = H.getBruteLoss()
+			stabilize_fire  = H.getFireLoss()
+			stabilize_tox   = H.getToxLoss()
+			stabilize_oxy   = H.getOxyLoss()
+			stabilize_clone = H.getCloneLoss()
 			if(!autodoc_looping_sound)
 				autodoc_looping_sound = new looping_sound_type(src)
 				autodoc_looping_sound.start()
-			heal_timer_id = addtimer(CALLBACK(src, PROC_REF(perform_full_heal), occupant), heal_duration, TIMER_STOPPABLE)
+			heal_timer_id = addtimer(CALLBACK(src, PROC_REF(perform_full_heal), occupant), calculate_heal_duration(H), TIMER_STOPPABLE)
 			visible_message(SPAN_NOTICE("\The [src] hums to life, scanning [H]."))
+			visible_message(SPAN_NOTICE("The autodoc stabilizes [H]."))
+
+/// While a repair cycle is running, clamp the occupant's damage back down to
+/// its value when the cycle started -- a general "hold steady" rather than
+/// chasing every specific worsening cause (bleeding/toxin/fire/oxy) individually.
+/obj/structure/machinery/autodoc/process()
+	. = ..()
+	if(!suppressing || !occupant)
+		return
+	var/mob/living/carbon/human/H = occupant.resolve()
+	if(!istype(H))
+		return
+	if(is_patient_fully_healthy(H))
+		if(heal_timer_id)
+			deltimer(heal_timer_id)
+			heal_timer_id = null
+		suppressing = FALSE
+		QDEL_NULL(autodoc_looping_sound)
+		playsound(src, 'sound/machines/autodoc_ping.ogg', 50, 1)
+		visible_message(SPAN_NOTICE("\The [src] beeps -- [H] is already at full health. Repair cycle aborted."))
+		return
+	if(H.getBruteLoss() > stabilize_brute)
+		H.adjustBruteLoss(stabilize_brute - H.getBruteLoss())
+	if(H.getFireLoss() > stabilize_fire)
+		H.setFireLoss(stabilize_fire)
+	if(H.getToxLoss() > stabilize_tox)
+		H.setToxLoss(stabilize_tox)
+	if(H.getOxyLoss() > stabilize_oxy)
+		H.setOxyLoss(stabilize_oxy)
+	if(H.getCloneLoss() > stabilize_clone)
+		H.setCloneLoss(stabilize_clone)
+	if(COOLDOWN_FINISHED(src, autodoc_operate_message_cd))
+		COOLDOWN_START(src, autodoc_operate_message_cd, 10 SECONDS)
+		visible_message(SPAN_NOTICE("The autodoc operates on [H]."))
 
 /obj/structure/machinery/autodoc/unmark_patient(datum/source, mob/living/carbon/potential_patient)
 	var/occupant_resolved = occupant?.resolve()
@@ -134,10 +180,38 @@
 	if(was_occupant && heal_timer_id)
 		deltimer(heal_timer_id)
 		heal_timer_id = null
+		suppressing = FALSE
 		if(autodoc_looping_sound)
 			autodoc_looping_sound.stop()
 			QDEL_NULL(autodoc_looping_sound)
 		visible_message(SPAN_WARNING("\The [src]'s repair cycle is interrupted!"))
+
+/**
+ * How long a repair cycle should take, scaled to how injured H actually is --
+ * walks the same damage sources is_patient_fully_healthy() below checks, so
+ * "how hurt are they" and "is there anything left to fix" stay consistent
+ * with each other. Floored at 10 seconds so even a light cycle feels like
+ * something happened, capped at 2 minutes for the worst cases.
+ */
+/obj/structure/machinery/autodoc/proc/calculate_heal_duration(mob/living/carbon/human/H)
+	var/severity = H.getBruteLoss() + H.getFireLoss() + H.getToxLoss() + H.getOxyLoss() + H.getCloneLoss() + H.getBrainLoss()
+
+	for(var/limb_zone in H.species.has_limbs)
+		var/obj/item/organ/external/E = H.get_organ(limb_zone)
+		if(!E || E.is_stump())
+			severity += 40 // regrowing a limb from scratch is a major procedure
+			continue
+		severity += E.brute_dam + E.burn_dam
+		if(E.status & ORGAN_DAMAGE_STATES)
+			severity += 15
+		severity += LAZYLEN(E.wounds) * 5
+
+	for(var/obj/item/organ/O in H.internal_organs)
+		severity += O.damage
+
+	// ~0.35s of cycle time per point of aggregate injury severity -- first-pass
+	// balance number, easy to retune (just this one multiplier).
+	return between(10 SECONDS, severity * 0.35 SECONDS, 2 MINUTES)
 
 /**
  * TRUE if H has nothing left for a repair cycle to fix: no brute/fire/tox/

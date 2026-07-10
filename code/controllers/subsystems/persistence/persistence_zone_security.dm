@@ -70,6 +70,8 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 	zone_security_update_overmap()
 	if(loaded)
 		log_subsystem_persistence_info("Zone security: loaded [loaded] z-level zone(s). Final map: [json_encode(GLOB.zone_security_by_z)]")
+	else
+		log_subsystem_persistence_info("Zone security: no saved z-level zones found in ss13_zone_security.")
 
 /**
  * Paint every overmap sector marker with its zone's outline color

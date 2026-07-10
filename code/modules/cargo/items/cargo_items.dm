@@ -42,6 +42,10 @@
 	/// The "supplier data" of this item, containing all the data of this item's "supplier". Automatically calculated during initialization. DO NOT MANUALLY MODIFY.
 	var/singleton/cargo_supplier/supplier_data = /singleton/cargo_supplier/generic_supplier
 
+	/// If TRUE, this item is only orderable from a faction-shackled console on a
+	/// Z-level with an active piracy beacon -- see piracy_beacon_active_on_z().
+	var/requires_piracy_beacon = FALSE
+
 /// Sets the item's adjusted_price according to different price modifiers. Returns nothing.
 /singleton/cargo_item/proc/get_adjusted_price()
 	var/return_price = price

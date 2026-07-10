@@ -117,9 +117,9 @@
 		_release_z_claim()
 		update_icon()
 		return TRUE
-	if(!_can_claim_z())
-		var/obj/structure/machinery/faction_beacon/holder = GLOB.faction_beacon_by_z["[GET_Z(src)]"]
-		to_chat(user, SPAN_WARNING("Z-level [GET_Z(src)] is already claimed by another active faction beacon (faction '[holder.faction_uid]'). Destroy or clear that beacon first."))
+	var/refusal = _claim_refusal_reason()
+	if(refusal)
+		to_chat(user, SPAN_WARNING("Cannot activate: [refusal]."))
 		return FALSE
 	faction_uid = new_uid
 	_apply_network()

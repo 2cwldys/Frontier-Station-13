@@ -256,7 +256,11 @@
 		// listener's own radio/headset, not the physical air, so it must
 		// never be silenced by vacuum/pressure falloff or leak to bystanders
 		// who aren't actually receiving the transmission.
-		SEND_SOUND(src, sound('sound/effects/radio_chatter.ogg', volume = sound_vol))
+		// sound_vol can be null here (e.g. the Arrivals Announcer, or any
+		// radio_msg built fresh in broadcasting.dm without a live say_message
+		// to copy from) -- null * 0.6 evaluates to a real 0 in DM, which is
+		// silence, not "quieter". Fall back to a sane default before scaling.
+		SEND_SOUND(src, sound('sound/effects/radio_chatter.ogg', volume = (sound_vol || 50) * 0.6))
 
 /// Plays the speech sound for a given message.
 /mob/proc/play_speech_sound(datum/say_message/msg, sound_vol)

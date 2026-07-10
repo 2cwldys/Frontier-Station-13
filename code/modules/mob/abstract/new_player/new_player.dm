@@ -336,6 +336,7 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		//Grab some data from the character prefs for use in random news procs.
 
 			AnnounceArrival(character, rank, join_message)
+			announce_faction_cryo_exit(character)
 		else
 			AnnounceCyborg(character, rank, join_message)
 
@@ -882,6 +883,7 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		SSrecords.generate_record(character)
 		SSticker.minds += character.mind
 		AnnounceArrival(character, null, null)
+		announce_faction_cryo_exit(character)
 
 	// Lobby music doesn't stop on its own when persistent-spawning into the
 	// world -- see create_character()'s equivalent call. Left running, it

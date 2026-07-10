@@ -30,6 +30,7 @@
 	check.Execute()
 	if(!databaseCheckQueryResult(check, "templateCheckPending") || !check.NextRow())
 		qdel(check)
+		log_subsystem_persistence_info("Templates: No pending template for map [SSatlas.current_map.path].")
 		return
 	var/template_id = text2num(check.item[1])
 	qdel(check)

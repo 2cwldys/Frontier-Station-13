@@ -2172,12 +2172,14 @@ About the new airlock wires panel:
 	lock(1)
 
 /obj/structure/machinery/door/airlock/allowed(mob/M)
+	if(req_access_faction == "public")
+		return TRUE // admin-declared fully open -- bypasses normal req_access/req_one_access too, not just the faction gate
 	if(req_access_faction)
 		var/obj/item/card/id/I = M ? M.GetIdCard() : null
 		if(!I) return FALSE
-		var/list/faction_access = I.GetFactionAccess(req_access_faction)
-		if(!length(faction_access))
-			return FALSE // no department configured on the board shouldn't mean "anyone passes"
+		var/list/faction_access = I.GetFactionAccess(req_access_faction, M)
+		if(isnull(faction_access))
+			return FALSE // not a member of this faction at all
 		return has_access(req_access, req_one_access, faction_access)
 	return ..()
 

@@ -6,6 +6,11 @@ STOCK_ITEM_RARE(gold, 2.5)
 STOCK_ITEM_RARE(diamond, 1.5)
 	new /obj/item/stack/material/diamond(L, rand(1,10))
 
+// CHANGE THIS: placeholder distribution channel for a deliberately rare
+// blueprint -- easy to move to a mining reward, antag loadout, or event later.
+STOCK_ITEM_RARE(piracybeaconschematic, 0.5)
+	new /obj/item/piracy_beacon_schematic(L)
+
 STOCK_ITEM_RARE(uranium, 3)
 	new /obj/item/stack/material/uranium(L, rand(5,30))
 

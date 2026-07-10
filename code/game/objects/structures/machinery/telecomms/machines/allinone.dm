@@ -14,13 +14,11 @@
 	produces_sound = TRUE
 
 	var/away_aio = FALSE
-	var/list/recent_broadcasts
 
 /obj/structure/machinery/telecomms/allinone/Initialize()
 	. = ..()
 	if(!freq_listening.len)
 		freq_listening = ANTAG_FREQS
-	LAZYINITLIST(recent_broadcasts)
 	SSmachinery.all_receivers += src
 
 	desc += " It has an effective reception range of [overmap_range] grids on the overmap."
@@ -37,20 +35,17 @@
 	signal.mark_done()
 
 	var/signal_message = "[signal.frequency]:[signal.data["message"]]:[signal.data["realname"]]"
-	if(signal_message in recent_broadcasts)
+	if(signal_message in GLOB.recent_broadcast_messages)
 		return
 
-	LAZYADD(recent_broadcasts, signal_message)
+	GLOB.recent_broadcast_messages += signal_message
 
 	if(signal.data["slow"] > 0)
 		addtimer(TYPE_PROC_REF(/datum/signal/subspace, broadcast), signal.data["slow"]) // network lag
 	else
 		signal.broadcast()
 
-	addtimer(CALLBACK(src, PROC_REF(remove_signal_message_from_recent_broadcasts), signal_message), 1 SECONDS)
-
-/obj/structure/machinery/telecomms/allinone/proc/remove_signal_message_from_recent_broadcasts(signal_message)
-	recent_broadcasts -= signal_message
+	addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(clear_recent_broadcast_message), signal_message), 1 SECONDS)
 
 /obj/structure/machinery/telecomms/allinone/ship
 	away_aio = TRUE

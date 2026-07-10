@@ -175,6 +175,7 @@
 
 	H.persistence_stored_ckey = H.ckey
 	H.persistence_in_cryo     = TRUE
+	announce_faction_cryo_enter(H)
 
 	// If the mob is inside a cryopod, clear its occupant reference so the pod resets properly
 	if(istype(H.loc, /obj/structure/machinery/cryopod))

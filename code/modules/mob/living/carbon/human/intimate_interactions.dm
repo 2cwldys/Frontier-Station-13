@@ -89,7 +89,7 @@ GLOBAL_LIST_INIT(throat_fuck_pops, list(
 	if(!user.client)
 		return
 
-	if(!(user.client.prefs.toggles_secondary & INTIMATE_INTERACTIONS_ENABLED))
+	if(GLOB.config.require_consent && !(user.client.prefs.toggles_secondary & INTIMATE_INTERACTIONS_ENABLED))
 		to_chat(user, SPAN_WARNING("You need to enable the 'Toggle Intimate Interactions' preference before you can do this."))
 		return
 
@@ -107,7 +107,7 @@ GLOBAL_LIST_INIT(throat_fuck_pops, list(
 
 		// Silent failure here on purpose: revealing whether a specific player has this
 		// preference enabled would let people probe/out others' settings by dragging onto them.
-		if(!(src.client.prefs.toggles_secondary & INTIMATE_INTERACTIONS_ENABLED))
+		if(GLOB.config.require_consent && !(src.client.prefs.toggles_secondary & INTIMATE_INTERACTIONS_ENABLED))
 			return
 
 		if(src.stat || src.restrained())
@@ -153,6 +153,7 @@ GLOBAL_LIST_INIT(throat_fuck_pops, list(
 /mob/living/carbon/human/var/fuck_cooldown_until = 0
 /mob/living/carbon/human/var/recently_came_until = 0
 /mob/living/carbon/human/var/list/fuck_recent_uses = list()
+/mob/living/carbon/human/var/list/slapass_recent_uses = list()
 /mob/living/carbon/human/var/mob/living/carbon/human/mounting = null // who I am currently Super Grabbing
 /mob/living/carbon/human/var/mob/living/carbon/human/mounted_by = null // who is currently Super Grabbing me
 /mob/living/carbon/human/var/list/recent_action_given = list() // REF(target) -> list(verb, time) of the last thing I did to them
@@ -224,6 +225,10 @@ GLOBAL_LIST_INIT(throat_fuck_pops, list(
 	// together, so a second/reverse mount isn't required for the other to fuck back.
 	if(mounted_by != hugger && mounting != hugger)
 		to_chat(hugger, SPAN_WARNING("You need to mount [src] before you can fuck them."))
+		return
+
+	if(hugger.wear_suit || hugger.w_uniform || src.wear_suit || src.w_uniform)
+		to_chat(hugger, SPAN_WARNING("You both need to be out of your suits and uniforms first."))
 		return
 
 	if(!hugger.lying || !lying)
@@ -478,6 +483,25 @@ GLOBAL_LIST_INIT(throat_fuck_pops, list(
 		src.apply_euphoric_rainbow()
 		hugger.apply_euphoric_rainbow()
 		hugger.quick_jitter(10 SECONDS)
+
+/// Simple spam throttle, not tied to the climax/counter mechanic fuck/throat_fuck/suck
+/// share -- slap-ass has no equivalent of that, it just needs its own rate limit.
+/// Tracked on the target/receiver ("how often has this person been slapped recently"),
+/// matching fuck_recent_uses' own convention.
+/mob/living/carbon/human/proc/receive_slapass(mob/living/carbon/human/slapper)
+	for(var/i in slapass_recent_uses.len to 1 step -1)
+		if(slapass_recent_uses[i] <= world.time - 3 SECONDS)
+			slapass_recent_uses.Cut(i, i + 1)
+
+	if(slapass_recent_uses.len >= 2)
+		to_chat(slapper, SPAN_WARNING("[src] needs a moment before you can do that again."))
+		return
+
+	slapass_recent_uses += world.time
+
+	visible_message(SPAN_NOTICE("[slapper] has slapped [src]'s ass!"))
+	playsound(src, 'sound/effects/interactions/slap.ogg', 25, TRUE)
+	shake_animation()
 
 /mob/living/carbon/human/verb/masturbate()
 	set name = "Masturbate"

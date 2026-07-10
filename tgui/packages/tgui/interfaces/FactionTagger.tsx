@@ -31,6 +31,8 @@ type FactionTaggerData = {
   is_public_autodoc: BooleanLike;
   is_lace_storage: BooleanLike;
   is_public_lace: BooleanLike;
+  is_airlock: BooleanLike;
+  is_public_airlock: BooleanLike;
 };
 
 export const FactionTagger = (props) => {
@@ -50,6 +52,8 @@ export const FactionTagger = (props) => {
     is_public_autodoc,
     is_lace_storage,
     is_public_lace,
+    is_airlock,
+    is_public_airlock,
   } = data;
   const [selected, setSelected] = useState(current_uid || own_uid || '');
 
@@ -159,6 +163,27 @@ export const FactionTagger = (props) => {
               onClick={() => act('toggle_public_lace')}
             >
               {is_public_lace ? 'Clear Public Vault' : 'Mark Public Vault'}
+            </Button>
+          </Section>
+        )}
+        {is_airlock && current_uid && current_uid !== 'public' && (
+          <Section title="Door Access">
+            <Button
+              icon="key"
+              onClick={() => act('configure_door_access')}
+            >
+              Configure Door Access
+            </Button>
+          </Section>
+        )}
+        {is_admin && is_airlock && (
+          <Section title="Admin: Public Airlock">
+            <Button
+              icon={is_public_airlock ? 'times' : 'door-open'}
+              color={is_public_airlock ? 'bad' : 'good'}
+              onClick={() => act('toggle_public_airlock')}
+            >
+              {is_public_airlock ? 'Clear Public Airlock' : 'Mark Public Airlock'}
             </Button>
           </Section>
         )}

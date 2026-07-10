@@ -368,3 +368,20 @@ Deployable Kits
 	name = "brig mech control centre assembly kit"
 	desc = "A quick assembly kit to put together a brig mech control centre."
 	kit_product = /obj/structure/bed/stool/chair/remote/mech/prison/portable
+
+/obj/item/deployable_kit/piracy_beacon
+	name = "piracy beacon assembly kit"
+	desc = "A crude, unlicensed assembly kit for deploying a piracy beacon. Illegal in regulated space."
+	icon = 'icons/obj/storage/briefcase.dmi'
+	icon_state = "barrier_kit"
+	item_state = "barrier_kit"
+	contained_sprite = TRUE
+	w_class = WEIGHT_CLASS_BULKY
+	kit_product = /obj/structure/machinery/piracy_beacon
+	assembly_time = 15 SECONDS
+
+/obj/item/deployable_kit/piracy_beacon/attack_self(mob/user)
+	if(zone_security_get(GET_Z(user)) == ZONE_HIGHSEC)
+		to_chat(user, SPAN_WARNING("\The [src] refuses to engage -- this space is too heavily monitored to risk deployment."))
+		return FALSE
+	..()

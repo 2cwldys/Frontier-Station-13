@@ -33,8 +33,22 @@
 	var/active = FALSE
 	/// Manual on/off -- an unpowered beacon can never hold a Z claim, letting
 	/// command deliberately hand a Z off to a different beacon without
-	/// having to destroy the old one first.
-	var/powered = TRUE
+	/// having to destroy the old one first. Spawns off -- must be deliberately
+	/// powered up via the TGUI, never active out of the box.
+	var/powered = FALSE
+	/// Alt-click to toggle (mirrors APC/air alarm's lock pattern) -- while
+	/// locked, only admins can use the TGUI's power toggle. Secure by default.
+	var/locked = TRUE
+	/// How many overmap sectors out (in addition to this beacon's own Z) get
+	/// their security bumped to at least medsec when the network applies.
+	/// Admin-adjustable via the TGUI. 0 = only this beacon's own Z, matching
+	/// the original design before this was added.
+	var/security_radius = 1
+	/// Minimum security tier this beacon's claim guarantees, for both its own
+	/// Z and the overmap security radius -- never downgrades a Z already at
+	/// or above this tier. ZONE_MEDSEC for the standard beacon; the hub
+	/// beacon variant (below) raises this to ZONE_HIGHSEC.
+	var/guaranteed_security_tier = ZONE_MEDSEC
 	/// Set just before qdel() when health hit zero (see on_death()) --
 	/// distinguishes genuine combat destruction from admin qdel/VV-delete
 	/// and any future tool-deconstruction path, neither of which call
@@ -111,23 +125,33 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 /obj/structure/machinery/faction_beacon/worldstate_get_content()
 	if(!faction_uid)
 		return list()
-	return list("faction_uid" = faction_uid, "powered" = powered)
+	return list("faction_uid" = faction_uid, "powered" = powered, "locked" = locked, "security_radius" = security_radius)
 
 /obj/structure/machinery/faction_beacon/worldstate_apply_content(list/content)
 	faction_uid = content["faction_uid"] || ""
-	powered = isnull(content["powered"]) ? TRUE : !!content["powered"]
+	powered = isnull(content["powered"]) ? FALSE : !!content["powered"]
+	locked = isnull(content["locked"]) ? TRUE : !!content["locked"]
+	security_radius = isnull(content["security_radius"]) ? 1 : text2num(content["security_radius"])
 	if(faction_uid && powered)
 		_apply_network()
+
+/// Null if this beacon could claim/hold its Z right now, otherwise a short
+/// reason explaining why not -- lets callers show a specific message instead
+/// of one generic blended "already claimed" line.
+/obj/structure/machinery/faction_beacon/proc/_claim_refusal_reason()
+	if(!anchored)
+		return "not anchored -- wrench it to the floor first"
+	if(!powered)
+		return "not powered"
+	var/obj/structure/machinery/faction_beacon/holder = GLOB.faction_beacon_by_z["[GET_Z(src)]"]
+	if(holder && holder != src && !QDELETED(holder))
+		return "Z-level [GET_Z(src)] is already claimed by [holder.faction_uid ? get_faction_name(holder.faction_uid) : "another beacon"]"
+	return null
 
 /// TRUE if this beacon currently holds (or can freely take) the Z claim --
 /// FALSE if a different, still-existing beacon already holds it.
 /obj/structure/machinery/faction_beacon/proc/_can_claim_z()
-	if(!powered || !anchored)
-		return FALSE
-	var/obj/structure/machinery/faction_beacon/holder = GLOB.faction_beacon_by_z["[GET_Z(src)]"]
-	if(!holder || holder == src || QDELETED(holder))
-		return TRUE
-	return FALSE
+	return !_claim_refusal_reason()
 
 /obj/structure/machinery/faction_beacon/proc/_release_z_claim()
 	var/key = "[GET_Z(src)]"
@@ -147,9 +171,10 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		update_icon()
 		return
 
-	if(!_can_claim_z())
+	var/refusal = _claim_refusal_reason()
+	if(refusal)
 		active = FALSE
-		log_game("Faction beacon at ([x],[y],[z]): refused to activate -- z-level [GET_Z(src)] is already claimed by another active beacon, or this beacon is unpowered.")
+		log_game("Faction beacon at ([x],[y],[z]): refused to activate -- [refusal].")
 		update_icon()
 		return
 
@@ -175,9 +200,17 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 
 	var/configured = 0
 
+	// Every branch below only claims genuinely UNASSIGNED targets (empty
+	// network field) -- anything already set, whether to "public", a
+	// different faction, or even this same faction, is left alone. This is
+	// what makes a manual override (via the tagger, properly authorized)
+	// stick permanently instead of getting silently re-claimed the next time
+	// this sweep runs (e.g. every power-cycle of the beacon).
 	try
 		for(var/obj/structure/machinery/cryopod/pod in world)
 			if(GET_Z(pod) != beacon_z)
+				continue
+			if(pod.persistent_network)
 				continue
 			pod.persistent_network = faction_uid
 			pod.persistent_spawn   = TRUE
@@ -189,17 +222,17 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		for(var/obj/structure/machinery/telepad_cargo/pad in world)
 			if(GET_Z(pad) != beacon_z)
 				continue
-			if(pad.faction_shackled && pad.persistent_network != faction_uid)
-				continue  // respect player shackle to a different faction
+			if(pad.persistent_network)
+				continue
 			pad.persistent_network = faction_uid
 			pad.persistent_spawn   = TRUE
+			pad.faction_shackled   = TRUE
 			configured++
 	catch(var/exception/pad_e)
 		log_subsystem_persistence_error("Faction beacon: telepad sweep failed: [pad_e]")
 
 	// Configure modular computers directly (machine-level persistent_network).
-	// Skips computers already shackled to a different faction, and skips
-	// handheld PDAs/wristbound computers entirely -- those are personal
+	// Skips handheld PDAs/wristbound computers entirely -- those are personal
 	// devices a crew member carries, not station/faction infrastructure.
 	try
 		for(var/obj/item/modular_computer/MC in world)
@@ -207,9 +240,10 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 				continue
 			if(istype(MC, /obj/item/modular_computer/handheld))
 				continue
-			if(MC.faction_shackled && MC.persistent_network != faction_uid)
-				continue  // respect player shackle to a different faction
+			if(MC.persistent_network)
+				continue
 			MC.persistent_network = faction_uid
+			MC.faction_shackled   = TRUE
 			configured++
 	catch(var/exception/mc_e)
 		log_subsystem_persistence_error("Faction beacon: modular computer sweep failed: [mc_e]")
@@ -218,14 +252,29 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		for(var/obj/structure/machinery/telecomms/T in world)
 			if(GET_Z(T) != beacon_z)
 				continue
+			if(T.persistent_network)
+				continue
 			T.persistent_network = faction_uid
 			configured++
 	catch(var/exception/tc_e)
 		log_subsystem_persistence_error("Faction beacon: telecomms sweep failed: [tc_e]")
 
 	try
+		for(var/obj/structure/machinery/door/airlock/AL in world)
+			if(GET_Z(AL) != beacon_z)
+				continue
+			if(AL.req_access_faction)
+				continue
+			AL.req_access_faction = faction_uid
+			configured++
+	catch(var/exception/al_e)
+		log_subsystem_persistence_error("Faction beacon: airlock sweep failed: [al_e]")
+
+	try
 		for(var/area/A in GLOB.areas)
 			if(!A.is_blueprint_area)
+				continue
+			if(A.persistent_network)
 				continue
 			var/on_z = FALSE
 			for(var/turf/AT in A.contents)
@@ -248,23 +297,117 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	// a Z an admin has already set to highsec (Hub law).
 	if(!(beacon_z in GLOB.persistence_zlevel_allow))
 		SSpersistence.setZLevelPersistence(beacon_z, 1, "Faction: [faction_uid]")
-	if(zone_security_get(beacon_z) != ZONE_HIGHSEC)
-		persistence_set_zone_security(beacon_z, ZONE_MEDSEC)
+	if(zone_security_get(beacon_z) < guaranteed_security_tier)
+		persistence_set_zone_security(beacon_z, guaranteed_security_tier)
+
+	// Extends the security guarantee to nearby overmap sectors within
+	// security_radius, same range() mechanic telecomms machines use for their
+	// own broadcast reach. Never touches an already-highsec Z (same exception
+	// as this beacon's own Z, just above), and never touches a Z already
+	// claimed by a different active beacon (respects other factions' territory).
+	if(SSatlas.current_map.use_overmap && security_radius > 0)
+		var/obj/effect/overmap/visitable/my_sector = GLOB.map_sectors["[beacon_z]"]
+		if(istype(my_sector))
+			for(var/obj/effect/overmap/visitable/V in range(security_radius, my_sector))
+				for(var/nearby_z in V.map_z)
+					if(nearby_z == beacon_z)
+						continue
+					var/obj/structure/machinery/faction_beacon/other = GLOB.faction_beacon_by_z["[nearby_z]"]
+					if(other && !QDELETED(other) && other != src)
+						continue
+					if(zone_security_get(nearby_z) < guaranteed_security_tier)
+						persistence_set_zone_security(nearby_z, guaranteed_security_tier)
 
 /obj/structure/machinery/faction_beacon/update_icon()
-	if(active && faction_uid)
-		icon_state = "bspacerelay"
+	icon_state = "bspacerelay"
+	// No dedicated "on"/"off" sprite exists yet -- a light glow is a safe,
+	// low-risk visual tell that doesn't depend on a sprite frame existing.
+	if(active)
+		set_light(2, 1, COLOR_CYAN)
 	else
-		icon_state = "bspacerelay"
+		set_light(0)
 
-/obj/structure/machinery/faction_beacon/verb/toggle_beacon_power()
-	set name = "Toggle Beacon Power"
-	set category = "Object"
-	set desc = "Power this beacon on or off. An unpowered beacon holds no Z-level claim."
-	set src in oview(1)
+/// Alt-click toggles the physical lock (mirrors APC/air alarm) -- while
+/// locked, the TGUI's power toggle is restricted to admins.
+/obj/structure/machinery/faction_beacon/AltClick(mob/user)
+	if(!Adjacent(user))
+		return
+	if(!can_configure_faction_shackle(user, faction_uid, 1))
+		to_chat(user, SPAN_WARNING("You need command access in [faction_uid ? get_faction_name(faction_uid) : "this beacon's faction"] to (un)lock it."))
+		return
+	locked = !locked
+	playsound(src, locked ? 'sound/machines/terminal/terminal_button03.ogg' : 'sound/machines/terminal/terminal_button01.ogg', 35, FALSE)
+	balloon_alert(user, locked ? "locked" : "unlocked")
 
-	if(!can_configure_faction_shackle(usr, faction_uid, 1))
-		to_chat(usr, SPAN_WARNING("You need command access in [faction_uid ? get_faction_name(faction_uid) : "this beacon's faction"] to toggle it."))
+/obj/structure/machinery/faction_beacon/attack_hand(mob/user)
+	. = ..()
+	if(.)
+		return
+	if(locked)
+		to_chat(user, SPAN_WARNING("\The [src] is locked."))
+		return
+	ui_interact(user)
+
+/obj/structure/machinery/faction_beacon/ui_interact(mob/user, datum/tgui/ui)
+	ui = SStgui.try_update_ui(user, src, ui)
+	if(!ui)
+		ui = new(user, src, "FactionBeacon", "Faction Beacon", 420, 460)
+		ui.open()
+
+/obj/structure/machinery/faction_beacon/ui_data(mob/user)
+	var/list/data = list()
+	data["faction_uid"] = faction_uid
+	data["faction_name"] = faction_uid ? get_faction_name(faction_uid) : null
+	data["active"] = active
+	data["powered"] = powered
+	data["locked"] = locked
+	data["anchored"] = anchored
+	data["is_admin"] = check_rights(R_ADMIN, 0, user)
+	data["can_configure"] = can_configure_faction_shackle(user, faction_uid, 1)
+	data["refusal_reason"] = _claim_refusal_reason()
+	data["security_radius"] = security_radius
+	return data
+
+/obj/structure/machinery/faction_beacon/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
+	. = ..()
+	if(.)
+		return
+	var/mob/user = usr
+	switch(action)
+		if("toggle_power")
+			if(!anchored)
+				to_chat(user, SPAN_WARNING("\The [src] must be wrenched to the floor first."))
+				return
+			if(locked)
+				to_chat(user, SPAN_WARNING("\The [src] is locked -- unlock it first (alt-click)."))
+				return
+			_toggle_power(user)
+			. = TRUE
+		if("set_faction")
+			if(!check_rights(R_ADMIN, 0, user))
+				return
+			var/new_network = params["uid"]
+			var/new_uid = new_network ? normalize_faction_uid(new_network) : null
+			if(faction_tagger_set(new_uid, user))
+				to_chat(user, SPAN_GOOD("Beacon network set to: [faction_uid ? get_faction_name(faction_uid) : "(none)"][active ? " (active)" : ""]"))
+				log_admin("[key_name(user)] force-configured faction beacon at ([x],[y],[z]) to '[faction_uid]' via TGUI.")
+			. = TRUE
+		if("set_security_radius")
+			if(!check_rights(R_ADMIN, 0, user))
+				return
+			var/radius_input = text2num(params["radius"])
+			if(isnull(radius_input))
+				return
+			var/new_radius = between(0, radius_input, 10)
+			security_radius = new_radius
+			to_chat(user, SPAN_GOOD("Security radius set to [security_radius]."))
+			log_admin("[key_name(user)] set faction beacon security radius to [security_radius] at ([x],[y],[z]).")
+			. = TRUE
+
+/// Shared power-toggle body -- used by the TGUI's "toggle_power" action.
+/obj/structure/machinery/faction_beacon/proc/_toggle_power(mob/user)
+	if(!can_configure_faction_shackle(user, faction_uid, 1))
+		to_chat(user, SPAN_WARNING("You need command access in [faction_uid ? get_faction_name(faction_uid) : "this beacon's faction"] to toggle it."))
 		return
 
 	powered = !powered
@@ -273,36 +416,75 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		_release_z_claim()
 		QDEL_NULL(beacon_looping_sound)
 		update_icon()
-		to_chat(usr, SPAN_WARNING("Beacon powered down. Z-level [GET_Z(src)] is now unclaimed."))
+		to_chat(user, SPAN_WARNING("Beacon powered down. Z-level [GET_Z(src)] is now unclaimed."))
 	else
 		_apply_network()
-		to_chat(usr, SPAN_GOOD("Beacon powered up.[active ? " Network active." : " Could not reclaim this Z-level -- already claimed by another active beacon."]"))
+		if(active)
+			to_chat(user, SPAN_GOOD("Beacon powered up. Network active."))
+		else
+			to_chat(user, SPAN_WARNING("Beacon powered up, but could not claim: [_claim_refusal_reason()]."))
 
-	message_admins("[key_name(usr)] [powered ? "powered up" : "powered down"] a faction beacon ([faction_uid ? get_faction_name(faction_uid) : "unconfigured"]) at ([x],[y],[z]). (<a href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[x];Y=[y];Z=[z]'>JMP</a>)")
+	message_admins("[key_name(user)] [powered ? "powered up" : "powered down"] a faction beacon ([faction_uid ? get_faction_name(faction_uid) : "unconfigured"]) at ([x],[y],[z]). (<a href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[x];Y=[y];Z=[z]'>JMP</a>)")
 
-// Faction assignment is configured via the faction tagger tool now (see
-// faction_tagger_set() in persistence_faction_tagger.dm) -- beacon
-// placement itself is still an admin/mapping action, but the faction-uid
-// step moved to the tagger so command-tier faction members can configure
-// their own beacon. This admin-only quick-access verb stays for a "raw"
-// session where nobody has a faction ID yet, or for admins who don't want
-// to dig out a tagger item.
-/obj/structure/machinery/faction_beacon/verb/configure_faction_beacon()
-	set name = "Configure Faction Beacon"
+// Faction assignment is configured via the faction tagger tool, or the TGUI's
+// admin-only "set_faction" action above (for a "raw" session where nobody has
+// a faction ID yet, or admins who don't want to dig out a tagger item) --
+// beacon placement itself is still an admin/mapping action.
+
+/// "Break glass" admin access -- the normal TGUI (click to open, toggle_power
+/// action) respects `locked` for everyone including admins, by design (a
+/// physical lock should mean something). This verb is a separate entry point
+/// that never goes through ui_act() at all, so it isn't subject to that gate,
+/// for the rare case an admin genuinely needs to override a locked beacon.
+/obj/structure/machinery/faction_beacon/verb/admin_override_beacon()
+	set name = "Admin: Override Faction Beacon"
 	set category = "Admin"
-	set desc = "Force-set or clear this beacon's faction network."
+	set desc = "Bypass the lock to check status, toggle power, or force-set the faction network."
 	set src in oview(1)
 
 	if(!check_rights(R_ADMIN))
 		return
 
-	to_chat(usr, SPAN_NOTICE("Current network: [faction_uid ? get_faction_name(faction_uid) : "(none)"] | active=[active] | powered=[powered]"))
+	to_chat(usr, SPAN_NOTICE("Current: network=[faction_uid ? get_faction_name(faction_uid) : "(none)"] | active=[active] | powered=[powered] | locked=[locked] | anchored=[anchored]"))
 
-	var/new_network = tgui_input_text(usr, "Enter faction UID (leave blank to clear):", "Configure Faction Beacon", faction_uid, max_length = 32)
-	if(new_network == null)
+	var/action = tgui_input_list(usr, "Select action:", "Admin Override", list("Toggle Power", "Toggle Lock", "Force-Set Faction", "Force-Clear Faction", "Close"))
+	if(!action || action == "Close")
 		return
 
-	var/new_uid = new_network ? normalize_faction_uid(new_network) : null
-	if(faction_tagger_set(new_uid, usr))
-		to_chat(usr, SPAN_GOOD("Beacon network set to: [faction_uid ? get_faction_name(faction_uid) : "(none)"][active ? " (active)" : ""]"))
-		log_admin("[key_name(usr)] force-configured faction beacon at ([x],[y],[z]) to '[faction_uid]' via admin verb.")
+	switch(action)
+		if("Toggle Power")
+			_toggle_power(usr)
+		if("Toggle Lock")
+			locked = !locked
+			to_chat(usr, SPAN_GOOD("Beacon [locked ? "locked" : "unlocked"]."))
+			log_admin("[key_name(usr)] [locked ? "locked" : "unlocked"] a faction beacon at ([x],[y],[z]) via admin override.")
+		if("Force-Set Faction")
+			var/new_network = tgui_input_text(usr, "Enter faction UID (leave blank to clear):", "Force-Set Faction", faction_uid, max_length = 32)
+			if(new_network == null)
+				return
+			var/new_uid = new_network ? normalize_faction_uid(new_network) : null
+			if(faction_tagger_set(new_uid, usr))
+				to_chat(usr, SPAN_GOOD("Beacon network set to: [faction_uid ? get_faction_name(faction_uid) : "(none)"][active ? " (active)" : ""]"))
+				log_admin("[key_name(usr)] force-configured faction beacon at ([x],[y],[z]) to '[faction_uid]' via admin override verb.")
+		if("Force-Clear Faction")
+			if(faction_tagger_set(null, usr))
+				to_chat(usr, SPAN_GOOD("Beacon network cleared."))
+				log_admin("[key_name(usr)] force-cleared faction beacon at ([x],[y],[z]) via admin override verb.")
+
+/// Hub-issued variant -- guarantees highsec instead of medsec, visually
+/// distinct (bluer tint), and deliberately not purchasable through any
+/// player-facing channel (no cargo listing) -- admin-spawn only. Inherits
+/// every proc unchanged (TGUI, sweep, lock, wrench) -- only the security
+/// tier, default radius, color, and TGUI window title actually differ.
+/obj/structure/machinery/faction_beacon/hub
+	name = "hub beacon"
+	desc = "A Hub-issued anchor beacon that guarantees the highest security tier for the infrastructure it claims."
+	color = "#6699ff"
+	guaranteed_security_tier = ZONE_HIGHSEC
+	security_radius = 2 // reaches further than a standard faction beacon's default of 1
+
+/obj/structure/machinery/faction_beacon/hub/ui_interact(mob/user, datum/tgui/ui)
+	ui = SStgui.try_update_ui(user, src, ui)
+	if(!ui)
+		ui = new(user, src, "FactionBeacon", "Hub Beacon", 420, 460)
+		ui.open()

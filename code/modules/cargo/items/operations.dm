@@ -42,6 +42,21 @@
 	groupable = FALSE
 	spawn_amount = 1
 
+/singleton/cargo_item/syndicateuplink
+	category = "operations"
+	name = "syndicate uplink terminal"
+	supplier = "Hub"
+	description = "A modified radio that conceals a black-market purchasing terminal. Requires local piracy infrastructure to source."
+	price = 250000
+	items = list(
+		/obj/item/radio/uplink
+	)
+	access = 0
+	container_type = "box"
+	groupable = FALSE
+	spawn_amount = 1
+	requires_piracy_beacon = TRUE
+
 /singleton/cargo_item/cargotraintrolley
 	category = "operations"
 	name = "cargo train trolley"

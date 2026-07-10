@@ -119,6 +119,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		if(A.cell)
 			A.update_channels()  // re-derive channel bits from the RESTORED cell charge
 		A.update()               // write area power flags (broadcasts on change)
+		A.update_icon()          // refresh the visible charge/equipment/lighting overlays to match
 		if(A.area)
 			apc_areas |= A.area
 			// Flags the exact bug class where an APC got recreated before its
@@ -131,6 +132,13 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	var/solar_count = 0
 	for(var/obj/structure/machinery/power/solar_control/SC in world)
 		if(!SC.z) continue
+		// search_for_connected() only scans an already-established powernet --
+		// if the control's own Initialize()-time connect_to_network() ran before
+		// player-modified cabling was restored, powernet is still null here and
+		// the scan would silently no-op forever. Re-attempt the connection now
+		// that makepowernets() has finalized the real topology.
+		if(!SC.powernet)
+			SC.connect_to_network()
 		SC.search_for_connected()
 		solar_count++
 
@@ -545,6 +553,19 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 
 /obj/structure/machinery/power/portgen/basic
 	worldstate_vars = list("active", "open", "power_output", "sheets", "sheet_left", "anchored")
+
+/obj/structure/machinery/power/portgen/basic/worldstate_apply_content(list/content)
+	. = ..()
+	// The generic restore above only sets vars directly -- it doesn't re-run
+	// the side effect that normally accompanies anchored becoming true.
+	// Initialize() already tries this, but runs BEFORE this restore applies
+	// the saved value, so it sees the class default (unanchored) and skips
+	// it. Without this, a restored generator reports anchored/active/fueled
+	// correctly but never actually rejoins its powernet -- it silently
+	// contributes zero power, and anything drawing from that grid falls back
+	// to draining its own cell until it reads as unpowered.
+	if(anchored)
+		connect_to_network()
 
 /obj/structure/machinery/power/solar_control
 	worldstate_vars = list("track", "trackrate")

@@ -13,6 +13,21 @@ scripts/debug-compile.ps1                # standalone: self-fixes via headless c
 - Full log: `scripts/debug-compile.log`
 - Wraps the Juke chain (`tools/build/build.bat` minus its interactive `pause`). tgui bundles rebuild automatically when `tgui/packages/**` changes; DM compiles when `code/**` or maps change.
 
+## Persistence debugging
+
+Persistence subsystem activity (init steps, save/restore errors, panics) logs to
+`data/logs/<round_id>/subsystems/persistence.log` -- a new file each round, so check
+the most recently modified `data/logs/*/subsystems/` folder. Every init/finalize
+step in `code/controllers/subsystems/persistence/persistence.dm` logs a
+"Starting X..." line before it runs and catches+logs its own exceptions
+(`log_subsystem_persistence_panic`), so a stuck or failed persistence step is
+visible by scanning for the last "Starting..." line with no following step.
+
+When diagnosing a reported persistence bug (state not saving/restoring,
+a machine losing its config across a restart, etc.), check this log first
+before reading code -- it often narrows down which subsystem step is
+actually responsible.
+
 ## Hard rules for .dm files
 
 - **ASCII only.** No em dashes, no Unicode of any kind -- the BYOND compiler breaks on it. Use `--` instead of an em dash.

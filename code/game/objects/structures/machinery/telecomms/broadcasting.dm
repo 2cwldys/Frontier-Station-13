@@ -44,6 +44,20 @@
 		current.data["done"] = TRUE
 		current = current.original
 
+// Mesh-wide (not per-broadcaster-instance) anti-spam dedup -- if two or more
+// broadcaster/all-in-one machines are linked into the same mesh on the same
+// frequency, relay_information() fans a signal out to each of them, and
+// vocal/broadcast() resolves listeners purely by frequency with no awareness
+// of which instance triggered it. A per-instance recent_broadcasts list (the
+// old approach) only stops a single machine from re-processing a signal that
+// reaches it twice -- it does nothing to stop two *different* machines each
+// independently broadcasting the same message once. Sharing this list across
+// every broadcaster/all-in-one closes that gap.
+GLOBAL_LIST_EMPTY(recent_broadcast_messages)
+
+/proc/clear_recent_broadcast_message(signal_message)
+	GLOB.recent_broadcast_messages -= signal_message
+
 /datum/signal/subspace/proc/send_to_receivers()
 	if(!source.loc)
 		// It's an announcer message, just send it to the horizon's receiver
