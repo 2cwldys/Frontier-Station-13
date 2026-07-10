@@ -357,6 +357,34 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 /obj/structure/machinery/power/smes
 	worldstate_vars = list("charge", "input_attempt", "input_level", "output_attempt", "output_level")
 
+// ------- SMES buildable (nested coil composition, not a flat var) -------
+// capacity/input_level_max/output_level_max are derived from component_parts
+// each boot (recalc_coils()), and Initialize() unconditionally rebuilds
+// component_parts from cur_coils copies of the base-tier coil -- neither the
+// coil count nor the upgraded coil types survive a restart without this.
+
+/obj/structure/machinery/power/smes/buildable/worldstate_get_content()
+	var/list/content = ..() // base smes worldstate_vars: charge, input_attempt, input_level, output_attempt, output_level
+	if(!content) content = list()
+	var/list/coil_types = list()
+	for(var/obj/item/smes_coil/C in component_parts)
+		coil_types += "[C.type]"
+	content["coil_types"] = coil_types
+	return content
+
+/obj/structure/machinery/power/smes/buildable/worldstate_apply_content(list/content)
+	..() // restores charge/input_attempt/etc via the inherited worldstate_vars list
+	if(content && islist(content["coil_types"]) && length(content["coil_types"]))
+		for(var/obj/item/smes_coil/C in component_parts)
+			qdel(C)
+		component_parts = list()
+		for(var/type_str in content["coil_types"])
+			var/coil_type = text2path(type_str)
+			if(ispath(coil_type, /obj/item/smes_coil))
+				component_parts += new coil_type(src)
+		cur_coils = length(component_parts)
+		recalc_coils()
+
 /obj/structure/machinery/atmospherics/binary/pump
 	worldstate_vars = list("use_power", "target_pressure")
 
