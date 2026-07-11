@@ -137,3 +137,16 @@
 /obj/structure/machinery/door/airlock/faction_tagger_set(new_uid, mob/user)
 	req_access_faction = new_uid || ""
 	return TRUE
+
+// ------- Portable turrets (ownership marker + faction-aware targeting mode,
+// see turret_faction_target_mode in portable_turret.dm) -------
+
+/obj/structure/machinery/porta_turret/faction_tagger_compatible()
+	return TRUE
+
+/obj/structure/machinery/porta_turret/faction_tagger_get_uid()
+	return persistent_network
+
+/obj/structure/machinery/porta_turret/faction_tagger_set(new_uid, mob/user)
+	persistent_network = new_uid
+	return TRUE

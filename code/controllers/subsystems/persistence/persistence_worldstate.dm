@@ -523,7 +523,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	worldstate_vars = list("locked", "safeties", "radiation_level", "target_department", "target_species")
 
 /obj/structure/machinery/porta_turret
-	worldstate_vars = list("enabled", "lethal", "locked", "check_arrest", "check_records", "check_weapons", "check_access", "check_wildlife", "check_synth", "target_borgs", "auto_repair")
+	worldstate_vars = list("enabled", "lethal", "locked", "check_arrest", "check_records", "check_weapons", "check_access", "check_wildlife", "check_synth", "target_borgs", "auto_repair", "persistent_network", "turret_faction_target_mode")
 
 /obj/structure/machinery/disposal
 	worldstate_vars = list("is_on", "can_flush")

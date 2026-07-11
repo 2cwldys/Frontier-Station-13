@@ -33,7 +33,16 @@ type FactionTaggerData = {
   is_public_lace: BooleanLike;
   is_airlock: BooleanLike;
   is_public_airlock: BooleanLike;
+  is_turret: BooleanLike;
+  turret_target_mode: string;
 };
+
+const TURRET_MODES: { mode: string; label: string }[] = [
+  { mode: 'off', label: 'Off' },
+  { mode: 'nonfaction', label: 'Non-Faction' },
+  { mode: 'wildlife', label: 'Wildlife Only' },
+  { mode: 'both', label: 'Both' },
+];
 
 export const FactionTagger = (props) => {
   const { act, data } = useBackend<FactionTaggerData>();
@@ -54,6 +63,8 @@ export const FactionTagger = (props) => {
     is_public_lace,
     is_airlock,
     is_public_airlock,
+    is_turret,
+    turret_target_mode,
   } = data;
   const [selected, setSelected] = useState(current_uid || own_uid || '');
 
@@ -174,6 +185,20 @@ export const FactionTagger = (props) => {
             >
               Configure Door Access
             </Button>
+          </Section>
+        )}
+        {is_turret && current_uid && current_uid !== 'public' && (
+          <Section title="Turret Targeting">
+            {TURRET_MODES.map((m) => (
+              <Button
+                key={m.mode}
+                mb={0.5}
+                selected={turret_target_mode === m.mode}
+                onClick={() => act('set_turret_mode', { mode: m.mode })}
+              >
+                {m.label}
+              </Button>
+            ))}
           </Section>
         )}
         {is_admin && is_airlock && (

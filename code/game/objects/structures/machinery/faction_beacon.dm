@@ -395,6 +395,17 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	catch(var/exception/area_e)
 		log_subsystem_persistence_error("Faction beacon: area sweep failed: [area_e]")
 
+	try
+		for(var/obj/structure/machinery/porta_turret/PT in world)
+			if(!(GET_Z(PT) in station_zs))
+				continue
+			if(PT.persistent_network)
+				continue
+			PT.persistent_network = faction_uid
+			configured++
+	catch(var/exception/turret_e)
+		log_subsystem_persistence_error("Faction beacon: turret sweep failed: [turret_e]")
+
 	log_game("Faction beacon at ([x],[y],[z]): networked [configured] objects/areas to faction '[faction_uid]' across z-level(s) [english_list(station_zs)].")
 
 	// A beacon claiming a station should make sure every Z it spans is

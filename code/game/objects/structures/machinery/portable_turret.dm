@@ -78,6 +78,10 @@
 	var/check_synth	 = 0
 	/// if active, will shoot at borgs
 	var/target_borgs = FALSE
+	/// faction network this turret is tagged to via the faction tagger, "" if untagged
+	var/persistent_network = ""
+	/// additional faction-aware targeting restriction set via the faction tagger: TURRET_FACTION_MODE_OFF/NONFACTION/WILDLIFE/BOTH
+	var/turret_faction_target_mode = TURRET_FACTION_MODE_OFF
 	///  AI cannot use this
 	var/ailock = 0
 	///  If TRUE, the turret cannot be detached from the ground with a wrench.
@@ -668,6 +672,25 @@
 
 	if(iscuffed(L)) // If the target is handcuffed, leave it alone
 		return TURRET_NOT_TARGET
+
+	if(turret_faction_target_mode != TURRET_FACTION_MODE_OFF)
+		var/allow_wildlife = (turret_faction_target_mode == TURRET_FACTION_MODE_WILDLIFE || turret_faction_target_mode == TURRET_FACTION_MODE_BOTH)
+		var/allow_nonfaction_humans = (turret_faction_target_mode == TURRET_FACTION_MODE_NONFACTION || turret_faction_target_mode == TURRET_FACTION_MODE_BOTH)
+
+		if(isanimal(L) || issmall(L) || isalien(L))
+			if(!allow_wildlife)
+				return TURRET_NOT_TARGET
+			// else: allowed through, existing check_wildlife-gated logic below decides priority as normal
+		else if(ishuman(L))
+			if(!allow_nonfaction_humans)
+				return TURRET_NOT_TARGET // Wildlife-only mode: no human ever qualifies, faction or not
+			if(persistent_network)
+				var/mob/living/carbon/human/H = L
+				var/obj/item/card/id/ID = H.GetIdCard()
+				var/L_uid = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+				if(L_uid && L_uid == persistent_network)
+					return TURRET_NOT_TARGET // exempt the turret's own faction
+			// else: allowed through, existing assess_perp threat-level logic below decides as normal
 
 	if(isanimal(L) || issmall(L)) // Animals are not so dangerous
 		return check_wildlife ? TURRET_SECONDARY_TARGET : TURRET_NOT_TARGET
