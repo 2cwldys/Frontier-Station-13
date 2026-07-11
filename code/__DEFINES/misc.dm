@@ -62,6 +62,7 @@
 // Inverted semantics on purpose: the bit's ABSENCE means muttering is
 // audible, so preference rows saved before this flag existed default to ON.
 #define MUTE_MUTTERING BITFLAG(12)
+#define VIGNETTE BITFLAG(13)
 
 #define TOGGLES_DEFAULT (SOUND_ADMINHELP | SOUND_MIDI | CHAT_OOC | CHAT_DEAD | CHAT_GHOSTEARS | CHAT_GHOSTSIGHT | CHAT_PRAYER | CHAT_RADIO | CHAT_ATTACKLOGS | CHAT_LOOC | CHAT_GHOSTLOOC)
 

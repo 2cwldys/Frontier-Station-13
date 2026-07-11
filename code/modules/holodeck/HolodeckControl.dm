@@ -399,3 +399,10 @@ GLOBAL_LIST_EMPTY_TYPED(holodeck_controls, /obj/structure/machinery/computer/hol
 
 /obj/structure/machinery/computer/holodeck_control/Horizon/beta
 	linkedholodeck_area = /area/horizon/holodeck/betadeck
+
+/obj/structure/machinery/computer/holodeck_control/Frontier
+	density = 0
+	linkedholodeck_area = /area/frontier/holodeck/alphadeck
+
+/obj/structure/machinery/computer/holodeck_control/Frontier/beta
+	linkedholodeck_area = /area/frontier/holodeck/betadeck

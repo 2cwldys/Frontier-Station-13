@@ -11,8 +11,6 @@
 	ruin_planet_type = PLANET_ASTEROID
 	ruin_allowed_tags = RUIN_AIRLESS|RUIN_LOWPOP|RUIN_MINING|RUIN_SCIENCE|RUIN_HOSTILE|RUIN_WRECK|RUIN_NATURAL
 
-	place_near_main = list(1, 1)
-
 	unit_test_groups = list(2)
 
 	soil_data = list("Rich aluminium oxide layer", "Rich iron oxide layer", "Rich silver dust layer", "Rich gold dust layer", "Low density silicon dioxide layer", "Large rock particle layer")

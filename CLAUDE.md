@@ -33,6 +33,7 @@ actually responsible.
 - **ASCII only.** No em dashes, no Unicode of any kind -- the BYOND compiler breaks on it. Use `--` instead of an em dash.
 - Never use `length(S.contents)` on arbitrary structures; beware BYOND var scoping pitfalls.
 - `set waitfor = FALSE` procs fail silently -- audit call chains when porting code from other codebases.
+- **New `/datum/admins/proc/` verbs need a second registration step, or they silently never appear.** Defining the proc with `set name = "..."` / `set category = "..."` is not enough by itself -- it must also be added to the typepath list in `code/modules/admin/admin_verbs.dm` (the file that actually wires procs into the admin `verbs` list). This compiles clean either way, so the only symptom of forgetting it is the verb never showing up in the admin panel/right-click menu. Always grep `admin_verbs.dm` for the new proc name (or an existing sibling verb from the same file) after adding an admin verb, and add it if missing.
 
 ## Project shape
 

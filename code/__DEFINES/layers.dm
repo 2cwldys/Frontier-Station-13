@@ -195,7 +195,18 @@
 #define BALLOON_CHAT_PLANE 502
 
 #define FULLSCREEN_PLANE 900
+	/// Lowest-priority fullscreen layer -- sits behind every other fullscreen
+	/// effect (chilled, blind, damage overlays, etc.) so it never bleeds over
+	/// anything else in this plane.
+	#define VIGNETTE_LAYER 0.5
 	#define FULLSCREEN_LAYER 1
+	/// Decorative game window border -- above film grain/vignette, but below
+	/// CHILLED_LAYER so the cryo cold effect always stays visible over it.
+	/// Still on FULLSCREEN_PLANE so it stays below HUD_PLANE and can never
+	/// cover actual HUD elements.
+	#define GAMEUI_BORDER_LAYER 1.2
+	/// Cryo "chilled" cold border -- above the decorative gameui_border.
+	#define CHILLED_LAYER 1.5
 	#define DAMAGE_LAYER 2
 	#define IMPAIRED_LAYER 3
 	#define BLIND_LAYER 4

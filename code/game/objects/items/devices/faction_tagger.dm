@@ -10,13 +10,13 @@
 /obj/item/faction_tagger
 	name = "faction tagger"
 	desc = "A configurator for tagging station infrastructure to a faction network. Point and click on a compatible machine to open its network settings."
-	// Borrowed sprite (red-tinted) from the cargo destination tagger --
+	// Borrowed sprite (blue-tinted) from the cargo destination tagger --
 	// PLACEHOLDER until dedicated sprite work is done, same approach
 	// already used for the security telepad's tint over the cargo pad.
 	icon = 'icons/obj/item/dest_tagger.dmi'
 	icon_state = "dest_tagger"
 	item_state = "dest_tagger"
-	color = "#ff4444"
+	color = "#4488ff"
 	contained_sprite = TRUE
 	w_class = WEIGHT_CLASS_SMALL
 	slot_flags = SLOT_BELT

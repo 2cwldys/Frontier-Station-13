@@ -13,6 +13,43 @@ SUBSYSTEM_DEF(persistence_world_ready)
 
 /datum/controller/subsystem/persistence_world_ready/Initialize(timeofday)
 	. = ..()
+
+	// persistence_disable_station: strip the default station's overmap
+	// presence and wipe its Z-level(s) to open space. Has to happen here,
+	// not in SSatlas (where the station actually loads) -- the marker's
+	// map_z (which Z's to wipe) isn't populated until its own atom
+	// Initialize() runs, during SSatoms, a later stage than SSatlas's own
+	// Initialize(). This subsystem is the one guaranteed to run after
+	// everything else, so map_z is always valid by the time this executes.
+	if(GLOB.config.persistence_disable_station)
+		var/obj/effect/overmap/visitable/station_marker
+		for(var/obj/effect/overmap/visitable/V in world)
+			if(V.base)
+				station_marker = V
+				break
+		if(istype(station_marker))
+			var/list/station_zs = station_marker.map_z.Copy()
+			log_world("persistence_disable_station: wiping station z-level(s) [english_list(station_zs)] and removing its overmap marker.")
+			// register_z_levels() (sectors.dm) points GLOB.map_sectors at this
+			// marker for every Z it spans -- Destroy() doesn't clean that up
+			// itself, so clear those entries first or they'd dangle on a
+			// qdeleted object (istype() alone doesn't catch that).
+			for(var/marker_z in station_zs)
+				GLOB.map_sectors -= "[marker_z]"
+			qdel(station_marker)
+
+			// Delete everything on the station's own Z-levels -- every object,
+			// mob, structure, and the turfs themselves. No reset/revert logic,
+			// just gone -- open space. The Z-levels stay allocated, just empty.
+			for(var/z in station_zs)
+				for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+					for(var/atom/movable/AM in T)
+						qdel(AM)
+					T.ChangeTurf(/turf/space)
+					CHECK_TICK
+		else
+			log_world("persistence_disable_station set, but no base=TRUE overmap marker was found to remove.")
+
 	// All other subsystems have now completed their Initialize().
 	// Signal that the persistent world is open for players.
 	SSticker.start_persistent_world()

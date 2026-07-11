@@ -35,8 +35,7 @@
 		"ss13_removed_structures"  = "DELETE FROM ss13_removed_structures WHERE z = :z AND map_path = :mp",
 		"ss13_persistent_bots"     = "DELETE FROM ss13_persistent_bots WHERE z = :z AND map_path = :mp",
 		"ss13_atmos_zones"         = "DELETE FROM ss13_atmos_zones WHERE rep_z = :z AND map_path = :mp",
-		// ss13_worldstate_objects has no map_path column (pre-existing schema gap) -- z only
-		"ss13_worldstate_objects"  = "DELETE FROM ss13_worldstate_objects WHERE z = :z"
+		"ss13_worldstate_objects"  = "DELETE FROM ss13_worldstate_objects WHERE z = :z AND map_path = :mp"
 	)
 	for(var/table in deletes)
 		var/datum/db_query/dq = SSdbcore.NewQuery(deletes[table], list("z" = z, "mp" = map_path))
@@ -68,8 +67,7 @@
 		"ss13_removed_structures"  = "UPDATE ss13_removed_structures SET z = :nz WHERE z = :oz AND map_path = :mp",
 		"ss13_persistent_bots"     = "UPDATE ss13_persistent_bots SET z = :nz WHERE z = :oz AND map_path = :mp",
 		"ss13_atmos_zones"         = "UPDATE ss13_atmos_zones SET rep_z = :nz WHERE rep_z = :oz AND map_path = :mp",
-		// ss13_worldstate_objects has no map_path column (pre-existing schema gap) -- z only
-		"ss13_worldstate_objects"  = "UPDATE ss13_worldstate_objects SET z = :nz WHERE z = :oz"
+		"ss13_worldstate_objects"  = "UPDATE ss13_worldstate_objects SET z = :nz WHERE z = :oz AND map_path = :mp"
 	)
 	for(var/table in updates)
 		var/datum/db_query/uq = SSdbcore.NewQuery(updates[table], list("oz" = old_z, "nz" = new_z, "mp" = map_path))
@@ -122,6 +120,21 @@
 		msg += "\n  [present.Join("\n  ")]"
 
 	to_chat(usr, SPAN_NOTICE(msg))
+
+/// TRUE if any player -- actively connected, SSD-lingering, or a disembodied
+/// neural-lace consciousness (including one in vault storage with no mob at
+/// all) -- is currently on z. Hard-blocks destructive Z-level admin actions.
+/proc/zlevel_has_players(z)
+	for(var/mob/M in GLOB.mob_list)
+		if(M.z == z && (M.client || M.ckey))
+			return TRUE
+	for(var/obj/item/organ/internal/neural_lace/L in world)
+		if(!length(L.registered_ckey))
+			continue
+		var/turf/T = get_turf(L)
+		if(T && T.z == z)
+			return TRUE
+	return FALSE
 
 /datum/admins/proc/reset_zlevel()
 	set name = "Reset Z-Level"
@@ -255,10 +268,9 @@
 	qdel(dtq)
 
 	// 6. Clear remaining worldstate/atmos DB rows for this z
-	// ss13_worldstate_objects has no map_path column (pre-existing schema gap) -- filter by z only.
 	var/datum/db_query/dwq = SSdbcore.NewQuery(
-		"DELETE FROM ss13_worldstate_objects WHERE z = :z",
-		list("z" = z_pick)
+		"DELETE FROM ss13_worldstate_objects WHERE z = :z AND map_path = :mp",
+		list("z" = z_pick, "mp" = map_path)
 	)
 	dwq.Execute()
 	SSpersistence.databaseCheckQueryResult(dwq, "reset_zlevel worldstate_objects delete")

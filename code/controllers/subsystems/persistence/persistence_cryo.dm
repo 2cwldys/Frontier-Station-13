@@ -348,6 +348,11 @@
 	/// Never expire spawned cryopods
 	persistant_objects_expiration_time_days = 36500
 
+/// Cryopod subtypes never offered as a human spawn/wake target (e.g. cyborg-only pods).
+/// Checked by persistence_find_saved_cryopod(), persistence_find_available_cryopod(),
+/// the faction beacon auto-claim sweep, and the PersistentAutoSpawn() last-resort fallback.
+GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery/cryopod/robot))
+
 // Faction assignment is configured via the faction tagger tool now (see
 // faction_tagger_set() in persistence_faction_tagger.dm). This admin-only
 // quick-access verb stays for a "raw" session where nobody has a faction ID
@@ -456,6 +461,8 @@
 	var/obj/structure/machinery/cryopod/pod = T ? (locate(/obj/structure/machinery/cryopod) in T) : null
 	if(!pod)
 		return null
+	if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore))
+		return null
 	if(pod.occupant)
 		return null
 	if(pod.stat & (NOPOWER|BROKEN))
@@ -477,6 +484,7 @@
 	if(faction_uid)
 		var/list/faction_pods = list()
 		for(var/obj/structure/machinery/cryopod/pod in world)
+			if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore)) continue
 			if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
 			if(pod.persistent_network == faction_uid)
 				faction_pods += pod
@@ -489,6 +497,8 @@
 	var/list/public_pods = list()
 	var/total_pods = 0
 	for(var/obj/structure/machinery/cryopod/pod in world)
+		if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore))
+			continue
 		total_pods++
 		if(!pod.z)
 			log_subsystem_persistence_info("Cryo spawn: skipping [pod.type] at ([pod.x],[pod.y],[pod.z])  z is 0")

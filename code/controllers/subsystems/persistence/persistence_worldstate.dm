@@ -62,7 +62,8 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		return
 
 	var/datum/db_query/query = SSdbcore.NewQuery(
-		"SELECT type, x, y, z, content FROM ss13_worldstate_objects"
+		"SELECT type, x, y, z, content FROM ss13_worldstate_objects WHERE map_path = :map_path",
+		list("map_path" = SSatlas.current_map.path)
 	)
 	query.Execute()
 
@@ -249,7 +250,10 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		if(persistence_z_excluded(MC.z)) continue
 		saved += worldstateSaveOneMachine(MC)
 
-	var/datum/db_query/delete_stale = SSdbcore.NewQuery("DELETE FROM ss13_worldstate_objects WHERE saved_at < :cutoff", list("cutoff" = cutoff))
+	var/datum/db_query/delete_stale = SSdbcore.NewQuery(
+		"DELETE FROM ss13_worldstate_objects WHERE saved_at < :cutoff AND map_path = :map_path",
+		list("cutoff" = cutoff, "map_path" = SSatlas.current_map.path)
+	)
 	delete_stale.Execute()
 	databaseCheckQueryResult(delete_stale, "worldstateFinalize delete stale")
 	qdel(delete_stale)
@@ -272,10 +276,11 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		if(!islist(content) || !length(content))
 			return 0
 		insert = SSdbcore.NewQuery(
-			"INSERT INTO ss13_worldstate_objects (type, x, y, z, content, saved_at) \
-			 VALUES (:type, :x, :y, :z, :content, NOW()) \
+			"INSERT INTO ss13_worldstate_objects (map_path, type, x, y, z, content, saved_at) \
+			 VALUES (:map_path, :type, :x, :y, :z, :content, NOW()) \
 			 ON DUPLICATE KEY UPDATE content=VALUES(content), saved_at=NOW()",
 			list(
+				"map_path" = SSatlas.current_map.path,
 				"type"    = "[S.type]",
 				"x"       = T.x,
 				"y"       = T.y,

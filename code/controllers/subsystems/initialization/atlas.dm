@@ -202,6 +202,11 @@ SUBSYSTEM_DEF(atlas)
 	if (!maps_loaded)
 		world.map_panic("No maps loaded!")
 
+	// persistence_disable_station's cleanup runs from SSpersistence_world_ready
+	// instead of here -- the station's overmap marker's map_z (which the
+	// cleanup needs) isn't populated until its own atom Initialize() runs,
+	// which happens later (SSatoms), not during this subsystem's Initialize().
+
 	QDEL_NULL(maploader)
 
 	InitializeSectors()

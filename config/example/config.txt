@@ -160,6 +160,12 @@ DISABLE_ROUND_END
 ## whitelists) is unaffected.
 # MANUAL_AREA_SAVE
 
+## skips loading the primary station map entirely (whichever map is
+## selected) -- overmap, exoplanets, hazards, and away-site/pinning all still
+## build/work normally. For isolated persistence testing: build on an away
+## site, pin it, reboot, confirm only the pinned site survives.
+# PERSISTENCE_DISABLE_STATION
+
 ## allow players to initiate a restart vote
 ALLOW_VOTE_RESTART
 

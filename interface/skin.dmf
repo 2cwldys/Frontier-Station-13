@@ -924,7 +924,8 @@ window "mainwindow"
 		size = 640x440
 		anchor1 = 0,0
 		anchor2 = 100,100
-		background-color = #202020
+		background-color = #0d1b33
+		border = none
 		left = "mapwindow"
 		right = "info_and_buttons"
 		is-vert = true
@@ -1006,6 +1007,7 @@ window "info_and_buttons"
 		anchor1 = 0,0
 		anchor2 = 100,100
 		background-color = #0d1b33
+		border = none
 		saved-params = "splitter"
 		left = "infobuttons"
 		right = "infowindow"
@@ -1110,14 +1112,15 @@ window "infowindow"
 		anchor2 = -1,-1
 		saved-params = "pos;size;is-minimized;is-maximized"
 		is-pane = true
-		background-color = #202020
+		background-color = #0d1b33
 	elem "info"
 		type = CHILD
 		pos = 0,5
 		size = 640x475
 		anchor1 = 0,0
 		anchor2 = 100,100
-		background-color = #202020
+		background-color = #0d1b33
+		border = none
 		saved-params = "splitter"
 		left = "statwindow"
 		right = "outputwindow"
@@ -1132,19 +1135,20 @@ window "outputwindow"
 		anchor2 = -1,-1
 		saved-params = "pos;size;is-minimized;is-maximized"
 		is-pane = true
-		background-color = #202020
+		background-color = #0d1b33
 	elem "output_input_child"
 		type = CHILD
 		pos = 0,0
 		size = 640x475
 		anchor1 = 0,0
 		anchor2 = 100,100
-		background-color = #202020
+		background-color = #0d1b33
+		border = none
 		saved-params = "splitter"
 		left = "output_selector"
 		right = "input_and_buttons"
 		is-vert = false
-		splitter = 96
+		splitter = 94
 		show-splitter = false
 
 window "output_selector"
@@ -1156,7 +1160,7 @@ window "output_selector"
 		anchor2 = -1,-1
 		saved-params = "pos;size;is-minimized;is-maximized"
 		is-pane = true
-		background-color = #202020
+		background-color = #0d1b33
 	elem "legacy_output_selector"
 		type = CHILD
 		pos = 0,0
@@ -1182,7 +1186,8 @@ window "input_and_buttons"
 		size = 640x20
 		anchor1 = 0,0
 		anchor2 = 100,100
-		background-color = #202020
+		background-color = #0d1b33
+		border = none
 		saved-params = "splitter"
 		left = "inputwindow"
 		right = "inputbuttons"
@@ -1208,6 +1213,9 @@ window "inputwindow"
 		anchor2 = 100,100
 		is-default = true
 		border = line
+		background-color = #0d1b33
+		text-color = #ffffff
+		font-size = 8
 		saved-params = "command"
 
 window "inputbuttons"
@@ -1225,8 +1233,10 @@ window "inputbuttons"
 		size = 30x20
 		anchor1 = 0,0
 		anchor2 = 25,100
-		font-size = 4
+		font-size = 8
 		border = line
+		background-color = #1a3560
+		text-color = #a8c8f0
 		saved-params = "is-checked"
 		text = "Say"
 		command = ".winset \"saybutton.is-checked=true ? input.command=\"!say \\\"\" : input.command=\"\"saybutton.is-checked=true ? mebutton.is-checked=false\"\"saybutton.is-checked=true ? oocbutton.is-checked=false\""
@@ -1238,8 +1248,10 @@ window "inputbuttons"
 		size = 30x20
 		anchor1 = 25,0
 		anchor2 = 50,100
-		font-size = 4
+		font-size = 8
 		border = line
+		background-color = #1a3560
+		text-color = #a8c8f0
 		saved-params = "is-checked"
 		text = "Me"
 		command = ".winset \"mebutton.is-checked=true ? input.command=\"!me \\\"\" : input.command=\"\"mebutton.is-checked=true ? saybutton.is-checked=false\"\"mebutton.is-checked=true ? oocbutton.is-checked=false\""
@@ -1251,8 +1263,10 @@ window "inputbuttons"
 		size = 30x20
 		anchor1 = 50,0
 		anchor2 = 75,100
-		font-size = 4
+		font-size = 8
 		border = line
+		background-color = #1a3560
+		text-color = #a8c8f0
 		saved-params = "is-checked"
 		text = "OOC"
 		command = ".winset \"oocbutton.is-checked=true ? input.command=\"!ooc \\\"\" : input.command=\"\"oocbutton.is-checked=true ? mebutton.is-checked=false\"\"oocbutton.is-checked=true ? saybutton.is-checked=false\""
@@ -1264,8 +1278,10 @@ window "inputbuttons"
 		size = 30x20
 		anchor1 = 75,0
 		anchor2 = 100,100
-		font-size = 4
+		font-size = 8
 		border = line
+		background-color = #1a3560
+		text-color = #a8c8f0
 		saved-params = "is-checked"
 		text = "Hotkey Toggle"
 		command = ".winset \"mainwindow.macro!=macro ? mainwindow.macro=macro hotkey_toggle.is-checked=false input.focus=true : mainwindow.macro=hotkeymode hotkey_toggle.is-checked=true mapwindow.map.focus=true\""

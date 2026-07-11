@@ -339,9 +339,7 @@
 /// the normal body_vat -> resleever pipeline to rebuild them a body.
 /obj/item/organ/internal/neural_lace/verb/assign_consciousness()
 	set name = "Assign Consciousness"
-	set category = "Persistence"
 	set src in view(1)
-	set hidden = TRUE
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -402,9 +400,7 @@
 /// Matches the surgical install semantics exactly (replaced() chain).
 /obj/item/organ/internal/neural_lace/verb/assign_body()
 	set name = "Assign Body"
-	set category = "Persistence"
 	set src in view(1)
-	set hidden = TRUE
 
 	if(!check_rights(R_ADMIN))
 		return

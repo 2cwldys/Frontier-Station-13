@@ -116,10 +116,10 @@
 
 	// Copy template worldstate  live worldstate table
 	var/datum/db_query/copy_ws = SSdbcore.NewQuery(
-		{"INSERT INTO ss13_worldstate_objects (type, x, y, z, content, saved_at)
-		SELECT type, x, y, z, content, NOW()
+		{"INSERT INTO ss13_worldstate_objects (map_path, type, x, y, z, content, saved_at)
+		SELECT :map_path, type, x, y, z, content, NOW()
 		FROM ss13_template_worldstate WHERE template_id = :template_id"},
-		list("template_id" = template_id)
+		list("map_path" = map, "template_id" = template_id)
 	)
 	copy_ws.Execute()
 	databaseCheckQueryResult(copy_ws, "templateApplyToLiveTables copy worldstate")

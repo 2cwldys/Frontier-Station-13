@@ -296,6 +296,7 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 		eye = last_eye
 	if(mob)
 		mob.reload_fullscreen()
+		mob.apply_gameui_border()
 
 // Hovertext — show blue glowing label on HUD element mouseover (Serenity port)
 /client/MouseEntered(atom/a)
@@ -509,6 +510,11 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 	// Window title: "Frontier Station 13 - Mapname"
 	var/map_title = (SSatlas?.current_map?.full_name) ? SSatlas.current_map.full_name : "Unknown Sector"
 	winset(src, "mainwindow", "title=\"Frontier Station 13 - [map_title]\"")
+
+	// output_input_child's splitter is saved-params, so returning clients keep
+	// whatever value was saved before the goonchat input bar was resized --
+	// force it here so the larger bar applies to everyone, not just fresh installs.
+	winset(src, "output_input_child", "splitter=94")
 
 
 /client/proc/InitClient()
@@ -857,6 +863,24 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 	else
 		src.screen -= H.film_grain
 		to_chat(usr, SPAN_NOTICE("Film grain: <b>OFF</b>"))
+
+/client/verb/toggle_vignette()
+	set name = "Toggle Vignette"
+	set category = "Preferences.Menu"
+	set desc = "Toggles the screen-edge vignette overlay. On by default."
+
+	prefs.toggles_secondary ^= VIGNETTE
+	prefs.save_preferences()
+
+	var/mob/living/carbon/human/H = mob
+	if(!istype(H)) return
+
+	if(prefs.toggles_secondary & VIGNETTE)
+		H.apply_vignette()
+		to_chat(usr, SPAN_NOTICE("Vignette: <b>ON</b>"))
+	else
+		H.clear_fullscreen("vignette")
+		to_chat(usr, SPAN_NOTICE("Vignette: <b>OFF</b>"))
 
 /client/verb/toggle_status_bar()
 	set name = "Toggle Status Bar"

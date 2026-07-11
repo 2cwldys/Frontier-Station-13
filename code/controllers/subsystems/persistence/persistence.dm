@@ -415,7 +415,8 @@ SUBSYSTEM_DEF(persistence)
 
 	// Load Z-level persistence toggles FIRST — before any save/load so checks are in effect
 	var/datum/db_query/zlq = SSdbcore.NewQuery(
-		"SELECT z, enabled FROM ss13_zlevel_persistence", list())
+		"SELECT z, enabled FROM ss13_zlevel_persistence WHERE map_path = :mp",
+		list("mp" = "[SSatlas.current_map.path]"))
 	zlq.Execute()
 	if(databaseCheckQueryResult(zlq, "Initialize zlevel toggles"))
 		while(zlq.NextRow())

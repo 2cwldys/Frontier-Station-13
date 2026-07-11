@@ -389,10 +389,10 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
  */
 /datum/controller/subsystem/persistence/proc/setZLevelPersistence(z, enabled, notes)
 	var/datum/db_query/q = SSdbcore.NewQuery(
-		{"INSERT INTO ss13_zlevel_persistence (z, enabled, notes)
-		VALUES (:z, :enabled, :notes)
+		{"INSERT INTO ss13_zlevel_persistence (map_path, z, enabled, notes)
+		VALUES (:mp, :z, :enabled, :notes)
 		ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), notes = VALUES(notes)"},
-		list("z" = z, "enabled" = enabled, "notes" = notes)
+		list("mp" = "[SSatlas.current_map.path]", "z" = z, "enabled" = enabled, "notes" = notes)
 	)
 	q.Execute()
 	databaseCheckQueryResult(q, "setZLevelPersistence")
@@ -438,8 +438,8 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 
 	// Get current notes if any
 	var/datum/db_query/nq = SSdbcore.NewQuery(
-		"SELECT notes FROM ss13_zlevel_persistence WHERE z = :z",
-		list("z" = z_pick)
+		"SELECT notes FROM ss13_zlevel_persistence WHERE map_path = :mp AND z = :z",
+		list("mp" = "[SSatlas.current_map.path]", "z" = z_pick)
 	)
 	nq.Execute()
 	if(nq.NextRow()) cur_notes = nq.item[1] || ""
@@ -479,7 +479,8 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		// Fetch labels fresh each pass so edits show immediately
 		var/list/notes_by_z = list()
 		var/datum/db_query/nq = SSdbcore.NewQuery(
-			"SELECT z, notes FROM ss13_zlevel_persistence WHERE enabled = 1", list())
+			"SELECT z, notes FROM ss13_zlevel_persistence WHERE map_path = :mp AND enabled = 1",
+			list("mp" = "[SSatlas.current_map.path]"))
 		nq.Execute()
 		while(nq.NextRow())
 			notes_by_z["[text2num(nq.item[1])]"] = nq.item[2] || ""
@@ -524,10 +525,10 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 				continue
 			var/add_label = tgui_input_text(usr, "Label for Z=[z_pick] (optional, e.g. 'Start'):", "Z Level Label", notes_by_z["[z_pick]"], max_length = 128)
 			var/datum/db_query/q = SSdbcore.NewQuery(
-				{"INSERT INTO ss13_zlevel_persistence (z, enabled, notes)
-				VALUES (:z, 1, :notes)
+				{"INSERT INTO ss13_zlevel_persistence (map_path, z, enabled, notes)
+				VALUES (:mp, :z, 1, :notes)
 				ON DUPLICATE KEY UPDATE enabled = 1, notes = VALUES(notes)"},
-				list("z" = z_pick, "notes" = (add_label != "" ? add_label : null))
+				list("mp" = "[SSatlas.current_map.path]", "z" = z_pick, "notes" = (add_label != "" ? add_label : null))
 			)
 			q.Execute()
 			SSpersistence.databaseCheckQueryResult(q, "manage_manual_save_list add")
@@ -552,8 +553,8 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			// DELETE returns the z to "unlisted" -- blocked under manual mode but
 			// NOT added to the normal-mode skip list (that stays the Toggle verb's job)
 			var/datum/db_query/dq = SSdbcore.NewQuery(
-				"DELETE FROM ss13_zlevel_persistence WHERE z = :z",
-				list("z" = z_out)
+				"DELETE FROM ss13_zlevel_persistence WHERE map_path = :mp AND z = :z",
+				list("mp" = "[SSatlas.current_map.path]", "z" = z_out)
 			)
 			dq.Execute()
 			SSpersistence.databaseCheckQueryResult(dq, "manage_manual_save_list remove")
@@ -561,6 +562,68 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			GLOB.persistence_zlevel_allow -= z_out
 			to_chat(usr, SPAN_GOOD("Z=[z_out] removed from the manual save list."))
 			log_and_message_admins("removed Z=[z_out] from the manual z-level save list", usr)
+
+/**
+ * Pin the away site occupying z, exactly like the "Persistent Overmap
+ * Sites" admin verb's "Pin Site I'm At" action below -- callable from code,
+ * no admin mob needed. Returns TRUE if a site is now pinned (including if
+ * it already was), FALSE if z isn't a valid pinnable away site (empty, an
+ * exoplanet, or not loaded from a ruin/away_site template -- e.g. the main
+ * station or a player ship).
+ */
+/proc/persistence_pin_site_at_z(z, notes)
+	var/obj/effect/overmap/visitable/here_marker = GLOB.map_sectors["[z]"]
+	// Ships/shuttles (player-flown or the main station itself) are never
+	// pinnable -- explicit guard even though the template check below would
+	// already exclude them (ships aren't loaded from ruin/away_site
+	// templates), so the exclusion is never accidentally dependent on that.
+	if(istype(here_marker, /obj/effect/overmap/visitable/ship))
+		return FALSE
+	if(istype(here_marker, /obj/effect/overmap/visitable/sector/exoplanet))
+		return FALSE
+	var/datum/map_template/here_template = GLOB.map_templates["[z]"]
+	if(!istype(here_template, /datum/map_template/ruin/away_site))
+		return FALSE
+	if(!SSpersistence.databaseCheckConnection("persistence_pin_site_at_z"))
+		return FALSE
+
+	var/datum/db_query/check = SSdbcore.NewQuery(
+		"SELECT id FROM ss13_persistent_away_sites WHERE template_name = :tn AND map_path = :mp",
+		list("tn" = here_template.id, "mp" = "[SSatlas.current_map.path]")
+	)
+	check.Execute()
+	var/already_pinned = check.NextRow()
+	qdel(check)
+	if(already_pinned)
+		return TRUE
+
+	var/base_z = z
+	var/list/live_zs = list(z)
+	if(here_marker && length(here_marker.map_z))
+		live_zs = here_marker.map_z.Copy()
+		base_z = live_zs[1]
+		for(var/mz in live_zs)
+			base_z = min(base_z, mz)
+
+	var/datum/db_query/iq = SSdbcore.NewQuery(
+		{"INSERT INTO ss13_persistent_away_sites (template_name, map_path, overmap_x, overmap_y, last_z, enabled, notes)
+		VALUES (:tn, :mp, :ox, :oy, :z, 1, :notes)
+		ON DUPLICATE KEY UPDATE enabled = 1, notes = VALUES(notes)"},
+		list(
+			"tn" = here_template.id, "mp" = "[SSatlas.current_map.path]",
+			"ox" = (here_marker ? here_marker.start_x : 0), "oy" = (here_marker ? here_marker.start_y : 0),
+			"z"  = base_z, "notes" = notes
+		)
+	)
+	iq.Execute()
+	SSpersistence.databaseCheckQueryResult(iq, "persistence_pin_site_at_z")
+	qdel(iq)
+
+	for(var/nz in live_zs)
+		GLOB.persistence_pinned_site_z |= nz
+		GLOB.persistence_zlevel_allow |= nz
+	log_game("Site '[here_template.id]' at z=[base_z] auto-pinned: [notes]")
+	return TRUE
 
 /// Pin/unpin overmap away sites for persistence (ss13_persistent_away_sites).
 /// A pinned site always spawns, keeps its overmap position, gets a
@@ -888,6 +951,121 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 
 	to_chat(usr, SPAN_GOOD("Generated '[tmpl_pick]' at overmap ([pick_x],[pick_y]), z=[site_z]. It is DYNAMIC (gone on reboot, not saved) -- pin it via Persistent Overmap Sites to make it permanent."))
 	log_and_message_admins("generated away site '[tmpl_pick]' at overmap ([pick_x],[pick_y]), z=[site_z]", usr)
+
+/**
+ * Fully removes a currently-loaded away site (pinned or dynamic) -- wipes its
+ * turfs to space, deletes its overmap marker, and cleans up any DB rows.
+ * Unlike "Unpin Site" (which only returns a pinned site to the dynamic pool
+ * for next boot), this removes it immediately. Refuses if zlevel_has_players()
+ * finds anyone still on that z, including a disembodied neural-lace
+ * consciousness sitting in vault storage with no mob present at all.
+ */
+/datum/admins/proc/remove_away_site()
+	set name = "Remove Away Site"
+	set category = "Persistence"
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	var/list/candidates = list()
+	for(var/key in GLOB.map_sectors)
+		var/z = text2num(key)
+		if(!z)
+			continue
+		var/datum/map_template/tmpl = GLOB.map_templates[key]
+		if(!istype(tmpl, /datum/map_template/ruin/away_site))
+			continue
+		var/obj/effect/overmap/visitable/marker = GLOB.map_sectors[key]
+		var/pinned = (z in GLOB.persistence_pinned_site_z)
+		candidates["Z=[z] '[tmpl.id]'[marker ? " ([marker.name])" : ""][pinned ? " -- PINNED" : " -- dynamic"]"] = z
+
+	if(!length(candidates))
+		to_chat(usr, SPAN_WARNING("No away sites are currently loaded."))
+		return
+
+	var/pick = tgui_input_list(usr, "Remove which away site? This is immediate and cannot be undone.", "Remove Away Site", candidates)
+	if(!pick)
+		return
+	var/z_pick = candidates[pick]
+
+	if(zlevel_has_players(z_pick))
+		to_chat(usr, SPAN_DANGER("Cannot remove Z=[z_pick] -- a player (possibly a stored neural-lace consciousness) is still present. Make sure everyone -- and every vaulted lace -- is clear first."))
+		return
+
+	var/confirm = tgui_alert(usr, "Remove the away site at Z=[z_pick]? This immediately wipes its turfs and deletes its overmap marker. Cannot be undone.", "Remove Away Site", list("Remove", "Cancel"))
+	if(confirm != "Remove")
+		return
+
+	var/datum/map_template/tmpl = GLOB.map_templates["[z_pick]"]
+
+	if(z_pick in GLOB.persistence_pinned_site_z)
+		var/datum/db_query/find_row = SSdbcore.NewQuery(
+			"SELECT id FROM ss13_persistent_away_sites WHERE template_name = :tn AND map_path = :mp",
+			list("tn" = tmpl.id, "mp" = "[SSatlas.current_map.path]")
+		)
+		find_row.Execute()
+		var/row_id = find_row.NextRow() ? text2num(find_row.item[1]) : null
+		qdel(find_row)
+		if(row_id)
+			var/purge_choice = tgui_alert(usr, "Also purge '[tmpl.id]'s saved persistence rows (z=[z_pick])? 'Keep' leaves them orphaned in the DB.", "Remove Away Site", list("Purge", "Keep"))
+			var/datum/db_query/del_row = SSdbcore.NewQuery(
+				"DELETE FROM ss13_persistent_away_sites WHERE id = :id",
+				list("id" = row_id)
+			)
+			del_row.Execute()
+			SSpersistence.databaseCheckQueryResult(del_row, "remove_away_site unpin")
+			qdel(del_row)
+			if(purge_choice == "Purge")
+				SSpersistence.purgeZRows(z_pick)
+		GLOB.persistence_pinned_site_z -= z_pick
+		GLOB.persistence_zlevel_allow -= z_pick
+	else
+		// Dynamic site -- no away-site row to clean, but purge any incidental
+		// persistence rows regardless (harmless no-op if none exist).
+		SSpersistence.purgeZRows(z_pick)
+
+	// Clean up zone security + persistence-toggle rows/state for this z too --
+	// otherwise a stale tier/toggle could silently apply to whatever different
+	// site happens to load at this same Z number on a future boot. Runs
+	// unconditionally (pinned or dynamic) since either could independently
+	// have accumulated a security tier or persistence toggle.
+	if(SSpersistence.databaseCheckConnection("remove_away_site cleanup"))
+		var/datum/db_query/del_sec = SSdbcore.NewQuery(
+			"DELETE FROM ss13_zone_security WHERE z = :z AND map_path = :mp",
+			list("z" = z_pick, "mp" = "[SSatlas.current_map.path]")
+		)
+		del_sec.Execute()
+		qdel(del_sec)
+		var/datum/db_query/del_persist = SSdbcore.NewQuery(
+			"DELETE FROM ss13_zlevel_persistence WHERE z = :z AND map_path = :mp",
+			list("z" = z_pick, "mp" = "[SSatlas.current_map.path]")
+		)
+		del_persist.Execute()
+		qdel(del_persist)
+	GLOB.zone_security_by_z -= "[z_pick]"
+	GLOB.persistence_zlevel_skip -= z_pick
+	GLOB.persistence_zlevel_allow -= z_pick
+
+	// Teardown: delete every remaining atom/mob (already guaranteed
+	// player-free by the guard above), wipe turfs to plain space, then remove
+	// the overmap marker. Snapshot each turf's contents first -- can't qdel
+	// while iterating a turf's live contents list (same gotcha reset_zlevel()
+	// already works around).
+	for(var/turf/T in block(locate(1, 1, z_pick), locate(world.maxx, world.maxy, z_pick)))
+		var/list/contents_snapshot = T.contents.Copy()
+		for(var/atom/movable/AM in contents_snapshot)
+			qdel(AM)
+		T.ChangeTurf(/turf/space)
+		CHECK_TICK
+
+	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[z_pick]"]
+	if(marker)
+		qdel(marker)
+	GLOB.map_sectors -= "[z_pick]"
+	zone_security_update_overmap()
+
+	to_chat(usr, SPAN_GOOD("Removed the away site at Z=[z_pick]."))
+	log_and_message_admins("removed away site at Z=[z_pick]", usr)
 
 /datum/admins/proc/give_credits_to_player()
 	set name = "Give Credits"

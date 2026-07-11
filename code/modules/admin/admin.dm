@@ -706,6 +706,37 @@ var/global/enabled_spooking = 0
 		sleep(50)
 		world.Reboot()
 
+/// Safely deletes the admin's own current mob (whatever state it's in --
+/// alive, dead, observer, silicon) and returns their client to the Lobby to
+/// pick a character again, mirroring the same qdel-and-reattach mechanic
+/// sendbacktolobby (topic.dm) and abandon_mob() (mob.dm) already use.
+/datum/admins/proc/return_to_lobby()
+	set name = "Return to Lobby"
+	set category = "Persistence"
+	set desc = "Safely deletes your current mob and returns you to the main menu to select a character."
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	var/mob/M = usr
+	var/client/C = M.client
+	if(!C)
+		return
+
+	if(alert(usr, "Return to the Lobby? Your current mob will be safely deleted.", "Return to Lobby", "Yes", "No") != "Yes")
+		return
+
+	log_admin("[key_name(usr)] used Return to Lobby.")
+	message_admins("[key_name_admin(usr)] returned to the Lobby.")
+
+	C.screen.Cut()
+	announce_ghost_joinleave(C, 0)
+
+	var/mob/abstract/new_player/NP = new /mob/abstract/new_player()
+	NP.key = M.ckey
+	qdel(M)
+	NP.client?.init_verbs()
+
 
 /datum/admins/proc/announce()
 	set category = "Special Verbs.Narration/Messaging"

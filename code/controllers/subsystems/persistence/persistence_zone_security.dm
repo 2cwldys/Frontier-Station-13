@@ -8,7 +8,9 @@
  *                             Responder program's offense list
  * Players get a large colored announcement when crossing INTO a different zone
  * level (same-zone deck changes stay silent). Zones show on the overmap as a
- * colored outline glow on each sector marker (placeholder visuals).
+ * colored outline glow on each sector marker (placeholder visuals), plus a
+ * territory border ring tinted around any faction beacon's claimed radius
+ * (see zone_security_update_overmap_borders()).
  * Managed by the "Set Z-Level Security Zone" admin verb.
  */
 
@@ -17,6 +19,10 @@
 
 /// Security zone per z-level, keyed "[z]" -> ZONE_* level. Absent = nullsec.
 GLOBAL_LIST_EMPTY(zone_security_by_z)
+
+/// Overmap turfs currently carrying a zone-security border tint, so
+/// zone_security_update_overmap_borders() can clear them before repainting.
+GLOBAL_LIST_EMPTY(zone_security_bordered_turfs)
 
 /// Recent highsec offenses for the First Responder program: list of
 /// list("name", "ref" (weakref), "x", "y", "z", "time"), newest last, capped.
@@ -54,7 +60,8 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 		return
 	log_subsystem_persistence_info("Zone security: pinned_site_z=[GLOB.persistence_pinned_site_z ? english_list(GLOB.persistence_pinned_site_z) : "(empty)"] before ss13_zone_security load.")
 	var/datum/db_query/zq = SSdbcore.NewQuery(
-		"SELECT z, sec_level FROM ss13_zone_security", list())
+		"SELECT z, sec_level FROM ss13_zone_security WHERE map_path = :mp",
+		list("mp" = "[SSatlas.current_map.path]"))
 	zq.Execute()
 	var/loaded = 0
 	if(databaseCheckQueryResult(zq, "zoneSecurityInitialize"))
@@ -86,11 +93,113 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 		var/marker_z = length(marker.map_z) ? marker.map_z[1] : 0
 		switch(zone_security_get(marker_z))
 			if(ZONE_HIGHSEC)
-				marker.filters = filter(type = "outline", size = 1, color = "#54c556")
+				marker.filters = filter(type = "outline", size = 2, color = "#3dff5c")
 			if(ZONE_MEDSEC)
-				marker.filters = filter(type = "outline", size = 1, color = "#e8bb4a")
+				marker.filters = filter(type = "outline", size = 2, color = "#ffcc33")
 			else
-				marker.filters = null
+				marker.filters = filter(type = "outline", size = 2, color = "#ff3333")
+	zone_security_update_overmap_borders()
+
+/**
+ * Full clear-and-repaint of the overmap's zone-security turf decals: for
+ * every active, powered faction beacon, tints its whole claimed area (out to
+ * exactly security_radius from its sector -- the same range() region
+ * _apply_network() uses for the real security grant, never a visual claim
+ * beyond what's actually granted) in its tier color, then paints every
+ * remaining non-edge overmap turf in nullsec red so the map reads as
+ * red/lawless by default with green/gold claimed pockets. Cheap to fully
+ * recompute -- the whole overmap grid is at most ~1200 turfs, built once per
+ * round, and this only runs on the rare claim/release/security-change events
+ * that already call zone_security_update_overmap().
+ */
+/proc/zone_security_update_overmap_borders()
+	for(var/turf/unsimulated/map/T in GLOB.zone_security_bordered_turfs)
+		if(T.zone_border_overlay)
+			T.overlays -= T.zone_border_overlay
+			T.zone_border_overlay = null
+		if(T.zone_shield_overlay)
+			T.overlays -= T.zone_shield_overlay
+			T.zone_shield_overlay = null
+		T.zone_border_tier = null
+	GLOB.zone_security_bordered_turfs = list()
+
+	if(!SSatlas.current_map.use_overmap)
+		return
+
+	for(var/obj/structure/machinery/faction_beacon/B in world)
+		if(!B.active || !B.powered || B.security_radius <= 0)
+			continue
+		var/beacon_z = GET_Z(B)
+		var/obj/effect/overmap/visitable/sector = GLOB.map_sectors["[beacon_z]"]
+		if(!istype(sector))
+			continue
+		var/tier_color = (B.guaranteed_security_tier == ZONE_HIGHSEC) ? "#3dff5c" : "#ffcc33"
+		for(var/turf/unsimulated/map/T in range(B.security_radius, sector))
+			// Fill the whole claimed area out to security_radius (still exactly
+			// bounded by the real granted radius, just filled instead of only
+			// the outermost ring) so the territory reads as a solid tinted
+			// area rather than a hollow outline.
+			if(T.zone_border_overlay)
+				if(T.zone_border_tier >= B.guaranteed_security_tier)
+					continue // already bordered at an equal-or-higher tier by another beacon
+				T.overlays -= T.zone_border_overlay
+			var/image/I = image(icon = T.icon, icon_state = T.icon_state, loc = T)
+			I.color = tier_color
+			I.alpha = 190
+			T.overlays += I
+			T.zone_border_overlay = I
+			T.zone_border_tier = B.guaranteed_security_tier
+			GLOB.zone_security_bordered_turfs += T
+
+		// Security shield decal on the beacon's own tile -- same 32x32 art
+		// and per-tier recolor as the HUD zone indicator, semi-transparent so
+		// the tile underneath stays visible, added after the territory tint
+		// so it stacks above it (and turf overlays always render below the
+		// sector marker object itself, keeping the marker art on top).
+		var/turf/unsimulated/map/center = get_turf(sector)
+		if(istype(center) && !center.zone_shield_overlay)
+			var/image/shield = image('icons/hud/security_shield.png', loc = center)
+			shield.color = (B.guaranteed_security_tier == ZONE_HIGHSEC) ? "#54c556" : "#e8bb4a"
+			shield.alpha = 150
+			center.overlays += shield
+			center.zone_shield_overlay = shield
+			GLOB.zone_security_bordered_turfs |= center
+
+	// Second pass over every turf no beacon tinted above: tiles holding a
+	// sector marker whose Z is highsec/medsec WITHOUT a beacon (admin-set
+	// via the zone verb) still get their tier's color, and everything else
+	// gets the nullsec red decal. Edge turfs (the coordinate rim) are
+	// skipped so the grid numbers stay readable, and the nullsec alpha is
+	// deliberately lower than the claimed-area fill -- it covers the whole
+	// map, full strength would drown the starfield underneath.
+	if(!GLOB.map_overmap)
+		return
+	for(var/turf/unsimulated/map/T in GLOB.map_overmap)
+		if(istype(T, /turf/unsimulated/map/edge))
+			continue
+		if(T.zone_border_overlay)
+			continue // already carrying a beacon tier tint
+		var/tile_color = "#ff3333"
+		var/tile_alpha = 190
+		var/tile_tier = ZONE_NULLSEC
+		var/obj/effect/overmap/visitable/tile_marker = locate() in T
+		if(istype(tile_marker) && length(tile_marker.map_z))
+			switch(zone_security_get(tile_marker.map_z[1]))
+				if(ZONE_HIGHSEC)
+					tile_color = "#3dff5c"
+					tile_alpha = 225
+					tile_tier = ZONE_HIGHSEC
+				if(ZONE_MEDSEC)
+					tile_color = "#ffcc33"
+					tile_alpha = 225
+					tile_tier = ZONE_MEDSEC
+		var/image/I = image(icon = T.icon, icon_state = T.icon_state, loc = T)
+		I.color = tile_color
+		I.alpha = tile_alpha
+		T.overlays += I
+		T.zone_border_overlay = I
+		T.zone_border_tier = tile_tier
+		GLOB.zone_security_bordered_turfs += T
 
 /// Last zone level announced to this mob; -1 = never announced.
 /// Tracking the LEVEL (not the z) makes announcements robust against
@@ -379,10 +488,10 @@ GLOBAL_LIST_EMPTY(hub_distress_last_called)
 		zone_security_update_overmap()
 		return "dynamic"
 	var/datum/db_query/q = SSdbcore.NewQuery(
-		{"INSERT INTO ss13_zone_security (z, sec_level)
-		VALUES (:z, :lvl)
+		{"INSERT INTO ss13_zone_security (map_path, z, sec_level)
+		VALUES (:mp, :z, :lvl)
 		ON DUPLICATE KEY UPDATE sec_level = VALUES(sec_level)"},
-		list("z" = z, "lvl" = new_level)
+		list("mp" = "[SSatlas.current_map.path]", "z" = z, "lvl" = new_level)
 	)
 	q.Execute()
 	SSpersistence.databaseCheckQueryResult(q, "set_zone_security")

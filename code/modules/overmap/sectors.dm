@@ -142,18 +142,41 @@ GLOBAL_DATUM(map_overmap, /area/overmap)
 	else
 		// Random placement: avoid tiles that already hold another sector marker
 		// (pinned/injected sites and earlier random spawns), so nothing stacks.
-		// Bounded retries -- accepts the last roll on a genuinely crowded map.
+		// Bounded random retries first (cheap, succeeds almost always), then an
+		// exhaustive scan as a guaranteed fallback -- pinned sites must never be
+		// silently displaced/stacked on by a later random spawn.
 		var/tries = 10
 		while(tries > 0)
 			tries--
 			var/try_x = start_x || rand(map_low, map_high)
 			var/try_y = start_y || rand(map_low, map_high)
 			var/turf/candidate = locate(try_x, try_y, SSatlas.current_map.overmap_z)
-			if(!(locate(/obj/effect/overmap/visitable) in candidate) || !tries)
+			if(!(locate(/obj/effect/overmap/visitable) in candidate))
 				start_x = try_x
 				start_y = try_y
 				home = candidate
 				break
+		if(!home)
+			// Random retries exhausted without finding a free tile -- fall back
+			// to an exhaustive scan so a crowded map still never stacks a new
+			// spawn on top of an existing (especially pinned) site.
+			for(var/scan_x = map_low to map_high)
+				for(var/scan_y = map_low to map_high)
+					var/turf/candidate = locate(scan_x, scan_y, SSatlas.current_map.overmap_z)
+					if(!(locate(/obj/effect/overmap/visitable) in candidate))
+						start_x = scan_x
+						start_y = scan_y
+						home = candidate
+						break
+				if(home)
+					break
+			if(!home)
+				// Genuinely no free tile anywhere -- log loudly rather than
+				// silently stacking; last-resort random tile as before.
+				log_game("move_to_starting_location(): overmap fully occupied, [src] forced to share a tile.")
+				start_x = start_x || rand(map_low, map_high)
+				start_y = start_y || rand(map_low, map_high)
+				home = locate(start_x, start_y, SSatlas.current_map.overmap_z)
 
 	if(!invisible_until_ghostrole_spawn)
 		forceMove(home)

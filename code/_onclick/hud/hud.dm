@@ -353,6 +353,7 @@ GLOBAL_LIST(global_huds)
 	mymob.instantiate_hud(src, ui_style, ui_color, ui_alpha)
 
 	plane_masters_update()
+	mymob.apply_gameui_border()
 
 /datum/hud/proc/plane_masters_update()
 	// Plane masters are always shown to OUR mob, never to observers

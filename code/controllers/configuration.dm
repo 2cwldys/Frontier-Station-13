@@ -179,6 +179,7 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 	var/allow_admin_ooccolor = 0		// Allows admins with relevant permissions to have their own ooc colour
 	var/disable_round_end = 0			// disables shuttle calls, round-end votes, and nuke round-end while persistence (sql_enabled) is active
 	var/manual_area_save = 0			// persistence only saves/loads z-levels explicitly enabled via the Toggle Z-Level Persistence verb (ss13_zlevel_persistence)
+	var/persistence_disable_station = 0	// skip loading the primary station map entirely, for whichever map is selected -- overmap/away-sites/pinning still work, for isolated persistence testing
 	var/allow_vote_restart = 0 			// allow votes to restart
 	var/ert_admin_call_only = 0
 	var/allow_vote_mode = 0				// allow votes to change mode
@@ -581,6 +582,9 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 
 				if("manual_area_save")
 					GLOB.config.manual_area_save = 1
+
+				if("persistence_disable_station")
+					GLOB.config.persistence_disable_station = 1
 
 				if ("allow_vote_restart")
 					GLOB.config.allow_vote_restart = 1

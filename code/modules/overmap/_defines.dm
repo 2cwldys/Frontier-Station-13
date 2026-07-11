@@ -21,6 +21,13 @@ GLOBAL_LIST_EMPTY(map_templates)
 /turf/unsimulated/map
 	icon = 'icons/obj/overmap/overmap.dmi'
 	icon_state = "map"
+	/// Currently-applied zone-security border tint overlay, if any -- see zone_security_update_overmap_borders().
+	var/image/zone_border_overlay
+	/// Security tier (ZONE_*) the current zone_border_overlay represents, for cross-beacon tier-priority comparisons.
+	var/zone_border_tier
+	/// Tier-colored security shield decal marking an active faction beacon's
+	/// tile (same art as the HUD zone indicator) -- see zone_security_update_overmap_borders().
+	var/image/zone_shield_overlay
 
 /turf/unsimulated/map/edge
 	opacity = 1

@@ -73,6 +73,7 @@ GLOBAL_LIST_EMPTY(piracy_beacons)
 				beacon_looping_sound.start()
 		catch(var/exception/tell_e)
 			log_subsystem_persistence_error("Piracy beacon: online tell failed: [tell_e]")
+		persistence_pin_site_at_z(GET_Z(src), "Piracy beacon at ([x],[y],[z])")
 		to_chat(user, SPAN_GOOD("\The [src] powers up and syncs with the local unregulated space."))
 	else
 		QDEL_NULL(beacon_looping_sound)

@@ -248,6 +248,9 @@
 		H.film_grain.icon_state = "[rand(1,9)] moderate"
 		H.client.screen += H.film_grain
 
+		if(H.client.prefs.toggles_secondary & VIGNETTE)
+			H.apply_vignette()
+
 
 /mob/living/carbon/human/verb/toggle_hotkey_verbs()
 	set category = "OOC"

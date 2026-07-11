@@ -198,9 +198,74 @@
 // larger icons would force BYOND to expand the client viewport (zoom-out).
 // apply_cryo_chill() scales it to the client's dynamic view via transform,
 // which does NOT trigger view expansion (same trick as lighting_backdrop).
+// CHILLED_LAYER puts it above the decorative gameui_border (see below) so
+// the cold effect is always visible even with the border showing.
 /atom/movable/screen/fullscreen/chilled
 	icon = 'icons/hud/chilled.png'
 	icon_state = ""
+	layer = CHILLED_LAYER
+
+// Persistent, preference-gated edge-darkening vignette (see toggle_vignette()
+// / HUD build in code/_onclick/hud/human.dm). Same "large single-state PNG
+// scaled via transform" trick as chilled above -- deliberately the lowest
+// layer in FULLSCREEN_PLANE so it never bleeds over any other fullscreen
+// effect (chilled, blind, damage overlays, etc.) or the main HUD above it.
+/atom/movable/screen/fullscreen/vignette
+	icon = 'icons/hud/vignette.png'
+	icon_state = ""
+	layer = VIGNETTE_LAYER
+
+/// Applies (or re-scales, if already present) the persistent vignette --
+/// scaled to the client's dynamic viewport via transform, same technique as
+/// apply_cryo_chill_visuals(), not overlay_fullscreen()'s built-in severity
+/// scaling. Shared by toggle_vignette() and the HUD-build application so the
+/// scaling math only lives in one place.
+/mob/living/carbon/human/proc/apply_vignette()
+	var/atom/movable/screen/fullscreen/vignette/v = overlay_fullscreen("vignette", /atom/movable/screen/fullscreen/vignette)
+	if(v && client)
+		var/list/vs = getviewsize(client.view)
+		var/scale = max(vs[1], vs[2]) * WORLD_ICON_SIZE / 480
+		if(scale > 1)
+			v.transform = matrix(scale, 0, 0, 0, scale, 0)
+
+// Decorative game window border. GAMEUI_BORDER_LAYER sits above film grain
+// and vignette but below CHILLED_LAYER (chilled must stay visible over it)
+// and still below HUD_PLANE. Same 480x480 single-state convention as
+// chilled/vignette above -- this is what makes the CENTER-7,CENTER-7 anchor
+// land the icon's center exactly on the view's center at any view size, so
+// a transform scale from that anchor stays symmetric instead of magnifying
+// an off-center chunk of the art. allstate = 1 so it also shows for
+// DEAD-stat mobs (ghosts) and the new_player/lobby mob, since
+// overlay_fullscreen() otherwise skips adding to client.screen for anyone
+// read as dead -- see /fadeout above for the same reasoning.
+/atom/movable/screen/fullscreen/gameui_border
+	icon = 'icons/hud/gameui_border.png'
+	icon_state = ""
+	layer = GAMEUI_BORDER_LAYER
+	allstate = 1
+
+/// Universal (not human-only, and not gated on mob type at all -- shows on
+/// the main menu/lobby mob too) HUD window border -- called from every mob
+/// type's HUD (re)build via /datum/hud/proc/instantiate(), and again from
+/// OnResize() so it re-fits live when the window is resized. Unlike
+/// apply_vignette()/film_grain (human-scoped call sites), and unlike
+/// overlay_fullscreen()'s own severity-based no-op-if-unchanged behavior,
+/// this always recomputes the transform -- overlay_fullscreen() returns
+/// null on repeat calls once the screen already exists, so the object is
+/// fetched back out of screens[] to update its transform every time.
+///
+/// Scales to the map CONTROL rect (the view PLUS the letterbox margin
+/// OnResize() reserves around it: 3 tiles each side, 1 tile top/bottom --
+/// see client_procs.dm) rather than the view itself, so the border's arms
+/// render in that margin (same space the gear HUD/status doll already
+/// occupy) and the actual game view sits inside the border's transparent
+/// opening, instead of the frame overlapping the map tiles.
+/mob/proc/apply_gameui_border()
+	overlay_fullscreen("gameui_border", /atom/movable/screen/fullscreen/gameui_border)
+	var/atom/movable/screen/fullscreen/gameui_border/b = screens["gameui_border"]
+	if(b && client)
+		var/list/vs = getviewsize(client.view)
+		b.transform = matrix((vs[1] + 6) * WORLD_ICON_SIZE / 480, 0, 0, 0, (vs[2] + 2) * WORLD_ICON_SIZE / 480, 0)
 
 // Super Hug cap payoff (see apply_euphoric_rainbow) -- a plain tintable white plane, same
 // icon/state lighting_backdrop uses above, cycled through hues via animate() at the call site.
