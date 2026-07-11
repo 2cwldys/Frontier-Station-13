@@ -115,7 +115,10 @@
 	if(istype(current_target, /obj/structure/machinery/porta_turret))
 		var/obj/structure/machinery/porta_turret/PT = current_target
 		data["is_turret"] = TRUE
+		data["turret_enabled"] = PT.enabled
+		data["turret_lethal"] = PT.lethal
 		data["turret_target_mode"] = PT.turret_faction_target_mode
+		data["is_public_turret"] = (current_uid == "public")
 
 	return data
 
@@ -247,6 +250,37 @@
 				to_chat(user, SPAN_GOOD("Airlock marked public -- open to anyone."))
 				log_admin("[key_name(user)] marked an airlock at [get_turf(AL)] public via faction tagger.")
 			. = TRUE
+		if("toggle_turret_power")
+			if(!istype(current_target, /obj/structure/machinery/porta_turret))
+				return
+			var/obj/structure/machinery/porta_turret/PT = current_target
+			var/turret_uid = PT.faction_tagger_get_uid()
+			if(!turret_uid)
+				to_chat(user, SPAN_WARNING("Tag this turret to a faction first."))
+				return
+			if(!can_configure_faction_shackle(user, turret_uid, 1))
+				to_chat(user, SPAN_WARNING("You need officer access in [get_faction_name(turret_uid)] to control this turret."))
+				return
+			PT.set_enabled(!PT.enabled)
+			to_chat(user, SPAN_GOOD("\The [PT] [PT.enabled ? "enabled" : "disabled"]."))
+			log_game("[key_name(user)] [PT.enabled ? "enabled" : "disabled"] [PT] at [get_turf(PT)] via faction tagger.")
+			. = TRUE
+		if("toggle_turret_lethal")
+			if(!istype(current_target, /obj/structure/machinery/porta_turret))
+				return
+			var/obj/structure/machinery/porta_turret/PT = current_target
+			var/turret_uid = PT.faction_tagger_get_uid()
+			if(!turret_uid)
+				to_chat(user, SPAN_WARNING("Tag this turret to a faction first."))
+				return
+			if(!can_configure_faction_shackle(user, turret_uid, 1))
+				to_chat(user, SPAN_WARNING("You need officer access in [get_faction_name(turret_uid)] to control this turret."))
+				return
+			PT.lethal = !PT.lethal
+			PT.lethal_icon = PT.lethal
+			to_chat(user, SPAN_GOOD("\The [PT] set to [PT.lethal ? "lethal" : "stun"]."))
+			log_game("[key_name(user)] set [PT] at [get_turf(PT)] to [PT.lethal ? "lethal" : "stun"] via faction tagger.")
+			. = TRUE
 		if("set_turret_mode")
 			if(!istype(current_target, /obj/structure/machinery/porta_turret))
 				return
@@ -259,11 +293,28 @@
 				to_chat(user, SPAN_WARNING("You need officer access in [get_faction_name(turret_uid)] to configure this turret's targeting."))
 				return
 			var/new_mode = params["mode"]
-			if(!(new_mode in list(TURRET_FACTION_MODE_OFF, TURRET_FACTION_MODE_NONFACTION, TURRET_FACTION_MODE_WILDLIFE, TURRET_FACTION_MODE_BOTH)))
+			if(!(new_mode in list(TURRET_FACTION_MODE_NONFACTION, TURRET_FACTION_MODE_WILDLIFE, TURRET_FACTION_MODE_BOTH)))
+				return
+			if(turret_uid == "public" && new_mode != TURRET_FACTION_MODE_WILDLIFE)
+				to_chat(user, SPAN_WARNING("A public turret can only target wildlife."))
 				return
 			PT.turret_faction_target_mode = new_mode
 			to_chat(user, SPAN_GOOD("\The [PT] targeting mode set to [new_mode]."))
 			log_game("[key_name(user)] set turret targeting mode on [PT] at [get_turf(PT)] to '[new_mode]' via faction tagger.")
+			. = TRUE
+		if("toggle_public_turret")
+			if(!check_rights(R_ADMIN, 0, user) || !istype(current_target, /obj/structure/machinery/porta_turret))
+				return
+			var/obj/structure/machinery/porta_turret/PT = current_target
+			if(PT.persistent_network == "public")
+				PT.persistent_network = ""
+				to_chat(user, SPAN_GOOD("Turret cleared -- no longer public."))
+				log_admin("[key_name(user)] cleared the public designation on a turret at [get_turf(PT)] via faction tagger.")
+			else
+				PT.persistent_network = "public"
+				PT.turret_faction_target_mode = TURRET_FACTION_MODE_WILDLIFE
+				to_chat(user, SPAN_GOOD("Turret marked public -- targets wildlife only."))
+				log_admin("[key_name(user)] marked a turret at [get_turf(PT)] public via faction tagger.")
 			. = TRUE
 
 /// Same sequential add/remove access-code picker "Manage Faction Jobs" uses

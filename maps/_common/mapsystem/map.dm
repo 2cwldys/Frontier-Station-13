@@ -116,6 +116,8 @@
 	var/overmap_z = 0
 	/// How many event "clouds" will be generated
 	var/overmap_event_areas = 0
+	/// Extra guaranteed overmap_event spawns (type = count), placed in addition to and independently of the random overmap_event_areas pool above -- doesn't shift that pool's mix. Empty by default.
+	var/list/guaranteed_overmap_events = list()
 	/// A list of all our shuttles.
 	var/list/map_shuttles = list()
 	/// What is the default space sector for this map

@@ -34,11 +34,13 @@ type FactionTaggerData = {
   is_airlock: BooleanLike;
   is_public_airlock: BooleanLike;
   is_turret: BooleanLike;
+  turret_enabled: BooleanLike;
+  turret_lethal: BooleanLike;
   turret_target_mode: string;
+  is_public_turret: BooleanLike;
 };
 
 const TURRET_MODES: { mode: string; label: string }[] = [
-  { mode: 'off', label: 'Off' },
   { mode: 'nonfaction', label: 'Non-Faction' },
   { mode: 'wildlife', label: 'Wildlife Only' },
   { mode: 'both', label: 'Both' },
@@ -64,7 +66,10 @@ export const FactionTagger = (props) => {
     is_airlock,
     is_public_airlock,
     is_turret,
+    turret_enabled,
+    turret_lethal,
     turret_target_mode,
+    is_public_turret,
   } = data;
   const [selected, setSelected] = useState(current_uid || own_uid || '');
 
@@ -187,18 +192,42 @@ export const FactionTagger = (props) => {
             </Button>
           </Section>
         )}
-        {is_turret && current_uid && current_uid !== 'public' && (
-          <Section title="Turret Targeting">
+        {is_turret && current_uid && (
+          <Section title="Turret Control">
+            <Button
+              mb={0.5}
+              content={turret_enabled ? 'Enabled' : 'Disabled'}
+              color={turret_enabled ? 'good' : 'bad'}
+              onClick={() => act('toggle_turret_power')}
+            />
+            <Button
+              mb={0.5}
+              content={turret_lethal ? 'Lethal' : 'Stun'}
+              color={turret_lethal ? 'bad' : 'good'}
+              onClick={() => act('toggle_turret_lethal')}
+            />
             {TURRET_MODES.map((m) => (
               <Button
                 key={m.mode}
                 mb={0.5}
                 selected={turret_target_mode === m.mode}
+                disabled={current_uid === 'public' && m.mode !== 'wildlife'}
                 onClick={() => act('set_turret_mode', { mode: m.mode })}
               >
                 {m.label}
               </Button>
             ))}
+          </Section>
+        )}
+        {is_admin && is_turret && (
+          <Section title="Admin: Public Turret">
+            <Button
+              icon={is_public_turret ? 'times' : 'door-open'}
+              color={is_public_turret ? 'bad' : 'good'}
+              onClick={() => act('toggle_public_turret')}
+            >
+              {is_public_turret ? 'Clear Public Turret' : 'Mark Public Turret'}
+            </Button>
           </Section>
         )}
         {is_admin && is_airlock && (

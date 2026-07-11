@@ -9,10 +9,21 @@
 	hazard_by_turf = list()
 	ship_events = list()
 
-/singleton/overmap_event_handler/proc/create_events(var/z_level, var/overmap_size, var/number_of_events)
+/singleton/overmap_event_handler/proc/create_events(var/z_level, var/overmap_size, var/number_of_events, var/list/guaranteed_events = null)
 	// Acquire the list of not-yet utilized overmap turfs on this Z-level
 	var/list/candidate_turfs = block(locate(OVERMAP_EDGE, OVERMAP_EDGE, z_level),locate(overmap_size - OVERMAP_EDGE, overmap_size - OVERMAP_EDGE,z_level))
 	candidate_turfs = where(candidate_turfs, /proc/can_not_locate, /obj/effect/overmap/visitable)
+
+	// Guaranteed extra spawns (e.g. a map's extra asteroid fields) go first,
+	// entirely separate from the random pool below -- never shifts the mix/
+	// frequency of the other event types.
+	if(guaranteed_events)
+		for(var/overmap_event_type in guaranteed_events)
+			for(var/i = 1 to guaranteed_events[overmap_event_type])
+				if(!candidate_turfs.len)
+					break
+				_spawn_event(overmap_event_type, candidate_turfs)
+
 	var/list/available_event_types = get_available_event_types()
 	if(!length(available_event_types))
 		return
@@ -20,17 +31,19 @@
 	for(var/i = 1 to number_of_events)
 		if(!candidate_turfs.len)
 			break
-		var/overmap_event_type = pick(available_event_types)
-		var/datum/overmap_event/datum_spawn = new overmap_event_type
+		_spawn_event(pick(available_event_types), candidate_turfs)
 
-		var/list/event_turfs = acquire_event_turfs(datum_spawn.count, datum_spawn.radius, candidate_turfs, datum_spawn.continuous)
-		candidate_turfs -= event_turfs
+/singleton/overmap_event_handler/proc/_spawn_event(var/overmap_event_type, var/list/candidate_turfs)
+	var/datum/overmap_event/datum_spawn = new overmap_event_type
 
-		for(var/event_turf in event_turfs)
-			var/type = pick(datum_spawn.hazards)
-			new type(event_turf)
+	var/list/event_turfs = acquire_event_turfs(datum_spawn.count, datum_spawn.radius, candidate_turfs, datum_spawn.continuous)
+	candidate_turfs -= event_turfs
 
-		qdel(datum_spawn)//idk help how do I do this better?
+	for(var/event_turf in event_turfs)
+		var/type = pick(datum_spawn.hazards)
+		new type(event_turf)
+
+	qdel(datum_spawn)//idk help how do I do this better?
 
 /singleton/overmap_event_handler/proc/get_available_event_types()
 	var/list/available_event_types = list()

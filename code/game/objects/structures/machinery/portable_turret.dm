@@ -297,6 +297,23 @@
 	var/area/A = get_area(src)
 	return A && A.turret_controls.len > 0
 
+/// Shared enable/disable logic -- used by this turret's own "enable" TGUI
+/// command and by the faction tagger's power toggle, so both stay correctly
+/// registered with SSfast_process/MACHINERY_PROCESS_SELF and pop down the
+/// cover on disable, instead of just flipping the var.
+/obj/structure/machinery/porta_turret/proc/set_enabled(new_value)
+	enabled = new_value
+	if(enabled)
+		START_PROCESSING_MACHINE(src, MACHINERY_PROCESS_SELF)
+		fast_processing = FALSE
+	else if(fast_processing)
+		STOP_PROCESSING(SSfast_process, src)
+		fast_processing = FALSE
+		popDown()
+	else
+		STOP_PROCESSING_MACHINE(src, MACHINERY_PROCESS_SELF)
+		popDown()
+
 /obj/structure/machinery/porta_turret/ui_status(mob/user, datum/ui_state/state)
 	. = ..()
 	if(HasController())
@@ -320,17 +337,7 @@
 	if(action == "command" && !isnull(params["value"]))
 		var/value = text2num(params["value"])
 		if(params["command"] == "enable")
-			enabled = value
-			if (enabled)
-				START_PROCESSING_MACHINE(src, MACHINERY_PROCESS_SELF)
-				fast_processing = FALSE
-			else if(fast_processing)
-				STOP_PROCESSING(SSfast_process, src)
-				fast_processing = FALSE
-				popDown()
-			else
-				STOP_PROCESSING_MACHINE(src, MACHINERY_PROCESS_SELF)
-				popDown()
+			set_enabled(value)
 		else if(params["command"] == "lethal")
 			lethal = value
 			lethal_icon = value
@@ -673,9 +680,21 @@
 	if(iscuffed(L)) // If the target is handcuffed, leave it alone
 		return TURRET_NOT_TARGET
 
-	if(turret_faction_target_mode != TURRET_FACTION_MODE_OFF)
-		var/allow_wildlife = (turret_faction_target_mode == TURRET_FACTION_MODE_WILDLIFE || turret_faction_target_mode == TURRET_FACTION_MODE_BOTH)
-		var/allow_nonfaction_humans = (turret_faction_target_mode == TURRET_FACTION_MODE_NONFACTION || turret_faction_target_mode == TURRET_FACTION_MODE_BOTH)
+	if(persistent_network)
+		// Tagged turrets never fall back to fully unrestricted targeting, even
+		// before an officer explicitly picks a mode -- TURRET_FACTION_MODE_OFF
+		// (the untagged default) upgrades to NONFACTION here so a freshly
+		// tagged turret never shoots its own faction. Public turrets are
+		// force-locked to wildlife-only regardless of whatever mode is
+		// stored, overriding everything else.
+		var/effective_mode = turret_faction_target_mode
+		if(effective_mode == TURRET_FACTION_MODE_OFF)
+			effective_mode = TURRET_FACTION_MODE_NONFACTION
+		if(persistent_network == "public")
+			effective_mode = TURRET_FACTION_MODE_WILDLIFE
+
+		var/allow_wildlife = (effective_mode == TURRET_FACTION_MODE_WILDLIFE || effective_mode == TURRET_FACTION_MODE_BOTH)
+		var/allow_nonfaction_humans = (effective_mode == TURRET_FACTION_MODE_NONFACTION || effective_mode == TURRET_FACTION_MODE_BOTH)
 
 		if(isanimal(L) || issmall(L) || isalien(L))
 			if(!allow_wildlife)
@@ -684,12 +703,11 @@
 		else if(ishuman(L))
 			if(!allow_nonfaction_humans)
 				return TURRET_NOT_TARGET // Wildlife-only mode: no human ever qualifies, faction or not
-			if(persistent_network)
-				var/mob/living/carbon/human/H = L
-				var/obj/item/card/id/ID = H.GetIdCard()
-				var/L_uid = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
-				if(L_uid && L_uid == persistent_network)
-					return TURRET_NOT_TARGET // exempt the turret's own faction
+			var/mob/living/carbon/human/H = L
+			var/obj/item/card/id/ID = H.GetIdCard()
+			var/L_uid = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+			if(L_uid && L_uid == persistent_network)
+				return TURRET_NOT_TARGET // exempt the turret's own faction
 			// else: allowed through, existing assess_perp threat-level logic below decides as normal
 
 	if(isanimal(L) || issmall(L)) // Animals are not so dangerous
