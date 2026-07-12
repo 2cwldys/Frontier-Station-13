@@ -73,6 +73,19 @@
 	/// Hard guarantee flag: cargo delivery selectors refuse any pad with this
 	/// FALSE (security telepads) -- supplies can never land on non-cargo pads.
 	var/accepts_cargo      = TRUE
+	/// TRUE if this pad was placed on the original map (handled by
+	/// worldstate). FALSE = spawned at runtime (telepad_beacon item, or a
+	/// corvette_boarding pad map-placed inside a template's own .dmm and
+	/// loaded via load_new_z() -- mapload is still TRUE there, same as any
+	/// other map-placed instance). Mirrors cryopod/persistence_map_placed
+	/// (persistence_cryo.dm:347) -- prevents double-registering a map-placed
+	/// pad with both worldstate AND the dynamic persistent_objects tracker.
+	var/persistence_map_placed = FALSE
+
+/obj/structure/machinery/telepad_cargo/Initialize(mapload, ...)
+	. = ..()
+	if(mapload)
+		persistence_map_placed = TRUE
 
 // Player-facing faction linking for cargo/security telepads is configured
 // via the faction tagger tool now (code/game/objects/items/devices/faction_tagger.dm

@@ -17,6 +17,12 @@
  * trigger this (see on_death()/destroyed_by_damage below).
  */
 
+/// How often an active, powered beacon re-sweeps for newly-placed
+/// unassigned objects (process(), _sweep_unassigned_objects()) -- catches
+/// anything placed after the beacon already went active, which the
+/// one-time _apply_network() sweep can never see on its own.
+#define FACTION_BEACON_SWEEP_INTERVAL 30 SECONDS
+
 /obj/structure/machinery/faction_beacon
 	name = "faction beacon"
 	desc = "An anchor beacon that ties nearby infrastructure to a faction network."
@@ -59,6 +65,11 @@
 	/// Looping hum while active, same visible-online purpose as the sparks.
 	var/looping_sound_type = /datum/looping_sound/faction_beacon
 	VAR_PRIVATE/datum/looping_sound/beacon_looping_sound
+	/// world.time of the next periodic unassigned-object re-sweep -- see
+	/// process()/_sweep_unassigned_objects(). Catches objects placed AFTER
+	/// the beacon already went active, which the one-time _apply_network()
+	/// sweep can never see on its own.
+	var/next_sweep_time = 0
 
 /// Z-number (as text) -> the faction beacon currently claiming that whole
 /// Z-level. Only one beacon may be active per Z at a time -- first-placed/
@@ -86,6 +97,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	if(active)
 		_release_security_grants()
 		_release_persistence_save()
+		_release_site_pin()
 
 	// Losing the beacon to COMBAT additionally "defeats" the station it
 	// anchored -- make sure admins can't miss it. Only for genuine combat
@@ -104,8 +116,13 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	return ..()
 
 /obj/structure/machinery/faction_beacon/process()
-	if(active && powered && prob(15))
+	if(!active || !powered)
+		return
+	if(prob(15))
 		spark_system.queue()
+	if(world.time >= next_sweep_time)
+		next_sweep_time = world.time + FACTION_BEACON_SWEEP_INTERVAL
+		_sweep_unassigned_objects(_station_zs())
 
 /// Wrench to (un)anchor -- moving the beacon requires unwrenching it first.
 /// Must be powered off before it can be unwrenched (that already guarantees
@@ -160,6 +177,24 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		return "not anchored -- wrench it to the floor first"
 	if(!powered)
 		return "not powered"
+	// Reuses the exact same type check persistence_pin_site_at_z() already
+	// trusts to identify "this Z belongs to a ship, not a claimable site"
+	// (persistence_factions.dm) -- covers a corvette's own interior Z
+	// (use_mapped_z_levels=TRUE maps its marker onto that Z) and any
+	// non-mapped overmap ship's own reserved landmark Z (landable.dm) alike.
+	// Without this, a claim here would report active=TRUE and network
+	// objects aboard, but persistence_pin_site_at_z() silently no-ops for a
+	// ship Z, and the claim itself is orphaned the next time that ship's Z
+	// gets torn down/abandoned (e.g. a corvette Stash).
+	// Scoped to ship/landable specifically -- the class corvettes and
+	// drydock ships actually use, whose Z gets torn down on Stash -- not
+	// the whole ship hierarchy. ship/stationary (sensor relays and other
+	// away-site installations that just use a ship-shaped overmap icon)
+	// is explicitly non-flyable scenery with a normal, permanent Z, and
+	// was being wrongly caught by istype() matching every ship subtype.
+	var/obj/effect/overmap/visitable/sector = GLOB.map_sectors["[GET_Z(src)]"]
+	if(istype(sector, /obj/effect/overmap/visitable/ship/landable))
+		return "this location is aboard a ship, not a claimable site"
 	for(var/z in _station_zs())
 		var/obj/structure/machinery/faction_beacon/holder = GLOB.faction_beacon_by_z["[z]"]
 		if(holder && holder != src && !QDELETED(holder))
@@ -246,6 +281,15 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	for(var/z in _station_zs())
 		SSpersistence.setZLevelPersistence(z, 0, "Faction: [faction_uid] beacon released")
 
+/// Reverses _apply_network()'s persistence_pin_site_at_z() calls -- called
+/// alongside _release_persistence_save() wherever this beacon stops being
+/// active. persistence_unpin_site_at_z() only touches a site whose pin
+/// notes exactly match this beacon's own pin reason, so an admin-pinned
+/// (or otherwise-reasoned) site is never affected.
+/obj/structure/machinery/faction_beacon/proc/_release_site_pin()
+	for(var/z in _station_zs())
+		persistence_unpin_site_at_z(z, "Faction: [faction_uid]")
+
 /// Scan every compatible object/area across this beacon's entire host
 /// station (every Z-level it spans, not just the deck this beacon physically
 /// sits on) and set their persistent_network to our faction_uid. Refuses to
@@ -289,14 +333,58 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	catch(var/exception/tell_e)
 		log_subsystem_persistence_error("Faction beacon: online tell failed: [tell_e]")
 
+	_sweep_unassigned_objects(station_zs)
+
+	// A beacon claiming a station should make sure every Z it spans is
+	// actually in the persistence save list -- otherwise part of the station
+	// it's meant to be anchoring never persists in the first place. It should
+	// also grant at least medsec (a faction establishing its own law) on each
+	// deck, never downgrading a Z an admin has already set to highsec (Hub law).
+	for(var/z in station_zs)
+		if(!(z in GLOB.persistence_zlevel_allow))
+			SSpersistence.setZLevelPersistence(z, 1, "Faction: [faction_uid]")
+		if(zone_security_get(z) < guaranteed_security_tier)
+			persistence_set_zone_security(z, guaranteed_security_tier)
+		persistence_pin_site_at_z(z, "Faction: [faction_uid]")
+
+	// Extends the security guarantee to nearby overmap sectors within
+	// security_radius, same range() mechanic telecomms machines use for their
+	// own broadcast reach. Never touches an already-highsec Z (same exception
+	// as this beacon's own Zs, just above), and never touches a Z already
+	// claimed by a different active beacon (respects other factions' territory).
+	if(SSatlas.current_map.use_overmap && security_radius > 0)
+		var/obj/effect/overmap/visitable/my_sector = GLOB.map_sectors["[beacon_z]"]
+		if(istype(my_sector))
+			for(var/obj/effect/overmap/visitable/V in range(security_radius, my_sector))
+				for(var/nearby_z in V.map_z)
+					if(nearby_z in station_zs)
+						continue
+					var/obj/structure/machinery/faction_beacon/other = GLOB.faction_beacon_by_z["[nearby_z]"]
+					if(other && !QDELETED(other) && other != src)
+						continue
+					if(zone_security_get(nearby_z) < guaranteed_security_tier)
+						persistence_set_zone_security(nearby_z, guaranteed_security_tier)
+
+	// Always refresh the overmap/border visuals on a successful claim,
+	// regardless of whether any of the writes above actually changed a
+	// tier -- otherwise a beacon whose station (or a covered neighbor) was
+	// already at/above its tier when it powered on would flip active=TRUE
+	// without ever repainting, and its contribution to the border would
+	// silently never appear.
+	zone_security_update_overmap()
+
+/// Claims every UNASSIGNED (persistent_network/req_access_faction/etc.
+/// still empty) compatible object across the given Zs for this beacon's
+/// faction -- called once by _apply_network() when the beacon powers on,
+/// and periodically by process() (FACTION_BEACON_SWEEP_INTERVAL) so an
+/// object placed AFTER the beacon already went active gets picked up too,
+/// without needing a full power-cycle to re-trigger _apply_network().
+/// Never touches anything already assigned, whether to "public", a
+/// different faction, or even this same faction -- a manual override (via
+/// the tagger, properly authorized) always sticks permanently.
+/obj/structure/machinery/faction_beacon/proc/_sweep_unassigned_objects(list/station_zs)
 	var/configured = 0
 
-	// Every branch below only claims genuinely UNASSIGNED targets (empty
-	// network field) -- anything already set, whether to "public", a
-	// different faction, or even this same faction, is left alone. This is
-	// what makes a manual override (via the tagger, properly authorized)
-	// stick permanently instead of getting silently re-claimed the next time
-	// this sweep runs (e.g. every power-cycle of the beacon).
 	try
 		for(var/obj/structure/machinery/cryopod/pod in world)
 			if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore))
@@ -406,45 +494,9 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	catch(var/exception/turret_e)
 		log_subsystem_persistence_error("Faction beacon: turret sweep failed: [turret_e]")
 
-	log_game("Faction beacon at ([x],[y],[z]): networked [configured] objects/areas to faction '[faction_uid]' across z-level(s) [english_list(station_zs)].")
-
-	// A beacon claiming a station should make sure every Z it spans is
-	// actually in the persistence save list -- otherwise part of the station
-	// it's meant to be anchoring never persists in the first place. It should
-	// also grant at least medsec (a faction establishing its own law) on each
-	// deck, never downgrading a Z an admin has already set to highsec (Hub law).
-	for(var/z in station_zs)
-		if(!(z in GLOB.persistence_zlevel_allow))
-			SSpersistence.setZLevelPersistence(z, 1, "Faction: [faction_uid]")
-		if(zone_security_get(z) < guaranteed_security_tier)
-			persistence_set_zone_security(z, guaranteed_security_tier)
-		persistence_pin_site_at_z(z, "Faction: [faction_uid]")
-
-	// Extends the security guarantee to nearby overmap sectors within
-	// security_radius, same range() mechanic telecomms machines use for their
-	// own broadcast reach. Never touches an already-highsec Z (same exception
-	// as this beacon's own Zs, just above), and never touches a Z already
-	// claimed by a different active beacon (respects other factions' territory).
-	if(SSatlas.current_map.use_overmap && security_radius > 0)
-		var/obj/effect/overmap/visitable/my_sector = GLOB.map_sectors["[beacon_z]"]
-		if(istype(my_sector))
-			for(var/obj/effect/overmap/visitable/V in range(security_radius, my_sector))
-				for(var/nearby_z in V.map_z)
-					if(nearby_z in station_zs)
-						continue
-					var/obj/structure/machinery/faction_beacon/other = GLOB.faction_beacon_by_z["[nearby_z]"]
-					if(other && !QDELETED(other) && other != src)
-						continue
-					if(zone_security_get(nearby_z) < guaranteed_security_tier)
-						persistence_set_zone_security(nearby_z, guaranteed_security_tier)
-
-	// Always refresh the overmap/border visuals on a successful claim,
-	// regardless of whether any of the writes above actually changed a
-	// tier -- otherwise a beacon whose station (or a covered neighbor) was
-	// already at/above its tier when it powered on would flip active=TRUE
-	// without ever repainting, and its contribution to the border would
-	// silently never appear.
-	zone_security_update_overmap()
+	if(configured)
+		log_game("Faction beacon at ([x],[y],[z]): networked [configured] object(s)/area(s) to faction '[faction_uid]' across z-level(s) [english_list(station_zs)].")
+	return configured
 
 /obj/structure/machinery/faction_beacon/update_icon()
 	icon_state = "bspacerelay"
@@ -553,6 +605,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	if(!powered)
 		_release_security_grants()
 		_release_persistence_save()
+		_release_site_pin()
 		active = FALSE
 		_release_z_claim()
 		QDEL_NULL(beacon_looping_sound)

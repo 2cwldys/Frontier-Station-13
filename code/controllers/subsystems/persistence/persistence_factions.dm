@@ -241,6 +241,20 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 	bq.Execute()
 	qdel(bq)
 
+/// Prunes faction chat history older than the standard persistence
+/// expiration window. Called from SSpersistence.Shutdown().
+/datum/controller/subsystem/persistence/proc/factionChatPrune()
+	PRIVATE_PROC(TRUE)
+	if(!databaseCheckConnection("factionChatPrune"))
+		return
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"DELETE FROM ss13_faction_chat WHERE sent_at < DATE_SUB(NOW(), INTERVAL :days DAY)",
+		list("days" = PERSISTENT_DEFAULT_EXPIRATION_DAYS)
+	)
+	q.Execute()
+	databaseCheckQueryResult(q, "factionChatPrune")
+	qdel(q)
+
 // ============================================================
 // JOB OPERATIONS
 // ============================================================
@@ -625,6 +639,51 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	log_game("Site '[here_template.id]' at z=[base_z] auto-pinned: [notes]")
 	return TRUE
 
+/**
+ * Reverses persistence_pin_site_at_z() -- but only if the site's pin
+ * "notes" exactly match expected_notes, so this can never touch a site
+ * pinned by an admin (or for a different reason) that a faction beacon
+ * merely happened to also be sitting on. Only removes the pin
+ * registration itself (DB row + in-memory lists), matching "Unpin Site"'s
+ * "Keep" option -- doesn't purge any saved persistence rows.
+ */
+/proc/persistence_unpin_site_at_z(z, expected_notes)
+	var/datum/map_template/here_template = GLOB.map_templates["[z]"]
+	if(!istype(here_template, /datum/map_template/ruin/away_site))
+		return FALSE
+	if(!SSpersistence.databaseCheckConnection("persistence_unpin_site_at_z"))
+		return FALSE
+
+	var/datum/db_query/check = SSdbcore.NewQuery(
+		"SELECT id, notes, last_z FROM ss13_persistent_away_sites WHERE template_name = :tn AND map_path = :mp",
+		list("tn" = here_template.id, "mp" = "[SSatlas.current_map.path]")
+	)
+	check.Execute()
+	if(!SSpersistence.databaseCheckQueryResult(check, "persistence_unpin_site_at_z") || !check.NextRow())
+		qdel(check)
+		return FALSE
+	var/row_id = text2num(check.item[1])
+	var/row_notes = check.item[2]
+	var/row_last_z = text2num(check.item[3])
+	qdel(check)
+	if(row_notes != expected_notes)
+		return FALSE // pinned by something else (admin, different reason) -- not ours to touch
+
+	var/datum/db_query/dq = SSdbcore.NewQuery("DELETE FROM ss13_persistent_away_sites WHERE id = :id", list("id" = row_id))
+	dq.Execute()
+	SSpersistence.databaseCheckQueryResult(dq, "persistence_unpin_site_at_z delete")
+	qdel(dq)
+
+	var/obj/effect/overmap/visitable/here_marker = GLOB.map_sectors["[row_last_z]"]
+	var/list/live_zs = list(row_last_z)
+	if(here_marker && length(here_marker.map_z))
+		live_zs = here_marker.map_z.Copy()
+	for(var/nz in live_zs)
+		GLOB.persistence_pinned_site_z -= nz
+		GLOB.persistence_zlevel_allow -= nz
+	log_game("Site '[here_template.id]' at z=[row_last_z] auto-unpinned: [expected_notes] released.")
+	return TRUE
+
 /// Pin/unpin overmap away sites for persistence (ss13_persistent_away_sites).
 /// A pinned site always spawns, keeps its overmap position, gets a
 /// deterministic z-number, and saves/loads like a station deck. Default for
@@ -781,10 +840,18 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			rnq.Execute()
 			SSpersistence.databaseCheckQueryResult(rnq, "persistent_overmap_sites rename")
 			qdel(rnq)
-			// Apply live if the site is spawned this session
+			// Apply live if the site is spawned this session -- verify the
+			// marker at last_z is actually still THIS site's before trusting
+			// it. last_z can go stale if an earlier-id pinned row failed to
+			// load this boot (template removed, load_new_z() failure):
+			// build_pinned_away_sites()'s sequential-append z allocation
+			// then shifts every later row down, and a later site can land
+			// exactly on the failed row's old z -- without this check that
+			// would rename an unrelated, currently-loaded site's marker.
 			if(rename_row["last_z"] && (rename_row["last_z"] in GLOB.persistence_pinned_site_z))
 				var/obj/effect/overmap/visitable/rename_marker = GLOB.map_sectors["[rename_row["last_z"]]"]
-				if(rename_marker)
+				var/datum/map_template/rename_template = GLOB.map_templates["[rename_row["last_z"]]"]
+				if(rename_marker && rename_template && rename_template.id == rename_row["template"])
 					rename_marker.name = (new_site_name != "" ? new_site_name : initial(rename_marker.name))
 			to_chat(usr, SPAN_GOOD("'[rename_row["template"]]' [new_site_name != "" ? "renamed to '[new_site_name]'" : "name restored to template default"] -- persists across reboots."))
 			log_and_message_admins("[new_site_name != "" ? "renamed pinned overmap site '[rename_row["template"]]' to '[new_site_name]'" : "cleared custom name on pinned overmap site '[rename_row["template"]]'"]", usr)
@@ -827,7 +894,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 				continue
 			var/list/toggle_choices = list()
 			for(var/list/row in rows)
-				toggle_choices["#[row["id"]] [row["template"]] ([row["enabled"] ? "ENABLED" : "disabled"])"] = row
+				toggle_choices["#[row["id"]] [row["template"]][row["custom_name"] ? " ('[row["custom_name"]]')" : ""] ([row["enabled"] ? "ENABLED" : "disabled"])"] = row
 			var/toggle_pick = tgui_input_list(usr, "Toggle which pinned site?", "Toggle Enabled", toggle_choices)
 			if(!toggle_pick)
 				continue
@@ -852,7 +919,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 				continue
 			var/list/unpin_choices = list()
 			for(var/list/row in rows)
-				unpin_choices["#[row["id"]] [row["template"]][row["notes"] ? " ([row["notes"]])" : ""]"] = row
+				unpin_choices["#[row["id"]] [row["template"]][row["custom_name"] ? " ('[row["custom_name"]]')" : ""][row["notes"] ? " ([row["notes"]])" : ""]"] = row
 			var/unpin_pick = tgui_input_list(usr, "Unpin which site? It returns to the dynamic RNG pool next boot.", "Unpin Site", unpin_choices)
 			if(!unpin_pick)
 				continue
@@ -948,6 +1015,12 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		marker.start_y = pick_y
 		if(marker.loc)
 			marker.forceMove(target_tile)
+
+	// Paint the new marker's zone-security outline/border immediately --
+	// otherwise it sits unpainted until some unrelated later zone change
+	// happens to trigger a full repaint (zone_security_update_overmap()
+	// is only ever called at boot or on an explicit zone change).
+	zone_security_update_overmap()
 
 	to_chat(usr, SPAN_GOOD("Generated '[tmpl_pick]' at overmap ([pick_x],[pick_y]), z=[site_z]. It is DYNAMIC (gone on reboot, not saved) -- pin it via Persistent Overmap Sites to make it permanent."))
 	log_and_message_admins("generated away site '[tmpl_pick]' at overmap ([pick_x],[pick_y]), z=[site_z]", usr)

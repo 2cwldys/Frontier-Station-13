@@ -1,0 +1,28 @@
+- tied into, refactoring, the already existing persistent_shuttles.dm:
+
+- shuttle drydock program
+-- handles buying, stashing, removal of owned shuttles in database
+-- hooks up to a docking port & subsequent turfs on grid
+-- adds button in program that once you select the docking port, can highlight grid to see the amount of tiles the shuttles can support/loading/saving from.
+
+-- loads live mid session, saves and loads live in seperate scope than the persistent saving
+
+-- no shuttles may be undocked to be loaded or wiped on another, no ships may dock when it is taken.
+-- perfectly can unload, and load shuttles from database (uses existing DB and persistence interaction to load the shuttle turfs in live time)
+-- ability to load pre-made shuttle templates that people can customize, saves from there
+-- as well as ability to load/save their shuttle in the states it were
+--- use custom turf objects that work as a grid to save and load? or perhaps some smarter way to do this...
+
+--- a new blueprint (uses blueprint sprite, colored red) called 'drydock blueprint', which uses the eye system like normal blueprints with the tiles (almost verbatim) but it lets us determine and designate the drydock tiles that the docking port will use, fully persistent, and will work in tandem with this system.
+
+- make shuttle save grid using an obj/machinery or some such that once placed just applies a saveable grid
+
+-  the kick is that the docking beacon is where people can securely land, then leave or take off again. the areas attached to the docking beacon are purposefully (NOT SAVED) intentionally and doesn't fight with autosaving or manual saves. because it's a "seperate" save and loading, that can happen in the live. allowing people to land their shuttles (in perfect grids that won't eat turfs, because all of them use the same grids, which we'd have to do in this blueprint system) ... but people with thier shuttles landed can choose to physically drydock their shuttle which stashes it in the DB for that faction/drydock, which is global single Z level based (they can get it again on that Z level, but admins can help debug at any drydock for restoration). I know we would have to seriously overwrite persistent_shuttles.dm to achieve this but I believe we can do it. Look at what we've already done.
+
+- This way, people can also purchase shuttles by different types and varying prices, which gets stored at first under your ckey (or if it's set to being a faction shuttle when purchased) which will offer two tabs, (personal) and (faction) shuttles in drydock. So this alongside a shuttle market to see available prices.
+
+- Attempting to save a shuttle into drydock will not work if there's any player mobs inside of the area/turf saving space for the docking beacon. Same for when attempting to retrieve them from database for the drydock.
+
+- Faction Chat program that allows faction members to communicate amongst their faction members only, IRC style, logged to SQL, only shows up to a certain number of entries, but has decent and long enough history (few pages) but has live IRC style chat with faction members by character name. Must have faction access on their ID, and not just "civilian" status, implying they're given anything other than the default when printing a faction ID.
+
+- Faction Chat offers PDA pings similar to first responder that only the wearer can see, with the ping sound, and they can basically see the chat through pings in live time and then take it out and respond.

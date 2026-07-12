@@ -1,0 +1,61 @@
+//MAP CONVERTED BY dmm2tgm.py THIS HEADER COMMENT PREVENTS RECONVERSION, DO NOT REMOVE
+"a" = (
+/turf/simulated/wall,
+/area/drydock_ship/placeholder)
+"b" = (
+/turf/simulated/floor/shuttle,
+/area/drydock_ship/placeholder)
+"c" = (
+/obj/effect/shuttle_landmark/ship/drydock_ship_placeholder,
+/turf/simulated/floor/shuttle,
+/area/drydock_ship/placeholder)
+"d" = (
+/obj/effect/shuttle_landmark/drydock_ship_placeholder_transit,
+/turf/simulated/floor/shuttle,
+/area/drydock_ship/placeholder)
+"e" = (
+/obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/placeholder{
+	dir = 2
+	},
+/turf/simulated/floor/shuttle,
+/area/drydock_ship/placeholder)
+"f" = (
+/obj/effect/overmap/visitable/ship/landable/drydock_ship/placeholder,
+/turf/simulated/floor/shuttle,
+/area/drydock_ship/placeholder)
+
+(1,1,1) = {"
+a
+a
+a
+a
+a
+"}
+(2,1,1) = {"
+a
+e
+b
+b
+a
+"}
+(3,1,1) = {"
+a
+b
+c
+d
+a
+"}
+(4,1,1) = {"
+a
+b
+f
+b
+a
+"}
+(5,1,1) = {"
+a
+a
+a
+a
+a
+"}

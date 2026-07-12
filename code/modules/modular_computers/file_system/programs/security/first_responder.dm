@@ -50,7 +50,16 @@
 	data["faction_uid"]  = net
 	data["faction_name"] = net ? get_faction_name(net) : null
 	data["is_hub"]       = (net == "hub")
-	data["has_telepad"]  = net ? !!persistence_find_security_telepad(net) : FALSE
+	var/list/telepads = net ? persistence_find_security_telepads(net) : list()
+	data["has_telepad"]  = length(telepads) > 0
+	data["telepad_choices"] = list()
+	if(length(telepads) > 1)
+		for(var/obj/structure/machinery/telepad_security/pad in telepads)
+			var/area/A = get_area(pad)
+			data["telepad_choices"] += list(list(
+				"ref" = "\ref[pad]",
+				"area_name" = A ? A.name : "Unknown Area"
+			))
 	data["cooldown"]     = max(0, round((next_jump_time - world.time) / 10))
 	data["can_secure"]   = can_run(user, FALSE, ACCESS_SECURITY, PROGRAM_ACCESS_ONE)
 	data["in_highsec"]   = (zone_security_get(user.z) == ZONE_HIGHSEC)
@@ -147,10 +156,23 @@
 				to_chat(user, SPAN_WARNING("Teleporter recharging."))
 				return TRUE
 			var/net = normalize_faction_uid(computer.persistent_network)
-			var/turf/pad_turf = persistence_find_security_telepad(net)
-			if(!pad_turf)
+			var/list/pads = persistence_find_security_telepads(net)
+			if(!length(pads))
 				to_chat(user, SPAN_WARNING("No security telepad found for [net ? get_faction_name(net) : "this network"]."))
 				return TRUE
+			var/obj/structure/machinery/telepad_security/chosen
+			if(length(pads) == 1)
+				chosen = pads[1]
+			else
+				var/target_ref = params["pad_ref"]
+				for(var/obj/structure/machinery/telepad_security/pad in pads)
+					if("\ref[pad]" == target_ref)
+						chosen = pad
+						break
+				if(!chosen)
+					to_chat(user, SPAN_WARNING("Select a destination telepad first."))
+					return TRUE
+			var/turf/pad_turf = get_turf(chosen)
 			var/turf/departure = get_turf(user)
 			first_responder_jump(user, pad_turf)
 			// Bring tagged prisoners still within range of the departure point

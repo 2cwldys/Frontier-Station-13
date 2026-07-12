@@ -1,11 +1,13 @@
 import {
   Box,
   Button,
+  Dropdown,
   NoticeBox,
   Section,
   Table,
 } from 'tgui-core/components';
 import type { BooleanLike } from 'tgui-core/react';
+import { useState } from 'react';
 import { useBackend } from '../backend';
 import { NtosWindow } from '../layouts';
 
@@ -23,11 +25,17 @@ type TaggedEntry = {
   in_range: BooleanLike;
 };
 
+type TelepadChoice = {
+  ref: string;
+  area_name: string;
+};
+
 type FirstResponderData = {
   faction_uid: string | null;
   faction_name: string | null;
   is_hub: BooleanLike;
   has_telepad: BooleanLike;
+  telepad_choices: TelepadChoice[];
   cooldown: number;
   can_secure: BooleanLike;
   in_highsec: BooleanLike;
@@ -43,6 +51,7 @@ export const FirstResponder = (props) => {
     faction_name,
     is_hub,
     has_telepad,
+    telepad_choices,
     cooldown,
     can_secure,
     in_highsec,
@@ -50,6 +59,11 @@ export const FirstResponder = (props) => {
     offenses,
     tagged,
   } = data;
+  const [selectedPadRef, setSelectedPadRef] = useState<string | null>(null);
+  const needsPadChoice = telepad_choices.length > 1;
+  const selectedAreaName =
+    telepad_choices.find((t) => t.ref === selectedPadRef)?.area_name ||
+    'Select a telepad';
 
   return (
     <NtosWindow resizable width={560} height={520}>
@@ -109,20 +123,43 @@ export const FirstResponder = (props) => {
               </Box>
             )}
           </Box>
+          {needsPadChoice && (
+            <Dropdown
+              mb={1}
+              width="100%"
+              selected={selectedAreaName}
+              options={telepad_choices.map((t) => t.area_name)}
+              onSelected={(area_name) =>
+                setSelectedPadRef(
+                  telepad_choices.find((t) => t.area_name === area_name)
+                    ?.ref || null,
+                )
+              }
+            />
+          )}
           <Button
             icon="reply"
             color={has_telepad ? 'good' : 'grey'}
-            disabled={!can_secure || !has_telepad || cooldown > 0}
+            disabled={
+              !can_secure ||
+              !has_telepad ||
+              cooldown > 0 ||
+              (needsPadChoice && !selectedPadRef)
+            }
             tooltip={
               !can_secure
                 ? 'Requires Hub security access.'
-                : has_telepad
-                  ? tagged.length > 0
-                    ? `Teleport back to your faction security telepad with ${tagged.length} tagged prisoner(s). Tags are cleared afterward.`
-                    : 'Teleport back to your faction security telepad.'
-                  : 'No security telepad found for this faction network.'
+                : !has_telepad
+                  ? 'No security telepad found for this faction network.'
+                  : needsPadChoice && !selectedPadRef
+                    ? 'Select a destination telepad first.'
+                    : tagged.length > 0
+                      ? `Teleport back to your faction security telepad with ${tagged.length} tagged prisoner(s). Tags are cleared afterward.`
+                      : 'Teleport back to your faction security telepad.'
             }
-            onClick={() => act('return')}
+            onClick={() =>
+              act('return', needsPadChoice ? { pad_ref: selectedPadRef } : {})
+            }
           >
             Return to Security Telepad
             {tagged.length > 0 ? ` (+${tagged.length} tagged)` : ''}

@@ -12,8 +12,27 @@
  * Adding a new type: just set worldstate_vars on the type. No loop edits required.
  */
 
-/// Cache of worldstate data keyed by "[typepath]|[x]|[y]|[z]"
+/// Cache of worldstate data keyed by "[typepath]|[x]|[y]|[z]", or
+/// "[typepath]|site:[template_id]|[x]|[y]" for machines on a pinned away
+/// site -- see worldstate_pinned_site_key() below.
 GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
+
+/// For a pinned away-site's Z, returns that site's own template id -- a
+/// stable identifier across boots, unlike the Z number itself (pinned
+/// sites are Z-allocated by sequential append in build_pinned_away_sites(),
+/// so the same site can land on a different Z every boot -- confirmed by
+/// the rename-site code's own last_z staleness handling in
+/// persistence_factions.dm). Returns null for anything else (ordinary
+/// station Z's, or a template-loaded-but-unpinned Z like a drydock ship/
+/// corvette -- those are already fully excluded from worldstate by
+/// persistence_z_excluded() before this ever runs, and unlike a pinned
+/// site, more than one live instance of the same template can exist at
+/// once for those, so template id alone wouldn't be a safe key there).
+/proc/worldstate_pinned_site_key(z)
+	if(!(z in GLOB.persistence_pinned_site_z))
+		return null
+	var/datum/map_template/T = GLOB.map_templates["[z]"]
+	return T ? T.id : null
 
 // =====================================================================
 // BASE PROCS  declarative var list drives automatic save/restore
@@ -74,8 +93,20 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	var/loaded = 0
 	while(query.NextRow())
 		CHECK_TICK
-		var/cache_key = "[query.item[1]]|[query.item[2]]|[query.item[3]]|[query.item[4]]"
-		GLOB.persistence_worldstate_cache[cache_key] = query.item[5]
+		var/db_type = query.item[1]
+		var/db_x = query.item[2]
+		var/db_y = query.item[3]
+		var/db_z = query.item[4]
+		var/db_content = query.item[5]
+		var/cache_key = "[db_type]|[db_x]|[db_y]|[db_z]"
+		// A row saved while its site was pinned carries its own stable
+		// site key in the content -- prefer that over the raw z it was
+		// saved under, since a pinned site's z isn't stable across boots
+		// (see worldstate_pinned_site_key() above).
+		var/list/parsed = json_decode(db_content)
+		if(islist(parsed) && parsed["__worldstate_site"])
+			cache_key = "[db_type]|site:[parsed["__worldstate_site"]]|[db_x]|[db_y]"
+		GLOB.persistence_worldstate_cache[cache_key] = db_content
 		loaded++
 
 	qdel(query)
@@ -197,13 +228,15 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		var/turf/T = get_turf(S)
 		if(!T || !T.z)
 			return 0
-		var/cache_key = "[S.type]|[T.x]|[T.y]|[T.z]"
+		var/site_key = worldstate_pinned_site_key(T.z)
+		var/cache_key = site_key ? "[S.type]|site:[site_key]|[T.x]|[T.y]" : "[S.type]|[T.x]|[T.y]|[T.z]"
 		var/json = GLOB.persistence_worldstate_cache[cache_key]
 		if(!json)
 			return 0
 		var/list/content = json_decode(json)
 		if(!islist(content))
 			return 0
+		content -= "__worldstate_site"
 		S.worldstate_apply_content(content)
 		return 1
 	catch(var/exception/e)
@@ -240,14 +273,17 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 
 	for(var/obj/structure/S in world)
 		if(persistence_z_excluded(S.z)) continue
+		if(persistence_area_excluded(S)) continue
 		saved += worldstateSaveOneMachine(S)
 
 	for(var/obj/item/radio/intercom/IC in world)
 		if(persistence_z_excluded(IC.z)) continue
+		if(persistence_area_excluded(IC)) continue
 		saved += worldstateSaveOneMachine(IC)
 
 	for(var/obj/item/modular_computer/MC in world)
 		if(persistence_z_excluded(MC.z)) continue
+		if(persistence_area_excluded(MC)) continue
 		saved += worldstateSaveOneMachine(MC)
 
 	var/datum/db_query/delete_stale = SSdbcore.NewQuery(
@@ -275,6 +311,13 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		var/list/content = S.worldstate_get_content()
 		if(!islist(content) || !length(content))
 			return 0
+		// A pinned site's z isn't stable across boots -- embed the site's
+		// own stable template id in the saved content so worldstateInitialize()
+		// can match this row back up regardless of which z the site lands
+		// on next boot (see worldstate_pinned_site_key() above).
+		var/site_key = worldstate_pinned_site_key(T.z)
+		if(site_key)
+			content["__worldstate_site"] = site_key
 		insert = SSdbcore.NewQuery(
 			"INSERT INTO ss13_worldstate_objects (map_path, type, x, y, z, content, saved_at) \
 			 VALUES (:map_path, :type, :x, :y, :z, :content, NOW()) \

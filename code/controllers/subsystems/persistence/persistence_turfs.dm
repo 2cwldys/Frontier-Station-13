@@ -120,6 +120,7 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 	for(var/turf/simulated/floor/F in world)
 		CHECK_TICK
 		if((F.z in GLOB.persistence_zlevel_skip) || is_mining_level(F.z) || persistence_z_manual_blocked(F.z)) continue
+		if(persistence_area_excluded(F)) continue
 		if(!F.broken && !F.burnt && !F.color && F.type == F.baseturf)
 			delete_coords += "([F.x],[F.y],[F.z])"
 			continue
@@ -131,6 +132,7 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 	for(var/turf/simulated/wall/W in world)
 		CHECK_TICK
 		if((W.z in GLOB.persistence_zlevel_skip) || is_mining_level(W.z) || persistence_z_manual_blocked(W.z)) continue
+		if(persistence_area_excluded(W)) continue
 		if(W.type == W.baseturf && W.health >= W.maxhealth)
 			delete_coords += "([W.x],[W.y],[W.z])"
 			continue
@@ -166,6 +168,7 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 	for(var/turf/simulated/T in world)
 		CHECK_TICK
 		if((T.z in GLOB.persistence_zlevel_skip) || is_mining_level(T.z) || persistence_z_manual_blocked(T.z)) continue
+		if(persistence_area_excluded(T)) continue
 		if(istype(T, /turf/simulated/floor) || istype(T, /turf/simulated/wall))
 			continue
 		if(T.type == T.baseturf)

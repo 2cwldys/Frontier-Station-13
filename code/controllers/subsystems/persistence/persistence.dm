@@ -49,6 +49,13 @@ GLOBAL_LIST_EMPTY(persistence_pinned_site_z)
 /// onto at runtime. Admin-pinned persistent away sites bypass ALL of these -- the
 /// pinned check must stay FIRST: pinned sites spawn via load_new_z(), which stamps
 /// them with both the away trait and the template-loaded mark below.
+/// TRUE if this atom is inside a drydock pad -- turf/object persistence must
+/// skip it entirely so a landed (not stashed) shuttle's hull damage, dropped
+/// items, and decals never get autosaved. See docs/shuttlesystem-architecture.md Part 2.
+/proc/persistence_area_excluded(atom/A)
+	var/area/ar = get_area(A)
+	return ar && (ar.area_flags & AREA_FLAG_DRYDOCK_PAD)
+
 /proc/persistence_z_excluded(z)
 	if(z in GLOB.persistence_pinned_site_z)
 		return FALSE
@@ -394,6 +401,16 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_panic("Unhandled exception during bot persistence finalization: [bots_e]")
 
 	try
+		drydockAutoStashAll()
+	catch(var/exception/drydock_e)
+		log_subsystem_persistence_panic("Unhandled exception during drydock auto-stash: [drydock_e]")
+
+	try
+		corvetteAutoStashAll()
+	catch(var/exception/corvette_e)
+		log_subsystem_persistence_panic("Unhandled exception during corvette auto-stash: [corvette_e]")
+
+	try
 		shuttleStateFinalize()
 	catch(var/exception/shuttle_e)
 		log_subsystem_persistence_panic("Unhandled exception during shuttle state persistence finalization: [shuttle_e]")
@@ -724,6 +741,21 @@ SUBSYSTEM_DEF(persistence)
 		factionResearchFinalize()
 	catch(var/exception/faction_research_e)
 		log_subsystem_persistence_panic("Unhandled exception during faction research persistence finalization: [faction_research_e]")
+
+	try
+		factionChatPrune()
+	catch(var/exception/faction_chat_e)
+		log_subsystem_persistence_panic("Unhandled exception during faction chat pruning: [faction_chat_e]")
+
+	try
+		drydockAutoStashAll()
+	catch(var/exception/drydock_e)
+		log_subsystem_persistence_panic("Unhandled exception during drydock auto-stash: [drydock_e]")
+
+	try
+		corvetteAutoStashAll()
+	catch(var/exception/corvette_e)
+		log_subsystem_persistence_panic("Unhandled exception during corvette auto-stash: [corvette_e]")
 
 	try
 		shuttleStateFinalize()

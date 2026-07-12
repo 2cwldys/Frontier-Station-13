@@ -115,8 +115,6 @@
 	if(A.apc)
 		to_chat(owner, SPAN_WARNING("You must remove the APC from this area before you can remove it from the blueprints!"))
 		return
-	to_chat(owner, SPAN_NOTICE("You scrub [A.name] off the blueprints."))
-	log_and_message_admins("deleted area [A.name] via station blueprints.")
 	var/background_area = world.area
 	var/obj/effect/overmap/visitable/sector/sector = GLOB.map_sectors["[A.z]"]
 	var/obj/effect/overmap/visitable/sector/exoplanet/exoplanet = sector
@@ -124,10 +122,19 @@
 		background_area = exoplanet.planetary_area
 	if(SSodyssey.scenario && (GET_Z(owner) in SSodyssey.scenario_zlevels))
 		background_area = SSodyssey.scenario.base_area
-	for(var/turf/T in A.contents)
+	// Iterate a copy -- change_area() reassigns each turf's loc, which
+	// mutates A.contents live. Iterating the real list while it shrinks
+	// skips entries, leaving stray turfs behind so the area never actually
+	// empties (and thus never qdels) even though the success message
+	// below used to fire unconditionally beforehand regardless.
+	for(var/turf/T in A.contents.Copy())
 		T.change_area(T.loc, background_area)
-	if(!locate(/turf) in A)
-		qdel(A)
+	if(locate(/turf) in A)
+		to_chat(owner, SPAN_WARNING("Some tiles of [A.name] could not be moved off the blueprints -- area not removed."))
+		return
+	to_chat(owner, SPAN_NOTICE("You scrub [A.name] off the blueprints."))
+	log_and_message_admins("deleted area [A.name] via station blueprints.")
+	qdel(A)
 
 /// Flood-fills outward from the eye's current position through non-dense
 /// (walkable) turfs, treating any dense turf (wall, closed door, etc.) as a

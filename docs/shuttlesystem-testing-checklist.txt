@@ -1,0 +1,143 @@
+SHUTTLE DRYDOCK SYSTEM - TESTING CHECKLIST
+===========================================
+Covers: pad/beacon adjacency, buy/retrieve/stash, the shuttle nav console,
+faction-restricted beacons (ID swipe + faction tagger), and the retrieve
+faction check. Test in this order - later sections build on earlier ones.
+
+
+SETUP - BUILD TWO PADS
+-----------------------
+Do this twice (Pad A and Pad B), same Z-level, far enough apart that
+their 30x18 footprints don't overlap.
+
+1. Place a docking beacon (order the "docking beacon" crate from cargo,
+   engineering category, or admin-spawn one for speed).
+2. Wrench the beacon to anchor it.
+3. Screwdriver the beacon to activate it. You'll be asked to name it -
+   give Pad A's beacon and Pad B's beacon different names so you can
+   tell them apart in dropdowns later.
+4. As admin or faction officer, use the Drydock blueprint eye tool and
+   select a 30x18 (or larger) solid rectangle of turfs for the pad.
+   IMPORTANT: the beacon must NOT be inside the selected rectangle.
+   Place it just outside one edge.
+5. Try selecting a rectangle WITH the beacon inside it first - you
+   should get refused with:
+     "A docking beacon cannot be inside the pad -- place it adjacent
+      to the pad instead."
+   Then redo the selection with the beacon outside - designation should
+   now succeed (create_pad()).
+
+Repeat for Pad B with its own beacon.
+
+
+PART A - GOLDEN PATH: BUY, RETRIEVE, STASH
+-------------------------------------------
+1. Open the "Shuttle Drydock" program on a modular computer or laptop.
+2. Buy a shuttle template. This only creates a stashed DB row - nothing
+   appears in the world yet.
+3. From a computer near Pad A, pick Pad A from the dropdown and hit
+   Retrieve. Confirm:
+     - The hull rebuilds exactly inside Pad A's bounding box, no drift.
+     - Pad A's beacon is untouched (still there, still active).
+4. Stash it again from the Drydock program. Confirm the hull tears down
+   cleanly and the DB row comes back as stashed.
+5. Retrieve it a second time (second full cycle) - confirm still no
+   drift after repeated cycles.
+
+
+PART B - SHUTTLE NAV CONSOLE (FLYING BETWEEN PADS)
+----------------------------------------------------
+1. Retrieve the shuttle onto Pad A again (leave it there).
+2. Order the "shuttle navigation console" crate from cargo (engineering
+   category), carry it inside the retrieved hull.
+3. Try using it WITHOUT wrenching it down first - confirm it refuses:
+     "Secure ... with a wrench before using it."
+4. Wrench it down, then use it. Confirm the destination list shows
+   Pad B only (not Pad A, since that's current location, and not any
+   pad-less/unbound beacon if you have one lying around).
+5. Pick Pad B. Confirm:
+     - "Docked at ..." message.
+     - Hull physically appears at Pad B, no drift.
+     - Both beacons (Pad A's and Pad B's) survive.
+6. Stash from Pad B via the Drydock program. This is the real test of
+   whether the flight correctly updated the shuttle's "last known pad" -
+   if it didn't, this step would behave oddly. Confirm it stashes clean.
+
+
+PART C - FACTION-RESTRICTED BEACONS
+--------------------------------------
+Test claim/release BOTH ways: ID card swipe, and the Faction Tagger.
+
+Via ID swipe:
+1. Swipe a Faction A officer ID on Pad B's beacon (must be active
+   first). Confirm prompt "Restrict this beacon to Faction A shuttles
+   only?" -> confirms restriction.
+2. Swipe a non-officer Faction A ID - confirm it's refused (needs
+   officer rank).
+3. Swipe a Faction B ID - confirm refused ("claimed by Faction A").
+4. Swipe the Faction A officer ID again - confirm "Release Beacon?"
+   prompt -> releases back to public ("Beacon is now public").
+
+Via Faction Tagger:
+5. Re-claim Pad B's beacon to Faction A (either method).
+6. Point the Faction Tagger at Pad B's beacon. Confirm it's recognized
+   (shows target name, current faction) instead of "not a
+   faction-configurable machine."
+7. Try "set" to a different faction as a non-officer - confirm refused.
+8. As a Faction A officer (or admin), use "release" - confirm it goes
+   back to public, matching the ID-swipe release wording/behavior.
+9. Try the tagger on a beacon that's anchored but NOT yet activated
+   (screwdriver step skipped) - confirm refusal:
+     "Activate ... before configuring its faction access."
+10. Confirm ID-swipe claim/release still works normally on a beacon
+    after having used the tagger on it (both paths should stay in sync).
+
+Enforcement check (retrieve):
+11. With Pad B's beacon claimed by Faction A, try to RETRIEVE a
+    personal (no faction) or Faction B shuttle onto Pad B. Confirm
+    refusal:
+      "This pad's beacon is restricted to Faction A."
+12. Retrieve a Faction A shuttle onto Pad B - confirm it works normally.
+13. As admin, retrieve a foreign-faction shuttle onto Pad B - confirm
+    the admin bypass still allows it.
+
+Enforcement check (flight):
+14. With Pad B claimed by Faction A, fly a non-Faction-A shuttle from
+    Pad A to Pad B via the nav console - confirm refusal:
+      "Docking refused -- destination may be obstructed, restricted to
+       another faction, or this shuttle cannot currently depart."
+    and the hull does not move.
+15. Release Pad B back to public, retry the same flight - confirm it
+    now succeeds.
+
+
+PART D - EDGE CASES / SAFETY NETS
+------------------------------------
+1. No pilot skill: try the nav console with a character who doesn't
+   have Pilot Spacecraft skill at Familiar level - confirm refusal
+   ("There's just so many buttons...").
+2. No ID access: try the nav console without valid access - confirm
+   "Access denied."
+3. Occupied pad: try to Retrieve onto a pad that already has a shuttle
+   docked - confirm "This pad is already occupied."
+4. Players aboard: try to Stash while someone is still standing in the
+   hull or on the pad - confirm refusal listing their name(s).
+5. Idle auto-stash: retrieve a shuttle onto a pad, leave it empty, run
+   the Force Persistence Save admin verb - confirm it gets auto-stashed.
+   Repeat with a living player standing aboard - confirm it's left
+   alone.
+6. is_occupied() sanity check: confirm a pad correctly reports occupied
+   right after Retrieve, after a flight lands there, and clear again
+   after Stash.
+7. Restore from backup: retrieve a shuttle, then delete the live datum
+   via VV (simulating a crash/loss) - confirm "Restore Ship Backup"
+   (admin verb) brings it back as a normal stashed, retrievable shuttle.
+
+
+DONE WHEN
+---------
+All of Parts A-D pass with no drift, no wrongly-allowed foreign-faction
+docking, and no wrongly-refused same-faction/public docking. Run
+scripts\debug-compile.ps1 -ReportOnly one more time first if you've made
+any manual edits while testing - should say RESULT: CLEAN before you
+start.

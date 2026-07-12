@@ -45,6 +45,13 @@
 	persistent_network = new_uid
 	persistent_spawn   = new_uid ? TRUE : FALSE
 	faction_shackled   = new_uid ? TRUE : FALSE
+	// Spawned (non-map-placed) pads need to register with persistent_objects
+	// to be recreated on restart -- map-placed pads use worldstate instead,
+	// which already runs automatically. Mirrors cryopod/faction_tagger_set()
+	// above; this pad type was previously missing this call entirely, so a
+	// player-dropped (telepad_beacon) pad silently never survived a restart.
+	if(!persistence_map_placed && GLOB.config.sql_enabled && GLOB.persistence_ready)
+		SSpersistence.objectsRegisterTrack(src)
 	return TRUE
 
 // ------- Cryopods -------
@@ -149,4 +156,23 @@
 
 /obj/structure/machinery/porta_turret/faction_tagger_set(new_uid, mob/user)
 	persistent_network = new_uid
+	return TRUE
+
+// ------- Docking beacon (drydock pads/corvette docking -- "public" is
+// just the released/unclaimed state, matching the beacon's own ID-swipe
+// wording) -------
+
+/obj/structure/machinery/docking_beacon/faction_tagger_compatible()
+	return TRUE
+
+/obj/structure/machinery/docking_beacon/faction_tagger_get_uid()
+	return faction_restricted
+
+/obj/structure/machinery/docking_beacon/faction_tagger_set(new_uid, mob/user)
+	if(!beacon_active)
+		to_chat(user, SPAN_WARNING("Activate \the [src] before configuring its faction access."))
+		return FALSE
+	faction_restricted = new_uid || ""
+	beacon_shackled     = new_uid ? TRUE : FALSE
+	_sync_landmark_faction()
 	return TRUE

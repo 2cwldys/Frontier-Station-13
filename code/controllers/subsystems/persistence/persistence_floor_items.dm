@@ -155,6 +155,8 @@
 			continue
 		if(persistence_z_manual_blocked(I.z))
 			continue
+		if(persistence_area_excluded(I))
+			continue
 		if(I.persistent_objects_track_id != 0)
 			continue
 		if(I in GLOB.persistence_object_track_register)

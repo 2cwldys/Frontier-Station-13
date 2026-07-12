@@ -1,0 +1,65 @@
+//MAP CONVERTED BY dmm2tgm.py THIS HEADER COMMENT PREVENTS RECONVERSION, DO NOT REMOVE
+"a" = (
+/turf/simulated/wall,
+/area/faction_corvette/placeholder)
+"b" = (
+/turf/simulated/floor/shuttle,
+/area/faction_corvette/placeholder)
+"c" = (
+/obj/effect/shuttle_landmark/ship/faction_corvette_placeholder,
+/turf/simulated/floor/shuttle,
+/area/faction_corvette/placeholder)
+"d" = (
+/obj/effect/shuttle_landmark/faction_corvette_placeholder_transit,
+/turf/simulated/floor/shuttle,
+/area/faction_corvette/placeholder)
+"e" = (
+/obj/structure/machinery/computer/shuttle_control/explore/terminal/faction_corvette/placeholder{
+	dir = 2
+	},
+/turf/simulated/floor/shuttle,
+/area/faction_corvette/placeholder)
+"f" = (
+/obj/effect/overmap/visitable/ship/landable/faction_corvette/placeholder,
+/turf/simulated/floor/shuttle,
+/area/faction_corvette/placeholder)
+"g" = (
+/obj/structure/machinery/telepad_cargo/corvette_boarding,
+/turf/simulated/floor/shuttle,
+/area/faction_corvette/placeholder)
+
+(1,1,1) = {"
+a
+a
+a
+a
+a
+"}
+(2,1,1) = {"
+a
+e
+b
+b
+a
+"}
+(3,1,1) = {"
+a
+b
+c
+d
+a
+"}
+(4,1,1) = {"
+a
+g
+f
+b
+a
+"}
+(5,1,1) = {"
+a
+a
+a
+a
+a
+"}

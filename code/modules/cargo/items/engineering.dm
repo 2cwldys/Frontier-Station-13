@@ -1,17 +1,5 @@
 // ---- Shuttle Construction ----
 
-/singleton/cargo_item/shuttle_core
-	category = "engineering"
-	name = "shuttle core"
-	supplier = "Hub"
-	description = "A modular flight core. Place inside a hull structure, then activate to register the area as a persistent shuttle. Requires wrenching in place."
-	price = 2500
-	items = list(
-		/obj/structure/machinery/shuttle_core
-	)
-	access = 0
-	container_type = "crate"
-
 /singleton/cargo_item/docking_beacon
 	category = "engineering"
 	name = "docking beacon"
@@ -35,6 +23,30 @@
 		/obj/structure/machinery/docking_beacon,
 		/obj/structure/machinery/docking_beacon,
 		/obj/structure/machinery/docking_beacon
+	)
+	access = 0
+	container_type = "crate"
+
+/singleton/cargo_item/drydock_boarding_pad
+	category = "engineering"
+	name = "drydock boarding pad"
+	supplier = "Hub"
+	description = "Boards you onto one of your currently deployed drydock ships, at its navigation console. A retrieved ship has no walkable connection to anywhere -- this is the only way aboard (disembarking, once docked at a beacon, is a verb usable from anywhere on the ship, no pad needed)."
+	price = 1500
+	items = list(
+		/obj/structure/machinery/telepad_cargo/drydock_boarding
+	)
+	access = 0
+	container_type = "crate"
+
+/singleton/cargo_item/corvette_boarding_pad
+	category = "engineering"
+	name = "corvette boarding pad"
+	supplier = "Hub"
+	description = "Boards a faction member onto their faction's deployed corvette. Configure its faction network with a faction tagger (officer access) after placement."
+	price = 1500
+	items = list(
+		/obj/structure/machinery/telepad_cargo/corvette_boarding
 	)
 	access = 0
 	container_type = "crate"

@@ -67,13 +67,7 @@ GLOBAL_LIST_EMPTY(piracy_beacons)
 /obj/structure/machinery/piracy_beacon/proc/_toggle_power(mob/user)
 	powered = !powered
 	if(is_operational())
-		try
-			if(!beacon_looping_sound)
-				beacon_looping_sound = new looping_sound_type(src)
-				beacon_looping_sound.start()
-		catch(var/exception/tell_e)
-			log_subsystem_persistence_error("Piracy beacon: online tell failed: [tell_e]")
-		persistence_pin_site_at_z(GET_Z(src), "Piracy beacon at ([x],[y],[z])")
+		_go_operational()
 		to_chat(user, SPAN_GOOD("\The [src] powers up and syncs with the local unregulated space."))
 	else
 		QDEL_NULL(beacon_looping_sound)
@@ -81,6 +75,32 @@ GLOBAL_LIST_EMPTY(piracy_beacons)
 			to_chat(user, SPAN_WARNING("\The [src] powers up, but [zone_security_name(zone_security_get(GET_Z(src)))] space is too tightly regulated -- it stays dormant."))
 		else
 			to_chat(user, SPAN_WARNING("\The [src] powers down."))
+	update_icon()
+
+/// Shared "just became operational" side effects -- looping sound + Z
+/// pin -- called from both the manual toggle and worldstate restore.
+/obj/structure/machinery/piracy_beacon/proc/_go_operational()
+	try
+		if(!beacon_looping_sound)
+			beacon_looping_sound = new looping_sound_type(src)
+			beacon_looping_sound.start()
+	catch(var/exception/tell_e)
+		log_subsystem_persistence_error("Piracy beacon: online tell failed: [tell_e]")
+	persistence_pin_site_at_z(GET_Z(src), "Piracy beacon at ([x],[y],[z])")
+
+/// worldstate hooks -- piracy_beacon previously had no persistence at
+/// all, so powered silently reset to FALSE every restart. Skips saving a
+/// row entirely when off (nothing worth restoring), matching
+/// faction_beacon's own convention.
+/obj/structure/machinery/piracy_beacon/worldstate_get_content()
+	if(!powered)
+		return list()
+	return list("powered" = TRUE)
+
+/obj/structure/machinery/piracy_beacon/worldstate_apply_content(list/content)
+	powered = isnull(content["powered"]) ? FALSE : !!content["powered"]
+	if(is_operational())
+		_go_operational()
 	update_icon()
 
 /obj/structure/machinery/piracy_beacon/update_icon()

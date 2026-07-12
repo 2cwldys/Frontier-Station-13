@@ -139,6 +139,14 @@ somewhere on that shuttle. Subtypes of these can be then used to perform ship ov
 		user.reset_view(linked)
 	if(user.client)
 		user.client.view = world.view + extra_view
+		// update_skybox() only fires off real /mob/Move() -- looking at the
+		// overmap never moves the mob, just the eye/view, so the skybox is
+		// otherwise left frozen at the player's last real-world offset and
+		// bleeds across the whole sector map view. The overmap plane has no
+		// meaningful skybox of its own (a strategic grid, not a starfield),
+		// so just hide it instead of trying to reposition it for there.
+		if(user.client.skybox)
+			user.client.screen -= user.client.skybox
 	RegisterSignal(user, COMSIG_MOVABLE_MOVED, PROC_REF(unlook))
 	if(user.eyeobj)
 		RegisterSignal(user, COMSIG_MOVABLE_MOVED, PROC_REF(unlook))
@@ -166,6 +174,11 @@ somewhere on that shuttle. Subtypes of these can be then used to perform ship ov
 		c.view = world.view
 		c.pixel_x = 0
 		c.pixel_y = 0
+		// Restore the skybox now that the eye/view are back on the player's
+		// real position -- forced rebuild, same as a genuine /mob/Move()
+		// would trigger, since look() hid it outright rather than letting
+		// it go stale (see look() above).
+		c.update_skybox(TRUE)
 
 	UnregisterSignal(user, COMSIG_MOVABLE_MOVED)
 

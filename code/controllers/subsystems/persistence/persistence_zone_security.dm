@@ -357,23 +357,29 @@ GLOBAL_LIST_EMPTY(hub_distress_last_called)
 		CHECK_TICK
 
 /**
- * Find a security telepad for the given faction network.
- * Priority: faction telepad -> public telepad -> null.
- * Mirrors persistence_find_cargo_telepad().
+ * Find every security telepad for the given faction network.
+ * Priority: faction telepads -> public telepads -> empty list. Returns
+ * every match within whichever tier wins (never mixes tiers) so a caller
+ * with more than one candidate can offer a choice instead of always
+ * landing on the first one iteration happens to find.
  */
-/proc/persistence_find_security_telepad(network = null)
+/proc/persistence_find_security_telepads(network = null)
 	network = normalize_faction_uid(network)
+	var/list/faction_pads = list()
 	if(network)
 		for(var/obj/structure/machinery/telepad_security/pad in world)
 			if(!pad.z) continue
 			if(!pad.persistent_spawn) continue
 			if(normalize_faction_uid(pad.persistent_network) == network)
-				return get_turf(pad)
+				faction_pads += pad
+	if(length(faction_pads))
+		return faction_pads
+	var/list/public_pads = list()
 	for(var/obj/structure/machinery/telepad_security/pad in world)
 		if(!pad.z) continue
 		if(lowertext(pad.persistent_network) == "public" && pad.persistent_spawn)
-			return get_turf(pad)
-	return null
+			public_pads += pad
+	return public_pads
 
 /// Admin verb: jump your aghost onto the overmap chart to inspect sector
 /// markers (zone outlines, pinned-site names/icons) in action.
