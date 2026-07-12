@@ -53,6 +53,19 @@
 
 // ---- End Shuttle Construction ----
 
+/singleton/cargo_item/travel_pad
+	category = "engineering"
+	name = "travel pad"
+	supplier = "Hub"
+	description = "A tuned telepad that links to any other travel pad sharing its access code, letting you step directly between them. Click it after placement to set an access code -- no faction or officer access needed."
+	price = 1500
+	items = list(
+		/obj/structure/machinery/telepad_cargo/travel
+	)
+	access = 0
+	container_type = "crate"
+	groupable = TRUE
+
 /singleton/cargo_item/glasssheets
 	category = "engineering"
 	name = "glass sheets"

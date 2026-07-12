@@ -87,6 +87,32 @@
 	if(mapload)
 		persistence_map_placed = TRUE
 
+/// objectsRegisterTrack() (faction_tagger_set(), below, and any subtype's own
+/// equivalent) only guarantees a spawned pad gets RECREATED at its saved
+/// position on restart -- the base /obj persistent_objects_get_content()
+/// returns an empty list, so persistent_network/persistent_spawn/faction_shackled
+/// were never actually being saved through this path at all, only through
+/// worldstate (which only ever runs for map-placed instances). Mirrors
+/// cryopod's own persistent_objects_get_content()/apply_content() pair
+/// (persistence_cryo.dm) -- the correct, complete template for this.
+/obj/structure/machinery/telepad_cargo/persistent_objects_get_content()
+	var/list/content = ..()
+	content["persistent_network"] = persistent_network
+	content["persistent_spawn"]   = persistent_spawn
+	content["faction_shackled"]   = faction_shackled
+	return content
+
+/obj/structure/machinery/telepad_cargo/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["persistent_network"]))
+		persistent_network = normalize_faction_uid(content["persistent_network"])
+	if(!isnull(content["persistent_spawn"]))
+		persistent_spawn = !!content["persistent_spawn"]
+	if(!isnull(content["faction_shackled"]))
+		faction_shackled = !!content["faction_shackled"]
+
 // Player-facing faction linking for cargo/security telepads is configured
 // via the faction tagger tool now (code/game/objects/items/devices/faction_tagger.dm
 // + faction_tagger_compatible()/get_uid()/set() overrides in

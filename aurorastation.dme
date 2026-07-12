@@ -3980,6 +3980,7 @@
 #include "code\modules\telesci\telepad.dm"
 #include "code\modules\telesci\telepad_corvette_boarding.dm"
 #include "code\modules\telesci\telepad_drydock_boarding.dm"
+#include "code\modules\telesci\telepad_travel.dm"
 #include "code\modules\telesci\telesci_computer.dm"
 #include "code\modules\tgchat\message.dm"
 #include "code\modules\tgchat\to_chat.dm"

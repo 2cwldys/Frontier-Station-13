@@ -92,6 +92,21 @@
 							"/obj/item/stack/cable_coil" = 1,
 							"/obj/item/stock_parts/console_screen" = 1)
 
+/// Simpler, lower-tier than telesci_pad above -- a fixed-link travel pad,
+/// not a targeted portal projector, pitched at the same tech level as the
+/// telepad_beacon item's own gate (this is effectively that single-use
+/// item's permanent-structure upgrade).
+/obj/item/circuitboard/travel_pad
+	name = T_BOARD("Travel Pad")
+	build_path = /obj/structure/machinery/telepad_cargo/travel
+	board_type = BOARD_MACHINE
+	origin_tech = list(TECH_BLUESPACE = 3, TECH_DATA = 2, TECH_ENGINEERING = 2)
+	req_components = list(
+							"/obj/item/bluespace_crystal/artificial" = 1,
+							"/obj/item/stock_parts/capacitor" = 1,
+							"/obj/item/stock_parts/console_screen" = 1,
+							"/obj/item/stack/cable_coil" = 2)
+
 /obj/item/circuitboard/ntnet_relay
 	name = T_BOARD("NTNet Quantum Relay")
 	build_path = /obj/structure/machinery/ntnet_relay
