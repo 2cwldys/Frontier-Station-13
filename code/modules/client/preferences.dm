@@ -541,8 +541,12 @@ GLOBAL_LIST_EMPTY_TYPED(preferences_datums, /datum/preferences)
 
 	// Attempt to load all the "required" skills.
 	// Player-set skills won't be overwritten here as LoadComponent will never re-initialize a component that already exists.
+	// FAMILIAR, not UNFAMILIAR: every play-button character is minimally capable
+	// in all required skills on this server -- UNFAMILIAR hard-locks skill-gated
+	// machinery (ship/shuttle consoles gate on FAMILIAR) for anyone who didn't
+	// buy the license in chargen, which is not this server's intended experience.
 	for(var/singleton/skill/required_skill as anything in SSskills.required_skills)
-		character.LoadComponent(required_skill.component_type, SKILL_LEVEL_UNFAMILIAR)
+		character.LoadComponent(required_skill.component_type, SKILL_LEVEL_FAMILIAR)
 
 	if(icon_updates)
 		character.force_update_limbs()

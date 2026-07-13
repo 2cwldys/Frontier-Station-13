@@ -1,8 +1,8 @@
-import { Box, Button, Section } from 'tgui-core/components';
+import { Box, Button, NoticeBox, Section } from 'tgui-core/components';
 import type { BooleanLike } from 'tgui-core/react';
 import { useState } from 'react';
 import { useBackend } from '../backend';
-import { Window } from '../layouts';
+import { NtosWindow } from '../layouts';
 
 type ChatMessage = { sender: string; message: string; sent_at: string };
 
@@ -11,6 +11,7 @@ type FactionChatData = {
   faction_name: string | null;
   page: number;
   messages: ChatMessage[];
+  db_error: BooleanLike;
 };
 
 export const FactionChat = (props) => {
@@ -19,16 +20,16 @@ export const FactionChat = (props) => {
 
   if (!data.is_member) {
     return (
-      <Window width={420} height={300}>
-        <Window.Content>
+      <NtosWindow width={420} height={300}>
+        <NtosWindow.Content>
           <Section title="Faction Chat">
             <Box color="bad">
               You need a faction-issued ID with a real job assignment to use
               this.
             </Box>
           </Section>
-        </Window.Content>
-      </Window>
+        </NtosWindow.Content>
+      </NtosWindow>
     );
   }
 
@@ -40,8 +41,8 @@ export const FactionChat = (props) => {
   };
 
   return (
-    <Window width={420} height={480}>
-      <Window.Content scrollable>
+    <NtosWindow width={420} height={480}>
+      <NtosWindow.Content scrollable>
         <Section
           title={`Faction Chat -- ${data.faction_name}`}
           buttons={
@@ -55,6 +56,11 @@ export const FactionChat = (props) => {
             </>
           }
         >
+          {!!data.db_error && (
+            <NoticeBox danger>
+              Database error -- messages may be missing or failed to send.
+            </NoticeBox>
+          )}
           {data.messages
             .slice()
             .reverse()
@@ -81,7 +87,7 @@ export const FactionChat = (props) => {
             Send
           </Button>
         </Section>
-      </Window.Content>
-    </Window>
+      </NtosWindow.Content>
+    </NtosWindow>
   );
 };

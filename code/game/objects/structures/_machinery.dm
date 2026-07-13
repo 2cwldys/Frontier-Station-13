@@ -480,15 +480,22 @@ Class Procs:
 		return 0
 	if(!panel_open)
 		return 0
+	if(!C.tool_use_check(user, 0))
+		return 0
 	. = dismantle()
+	if(.)
+		C.degrade_durability(C.durability_per_use)
 
 /obj/structure/machinery/proc/default_deconstruction_screwdriver(var/mob/user, var/obj/item/S)
 	if(!istype(S) || S.tool_behaviour != TOOL_SCREWDRIVER)
+		return FALSE
+	if(!S.tool_use_check(user, 0))
 		return FALSE
 	S.play_tool_sound(get_turf(src), 50)
 	panel_open = !panel_open
 	to_chat(user, SPAN_NOTICE("You [panel_open ? "open" : "close"] the maintenance hatch of [src]."))
 	update_icon()
+	S.degrade_durability(S.durability_per_use)
 	return TRUE
 
 /obj/structure/machinery/proc/default_part_replacement(var/mob/user, var/obj/item/storage/part_replacer/R)

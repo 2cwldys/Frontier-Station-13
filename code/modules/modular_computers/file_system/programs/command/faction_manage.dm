@@ -3,7 +3,25 @@
  * Command-rank faction members manage jobs, pay, access codes, and faction account.
  * Officers can view. Regular members and non-members are denied data.
  * Reads computer.persistent_network for the faction context -- no per-program var.
+ *
+ * Two actions are open to anyone regardless of membership: "start_founding"
+ * and "support_founding" -- self-service faction founding. Founding is a
+ * global program feature, independent of the current console's own
+ * shackle/registration state -- it's visible and usable from ANY console
+ * (see ui_data()'s "petitions" list), not just one shackled to a brand-new
+ * unregistered UID. Starting a petition costs nothing up front; it takes
+ * FACTION_FOUNDING_REQUIRED_SUPPORTERS other distinct players consenting
+ * (tap with a handheld running this program, or self-consent at an open
+ * terminal) before it actually creates the faction, at which point
+ * FACTION_CREATION_COST is charged to the founder and becomes the new
+ * faction's starting balance, and a bearer faction master card
+ * (cards_ids.dm) is printed.
  */
+
+// FACTION_CREATION_COST and FACTION_FOUNDING_REQUIRED_SUPPORTERS are
+// declared in code/__DEFINES/misc.dm -- persistence_factions.dm (which
+// also needs them, for the founding sweep) is #included earlier in the
+// .dme than this file.
 
 /datum/computer_file/program/faction_manage
 	filename = "faction_manage"
@@ -19,6 +37,11 @@
 	color = LIGHT_COLOR_BLUE
 	tgui_id = "FactionManagement"
 
+	/// Which founding petition tap_consent() canvasses for -- set via the
+	/// "select_tap_target" action, since founding is no longer tied to this
+	/// console's own persistent_network.
+	var/tap_target_uid = null
+
 /datum/computer_file/program/faction_manage/ui_data(mob/user)
 	var/list/data = initial_data()
 	// Normalize defensively: consoles shackled before uid normalization carry
@@ -30,6 +53,35 @@
 	var/faction_registered = net && islist(GLOB.persistence_faction_cache) && (net in GLOB.persistence_faction_cache)
 	data["faction_registered"] = faction_registered
 
+	// Founding is a global program feature, independent of this console's
+	// own shackle/registration state -- computed and returned unconditionally
+	// so it's visible from ANY console, including an already-registered one
+	// (e.g. Hub), not just a console shackled to a brand-new unregistered UID.
+	data["faction_creation_enabled"] = GLOB.faction_creation_enabled
+	data["founding_required"] = FACTION_FOUNDING_REQUIRED_SUPPORTERS
+	data["petitions"] = list()
+	if(islist(GLOB.persistence_faction_founding_petitions))
+		for(var/target_uid in GLOB.persistence_faction_founding_petitions)
+			var/list/p = GLOB.persistence_faction_founding_petitions[target_uid]
+			data["petitions"] += list(list(
+				"target_uid"        = target_uid,
+				"founder_name"      = p["founder_name"],
+				"faction_name"      = p["faction_name"],
+				"abbreviation"      = p["abbreviation"],
+				"supporter_count"   = length(p["supporters"]),
+				"is_founder"        = (user.ckey == p["founder_ckey"]),
+				"already_supported" = (user.ckey in p["supporters"])
+			))
+			// Opportunistic retry -- if the threshold was already met but a
+			// prior finalize attempt failed (founder was broke/offline),
+			// retry on every poll from the founder. Piggybacks on
+			// ui_auto_update instead of needing a dedicated "Finalize" button.
+			// The real safety net is SSpersistence's periodic founding sweep
+			// (persistence_factions.dm, forceSaveAll()) -- this just makes it
+			// instant while the founder happens to be looking at the screen.
+			if(user.ckey == p["founder_ckey"] && length(p["supporters"]) >= FACTION_FOUNDING_REQUIRED_SUPPORTERS)
+				SSpersistence.tryFinalizeFounding(target_uid)
+
 	if(!net)
 		data["op_rank"]        = -2  // -2 = not linked
 		data["balance"]        = null
@@ -37,10 +89,7 @@
 		data["known_factions"] = list()
 		return data
 
-	var/list/op_member = user.ckey ? get_faction_member(user.ckey, net) : null
-	var/op_rank = op_member ? (isnull(op_member["rank"]) ? 0 : (op_member["rank"] + 0)) : -1
-	if(check_rights(R_ADMIN, 0, user))
-		op_rank = 99
+	var/op_rank = get_effective_faction_rank(user, net)
 	data["op_rank"] = op_rank  // -1 = non-member, 0+ = member rank, 99 = admin
 
 	if(op_rank >= 1)
@@ -111,6 +160,26 @@
 			qdel(mq)
 		data["members"] = members_out
 		data["cards_epoch"] = get_faction_cards_epoch(net)
+
+		// Panic Purge audit trail -- officer+-visible record of who purged
+		// IDs and when, distinct from log_game()/message_admins() (admin-only).
+		var/list/purges_out = list()
+		if(GLOB.config.sql_enabled && SSdbcore.Connect())
+			var/datum/db_query/pq = SSdbcore.NewQuery(
+				{"SELECT issued_by_name, revoked_count, member_count, created_at FROM ss13_faction_id_purges
+				WHERE faction_uid = :uid ORDER BY id DESC LIMIT 20"},
+				list("uid" = net)
+			)
+			pq.Execute()
+			while(pq.NextRow())
+				purges_out += list(list(
+					"issued_by"     = pq.item[1],
+					"revoked_count" = text2num(pq.item[2]) || 0,
+					"member_count"  = text2num(pq.item[3]) || 0,
+					"when"          = pq.item[4]
+				))
+			qdel(pq)
+		data["id_purges"] = purges_out
 	else
 		data["balance"]        = null
 		data["jobs"]           = list()
@@ -118,8 +187,36 @@
 		data["last_payroll"]   = 0
 		data["members"]        = list()
 		data["cards_epoch"]    = 0
+		data["id_purges"]      = list()
 
 	return data
+
+/// Shared by revoke_member_id (one target) and panic_purge_ids (every member).
+/// Live-sweeps the world for this target's unrevoked faction ID(s), revokes
+/// them immediately, and stages a pending revoke so an offline copy (or the
+/// target themselves, if not currently in the round) is caught automatically
+/// on next restore -- see applyPendingFactionRevokes(), persistence_factions.dm.
+/// That consumption only ever fires once per staged row (processed flag), so
+/// a card reprinted after the revoke is never retroactively caught.
+/datum/computer_file/program/faction_manage/proc/_revoke_member_id_now(net, target_ckey, target_name, issuer_ckey)
+	var/revoked_now = 0
+	for(var/obj/item/card/id/old_card in world)
+		if(!old_card.revoked && old_card.registered_name == target_name && normalize_faction_uid(old_card.employer_faction) == net)
+			old_card.revoked = TRUE
+			old_card.access = list()
+			old_card.update_name()
+			revoked_now++
+
+	if(GLOB.config.sql_enabled && SSdbcore.Connect())
+		var/datum/db_query/rq = SSdbcore.NewQuery(
+			{"INSERT INTO ss13_faction_pending_revokes (faction_uid, target_ckey, target_name, issued_by_ckey)
+			VALUES (:uid, :ckey, :name, :issuer)"},
+			list("uid" = net, "ckey" = target_ckey, "name" = target_name, "issuer" = issuer_ckey)
+		)
+		rq.Execute()
+		qdel(rq)
+
+	return revoked_now
 
 /datum/computer_file/program/faction_manage/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
 	if(..())
@@ -127,22 +224,50 @@
 
 	var/mob/user = usr
 	var/net = normalize_faction_uid(computer.persistent_network)
-	if(!net) return
-
-	var/list/op_member = user.ckey ? get_faction_member(user.ckey, net) : null
-	var/op_rank = op_member ? (isnull(op_member["rank"]) ? 0 : (op_member["rank"] + 0)) : -1
-	if(check_rights(R_ADMIN, 0, user))
-		op_rank = 99
+	// No blanket "if(!net) return" here -- start_founding/support_founding/
+	// select_tap_target are global program features, independent of this
+	// console's own shackle state. Every other action below re-derives its
+	// own permission from op_rank, which safely evaluates to -1 (refused)
+	// when net is null (get_effective_faction_rank() itself guards on
+	// !faction_uid), so nothing downstream needs its own null-net guard.
+	var/op_rank = get_effective_faction_rank(user, net)
 
 	switch(action)
-		// ---- Create Faction -------------------------------------------------
-		if("create_faction")
-			if(op_rank < 2) return
-			// Faction UID is computer.persistent_network (already set via shackling)
-			if(islist(GLOB.persistence_faction_cache) && (net in GLOB.persistence_faction_cache))
+		// ---- Start Founding Petition ------------------------------------------
+		// Open to anyone -- no op_rank check, no dependency on this
+		// console's own net. Prompts for the TARGET faction UID directly
+		// (not tied to computer.persistent_network) so founding works from
+		// any console, including an already-registered one. Starts a
+		// petition -- it does NOT create the faction or touch the founder's
+		// balance yet; see tryFinalizeFounding().
+		if("start_founding")
+			if(!GLOB.faction_creation_enabled)
+				to_chat(user, SPAN_WARNING("Faction founding is currently disabled by administrators."))
+				return
+			if(!user.ckey || !user.real_name)
+				return
+			var/obj/item/card/id/cf_id = user.GetIdCard()
+			if(!cf_id || !cf_id.associated_account_number)
+				to_chat(user, SPAN_WARNING("No linked bank account."))
+				return
+			var/datum/money_account/cf_acc = SSeconomy.get_account(cf_id.associated_account_number)
+			if(!cf_acc || cf_acc.money < FACTION_CREATION_COST)
+				to_chat(user, SPAN_WARNING("Insufficient funds -- founding a new faction costs [FACTION_CREATION_COST] credits, charged once the petition succeeds."))
+				return
+
+			var/cf_uid_raw = tgui_input_text(user, "Faction network UID (lowercase, underscores for spaces):", "Start Founding Petition", max_length = 64)
+			if(!cf_uid_raw) return
+			var/cf_uid = normalize_faction_uid(cf_uid_raw)
+			if(!cf_uid) return
+
+			if(islist(GLOB.persistence_faction_cache) && (cf_uid in GLOB.persistence_faction_cache))
 				to_chat(user, SPAN_WARNING("This network is already registered to a faction."))
 				return
-			var/cf_name = tgui_input_text(user, "Full faction name (e.g. 'Hub Enterprises'):", "Create Faction", max_length = 64)
+			if(islist(GLOB.persistence_faction_founding_petitions) && (cf_uid in GLOB.persistence_faction_founding_petitions))
+				to_chat(user, SPAN_WARNING("A founding petition is already underway for this network."))
+				return
+
+			var/cf_name = tgui_input_text(user, "Full faction name (e.g. 'Hub Enterprises'):", "Start Founding Petition", max_length = 64)
 			if(!cf_name) return
 			cf_name = lowertext(cf_name)
 
@@ -153,45 +278,54 @@
 						to_chat(user, SPAN_WARNING("A faction named '[cf_name]' already exists."))
 						return
 
-			var/cf_abbr = tgui_input_text(user, "Abbreviation (2-4 letters, e.g. 'HUB'):", "Create Faction", max_length = 8)
+			var/cf_abbr = tgui_input_text(user, "Abbreviation (2-4 letters, e.g. 'HUB'):", "Start Founding Petition", max_length = 8)
 			if(!cf_abbr) return
-			var/cf_balance = tgui_input_number(user, "Starting balance (credits):", "Create Faction", 0, 10000000, 0)
-			if(isnull(cf_balance)) return
 
-			if(!SSpersistence.databaseCheckConnection("faction_manage create_faction"))
+			// Re-validate after the async prompts -- registration state and
+			// the player's balance could both have changed while typing.
+			if(islist(GLOB.persistence_faction_cache) && (cf_uid in GLOB.persistence_faction_cache))
+				to_chat(user, SPAN_WARNING("This network was registered by someone else while you were typing."))
+				return
+			if(islist(GLOB.persistence_faction_founding_petitions) && (cf_uid in GLOB.persistence_faction_founding_petitions))
+				to_chat(user, SPAN_WARNING("Someone else started a founding petition for this network while you were typing."))
+				return
+			if(!cf_acc || cf_acc.money < FACTION_CREATION_COST)
+				to_chat(user, SPAN_WARNING("Insufficient funds."))
+				return
+
+			if(!SSpersistence.databaseCheckConnection("faction_manage start_founding"))
 				to_chat(user, SPAN_WARNING("Database connection failed."))
 				return
 
-			var/datum/db_query/cf_q1 = SSdbcore.NewQuery(
-				"INSERT INTO ss13_factions (uid, name, abbreviation, is_lore) VALUES (:uid, :name, :abbr, 0)",
-				list("uid" = net, "name" = cf_name, "abbr" = cf_abbr)
-			)
-			cf_q1.Execute()
-			SSpersistence.databaseCheckQueryResult(cf_q1, "faction_manage create_faction insert")
-			qdel(cf_q1)
+			if(!SSpersistence.startFoundingPetition(cf_uid, user.ckey, user.real_name, cf_name, cf_abbr))
+				to_chat(user, SPAN_WARNING("Failed to start the founding petition -- database error. Try again shortly."))
+				return
+			to_chat(user, SPAN_GOOD("Founding petition started for '[cf_name]'. Gather [FACTION_FOUNDING_REQUIRED_SUPPORTERS] other players' support -- tap them with a device running Faction Management, or have them visit this terminal directly."))
+			log_game("[key_name(user)] started a founding petition for '[cf_uid]' ([cf_name]).")
+			. = TRUE
 
-			var/datum/db_query/cf_q2 = SSdbcore.NewQuery(
-				{"INSERT INTO ss13_faction_accounts (faction_uid, balance) VALUES (:uid, :balance)
-				ON DUPLICATE KEY UPDATE balance = VALUES(balance), saved_at = NOW()"},
-				list("uid" = net, "balance" = cf_balance)
-			)
-			cf_q2.Execute()
-			SSpersistence.databaseCheckQueryResult(cf_q2, "faction_manage create_faction account")
-			qdel(cf_q2)
+		// ---- Support Founding ---------------------------------------------------
+		// Terminal-based self-consent -- any player at ANY console can
+		// support any active petition, identified by target_uid (no longer
+		// tied to this console's own network). Tap-based consent is the
+		// other always-available method (see tap_consent() below);
+		// _try_add_supporter() is the shared dedup chokepoint for both.
+		if("support_founding")
+			var/support_uid = normalize_faction_uid(params["target_uid"])
+			if(!support_uid) return
+			_try_add_supporter(support_uid, user.ckey, user.real_name, user)
+			. = TRUE
 
-			// Update in-memory cache
-			if(!islist(GLOB.persistence_faction_cache))
-				GLOB.persistence_faction_cache = list()
-			GLOB.persistence_faction_cache[net] = list("name" = cf_name, "abbreviation" = cf_abbr, "balance" = cf_balance)
-			if(!islist(GLOB.persistence_faction_jobs_cache))
-				GLOB.persistence_faction_jobs_cache = list()
-			GLOB.persistence_faction_jobs_cache[net] = list()
-
-			to_chat(user, SPAN_GOOD("Faction '[cf_name]' ([net]) created and registered."))
-			log_game("[key_name(user)] created faction '[net]' ([cf_name]) via faction_manage.")
-
-			// Register creator as a command-rank member
-			SSpersistence.factionRegisterMember(user.ckey, user.real_name, net, null, 2)
+		// ---- Select Tap Target --------------------------------------------------
+		// Picks which active petition tap_consent() (below) canvasses for
+		// when this program's handheld is used to tap another player.
+		if("select_tap_target")
+			var/new_target = normalize_faction_uid(params["target_uid"])
+			if(!islist(GLOB.persistence_faction_founding_petitions) || !(new_target in GLOB.persistence_faction_founding_petitions))
+				to_chat(user, SPAN_WARNING("That founding petition is no longer active."))
+				return
+			tap_target_uid = new_target
+			to_chat(user, SPAN_NOTICE("Tapping a player will now canvass support for '[GLOB.persistence_faction_founding_petitions[new_target]["faction_name"]]'."))
 			. = TRUE
 
 		// ---- Add Job --------------------------------------------------------
@@ -546,23 +680,108 @@
 			var/confirm = tgui_alert(user, "Revoke [target_name]'s [get_faction_name(net)] ID? This applies immediately if they're in the world, and will apply automatically the next time they (or their ID) show up otherwise.", "Revoke Member ID", list("Revoke", "Cancel"))
 			if(confirm != "Revoke") return
 
-			var/revoked_now = 0
-			for(var/obj/item/card/id/old_card in world)
-				if(!old_card.revoked && old_card.registered_name == target_name && normalize_faction_uid(old_card.employer_faction) == net)
-					old_card.revoked = TRUE
-					old_card.access = list()
-					old_card.update_name()
-					revoked_now++
-
-			if(GLOB.config.sql_enabled && SSdbcore.Connect())
-				var/datum/db_query/rq = SSdbcore.NewQuery(
-					{"INSERT INTO ss13_faction_pending_revokes (faction_uid, target_ckey, target_name, issued_by_ckey)
-					VALUES (:uid, :ckey, :name, :issuer)"},
-					list("uid" = net, "ckey" = target_ckey, "name" = target_name, "issuer" = user.ckey)
-				)
-				rq.Execute()
-				qdel(rq)
+			var/revoked_now = _revoke_member_id_now(net, target_ckey, target_name, user.ckey)
 
 			to_chat(user, SPAN_GOOD("Revoked [revoked_now] live ID card[revoked_now == 1 ? "" : "s"] for [target_name]. Any offline copies will be revoked automatically when [target_name] is next restored."))
 			log_game("[key_name(user)] revoked faction ID access for '[target_name]' (ckey: [target_ckey]) in faction '[net]' via faction_manage ([revoked_now] live cards caught).")
 			. = TRUE
+
+		// ---- Panic Purge: revoke every ID this faction has ever issued -----
+		// Exempts the issuer's own card (matching revoke_member_id's own
+		// self-protection) -- an officer triggering this shouldn't lock
+		// themselves out mid-response. Recorded to ss13_faction_id_purges
+		// regardless, so officers+ have a visible audit trail in the TGUI
+		// itself (see ui_data()), not just admin-only log_game()/message_admins().
+		if("panic_purge_ids")
+			if(op_rank < 2) return
+			var/confirm2 = tgui_alert(user, "PANIC PURGE: revoke every [get_faction_name(net)] ID card except your own? Everyone else -- online or not -- will need to print a new one. This cannot be undone.", "Panic Purge IDs", list("Purge", "Cancel"))
+			if(confirm2 != "Purge") return
+
+			if(!SSpersistence.databaseCheckConnection("faction_manage panic_purge_ids"))
+				to_chat(user, SPAN_WARNING("Database connection failed -- no members could be looked up."))
+				return
+
+			var/list/roster = list()
+			var/datum/db_query/rosterq = SSdbcore.NewQuery(
+				"SELECT ckey, real_name FROM ss13_faction_members WHERE faction_uid = :uid",
+				list("uid" = net)
+			)
+			rosterq.Execute()
+			if(SSpersistence.databaseCheckQueryResult(rosterq, "faction_manage panic_purge_ids roster"))
+				while(rosterq.NextRow())
+					if(rosterq.item[1] == user.ckey)
+						continue
+					roster += list(list("ckey" = rosterq.item[1], "real_name" = rosterq.item[2]))
+			qdel(rosterq)
+
+			var/total_live = 0
+			for(var/list/member in roster)
+				total_live += _revoke_member_id_now(net, member["ckey"], member["real_name"], user.ckey)
+
+			var/datum/db_query/auditq = SSdbcore.NewQuery(
+				{"INSERT INTO ss13_faction_id_purges (faction_uid, issued_by_ckey, issued_by_name, revoked_count, member_count)
+				VALUES (:uid, :ckey, :name, :revoked, :members)"},
+				list("uid" = net, "ckey" = user.ckey, "name" = user.real_name || key_name(user), "revoked" = total_live, "members" = length(roster))
+			)
+			auditq.Execute()
+			SSpersistence.databaseCheckQueryResult(auditq, "faction_manage panic_purge_ids audit")
+			qdel(auditq)
+
+			to_chat(user, SPAN_GOOD("Panic purge complete: [total_live] live ID card[total_live == 1 ? "" : "s"] revoked across [length(roster)] member[length(roster) == 1 ? "" : "s"] (your own ID was not touched). Offline members will be caught automatically when next restored."))
+			log_game("[key_name(user)] PANIC PURGED all faction IDs for '[net]' via faction_manage -- [total_live] live cards revoked across [length(roster)] members (issuer exempted).")
+			message_admins("[key_name_admin(user)] triggered a panic ID purge for faction '[net]' -- [total_live] live cards revoked across [length(roster)] members.")
+			. = TRUE
+
+/// Tapping a mob with a handheld running Faction Management while a
+/// petition is selected (tap_target_uid, set via "select_tap_target")
+/// prompts them to consent -- the "tap" half of the two always-available
+/// consent methods (the other is "support_founding" above, for terminal
+/// self-consent). Delegated from /obj/item/modular_computer/attack()
+/// (interaction.dm), same pattern First Responder's toggle_prisoner_tag()
+/// already uses.
+/datum/computer_file/program/faction_manage/proc/tap_consent(mob/living/target, mob/user)
+	if(!istype(target) || !target.ckey || !target.client)
+		to_chat(user, SPAN_WARNING("[target] has no active session to prompt."))
+		return
+	if(target == user)
+		to_chat(user, SPAN_WARNING("You can't tap yourself -- use the terminal's own Support Founding option instead."))
+		return
+	var/list/petition = tap_target_uid && islist(GLOB.persistence_faction_founding_petitions) ? GLOB.persistence_faction_founding_petitions[tap_target_uid] : null
+	if(!petition)
+		to_chat(user, SPAN_WARNING("Select a founding petition to canvass for first (Faction Management -> Found a New Faction)."))
+		return
+	if(target.ckey == petition["founder_ckey"] || (target.ckey in petition["supporters"]))
+		to_chat(user, SPAN_WARNING("[target] has already been accounted for."))
+		return
+	user.visible_message(SPAN_NOTICE("[user] holds \the [computer] up to [target]..."))
+	var/confirm = tgui_alert(target, "[user] wants you to support founding the faction '[petition["faction_name"]]'. Do you consent?", "Faction Founding", list("Yes", "No"))
+	if(confirm != "Yes")
+		to_chat(user, SPAN_WARNING("[target] declined."))
+		return
+	_try_add_supporter(tap_target_uid, target.ckey, target.real_name, target)
+
+/// Shared dedup chokepoint for both consent methods (tap_consent() above,
+/// "support_founding" in ui_act()). Rejects the founder's own ckey and
+/// repeat supporters, then hands off to SSpersistence for the actual
+/// insert/cache mutation. Auto-finalizes once the threshold is reached.
+/datum/computer_file/program/faction_manage/proc/_try_add_supporter(faction_uid, ckey, real_name, mob/notify_target)
+	var/list/petition = islist(GLOB.persistence_faction_founding_petitions) ? GLOB.persistence_faction_founding_petitions[faction_uid] : null
+	if(!petition)
+		if(notify_target)
+			to_chat(notify_target, SPAN_WARNING("There is no active founding petition here."))
+		return FALSE
+	if(ckey == petition["founder_ckey"])
+		if(notify_target)
+			to_chat(notify_target, SPAN_WARNING("You started this petition -- it needs [FACTION_FOUNDING_REQUIRED_SUPPORTERS] OTHER supporters."))
+		return FALSE
+	if(ckey in petition["supporters"])
+		if(notify_target)
+			to_chat(notify_target, SPAN_NOTICE("You've already supported this petition."))
+		return FALSE
+	if(!SSpersistence.addFoundingSupporter(faction_uid, ckey))
+		return FALSE
+	if(notify_target)
+		to_chat(notify_target, SPAN_GOOD("You support the founding of '[petition["faction_name"]]'. ([length(petition["supporters"])]/[FACTION_FOUNDING_REQUIRED_SUPPORTERS])"))
+	if(length(petition["supporters"]) >= FACTION_FOUNDING_REQUIRED_SUPPORTERS)
+		SSpersistence.tryFinalizeFounding(faction_uid)
+	return TRUE

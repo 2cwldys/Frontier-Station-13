@@ -23,6 +23,14 @@
 /// one-time _apply_network() sweep can never see on its own.
 #define FACTION_BEACON_SWEEP_INTERVAL 30 SECONDS
 
+/// How often (while operating) a beacon's fuel reserve drains, and by how
+/// much. Shared by faction_beacon.dm and piracy_beacon.dm. ~100 credits/hour
+/// -- a full 50000 reserve lasts ~3 weeks of continuous operation.
+/// Deliberately much slower than portgen/basic's real-time sheet burn
+/// (hours) -- tune these two defines if the cadence feels off.
+#define BEACON_FUEL_DRAIN_INTERVAL 10 MINUTES
+#define BEACON_FUEL_DRAIN_AMOUNT 25
+
 /obj/structure/machinery/faction_beacon
 	name = "faction beacon"
 	desc = "An anchor beacon that ties nearby infrastructure to a faction network."
@@ -70,6 +78,17 @@
 	/// the beacon already went active, which the one-time _apply_network()
 	/// sweep can never see on its own.
 	var/next_sweep_time = 0
+	/// Physical credit reserve that keeps this beacon running -- drains
+	/// slowly while powered (see process()), auto-powers the beacon off at
+	/// zero via _power_down(). Fed by inserting spacecash (attackby()),
+	/// withdrawable via the TGUI. Fully persistent.
+	var/fuel_credits = 0
+	/// Hard cap on fuel_credits. Fixed per-type, not admin-adjustable.
+	var/max_fuel_credits = 50000
+	/// FALSE only on the hub beacon subtype -- admin-spawned, exempt entirely.
+	var/requires_fuel = TRUE
+	/// world.time of the next periodic fuel-drain tick, mirrors next_sweep_time.
+	var/next_fuel_drain_time = 0
 
 /// Z-number (as text) -> the faction beacon currently claiming that whole
 /// Z-level. Only one beacon may be active per Z at a time -- first-placed/
@@ -98,6 +117,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		_release_security_grants()
 		_release_persistence_save()
 		_release_site_pin()
+		_release_swept_objects()
 
 	// Losing the beacon to COMBAT additionally "defeats" the station it
 	// anchored -- make sure admins can't miss it. Only for genuine combat
@@ -123,12 +143,30 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	if(world.time >= next_sweep_time)
 		next_sweep_time = world.time + FACTION_BEACON_SWEEP_INTERVAL
 		_sweep_unassigned_objects(_station_zs())
+	if(requires_fuel && world.time >= next_fuel_drain_time)
+		next_fuel_drain_time = world.time + BEACON_FUEL_DRAIN_INTERVAL
+		fuel_credits = max(0, fuel_credits - BEACON_FUEL_DRAIN_AMOUNT)
+		if(fuel_credits <= 0)
+			_power_down(null, "ran out of fuel credits")
 
 /// Wrench to (un)anchor -- moving the beacon requires unwrenching it first.
 /// Must be powered off before it can be unwrenched (that already guarantees
 /// no active Z claim needs releasing here), and command-tier faction access
 /// is required either way, matching toggle_beacon_power()'s own gate.
 /obj/structure/machinery/faction_beacon/attackby(obj/item/attacking_item, mob/user, params)
+	if(istype(attacking_item, /obj/item/spacecash) && !istype(attacking_item, /obj/item/spacecash/ewallet))
+		if(!requires_fuel)
+			to_chat(user, SPAN_WARNING("\The [src] doesn't need fuel credits."))
+			return TRUE
+		var/obj/item/spacecash/cash = attacking_item
+		if(fuel_credits + cash.worth > max_fuel_credits)
+			to_chat(user, SPAN_WARNING("\The [src] can't hold that much more -- [max_fuel_credits - fuel_credits] credits of space left."))
+			return TRUE
+		fuel_credits += cash.worth
+		user.visible_message(SPAN_NOTICE("[user] feeds \the [cash] into \the [src]."), \
+			SPAN_NOTICE("You feed [cash.worth] credits into \the [src]. Reserve: [fuel_credits]/[max_fuel_credits]."))
+		qdel(cash)
+		return TRUE
 	if(attacking_item.tool_behaviour == TOOL_WRENCH)
 		if(anchored && powered)
 			to_chat(user, SPAN_WARNING("Power down \the [src] before unwrenching it."))
@@ -146,15 +184,49 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 /obj/structure/machinery/faction_beacon/worldstate_get_content()
 	if(!faction_uid)
 		return list()
-	return list("faction_uid" = faction_uid, "powered" = powered, "locked" = locked, "security_radius" = security_radius)
+	return list("faction_uid" = faction_uid, "powered" = powered, "locked" = locked, "security_radius" = security_radius, "fuel_credits" = fuel_credits)
 
 /obj/structure/machinery/faction_beacon/worldstate_apply_content(list/content)
 	faction_uid = content["faction_uid"] || ""
 	powered = isnull(content["powered"]) ? FALSE : !!content["powered"]
 	locked = isnull(content["locked"]) ? TRUE : !!content["locked"]
 	security_radius = isnull(content["security_radius"]) ? 1 : text2num(content["security_radius"])
-	if(faction_uid && powered)
+	fuel_credits = isnull(content["fuel_credits"]) ? 0 : between(0, text2num(content["fuel_credits"]), max_fuel_credits)
+	if(faction_uid && powered && (!requires_fuel || fuel_credits > 0))
 		_apply_network()
+	else if(powered && requires_fuel && fuel_credits <= 0)
+		powered = FALSE // saved in an inconsistent state -- don't silently claim with no fuel
+
+/// Mirrors worldstate_get_content()/worldstate_apply_content() exactly --
+/// non-mapload beacons (admin-spawned, or built away from the original map
+/// template) auto-register into the tracked-objects persistence system
+/// instead of worldstate (_machinery.dm's Initialize()), which reads these
+/// overrides, not the worldstate ones. Without this, fuel_credits and every
+/// other field here silently drops to the base /obj empty-list default.
+/obj/structure/machinery/faction_beacon/persistent_objects_get_content()
+	var/list/content = ..()
+	if(!faction_uid)
+		return content
+	content["faction_uid"] = faction_uid
+	content["powered"] = powered
+	content["locked"] = locked
+	content["security_radius"] = security_radius
+	content["fuel_credits"] = fuel_credits
+	return content
+
+/obj/structure/machinery/faction_beacon/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["faction_uid"]))     faction_uid     = content["faction_uid"] || ""
+	if(!isnull(content["powered"]))         powered         = !!content["powered"]
+	if(!isnull(content["locked"]))          locked          = !!content["locked"]
+	if(!isnull(content["security_radius"])) security_radius = text2num(content["security_radius"])
+	if(!isnull(content["fuel_credits"]))    fuel_credits    = between(0, text2num(content["fuel_credits"]), max_fuel_credits)
+	if(faction_uid && powered && (!requires_fuel || fuel_credits > 0))
+		_apply_network()
+	else if(powered && requires_fuel && fuel_credits <= 0)
+		powered = FALSE
 
 /// Every Z-level belonging to this beacon's own host station/site (all decks
 /// of a multi-Z station connected via stairs/ladders, not just the specific
@@ -447,6 +519,13 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 			if(AL.req_access_faction)
 				continue
 			AL.req_access_faction = faction_uid
+			// Clear whatever specific access codes the door had left over
+			// from mapping -- otherwise a claimed door could stay locked to
+			// the new faction's own members, who have no matching codes.
+			// Faction-only access by default; members can tighten it further
+			// via the faction tagger's own door-access configuration.
+			AL.req_access = null
+			AL.req_one_access = null
 			configured++
 	catch(var/exception/al_e)
 		log_subsystem_persistence_error("Faction beacon: airlock sweep failed: [al_e]")
@@ -498,6 +577,127 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		log_game("Faction beacon at ([x],[y],[z]): networked [configured] object(s)/area(s) to faction '[faction_uid]' across z-level(s) [english_list(station_zs)].")
 	return configured
 
+/// Reverses _sweep_unassigned_objects() (and any manual Faction Tagger claim
+/// that happens to match): clears persistent_network/faction_shackled/
+/// req_access_faction back to unassigned on every compatible object/area
+/// across this beacon's station currently networked to ITS faction --
+/// called alongside the other _release_*() procs wherever this beacon stops
+/// being active (powered down, deleted, destroyed). Reuses the exact same
+/// vars worldstate already tracks for each type, so the cleared state
+/// persists through the normal save path with no new persistence code.
+/obj/structure/machinery/faction_beacon/proc/_release_swept_objects()
+	var/list/station_zs = _station_zs()
+	var/released = 0
+
+	try
+		for(var/obj/structure/machinery/cryopod/pod in world)
+			if(!(GET_Z(pod) in station_zs))
+				continue
+			if(pod.persistent_network != faction_uid)
+				continue
+			pod.persistent_network = ""
+			pod.persistent_spawn   = FALSE
+			released++
+	catch(var/exception/cryo_e)
+		log_subsystem_persistence_error("Faction beacon: cryopod release failed: [cryo_e]")
+
+	try
+		for(var/obj/structure/machinery/telepad_cargo/pad in world)
+			if(!(GET_Z(pad) in station_zs))
+				continue
+			if(pad.persistent_network != faction_uid)
+				continue
+			pad.persistent_network = ""
+			pad.persistent_spawn   = FALSE
+			pad.faction_shackled   = FALSE
+			released++
+	catch(var/exception/pad_e)
+		log_subsystem_persistence_error("Faction beacon: telepad release failed: [pad_e]")
+
+	try
+		for(var/obj/item/modular_computer/MC in world)
+			if(istype(MC, /obj/item/modular_computer/handheld))
+				continue
+			if(!(GET_Z(MC) in station_zs))
+				continue
+			if(MC.persistent_network != faction_uid)
+				continue
+			MC.persistent_network = ""
+			MC.faction_shackled   = FALSE
+			released++
+	catch(var/exception/mc_e)
+		log_subsystem_persistence_error("Faction beacon: modular computer release failed: [mc_e]")
+
+	try
+		for(var/obj/structure/machinery/telecomms/T in world)
+			if(!(GET_Z(T) in station_zs))
+				continue
+			if(T.persistent_network != faction_uid)
+				continue
+			T.persistent_network = ""
+			released++
+	catch(var/exception/tc_e)
+		log_subsystem_persistence_error("Faction beacon: telecomms release failed: [tc_e]")
+
+	try
+		for(var/obj/structure/machinery/door/airlock/AL in world)
+			if(!(GET_Z(AL) in station_zs))
+				continue
+			if(AL.req_access_faction != faction_uid)
+				continue
+			AL.req_access_faction = ""
+			// Mirror the sweep's own reset -- an abandoned door reverts to
+			// fully open, not stuck with the former faction's custom codes.
+			AL.req_access = null
+			AL.req_one_access = null
+			released++
+	catch(var/exception/al_e)
+		log_subsystem_persistence_error("Faction beacon: airlock release failed: [al_e]")
+
+	try
+		for(var/obj/structure/machinery/autodoc/AD in world)
+			if(!(GET_Z(AD) in station_zs))
+				continue
+			if(AD.persistent_network != faction_uid)
+				continue
+			AD.persistent_network = ""
+			released++
+	catch(var/exception/ad_e)
+		log_subsystem_persistence_error("Faction beacon: autodoc release failed: [ad_e]")
+
+	try
+		for(var/area/A in GLOB.areas)
+			if(!A.is_blueprint_area)
+				continue
+			if(A.persistent_network != faction_uid)
+				continue
+			var/on_z = FALSE
+			for(var/turf/AT in A.contents)
+				if(GET_Z(AT) in station_zs)
+					on_z = TRUE
+					break
+			if(!on_z)
+				continue
+			A.persistent_network = ""
+			released++
+	catch(var/exception/area_e)
+		log_subsystem_persistence_error("Faction beacon: area release failed: [area_e]")
+
+	try
+		for(var/obj/structure/machinery/porta_turret/PT in world)
+			if(!(GET_Z(PT) in station_zs))
+				continue
+			if(PT.persistent_network != faction_uid)
+				continue
+			PT.persistent_network = ""
+			released++
+	catch(var/exception/turret_e)
+		log_subsystem_persistence_error("Faction beacon: turret release failed: [turret_e]")
+
+	if(released)
+		log_game("Faction beacon at ([x],[y],[z]): released [released] object(s)/area(s) from faction '[faction_uid]' across z-level(s) [english_list(station_zs)].")
+	return released
+
 /obj/structure/machinery/faction_beacon/update_icon()
 	icon_state = "bspacerelay"
 	// No dedicated "on"/"off" sprite exists yet -- a light glow is a safe,
@@ -546,6 +746,9 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	data["can_configure"] = can_configure_faction_shackle(user, faction_uid, 1)
 	data["refusal_reason"] = _claim_refusal_reason()
 	data["security_radius"] = security_radius
+	data["fuel_credits"] = fuel_credits
+	data["max_fuel_credits"] = max_fuel_credits
+	data["requires_fuel"] = requires_fuel
 	return data
 
 /obj/structure/machinery/faction_beacon/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
@@ -594,6 +797,25 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 			to_chat(user, SPAN_GOOD("Security radius set to [security_radius]."))
 			log_admin("[key_name(user)] set faction beacon security radius to [security_radius] at ([x],[y],[z]).")
 			. = TRUE
+		if("withdraw")
+			if(!can_configure_faction_shackle(user, faction_uid, 1))
+				return
+			if(!requires_fuel)
+				return
+			var/amount = text2num(params["amount"])
+			if(isnull(amount) || amount <= 0)
+				return
+			amount = min(amount, fuel_credits)
+			if(amount <= 0)
+				to_chat(user, SPAN_WARNING("No credits to withdraw."))
+				return
+			fuel_credits -= amount
+			var/obj/item/spacecash/bundle/cash = new(get_turf(src))
+			cash.worth += amount
+			cash.update_icon()
+			to_chat(user, SPAN_GOOD("Withdrew [amount] credits."))
+			log_game("[key_name(user)] withdrew [amount] fuel credits from a faction beacon at ([x],[y],[z]).")
+			. = TRUE
 
 /// Shared power-toggle body -- used by the TGUI's "toggle_power" action.
 /obj/structure/machinery/faction_beacon/proc/_toggle_power(mob/user)
@@ -601,24 +823,38 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		to_chat(user, SPAN_WARNING("You need command access in [faction_uid ? get_faction_name(faction_uid) : "this beacon's faction"] to toggle it."))
 		return
 
-	powered = !powered
-	if(!powered)
-		_release_security_grants()
-		_release_persistence_save()
-		_release_site_pin()
-		active = FALSE
-		_release_z_claim()
-		QDEL_NULL(beacon_looping_sound)
-		update_icon()
+	if(powered)
+		_power_down(user, null)
 		to_chat(user, SPAN_WARNING("Beacon powered down. Z-level [GET_Z(src)] is now unclaimed, no longer persisted, and its security tier grants released."))
-	else
-		_apply_network()
-		if(active)
-			to_chat(user, SPAN_GOOD("Beacon powered up. Network active."))
-		else
-			to_chat(user, SPAN_WARNING("Beacon powered up, but could not claim: [_claim_refusal_reason()]."))
+		return
 
-	message_admins("[key_name(user)] [powered ? "powered up" : "powered down"] a faction beacon ([faction_uid ? get_faction_name(faction_uid) : "unconfigured"]) at ([x],[y],[z]). (<a href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[x];Y=[y];Z=[z]'>JMP</a>)")
+	if(requires_fuel && fuel_credits <= 0)
+		to_chat(user, SPAN_WARNING("\The [src] has no fuel credits -- insert spacecash first."))
+		return
+
+	powered = TRUE
+	_apply_network()
+	if(active)
+		to_chat(user, SPAN_GOOD("Beacon powered up. Network active."))
+	else
+		to_chat(user, SPAN_WARNING("Beacon powered up, but could not claim: [_claim_refusal_reason()]."))
+	message_admins("[key_name(user)] powered up a faction beacon ([faction_uid ? get_faction_name(faction_uid) : "unconfigured"]) at ([x],[y],[z]). (<a href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[x];Y=[y];Z=[z]'>JMP</a>)")
+
+/// Shared power-down body -- used by _toggle_power() (manual) and the
+/// automatic out-of-fuel shutoff in process(). user is null for the
+/// automatic case; reason is appended to the admin message either way.
+/obj/structure/machinery/faction_beacon/proc/_power_down(mob/user, reason)
+	powered = FALSE
+	_release_security_grants()
+	_release_persistence_save()
+	_release_site_pin()
+	_release_swept_objects()
+	active = FALSE
+	_release_z_claim()
+	QDEL_NULL(beacon_looping_sound)
+	update_icon()
+	var/who = user ? key_name(user) : "Automatic"
+	message_admins("[who] powered down a faction beacon ([faction_uid ? get_faction_name(faction_uid) : "unconfigured"]) at ([x],[y],[z])[reason ? " -- [reason]" : ""]. (<a href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[x];Y=[y];Z=[z]'>JMP</a>)")
 
 // Faction assignment is configured via the faction tagger tool, or the TGUI's
 // admin-only "set_faction" action above (for a "raw" session where nobody has
@@ -676,6 +912,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	color = "#6699ff"
 	guaranteed_security_tier = ZONE_HIGHSEC
 	security_radius = 2 // reaches further than a standard faction beacon's default of 1
+	requires_fuel = FALSE // admin-spawned, immune to the credit maintenance mechanic
 
 /obj/structure/machinery/faction_beacon/hub/ui_interact(mob/user, datum/tgui/ui)
 	ui = SStgui.try_update_ui(user, src, ui)

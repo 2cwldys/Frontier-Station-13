@@ -5,15 +5,29 @@
 
 @use 'sass:color';
 
-$nanotrasen: #2c2c2c;
+$darkblue: #0d1b33; // matches interface/skin.dmf's client-shell navy
 
 .theme-ntos_darkmode {
-  --button-background-default: #{$nanotrasen};
+  --button-background-default: #2c2c2c;
   --button-color-transparent: rgba(227, 240, 255, 0.75);
   --progress-bar-background: rgba(0, 0, 0, 0.5);
-  --progress-bar-fill: #{$nanotrasen};
-  --titlebar-background: #{color.scale($nanotrasen, $lightness: -25%)};
-  --color-base: #{color.scale($nanotrasen, $lightness: -45%)};
+  --progress-bar-fill: #2c2c2c;
+  --titlebar-background: #{color.scale($darkblue, $lightness: 10%)};
+  --color-base: #{$darkblue};
+  // Window.scss actually paints the window with the background-image
+  // gradient (--color-base-start/-end), not --color-base directly --
+  // those two are otherwise only ever set once, at :root, off the vendored
+  // gray default (tgui-core/styles/vars-colors.scss), so no theme's
+  // --color-base change alone ever reaches the visible window fill.
+  --color-base-start: #{$darkblue};
+  --color-base-end: #{$darkblue};
   --section-background: rgba(0, 0, 0, 0.33);
 
+}
+
+// Cancels the global SCC watermark (main.scss's unscoped .Layout__content
+// rule) for this theme only -- two-class selector outweighs the global
+// one-class rule regardless of stylesheet load order.
+.theme-ntos_darkmode .Layout__content {
+  background-image: none;
 }

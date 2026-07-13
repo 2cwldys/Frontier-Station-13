@@ -667,7 +667,9 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	content["aidisabled"] = aidisabled
 	content["locked"]     = locked
 	if(cell)
-		content["cell_charge"] = cell.charge
+		content["cell_type"]      = "[cell.type]"
+		content["cell_charge"]    = cell.charge
+		content["cell_maxcharge"] = cell.maxcharge
 	return content
 
 /obj/structure/machinery/power/apc/worldstate_apply_content(list/content)
@@ -684,8 +686,16 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	if(!isnull(content["autoflag"]))   autoflag   = content["autoflag"]
 	if(!isnull(content["aidisabled"])) aidisabled = content["aidisabled"]
 	if(!isnull(content["locked"]))     locked     = content["locked"]
+	if(content["cell_type"])
+		var/celltype = text2path(content["cell_type"])
+		if(celltype && (!cell || cell.type != celltype))
+			if(cell)
+				qdel(cell)
+			cell = new celltype(src)
 	if(cell && !isnull(content["cell_charge"]))
 		cell.charge = text2num(content["cell_charge"])
+	if(cell && !isnull(content["cell_maxcharge"]))
+		cell.maxcharge = text2num(content["cell_maxcharge"])
 	update_icon()
 
 // ------- Camera (network is a list) -------

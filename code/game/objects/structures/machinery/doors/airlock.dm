@@ -1781,6 +1781,8 @@ About the new airlock wires panel:
 			update_icon()
 		return TRUE
 	else if(attacking_item.tool_behaviour == TOOL_SCREWDRIVER)
+		if(!attacking_item.tool_use_check(user, 0))
+			return TRUE
 		if (src.p_open)
 			if (stat & BROKEN)
 				to_chat(user, SPAN_WARNING("The panel is broken and cannot be closed."))
@@ -1791,6 +1793,7 @@ About the new airlock wires panel:
 			src.p_open = TRUE
 			to_chat(user, SPAN_NOTICE("You carefully unscrew the panel on \the [src]"))
 		src.update_icon()
+		attacking_item.degrade_durability(attacking_item.durability_per_use)
 		return TRUE
 	else if(attacking_item.tool_behaviour == TOOL_WIRECUTTER)
 		return src.attack_hand(user)
@@ -1842,9 +1845,13 @@ About the new airlock wires panel:
 						to_chat(user, SPAN_NOTICE("The hydraulic strength easily overcomes the resistance of the airlock's motors opening the way ahead!"))
 						open(1)
 				else
-					open(1)
+					if(attacking_item.tool_use_check(user, 0))
+						open(1)
+						attacking_item.degrade_durability(attacking_item.durability_per_use)
 			else
-				close(1)
+				if(attacking_item.tool_use_check(user, 0))
+					close(1)
+					attacking_item.degrade_durability(attacking_item.durability_per_use)
 		return TRUE
 	else if(istype(attacking_item, /obj/item/material/twohanded/fireaxe))
 		if(locked && user.a_intent != I_HURT)
@@ -2177,6 +2184,8 @@ About the new airlock wires panel:
 	if(req_access_faction)
 		var/obj/item/card/id/I = M ? M.GetIdCard() : null
 		if(!I) return FALSE
+		if(I.is_faction_master && !I.revoked && normalize_faction_uid(I.employer_faction) == req_access_faction)
+			return TRUE // faction master card -- full bypass, no code-matching needed
 		var/list/faction_access = I.GetFactionAccess(req_access_faction, M)
 		if(isnull(faction_access))
 			return FALSE // not a member of this faction at all

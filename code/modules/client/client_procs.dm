@@ -277,9 +277,36 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 // This allows Serenity's coordinate system (-2/-1/0 for left panel, EAST+1 for right) to work
 /client/verb/OnResize()
 	set hidden = 1
+	refit_dynamic_view()
+
+/// Set by Sector View's look()/_start_viewing() right before overriding
+/// client.view -- restored directly on the way out instead of trusting
+/// refit_dynamic_view()'s live winget() recompute, which is only reliable
+/// when genuinely triggered by a window resize event (this proc's other
+/// caller, OnResize() above), not the Sector View close transition.
+/client/var/saved_dynamic_view = null
+
+/// Recomputes the dynamic letterbox view string from the current map window
+/// size and re-fits the fullscreen overlays (gameui border included) to it.
+/// Split out of OnResize() so code that temporarily overrides client.view
+/// (e.g. the overmap Sector Map View's look()/unlook(), ship.dm) can restore
+/// the real dynamic view instead of hard-setting a stale flat value.
+/client/proc/refit_dynamic_view()
+	if(saved_dynamic_view)
+		// Sector View has view/eye overridden right now (see saved_dynamic_view
+		// above) -- a resize event firing mid-session (e.g. the "Fit Viewport"
+		// verb) must not fight that cache-and-restore contract by recomputing
+		// and overwriting view out from under it.
+		return
 	var/divisor = text2num(winget(src, "mapwindow.map", "icon-size")) || world.icon_size
 	var/winsize_string = winget(src, "mapwindow.map", "size")
 	if(!winsize_string || !length(winsize_string))
+		// winget() can come back empty right after a fullscreen/border
+		// toggle, before the skin has finished re-laying-out -- never leave
+		// view stuck at whatever it was before (e.g. an expanded sector
+		// view). Same guaranteed-safe fallback vanilla unlook() used before
+		// this proc existed.
+		view = world.view
 		return
 	var/map_px_x = text2num(winsize_string)
 	var/map_px_y = text2num(copytext(winsize_string, findtext(winsize_string, "x") + 1, 0))
@@ -289,6 +316,10 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 	var/new_y = round((map_px_y - 2 * divisor) / divisor)
 	if(new_x > 5 && new_y > 5)
 		view = "[new_x]x[new_y]"
+	else
+		// Same guaranteed-safe fallback -- don't leave view stuck if the
+		// computed size doesn't clear the sanity floor.
+		view = world.view
 	// Reset eye perspective
 	var/last_eye = eye
 	eye = mob

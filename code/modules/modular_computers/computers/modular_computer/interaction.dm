@@ -171,6 +171,12 @@
 	if(istype(FR))
 		FR.toggle_prisoner_tag(target_mob, user)
 		return
+	// Faction Management open with an active founding petition: tapping a
+	// player prompts them to consent to the petition instead of attacking
+	var/datum/computer_file/program/faction_manage/FM = active_program
+	if(istype(FM))
+		FM.tap_consent(target_mob, user)
+		return
 	if(scan_mode == SCANNER_MEDICAL)
 		var/datum/component/health_analyzer/h_analyzer = src.GetComponent(/datum/component/health_analyzer)
 		if(!h_analyzer)

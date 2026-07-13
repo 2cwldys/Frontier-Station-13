@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Box, Button, NoticeBox, NumberInput, Section } from 'tgui-core/components';
 import type { BooleanLike } from 'tgui-core/react';
 import { useBackend } from '../backend';
@@ -14,6 +15,9 @@ type FactionBeaconData = {
   can_configure: BooleanLike;
   refusal_reason: string | null;
   security_radius: number;
+  fuel_credits: number;
+  max_fuel_credits: number;
+  requires_fuel: BooleanLike;
 };
 
 export const FactionBeacon = (props) => {
@@ -29,9 +33,16 @@ export const FactionBeacon = (props) => {
     can_configure,
     refusal_reason,
     security_radius,
+    fuel_credits,
+    max_fuel_credits,
+    requires_fuel,
   } = data;
+  const [withdrawAmount, setWithdrawAmount] = useState(0);
 
   const canTogglePower = anchored && (!locked || is_admin) && can_configure;
+  const fuelRatio = max_fuel_credits > 0 ? fuel_credits / max_fuel_credits : 0;
+  const fuelColor =
+    fuelRatio > 0.66 ? 'good' : fuelRatio > 0.33 ? 'average' : 'bad';
 
   let disabledReason = '';
   if (!anchored) {
@@ -43,7 +54,7 @@ export const FactionBeacon = (props) => {
   }
 
   return (
-    <Window width={420} height={340} title="Faction Beacon">
+    <Window width={420} height={requires_fuel ? 500 : 340} title="Faction Beacon">
       <Window.Content>
         <Section title="Status">
           <Box mb={1}>
@@ -97,6 +108,39 @@ export const FactionBeacon = (props) => {
             </Button>
           </Box>
         </Section>
+        {!!requires_fuel && (
+          <Section title="Fuel Reserve">
+            <Box mb={1}>
+              Reserve:{' '}
+              <Box inline bold color={fuelColor}>
+                {fuel_credits} / {max_fuel_credits} cr
+              </Box>
+            </Box>
+            <Box color="label" mb={1}>
+              Insert credit chips (not charge cards) to add fuel. Drains
+              slowly while powered -- an empty reserve auto-powers the beacon
+              off.
+            </Box>
+            <NumberInput
+              value={withdrawAmount}
+              minValue={0}
+              maxValue={fuel_credits}
+              onChange={(value) => setWithdrawAmount(value)}
+            />
+            <Button
+              icon="money-bill-wave"
+              color="average"
+              ml={1}
+              disabled={!canTogglePower || withdrawAmount <= 0}
+              onClick={() => {
+                act('withdraw', { amount: withdrawAmount });
+                setWithdrawAmount(0);
+              }}
+            >
+              Withdraw
+            </Button>
+          </Section>
+        )}
         {!!is_admin && (
           <Section title="Admin: Force-Set Faction">
             <Button.Input

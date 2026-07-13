@@ -1,5 +1,17 @@
 // ---- Shuttle Construction ----
 
+/singleton/cargo_item/ntnet_relay
+	category = "engineering"
+	name = "NTNet quantum relay"
+	supplier = "Hub"
+	description = "A quantum relay for NTNet coverage. Wrench to secure after placement. At least one powered, undamaged relay must exist for any NTNet-dependent PDA or console program to function."
+	price = 25000
+	items = list(
+		/obj/structure/machinery/ntnet_relay/crate
+	)
+	access = 0
+	container_type = "crate"
+
 /singleton/cargo_item/docking_beacon
 	category = "engineering"
 	name = "docking beacon"
@@ -564,6 +576,20 @@
 	price = 45
 	items = list(
 		/obj/item/cell/high
+	)
+	access = 0
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/infinitepowercell
+	category = "engineering"
+	name = "infinite-capacity power cell"
+	supplier = "Hub"
+	description = "A theoretically impossible power cell that never depletes. Use with extreme discretion."
+	price = 50000
+	items = list(
+		/obj/item/cell/infinite
 	)
 	access = 0
 	container_type = "crate"

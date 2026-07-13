@@ -38,6 +38,23 @@ type FactionMember = {
   rank: number;
 };
 
+type FactionIdPurge = {
+  issued_by: string;
+  revoked_count: number;
+  member_count: number;
+  when: string;
+};
+
+type FoundingPetition = {
+  target_uid: string;
+  founder_name: string;
+  faction_name: string;
+  abbreviation: string;
+  supporter_count: number;
+  is_founder: BooleanLike;
+  already_supported: BooleanLike;
+};
+
 type FactionData = {
   faction_uid: string | null;
   faction_name: string | null;
@@ -50,6 +67,95 @@ type FactionData = {
   transactions: FactionTransaction[];
   members: FactionMember[];
   cards_epoch: number;
+  id_purges: FactionIdPurge[];
+  faction_creation_enabled: BooleanLike;
+  founding_required: number;
+  petitions: FoundingPetition[];
+};
+
+// Global program feature -- available from ANY console regardless of that
+// console's own shackle/registration state. Rendered in every branch below.
+const FoundingSection = (props: {
+  faction_creation_enabled: BooleanLike;
+  founding_required: number;
+  petitions: FoundingPetition[];
+}) => {
+  const { act } = useBackend<FactionData>();
+  const { faction_creation_enabled, founding_required, petitions } = props;
+  return (
+    <Section title="Found a New Faction">
+      {!faction_creation_enabled && (
+        <NoticeBox danger>
+          Faction founding is currently disabled by administrators.
+        </NoticeBox>
+      )}
+      <Box mt={1}>
+        <Button
+          icon="plus"
+          color="good"
+          disabled={!faction_creation_enabled}
+          tooltip="Starts a founding petition for 100,000 credits from your own bank account (charged only once other players consent). You become its first command-rank member."
+          onClick={() => act('start_founding')}
+        >
+          Start Founding Petition (100,000 cr)
+        </Button>
+      </Box>
+      {petitions.length > 0 && (
+        <Table mt={1}>
+          <Table.Row header>
+            <Table.Cell>Faction</Table.Cell>
+            <Table.Cell>Founder</Table.Cell>
+            <Table.Cell>Support</Table.Cell>
+            <Table.Cell />
+          </Table.Row>
+          {petitions.map((p) => (
+            <Table.Row key={p.target_uid}>
+              <Table.Cell bold>
+                {p.faction_name} ({p.abbreviation})
+              </Table.Cell>
+              <Table.Cell color="label">{p.founder_name}</Table.Cell>
+              <Table.Cell>
+                {p.supporter_count}/{founding_required}
+              </Table.Cell>
+              <Table.Cell>
+                {p.is_founder ? (
+                  <Box italic color="label">
+                    You started this
+                  </Box>
+                ) : p.already_supported ? (
+                  <Box color="good">Supported</Box>
+                ) : (
+                  <>
+                    <Button
+                      compact
+                      icon="thumbs-up"
+                      color="good"
+                      onClick={() =>
+                        act('support_founding', { target_uid: p.target_uid })
+                      }
+                    >
+                      Support
+                    </Button>
+                    <Button
+                      compact
+                      icon="hand-pointer"
+                      onClick={() =>
+                        act('select_tap_target', {
+                          target_uid: p.target_uid,
+                        })
+                      }
+                    >
+                      Canvas via tap
+                    </Button>
+                  </>
+                )}
+              </Table.Cell>
+            </Table.Row>
+          ))}
+        </Table>
+      )}
+    </Section>
+  );
 };
 
 const RANK_LABELS = ['Crew', 'Officer', 'Command'];
@@ -70,48 +176,44 @@ export const FactionManagement = (props) => {
     known_factions,
     members,
     cards_epoch,
+    faction_creation_enabled,
+    founding_required,
+    petitions,
   } = data;
+
+  const foundingSection = (
+    <FoundingSection
+      faction_creation_enabled={faction_creation_enabled}
+      founding_required={founding_required}
+      petitions={petitions ?? []}
+    />
+  );
 
   if (!faction_uid) {
     return (
-      <NtosWindow width={500} height={300}>
-        <NtosWindow.Content>
+      <NtosWindow width={500} height={480}>
+        <NtosWindow.Content scrollable>
           <NoticeBox>
-            This console is not linked to a faction. Use &quot;Link to
-            Faction&quot; on the computer to claim it.
+            This console is not linked to a faction. Use a faction tagger
+            tool on the computer to shackle it to a network, or found a new
+            faction below regardless of this console's own state.
           </NoticeBox>
+          {foundingSection}
         </NtosWindow.Content>
       </NtosWindow>
     );
   }
 
-  // Faction UID set but not yet registered in DB — offer creation to command rank
+  // Faction UID set but not yet registered in DB.
   if (!faction_registered) {
     return (
-      <NtosWindow width={500} height={350}>
-        <NtosWindow.Content>
-          <Section title={`${faction_uid} — Unregistered`}>
-            <NoticeBox>
-              The network &quot;{faction_uid}&quot; has not been registered as a
-              faction yet.
-            </NoticeBox>
-            {op_rank >= 2 && (
-              <Box mt={1}>
-                <Button
-                  icon="plus"
-                  color="good"
-                  onClick={() => act('create_faction')}
-                >
-                  Create Faction &quot;{faction_uid}&quot;
-                </Button>
-              </Box>
-            )}
-            {op_rank < 2 && op_rank >= -1 && (
-              <Box italic color="label" mt={1}>
-                Contact a command-rank member to register this faction.
-              </Box>
-            )}
-          </Section>
+      <NtosWindow width={500} height={480}>
+        <NtosWindow.Content scrollable>
+          <NoticeBox>
+            The network &quot;{faction_uid}&quot; has not been registered as
+            a faction yet.
+          </NoticeBox>
+          {foundingSection}
         </NtosWindow.Content>
       </NtosWindow>
     );
@@ -119,14 +221,15 @@ export const FactionManagement = (props) => {
 
   if (op_rank < 1) {
     return (
-      <NtosWindow width={500} height={300}>
-        <NtosWindow.Content>
+      <NtosWindow width={500} height={480}>
+        <NtosWindow.Content scrollable>
           <Section title={faction_name ?? faction_uid}>
             <NoticeBox>
               You are not a member of {faction_name ?? faction_uid} or do not
               have officer access.
             </NoticeBox>
           </Section>
+          {foundingSection}
         </NtosWindow.Content>
       </NtosWindow>
     );
@@ -300,7 +403,21 @@ export const FactionManagement = (props) => {
         </Section>
 
         {/* Members Section */}
-        <Section title="Faction Members">
+        <Section
+          title="Faction Members"
+          buttons={
+            canManage && (
+              <Button
+                color="bad"
+                icon="skull-crossbones"
+                tooltip="Revokes EVERY ID card this faction has ever issued, live or offline, except your own. Cannot be undone."
+                onClick={() => act('panic_purge_ids')}
+              >
+                Panic Purge IDs
+              </Button>
+            )
+          }
+        >
           {!members || members.length === 0 ? (
             <Box italic color="label">
               No registered members found.
@@ -370,6 +487,30 @@ export const FactionManagement = (props) => {
             </Table>
           </Section>
         )}
+
+        {/* Panic Purge Audit Trail */}
+        {data.id_purges?.length > 0 && (
+          <Section title="ID Purge History">
+            <Table>
+              <Table.Row header>
+                <Table.Cell>Issued By</Table.Cell>
+                <Table.Cell>Revoked</Table.Cell>
+                <Table.Cell>Members</Table.Cell>
+                <Table.Cell>Time</Table.Cell>
+              </Table.Row>
+              {(data.id_purges ?? []).map((purge, i) => (
+                <Table.Row key={i}>
+                  <Table.Cell bold>{purge.issued_by}</Table.Cell>
+                  <Table.Cell color="bad">{purge.revoked_count}</Table.Cell>
+                  <Table.Cell color="label">{purge.member_count}</Table.Cell>
+                  <Table.Cell color="label">{purge.when}</Table.Cell>
+                </Table.Row>
+              ))}
+            </Table>
+          </Section>
+        )}
+
+        {foundingSection}
       </NtosWindow.Content>
     </NtosWindow>
   );

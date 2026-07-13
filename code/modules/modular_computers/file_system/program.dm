@@ -81,7 +81,7 @@ ABSTRACT_TYPE(/datum/computer_file/program)
 	var/tgui_id
 
 	/// Theme of this TGUI interface
-	var/tgui_theme = "scc"
+	var/tgui_theme = "ntos_darkmode"
 
 	/// If this TGUI should autoupdate or not.
 	var/ui_auto_update = TRUE							// Path to nanomodule, make sure to set this if implementing new program.

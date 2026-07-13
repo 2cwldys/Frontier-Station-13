@@ -17,7 +17,7 @@
 GLOBAL_LIST_INIT(modcomp_factory_default_programs, list("computerconfig", "clientmanager", "pai_access_lock"))
 
 /obj/item/modular_computer/persistent_objects_get_content()
-	var/list/content = list()
+	var/list/content = ..() // picks up base /obj/item wear_durability/wear_broken
 	if(persistent_network)
 		content["persistent_network"] = persistent_network
 	if(faction_shackled)

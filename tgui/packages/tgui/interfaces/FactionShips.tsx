@@ -2,7 +2,7 @@ import { Box, Button, LabeledList, Section, Tabs } from 'tgui-core/components';
 import type { BooleanLike } from 'tgui-core/react';
 import { useState } from 'react';
 import { useBackend } from '../backend';
-import { Window } from '../layouts';
+import { NtosWindow } from '../layouts';
 
 type Corvette = {
   corvette_id: number;
@@ -36,8 +36,8 @@ export const FactionShips = (props) => {
   const [tab, setTab] = useState('Status');
 
   return (
-    <Window width={460} height={400}>
-      <Window.Content scrollable>
+    <NtosWindow width={460} height={400}>
+      <NtosWindow.Content scrollable>
         {!data.own_faction_name && (
           <Section title="Faction Ship Command">
             <Box color="bad">
@@ -145,7 +145,7 @@ export const FactionShips = (props) => {
             )}
           </>
         )}
-      </Window.Content>
-    </Window>
+      </NtosWindow.Content>
+    </NtosWindow>
   );
 };

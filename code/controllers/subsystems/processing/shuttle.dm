@@ -16,6 +16,12 @@ SUBSYSTEM_DEF(shuttle)
 	var/list/shuttle_areas = list()              //All the areas of all shuttles.
 
 	var/list/lonely_shuttle_computers = list()   //shuttle computers that haven't been attached to their shuttles yet
+	/// computer/ship (Nav/Sensors/Helm) consoles that lost the init-order race
+	/// against their own ship's overmap marker registering itself -- retried
+	/// from /obj/effect/overmap/visitable/Initialize() (sectors.dm) once the
+	/// marker actually registers. Same shape as lonely_shuttle_computers above,
+	/// just for the other console family (which had no retry path at all before).
+	var/list/lonely_ship_computers = list()
 
 	var/list/landmarks_awaiting_sector = list()  //Stores automatic landmarks that are waiting for a sector to finish loading.
 	var/list/landmarks_still_needed = list()     //Stores landmark_tags that need to be assigned to the sector (landmark_tag = sector) when registered.

@@ -122,6 +122,11 @@
 	return ..()
 
 /obj/structure/machinery/ntnet_relay/attackby(obj/item/attacking_item, mob/user)
+	if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		attacking_item.play_tool_sound(get_turf(src), 50)
+		anchored = !anchored
+		to_chat(user, anchored ? SPAN_NOTICE("You secure \the [src] in place.") : SPAN_NOTICE("You unsecure \the [src]."))
+		return
 	if(attacking_item.tool_behaviour == TOOL_SCREWDRIVER)
 		attacking_item.play_tool_sound(get_turf(src), 50)
 		panel_open = !panel_open
@@ -140,3 +145,9 @@
 		qdel(src)
 		return
 	..()
+
+/// Cargo-ordered copy -- starts unanchored so it can be moved out of its
+/// crate before being wrenched into place. The base type's anchored = TRUE
+/// (whatever's already mapped in) is left untouched.
+/obj/structure/machinery/ntnet_relay/crate
+	anchored = FALSE

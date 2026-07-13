@@ -2,7 +2,7 @@ import { Button, Dropdown, LabeledList, Section, Tabs } from 'tgui-core/componen
 import type { BooleanLike } from 'tgui-core/react';
 import { useState } from 'react';
 import { useBackend } from '../backend';
-import { Window } from '../layouts';
+import { NtosWindow } from '../layouts';
 
 type Beacon = { tag: string; label: string; faction_restricted: string | null };
 type ShuttleRow = {
@@ -64,8 +64,8 @@ export const ShuttleDrydock = (props) => {
   );
 
   return (
-    <Window width={480} height={420}>
-      <Window.Content scrollable>
+    <NtosWindow width={480} height={420}>
+      <NtosWindow.Content scrollable>
         <Tabs>
           <Tabs.Tab selected={tab === 'Drydock'} onClick={() => setTab('Drydock')}>
             Drydock
@@ -158,7 +158,7 @@ export const ShuttleDrydock = (props) => {
             </LabeledList>
           </Section>
         )}
-      </Window.Content>
-    </Window>
+      </NtosWindow.Content>
+    </NtosWindow>
   );
 };

@@ -402,9 +402,29 @@ ABSTRACT_TYPE(/obj/item/gun)
  * * Fire time checks to avoid spam, as well as handling shoot delay.
  * * Makes the user face their target (duh).
  */
+/// Below this wear_durability, a gun starts risking a jam on each shot.
+#define GUN_JAM_DURABILITY_THRESHOLD 25
+/// Jam chance at the lowest non-zero durability (1) -- scales linearly
+/// down to 0% at GUN_JAM_DURABILITY_THRESHOLD.
+#define GUN_JAM_MAX_CHANCE 75
+
+/// Shared pre-shot gate for ballistic and energy guns alike (neither
+/// subtype overrides fire_checks()) -- durability-broken guns refuse to
+/// fire outright, and guns below GUN_JAM_DURABILITY_THRESHOLD risk a
+/// pre-fire jam that scales up the closer they get to 0.
 /obj/item/gun/proc/fire_checks(atom/target, mob/living/user, clickparams, pointblank=0, reflex=0)
 	if(!user || !target)
 		return FALSE
+
+	if(degrades_with_use)
+		if(wear_broken)
+			to_chat(user, SPAN_WARNING("\The [src] is broken and won't fire."))
+			return FALSE
+		if(wear_durability < GUN_JAM_DURABILITY_THRESHOLD)
+			var/jam_probability = GUN_JAM_MAX_CHANCE * (1 - wear_durability / GUN_JAM_DURABILITY_THRESHOLD)
+			if(prob(jam_probability))
+				to_chat(user, SPAN_WARNING("\The [src] jams!"))
+				return FALSE
 
 	add_fingerprint(user)
 
@@ -570,7 +590,18 @@ ABSTRACT_TYPE(/obj/item/gun)
 		SEND_SIGNAL(user, COMSIG_EMPTIED_MAGAZINE, src)
 
 //called after successfully firing
+/// COMSIG_GUN_FIRED handler -- registered in /obj/item/Initialize() only for
+/// degrades_with_use guns. Defined on /obj/item (not /obj/item/gun) since
+/// PROC_REF() in that shared Initialize() needs to resolve it from there.
+/// Durability-driven jamming/hard-blocking now happens pre-fire in
+/// fire_checks() (applies to ballistic and energy alike) -- this handler
+/// only needs to apply the wear itself.
+/obj/item/proc/on_gun_fired(datum/source, mob/user)
+	SIGNAL_HANDLER
+	degrade_durability(durability_per_use)
+
 /obj/item/gun/proc/handle_post_fire(mob/user, atom/target, var/pointblank = FALSE, var/reflex = FALSE, var/playemote = TRUE)
+	SEND_SIGNAL(src, COMSIG_GUN_FIRED, user)
 	play_fire_sound()
 	if(!suppressed)
 		if(playemote)

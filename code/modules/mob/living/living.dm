@@ -1,3 +1,8 @@
+/// Checked by Personal Travel's post-combat lockout -- see last_combat_time
+/// in living_defines.dm.
+/mob/living/proc/in_recent_combat()
+	return (world.time - last_combat_time) < PERSONAL_TRAVEL_COMBAT_LOCKOUT
+
 //mob verbs are faster than object verbs. See mob/verb/examine.
 /mob/living/verb/pulled(atom/movable/atom_movable as mob|obj in oview(1))
 	set name = "Pull"

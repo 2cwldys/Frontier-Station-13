@@ -27,6 +27,13 @@
 	/// Looping hum while operational -- reuses the faction beacon's sound, no new asset needed.
 	var/looping_sound_type = /datum/looping_sound/faction_beacon
 	VAR_PRIVATE/datum/looping_sound/beacon_looping_sound
+	/// Physical credit reserve -- see faction_beacon.dm's fuel_credits for the
+	/// full design rationale. Drains only while is_operational() (powered AND
+	/// in nullsec) -- a beacon that's powered but dormant in regulated space
+	/// isn't "running" and shouldn't burn fuel.
+	var/fuel_credits = 0
+	var/max_fuel_credits = 50000
+	var/next_fuel_drain_time = 0
 
 /// Every piracy beacon that currently exists -- unlike faction_beacon_by_z this
 /// isn't an exclusive per-Z claim, so it's just a flat registry.
@@ -48,8 +55,22 @@ GLOBAL_LIST_EMPTY(piracy_beacons)
 	return ..()
 
 /obj/structure/machinery/piracy_beacon/process()
-	if(is_operational() && prob(15))
+	if(!is_operational())
+		return
+	if(prob(15))
 		spark_system.queue()
+	if(world.time >= next_fuel_drain_time)
+		next_fuel_drain_time = world.time + BEACON_FUEL_DRAIN_INTERVAL
+		fuel_credits = max(0, fuel_credits - BEACON_FUEL_DRAIN_AMOUNT)
+		if(fuel_credits <= 0)
+			_fuel_depleted()
+
+/obj/structure/machinery/piracy_beacon/proc/_fuel_depleted()
+	powered = FALSE
+	QDEL_NULL(beacon_looping_sound)
+	update_icon()
+	visible_message(SPAN_WARNING("\The [src] sputters and powers down -- out of credits."))
+	log_game("Piracy beacon at ([x],[y],[z]) auto-powered off -- ran out of fuel credits.")
 
 /// TRUE only while powered AND this Z-level is genuinely nullsec -- medsec/highsec
 /// leave the beacon dormant even if it's powered on. Computed live (not cached) so
@@ -63,6 +84,36 @@ GLOBAL_LIST_EMPTY(piracy_beacons)
 	if(.)
 		return
 	_toggle_power(user)
+
+/obj/structure/machinery/piracy_beacon/attackby(obj/item/attacking_item, mob/user, params)
+	if(istype(attacking_item, /obj/item/spacecash) && !istype(attacking_item, /obj/item/spacecash/ewallet))
+		var/obj/item/spacecash/cash = attacking_item
+		if(fuel_credits + cash.worth > max_fuel_credits)
+			to_chat(user, SPAN_WARNING("\The [src] can't hold that much more -- [max_fuel_credits - fuel_credits] credits of space left."))
+			return TRUE
+		fuel_credits += cash.worth
+		user.visible_message(SPAN_NOTICE("[user] feeds \the [cash] into \the [src]."), \
+			SPAN_NOTICE("You feed [cash.worth] credits into \the [src]. Reserve: [fuel_credits]/[max_fuel_credits]."))
+		qdel(cash)
+		return TRUE
+	return ..()
+
+/obj/structure/machinery/piracy_beacon/AltClick(mob/user)
+	if(!Adjacent(user))
+		return
+	if(!fuel_credits)
+		to_chat(user, SPAN_WARNING("\The [src] has no stored credits."))
+		return
+	var/amount = tgui_input_number(user, "How many credits do you want to withdraw? (0 to [fuel_credits])", "Withdraw Fuel", 0, fuel_credits, 0)
+	if(!amount)
+		return
+	amount = min(amount, fuel_credits)
+	fuel_credits -= amount
+	var/obj/item/spacecash/bundle/cash = new(get_turf(src))
+	cash.worth += amount
+	cash.update_icon()
+	to_chat(user, SPAN_GOOD("Withdrew [amount] credits."))
+	log_game("[key_name(user)] withdrew [amount] fuel credits from a piracy beacon at ([x],[y],[z]).")
 
 /obj/structure/machinery/piracy_beacon/proc/_toggle_power(mob/user)
 	powered = !powered
@@ -90,15 +141,42 @@ GLOBAL_LIST_EMPTY(piracy_beacons)
 
 /// worldstate hooks -- piracy_beacon previously had no persistence at
 /// all, so powered silently reset to FALSE every restart. Skips saving a
-/// row entirely when off (nothing worth restoring), matching
-/// faction_beacon's own convention.
+/// row entirely when off with nothing stored (nothing worth restoring),
+/// matching faction_beacon's own convention -- but an off beacon still
+/// holding fuel credits must still be saved, or the reserve would be lost.
 /obj/structure/machinery/piracy_beacon/worldstate_get_content()
-	if(!powered)
+	if(!powered && !fuel_credits)
 		return list()
-	return list("powered" = TRUE)
+	return list("powered" = powered, "fuel_credits" = fuel_credits)
 
 /obj/structure/machinery/piracy_beacon/worldstate_apply_content(list/content)
 	powered = isnull(content["powered"]) ? FALSE : !!content["powered"]
+	fuel_credits = isnull(content["fuel_credits"]) ? 0 : between(0, text2num(content["fuel_credits"]), max_fuel_credits)
+	if(powered && !fuel_credits)
+		powered = FALSE // no fuel -- don't silently restore as running
+	if(is_operational())
+		_go_operational()
+	update_icon()
+
+/// Mirrors worldstate_get_content()/worldstate_apply_content() exactly --
+/// see faction_beacon.dm's matching overrides for why non-mapload beacons
+/// need this second path too (tracked-objects persistence, not worldstate).
+/obj/structure/machinery/piracy_beacon/persistent_objects_get_content()
+	var/list/content = ..()
+	if(!powered && !fuel_credits)
+		return content
+	content["powered"] = powered
+	content["fuel_credits"] = fuel_credits
+	return content
+
+/obj/structure/machinery/piracy_beacon/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["powered"]))      powered      = !!content["powered"]
+	if(!isnull(content["fuel_credits"])) fuel_credits = between(0, text2num(content["fuel_credits"]), max_fuel_credits)
+	if(powered && !fuel_credits)
+		powered = FALSE
 	if(is_operational())
 		_go_operational()
 	update_icon()

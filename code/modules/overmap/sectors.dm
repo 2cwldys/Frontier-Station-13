@@ -85,6 +85,17 @@ GLOBAL_DATUM(map_overmap, /area/overmap)
 	find_z_levels()     // This populates map_z and assigns z levels to the ship.
 	register_z_levels() // This makes external calls to update global z level information.
 
+	// Retry any computer/ship (Nav/Sensors/Helm) that lost the init-order race
+	// against this exact registration call -- see lonely_ship_computers
+	// (shuttle.dm) and computer/ship/Initialize() (ship.dm) for the other half.
+	for(var/obj/structure/machinery/computer/ship/SC as anything in SSshuttle.lonely_ship_computers)
+		if(!istype(src, SC.linked_type))
+			continue
+		if(!(SC.z in map_z))
+			continue
+		if(SC.attempt_hook_up(src))
+			SSshuttle.lonely_ship_computers -= SC
+
 	if(!SSatlas.current_map.overmap_z)
 		build_overmap()
 

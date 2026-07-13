@@ -15,6 +15,12 @@ GLOBAL_LIST_EMPTY(persistence_faction_jobs_cache)
 /// In-memory faction members keyed by "ckey|faction_uid": list("real_name"=...,"job_title"=...,"rank"=N)
 GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 
+/// In-memory founding petitions keyed by faction_uid: list("founder_ckey"=...,
+/// "founder_name"=...,"faction_name"=...,"abbreviation"=...,"supporters"=list of ckeys,
+/// "created_at"=...). Populated by faction_manage.dm's "start_founding" action,
+/// mutated by tap-consent/terminal self-consent, consumed on finalization.
+GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
+
 // ============================================================
 // INITIALIZE
 // ============================================================
@@ -123,6 +129,274 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 			factionPayroll(uid)
 
 	log_subsystem_persistence_info("Factions: Saved [length(GLOB.persistence_faction_cache)] faction accounts.")
+
+// ============================================================
+// FOUNDING PETITIONS
+// ============================================================
+
+/datum/controller/subsystem/persistence/proc/factionFoundingInitialize()
+	PRIVATE_PROC(TRUE)
+	GLOB.persistence_faction_founding_petitions = list()
+
+	if(!databaseCheckConnection("factionFoundingInitialize"))
+		return
+
+	try
+		var/datum/db_query/q = SSdbcore.NewQuery(
+			"SELECT faction_uid, founder_ckey, founder_name, faction_name, abbreviation FROM ss13_faction_founding_petitions",
+			list()
+		)
+		q.Execute()
+		if(databaseCheckQueryResult(q, "factionFoundingInitialize petitions"))
+			while(q.NextRow())
+				GLOB.persistence_faction_founding_petitions[q.item[1]] = list(
+					"founder_ckey" = q.item[2],
+					"founder_name" = q.item[3],
+					"faction_name" = q.item[4],
+					"abbreviation" = q.item[5],
+					"supporters"   = list()
+				)
+		qdel(q)
+	catch(var/exception/founding_e)
+		log_subsystem_persistence_error("Factions: failed to load founding petitions: [founding_e]")
+
+	try
+		var/datum/db_query/sq = SSdbcore.NewQuery(
+			"SELECT faction_uid, supporter_ckey FROM ss13_faction_founding_supporters",
+			list()
+		)
+		sq.Execute()
+		if(databaseCheckQueryResult(sq, "factionFoundingInitialize supporters"))
+			while(sq.NextRow())
+				var/list/petition = GLOB.persistence_faction_founding_petitions[sq.item[1]]
+				if(islist(petition))
+					petition["supporters"] += sq.item[2]
+		qdel(sq)
+	catch(var/exception/supporters_e)
+		log_subsystem_persistence_error("Factions: failed to load founding supporters: [supporters_e]")
+
+	log_subsystem_persistence_info("Factions: Loaded [length(GLOB.persistence_faction_founding_petitions)] founding petitions.")
+
+/datum/controller/subsystem/persistence/proc/startFoundingPetition(faction_uid, founder_ckey, founder_name, faction_name, abbreviation)
+	faction_uid = normalize_faction_uid(faction_uid)
+	if(!databaseCheckConnection("startFoundingPetition"))
+		return FALSE
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"INSERT INTO ss13_faction_founding_petitions (faction_uid, founder_ckey, founder_name, faction_name, abbreviation) VALUES (:uid, :ckey, :name, :fname, :abbr)",
+		list("uid" = faction_uid, "ckey" = founder_ckey, "name" = founder_name, "fname" = faction_name, "abbr" = abbreviation)
+	)
+	q.Execute()
+	var/ok = databaseCheckQueryResult(q, "startFoundingPetition")
+	qdel(q)
+	if(ok)
+		GLOB.persistence_faction_founding_petitions[faction_uid] = list(
+			"founder_ckey" = founder_ckey,
+			"founder_name" = founder_name,
+			"faction_name" = faction_name,
+			"abbreviation" = abbreviation,
+			"supporters"   = list()
+		)
+	return ok
+
+/// Returns TRUE only if ckey was newly added -- FALSE if they were already
+/// a supporter (dedup chokepoint, backed by the supporters table's
+/// composite primary key so a race between tap and terminal consent can't
+/// double-count the same ckey).
+/datum/controller/subsystem/persistence/proc/addFoundingSupporter(faction_uid, ckey)
+	faction_uid = normalize_faction_uid(faction_uid)
+	var/list/petition = GLOB.persistence_faction_founding_petitions[faction_uid]
+	if(!islist(petition))
+		return FALSE
+	if(ckey in petition["supporters"])
+		return FALSE
+	if(!databaseCheckConnection("addFoundingSupporter"))
+		return FALSE
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"INSERT INTO ss13_faction_founding_supporters (faction_uid, supporter_ckey) VALUES (:uid, :ckey) ON DUPLICATE KEY UPDATE supported_at = supported_at",
+		list("uid" = faction_uid, "ckey" = ckey)
+	)
+	q.Execute()
+	var/ok = databaseCheckQueryResult(q, "addFoundingSupporter")
+	qdel(q)
+	if(ok)
+		petition["supporters"] += ckey
+	return ok
+
+/datum/controller/subsystem/persistence/proc/cancelFoundingPetition(faction_uid)
+	faction_uid = normalize_faction_uid(faction_uid)
+	if(databaseCheckConnection("cancelFoundingPetition"))
+		var/datum/db_query/q = SSdbcore.NewQuery(
+			"DELETE FROM ss13_faction_founding_petitions WHERE faction_uid = :uid",
+			list("uid" = faction_uid)
+		)
+		q.Execute()
+		databaseCheckQueryResult(q, "cancelFoundingPetition")
+		qdel(q)
+	GLOB.persistence_faction_founding_petitions -= faction_uid
+
+/// Attempts to finalize a founding petition that has already reached its
+/// supporter threshold. Offline-safe: resolves the founder's bank account
+/// purely by ckey (cache first, DB fallback -- same lookup
+/// give_credits_to_player() uses), so this does NOT require the founder to
+/// be connected, let alone looking at a specific terminal. Called
+/// immediately when the threshold is reached (faction_manage.dm's
+/// _try_add_supporter()), opportunistically while the founder has Faction
+/// Management open (ui_data()), and by factionFoundingSweep() below on
+/// every persistence save cycle -- that sweep is what actually closes the
+/// gap where a petition could sit forever if the founder never happened to
+/// reopen the one terminal that started it. Returns TRUE if it actually
+/// created the faction.
+/datum/controller/subsystem/persistence/proc/tryFinalizeFounding(faction_uid)
+	faction_uid = normalize_faction_uid(faction_uid)
+	var/list/petition = GLOB.persistence_faction_founding_petitions[faction_uid]
+	if(!petition)
+		return FALSE
+	if(length(petition["supporters"]) < FACTION_FOUNDING_REQUIRED_SUPPORTERS)
+		return FALSE
+	if(islist(GLOB.persistence_faction_cache) && (faction_uid in GLOB.persistence_faction_cache))
+		cancelFoundingPetition(faction_uid)
+		return FALSE
+
+	var/founder_ckey = petition["founder_ckey"]
+
+	// Resolve the founder's bank account purely by ckey -- cache first, DB
+	// fallback -- same pattern give_credits_to_player() uses. Works whether
+	// or not the founder is currently connected.
+	var/acct_num = 0
+	for(var/cache_key in GLOB.persistence_economy_cache)
+		if(findtext(cache_key, "[founder_ckey]|") == 1)
+			acct_num = GLOB.persistence_economy_cache[cache_key]["account_number"] || 0
+			break
+	if(!acct_num && databaseCheckConnection("tryFinalizeFounding account lookup"))
+		var/datum/db_query/aq = SSdbcore.NewQuery(
+			"SELECT account_number FROM ss13_money_accounts WHERE ckey = :ckey ORDER BY id DESC LIMIT 1",
+			list("ckey" = founder_ckey)
+		)
+		aq.Execute()
+		if(aq.NextRow())
+			acct_num = text2num(aq.item[1]) || 0
+		qdel(aq)
+
+	var/datum/money_account/acc = acct_num ? SSeconomy.get_account(acct_num) : null
+	if(!acc || acc.money < FACTION_CREATION_COST)
+		return FALSE // stays queued -- retried next sweep/poll
+
+	if(!databaseCheckConnection("tryFinalizeFounding"))
+		return FALSE
+
+	SSeconomy.charge_to_account(acct_num, "Faction Founding", "Founded faction '[petition["faction_name"]]'", null, -FACTION_CREATION_COST)
+
+	var/datum/db_query/cf_q1 = SSdbcore.NewQuery(
+		"INSERT INTO ss13_factions (uid, name, abbreviation, is_lore) VALUES (:uid, :name, :abbr, 0)",
+		list("uid" = faction_uid, "name" = petition["faction_name"], "abbr" = petition["abbreviation"])
+	)
+	cf_q1.Execute()
+	databaseCheckQueryResult(cf_q1, "tryFinalizeFounding insert")
+	qdel(cf_q1)
+
+	var/datum/db_query/cf_q2 = SSdbcore.NewQuery(
+		"INSERT INTO ss13_faction_accounts (faction_uid, balance) VALUES (:uid, :balance) ON DUPLICATE KEY UPDATE balance = VALUES(balance), saved_at = NOW()",
+		list("uid" = faction_uid, "balance" = FACTION_CREATION_COST)
+	)
+	cf_q2.Execute()
+	databaseCheckQueryResult(cf_q2, "tryFinalizeFounding account")
+	qdel(cf_q2)
+
+	if(!islist(GLOB.persistence_faction_cache))
+		GLOB.persistence_faction_cache = list()
+	GLOB.persistence_faction_cache[faction_uid] = list("name" = petition["faction_name"], "abbreviation" = petition["abbreviation"], "balance" = FACTION_CREATION_COST)
+	if(!islist(GLOB.persistence_faction_jobs_cache))
+		GLOB.persistence_faction_jobs_cache = list()
+	GLOB.persistence_faction_jobs_cache[faction_uid] = list()
+
+	factionRegisterMember(founder_ckey, petition["founder_name"], faction_uid, null, 2)
+
+	// Master card spawn point: the founder's own turf if they're currently
+	// online, else any existing terminal already shackled to this network
+	// (the one that started the petition, if nothing else) -- same
+	// world-scan-by-persistent_network shape persistence_cryo's telepad
+	// delivery lookup already uses.
+	var/client/founder_client = GLOB.directory[founder_ckey]
+	var/mob/founder_mob = founder_client ? founder_client.mob : null
+	var/turf/spawn_turf = founder_mob ? get_turf(founder_mob) : null
+	if(!spawn_turf)
+		for(var/obj/item/modular_computer/MC in world)
+			if(normalize_faction_uid(MC.persistent_network) == faction_uid)
+				spawn_turf = get_turf(MC)
+				break
+	if(spawn_turf)
+		var/obj/item/card/id/faction_master/master_card = new(spawn_turf)
+		master_card.employer_faction = faction_uid
+		master_card.update_name()
+	else
+		message_admins("Faction '[petition["faction_name"]]' ([faction_uid]) founded, but no valid location was found to print its master card -- spawn one manually.")
+
+	if(founder_mob)
+		to_chat(founder_mob, SPAN_GOOD("Founding petition successful! '[petition["faction_name"]]' ([faction_uid]) is now a registered faction with a starting balance of [FACTION_CREATION_COST] credits.[spawn_turf ? " A faction master card has been printed." : ""]"))
+	log_game("Founding petition for '[faction_uid]' ([petition["faction_name"]]) succeeded -- founder [petition["founder_name"]] ([founder_ckey]), [length(petition["supporters"])] supporters, [FACTION_CREATION_COST] credits paid.")
+	message_admins("A founding petition succeeded: '[petition["faction_name"]]' ([faction_uid]), founded by [petition["founder_name"]] ([founder_ckey]) with [length(petition["supporters"])] supporters, paying [FACTION_CREATION_COST] credits.[founder_mob ? " (<a href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[founder_mob.x];Y=[founder_mob.y];Z=[founder_mob.z]'>JMP</a>)" : ""]")
+
+	cancelFoundingPetition(faction_uid)
+	return TRUE
+
+/// Periodic catch-all, called from forceSaveAll() (every persistence save
+/// cycle): sweeps every founding petition that has reached its supporter
+/// threshold and retries finalization. This is the actual fix for the gap
+/// where a finished petition could sit forever unless the founder
+/// specifically reopened the one terminal that started it -- now it
+/// finalizes automatically as soon as they're online (anywhere) with
+/// sufficient funds, no terminal required.
+/datum/controller/subsystem/persistence/proc/factionFoundingSweep()
+	if(!islist(GLOB.persistence_faction_founding_petitions))
+		return
+	for(var/faction_uid in GLOB.persistence_faction_founding_petitions.Copy())
+		var/list/petition = GLOB.persistence_faction_founding_petitions[faction_uid]
+		if(islist(petition) && length(petition["supporters"]) >= FACTION_FOUNDING_REQUIRED_SUPPORTERS)
+			tryFinalizeFounding(faction_uid)
+
+// ============================================================
+// FACTION CREATION TOGGLE
+// ============================================================
+
+/datum/controller/subsystem/persistence/proc/factionCreationToggleInitialize()
+	PRIVATE_PROC(TRUE)
+	if(!databaseCheckConnection("factionCreationToggleInitialize"))
+		return
+	try
+		var/datum/db_query/q = SSdbcore.NewQuery("SELECT enabled FROM ss13_faction_creation_toggle WHERE id = 1", list())
+		q.Execute()
+		if(databaseCheckQueryResult(q, "factionCreationToggleInitialize") && q.NextRow())
+			GLOB.faction_creation_enabled = text2num(q.item[1])
+		qdel(q)
+	catch(var/exception/toggle_e)
+		log_subsystem_persistence_error("Factions: failed to load faction creation toggle: [toggle_e]")
+
+/datum/controller/subsystem/persistence/proc/setFactionCreationEnabled(enabled)
+	GLOB.faction_creation_enabled = enabled
+	if(!databaseCheckConnection("setFactionCreationEnabled"))
+		return
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"INSERT INTO ss13_faction_creation_toggle (id, enabled) VALUES (1, :enabled) ON DUPLICATE KEY UPDATE enabled = VALUES(enabled)",
+		list("enabled" = enabled ? 1 : 0)
+	)
+	q.Execute()
+	databaseCheckQueryResult(q, "setFactionCreationEnabled")
+	qdel(q)
+
+/datum/admins/proc/toggle_faction_creation()
+	set name = "Toggle Faction Creation"
+	set category = "Persistence"
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	var/new_state = !GLOB.faction_creation_enabled
+	if(tgui_alert(usr, "Faction creation is currently [GLOB.faction_creation_enabled ? "ENABLED" : "DISABLED"]. [new_state ? "Enable" : "Disable"] it?", "Toggle Faction Creation", list("Yes", "No")) != "Yes")
+		return
+
+	SSpersistence.setFactionCreationEnabled(new_state)
+	log_and_message_admins("[new_state ? "enabled" : "disabled"] player self-service faction creation.", usr)
+	feedback_add_details("admin_verb", "TFC")
 
 // ============================================================
 // ACCOUNT OPERATIONS
@@ -1472,6 +1746,15 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		GLOB.persistence_faction_cache      -= chosen_uid
 		GLOB.persistence_faction_jobs_cache -= chosen_uid
 
+		// Revoke this faction's bearer master card, if it has one -- same
+		// revoke-by-scan idiom dispense_faction_id uses for superseded
+		// personal IDs (card.dm)
+		for(var/obj/item/card/id/faction_master/old_master in world)
+			if(!old_master.revoked && normalize_faction_uid(old_master.employer_faction) == chosen_uid)
+				old_master.revoked = TRUE
+				old_master.access = list()
+				old_master.update_name()
+
 		to_chat(usr, SPAN_GOOD("Faction '[chosen_uid]' removed."))
 		log_and_message_admins("removed faction '[chosen_uid]'", usr)
 
@@ -1704,6 +1987,23 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	if(!islist(GLOB.persistence_faction_members_cache))
 		return null
 	return GLOB.persistence_faction_members_cache["[ckey]|[faction_uid]"]
+
+/// -1 = non-member, 0+ = member rank, 99 = admin. Also grants rank 2
+/// (command) to whoever is holding that faction's bearer master card
+/// (cards_ids.dm), regardless of DB membership -- the card isn't tied to
+/// any ckey, so this can't be resolved via get_faction_member() alone.
+/proc/get_effective_faction_rank(mob/user, faction_uid)
+	if(!user || !faction_uid)
+		return -1
+	faction_uid = normalize_faction_uid(faction_uid)
+	if(check_rights(R_ADMIN, 0, user))
+		return 99
+	var/list/member = user.ckey ? get_faction_member(user.ckey, faction_uid) : null
+	var/rank = member ? (isnull(member["rank"]) ? 0 : (member["rank"] + 0)) : -1
+	var/obj/item/card/id/ID = user.GetIdCard()
+	if(ID && ID.is_faction_master && !ID.revoked && normalize_faction_uid(ID.employer_faction) == faction_uid)
+		rank = max(rank, 2)
+	return rank
 
 /datum/controller/subsystem/persistence/proc/factionRegisterMember(ckey, real_name, faction_uid, job_title = null, rank = 0)
 	faction_uid = normalize_faction_uid(faction_uid)

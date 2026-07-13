@@ -97,6 +97,11 @@
 
 #define COMSIG_BEFORE_GUN_FIRE "before_gun_fire"
 
+/// Sent on the gun itself (not the user) once a shot has successfully fired,
+/// from handle_post_fire() -- covers every gun subtype, not just modular
+/// energy weapons. (user) as signal arg.
+#define COMSIG_GUN_FIRED "gun_fired"
+
 // Mech signals
 
 #define COMSIG_MECH_MOVE_WASD "mech_move_wasd"

@@ -12,6 +12,11 @@
 /// Set to TRUE once SSpersistence.Initialize() fully completes  gates PersistentAutoSpawn().
 GLOBAL_VAR_INIT(persistence_ready, FALSE)
 
+/// Whether players can self-service found new factions via faction_manage.dm's
+/// "start_founding" action. Admin-toggled (toggle_faction_creation(),
+/// persistence_factions.dm), persists across restarts via ss13_faction_creation_toggle.
+GLOBAL_VAR_INIT(faction_creation_enabled, TRUE)
+
 /// Z levels whose numbers appear in this list are SKIPPED by turf/object/worldstate persistence.
 /// Populated from ss13_zlevel_persistence WHERE enabled = 0 at startup.
 /// Empty by default = all Z levels persist.
@@ -341,6 +346,11 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_panic("Unhandled exception during faction persistence finalization: [faction_e]")
 
 	try
+		factionFoundingSweep()
+	catch(var/exception/faction_founding_sweep_e)
+		log_subsystem_persistence_panic("Unhandled exception during faction founding sweep: [faction_founding_sweep_e]")
+
+	try
 		factionResearchFinalize()
 	catch(var/exception/faction_research_e)
 		log_subsystem_persistence_panic("Unhandled exception during faction research persistence finalization: [faction_research_e]")
@@ -524,6 +534,18 @@ SUBSYSTEM_DEF(persistence)
 		factionInitialize()
 	catch(var/exception/faction_e)
 		log_subsystem_persistence_panic("Unhandled exception during faction persistence initialization: [faction_e]")
+
+	log_subsystem_persistence_info("Starting faction founding petition initialization...")
+	try
+		factionFoundingInitialize()
+	catch(var/exception/faction_founding_e)
+		log_subsystem_persistence_panic("Unhandled exception during faction founding petition initialization: [faction_founding_e]")
+
+	log_subsystem_persistence_info("Starting faction creation toggle initialization...")
+	try
+		factionCreationToggleInitialize()
+	catch(var/exception/faction_toggle_e)
+		log_subsystem_persistence_panic("Unhandled exception during faction creation toggle initialization: [faction_toggle_e]")
 
 	log_subsystem_persistence_info("Starting faction research initialization...")
 	try

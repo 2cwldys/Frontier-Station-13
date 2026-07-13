@@ -13,6 +13,10 @@
 	max_hardware_size = 1
 	w_class = WEIGHT_CLASS_SMALL
 	looping_sound = FALSE
+	// Per-program screen overlays are sized for console/laptop screens and
+	// visually mismatch the smaller handheld sprite -- always show the
+	// static on/off menu screen instead, regardless of the running program.
+	use_program_screen_overlay = FALSE
 
 /obj/item/modular_computer/handheld/mechanics_hints(mob/user, distance, is_adjacent)
 	. += ..()

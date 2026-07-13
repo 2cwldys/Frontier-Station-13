@@ -129,6 +129,8 @@ GLOBAL_LIST_EMPTY(faction_corvettes)
 		return FALSE
 
 	if(!databaseCheckConnection("corvetteBuy"))
+		if(user)
+			to_chat(user, SPAN_WARNING("Database connection failed -- purchase not completed. Contact an admin if funds were deducted."))
 		log_corvette_error("corvetteBuy: database connection failed for '[template_id]' (acting=[acting]) -- faction was already debited, this needs admin attention.")
 		return FALSE
 
@@ -139,6 +141,8 @@ GLOBAL_LIST_EMPTY(faction_corvettes)
 	q.Execute()
 	if(!databaseCheckQueryResult(q, "corvetteBuy insert"))
 		qdel(q)
+		if(user)
+			to_chat(user, SPAN_WARNING("Database error -- purchase not completed. Contact an admin if funds were deducted."))
 		log_corvette_error("corvetteBuy: DB insert failed for '[template_id]' (acting=[acting]).")
 		return FALSE
 	var/new_id = text2num(q.last_insert_id)

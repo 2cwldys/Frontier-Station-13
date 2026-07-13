@@ -76,6 +76,11 @@
 	var/icon_state_unpowered
 	/// Icon state overlay when the computer is turned on, but no program is loaded that would override the screen.
 	var/icon_state_menu = "menu"
+	/// Whether update_icon() overlays active_program.program_icon_state on
+	/// top of the base sprite. Console/laptop screen overlays are sized for
+	/// their larger screens and mismatch handheld tablet sprites -- see
+	/// /obj/item/modular_computer/handheld's override.
+	var/use_program_screen_overlay = TRUE
 	var/icon_state_menu_key = "black_key"
 	var/icon_state_screensaver
 	var/icon_state_screensaver_key

@@ -208,9 +208,9 @@
 			set_light(0)
 		return
 	if(active_program)
-		var/state_program = active_program.program_icon_state ? active_program.program_icon_state : icon_state_menu
+		var/state_program = (use_program_screen_overlay && active_program.program_icon_state) ? active_program.program_icon_state : icon_state_menu
 		var/mutable_appearance/state = overlay_image(src.icon, state_program)
-		var/state_key = active_program.program_key_icon_state ? active_program.program_key_icon_state : icon_state_menu_key // for corresponding keyboards.
+		var/state_key = (use_program_screen_overlay && active_program.program_key_icon_state) ? active_program.program_key_icon_state : icon_state_menu_key // for corresponding keyboards.
 		if(is_holographic)
 			var/mutable_appearance/state_holographic = overlay_image(src.icon, state_program)
 			state_holographic.filters += filter(type="color", color=list(

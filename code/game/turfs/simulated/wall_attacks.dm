@@ -139,6 +139,9 @@
 					WR.scrape(user)
 				return
 		else if(attacking_item.force >= 10)
+			if(attacking_item.wear_broken)
+				to_chat(user, SPAN_WARNING("\The [attacking_item] is broken and can't be used to attack."))
+				return
 			user.do_attack_animation(src, used_item = attacking_item)
 			to_chat(user, SPAN_NOTICE("\The [src] crumbles away under the force of your [attacking_item]."))
 			dismantle_wall(TRUE)
@@ -372,6 +375,9 @@
 
 	else if(!istype(attacking_item,/obj/item/rfd/construction) && !istype(attacking_item, /obj/item/reagent_containers))
 		if(user.a_intent != I_HURT || !attacking_item.force)
+			return
+		if(attacking_item.wear_broken)
+			to_chat(user, SPAN_WARNING("\The [attacking_item] is broken and can't be used to attack."))
 			return
 
 		var/damage_to_deal = attacking_item.force

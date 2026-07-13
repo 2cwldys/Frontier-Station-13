@@ -288,6 +288,8 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 		acc.money -= template.price
 
 	if(!databaseCheckConnection("drydockBuy"))
+		if(user)
+			to_chat(user, SPAN_WARNING("Database connection failed -- purchase not completed. Contact an admin if funds were deducted."))
 		log_drydock_error("drydockBuy: database connection failed for '[template_id]' (acting=[acting]) -- funds may already be deducted, needs admin attention.")
 		return FALSE
 
@@ -298,6 +300,8 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 	q.Execute()
 	if(!databaseCheckQueryResult(q, "drydockBuy insert"))
 		qdel(q)
+		if(user)
+			to_chat(user, SPAN_WARNING("Database error -- purchase not completed. Contact an admin if funds were deducted."))
 		log_drydock_error("drydockBuy: DB insert failed for '[template_id]' (acting=[acting]).")
 		return FALSE
 	var/new_id = text2num(q.last_insert_id)

@@ -135,10 +135,34 @@ somewhere on that shuttle. Subtypes of these can be then used to perform ship ov
 // Management of mob view displacement. look to shift view to the ship on the overmap; unlook to shift back.
 
 /obj/structure/machinery/computer/ship/proc/look(var/mob/user)
-	if(linked)
-		user.reset_view(linked)
+	// Always resolve fresh from this console's OWN current Z instead of
+	// trusting the cached `linked` var. `linked` is only ever (re)computed
+	// at Initialize() (racy against the ship's own overmap marker
+	// registering, see sectors.dm's lonely_ship_computers retry) or via a
+	// manual Topic(href_list["sync"]) click (line ~122 below) -- nothing
+	// calls that automatically on stash/unstash/retrieval/redelivery, so
+	// `linked` can point at a stale or wrong sector indefinitely after any
+	// relocation. GLOB.map_sectors is authoritative and always current --
+	// the same lookup Personal Travel already uses safely from anywhere.
+	// `linked` is kept only as a last-resort fallback (still used for its
+	// other jobs: ownership/weapon-linking/navigation_viewers bookkeeping).
+	var/obj/effect/overmap/visitable/target_sector = GLOB.map_sectors["[GET_Z(src)]"]
+	if(!target_sector)
+		target_sector = linked
+	if(target_sector)
+		user.reset_view(target_sector)
 	if(user.client)
-		user.client.view = world.view + extra_view
+		// Cache the real dynamic view so unlook() can restore it directly
+		// instead of asking refit_dynamic_view() to re-derive it live --
+		// that recompute is only reliable right after a genuine window
+		// resize event, not this transition (Sector View Bug D).
+		user.client.saved_dynamic_view = user.client.view
+		// world.view is a "WxH" string in this fork (world.dm) -- naive
+		// `world.view + extra_view` string-concatenates instead of adding
+		// numerically (e.g. "15x15" + 4 -> "15x154", a malformed viewport).
+		// expanded_client_view() (personal_travel.dm) parses out the numeric
+		// base and returns a proper int.
+		user.client.view = expanded_client_view(extra_view)
 		// update_skybox() only fires off real /mob/Move() -- looking at the
 		// overmap never moves the mob, just the eye/view, so the skybox is
 		// otherwise left frozen at the player's last real-world offset and
@@ -147,6 +171,18 @@ somewhere on that shuttle. Subtypes of these can be then used to perform ship ov
 		// so just hide it instead of trying to reposition it for there.
 		if(user.client.skybox)
 			user.client.screen -= user.client.skybox
+		user.reload_fullscreen()
+		// apply_gameui_border()'s scale math assumes client.view tracks the
+		// real map-window pixel size (true for the normal dynamic viewport,
+		// computed FROM that size by refit_dynamic_view()) -- but the flat
+		// world.view + extra_view set above has no relationship to the
+		// actual window size, so scaling the border to it lands the frame
+		// in the middle of the screen instead of at the edges, covering the
+		// sector view instead of framing it. Same reasoning as the skybox
+		// hide above: hide it here rather than rescale it to a view size
+		// it was never designed for. unlook()'s refit_dynamic_view() call
+		// already restores it correctly on the way back out.
+		user.clear_fullscreen("gameui_border", FALSE)
 	RegisterSignal(user, COMSIG_MOVABLE_MOVED, PROC_REF(unlook))
 	if(user.eyeobj)
 		RegisterSignal(user, COMSIG_MOVABLE_MOVED, PROC_REF(unlook))
@@ -168,17 +204,33 @@ somewhere on that shuttle. Subtypes of these can be then used to perform ship ov
 	if(isEye(user))
 		var/mob/abstract/eye/E = user
 		E.reset_view()
-		c = E.owner.client
+		c = E.owner?.client
 
 	if(c)
-		c.view = world.view
 		c.pixel_x = 0
 		c.pixel_y = 0
+		// Restore the exact dynamic view cached by look() rather than
+		// asking refit_dynamic_view() to re-derive it live -- that recompute
+		// is only reliable right after a genuine window resize event, not
+		// this transition (Sector View Bug D). Falls back to the live
+		// recompute only if nothing was cached (e.g. relog mid-view).
+		if(c.saved_dynamic_view)
+			c.view = c.saved_dynamic_view
+			c.saved_dynamic_view = null
+		else
+			c.refit_dynamic_view()
 		// Restore the skybox now that the eye/view are back on the player's
 		// real position -- forced rebuild, same as a genuine /mob/Move()
 		// would trigger, since look() hid it outright rather than letting
 		// it go stale (see look() above).
 		c.update_skybox(TRUE)
+		// gameui_border still needs re-fitting to the (now correctly
+		// restored) view -- refit_dynamic_view() normally does this itself
+		// (via c.mob, not necessarily user -- matters for the AI eye case
+		// above), so mirror that here rather than assuming user is right.
+		if(c.mob)
+			c.mob.reload_fullscreen()
+			c.mob.apply_gameui_border()
 
 	UnregisterSignal(user, COMSIG_MOVABLE_MOVED)
 
@@ -219,6 +271,7 @@ somewhere on that shuttle. Subtypes of these can be then used to perform ship ov
 		return SEE_THRU
 
 /obj/structure/machinery/computer/ship/Destroy()
+	SSshuttle.lonely_ship_computers -= src
 	if(linked)
 		linked = null
 	if(connected)
@@ -230,8 +283,11 @@ somewhere on that shuttle. Subtypes of these can be then used to perform ship ov
 	identification = null
 	QDEL_NULL(sound_token)
 	if(LAZYLEN(viewers))
-		for(var/datum/weakref/W in viewers)
-			var/M = W.resolve()
+		// Snapshot copy: unlook() LAZYREMOVEs from viewers itself, and
+		// mutating the list mid-iteration silently skips entries -- leaving
+		// some viewers stuck in overmap view after the console is gone.
+		for(var/datum/weakref/W as anything in viewers.Copy())
+			var/mob/M = W.resolve()
 			if(M)
 				unlook(M)
 				if(linked)
@@ -256,3 +312,11 @@ somewhere on that shuttle. Subtypes of these can be then used to perform ship ov
 		var/my_sector = GLOB.map_sectors["[z]"]
 		if(istype(my_sector, linked_type))
 			attempt_hook_up(my_sector)
+		// Both this console and its ship's own overmap marker initialize in
+		// the same init_atoms() batch, before init_shuttles() -- whichever
+		// happens to process first wins, so this one attempt can lose purely
+		// on map-tile order. Queue for a retry once the marker actually
+		// registers (see /obj/effect/overmap/visitable/Initialize(), sectors.dm)
+		// instead of staying permanently unlinked if it does.
+		if(!linked)
+			SSshuttle.lonely_ship_computers += src

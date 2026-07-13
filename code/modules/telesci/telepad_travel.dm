@@ -204,3 +204,18 @@
 	..()
 	if(islist(content) && !isnull(content["link_code"]))
 		link_code = content["link_code"]
+
+/*
+ * Hub Travel Pad -- a single, admin-placed instance marking the Hub's own
+ * arrival point. Personal Travel's Return to Hub action
+ * (personal_travel.dm) locates this by type directly, bypassing the normal
+ * link_code matching every other travel pad uses -- no code needs to be set
+ * for Return to Hub to work. Still a full travel pad otherwise (inherits
+ * attackby/repair/persistence from the base machine), so it can also be
+ * given a link_code if admins want it to additionally participate in the
+ * normal player-built pad network.
+ */
+/obj/structure/machinery/telepad_cargo/travel/hub
+	name = "hub travel pad"
+	desc = "A permanently-installed travel pad marking Hub territory. Personal Travel's Return to Hub delivers here directly."
+	color = "#6699ff" // matches the hub faction beacon's own blue tint

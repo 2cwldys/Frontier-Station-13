@@ -207,6 +207,38 @@
 #define PROGRAM_ALL_REGULAR (PROGRAM_CONSOLE | PROGRAM_LAPTOP | PROGRAM_TABLET | PROGRAM_WRISTBOUND | PROGRAM_TELESCREEN)
 #define PROGRAM_ALL_HANDHELD (PROGRAM_TABLET | PROGRAM_WRISTBOUND)
 
+// Personal Travel program (code/modules/modular_computers/file_system/programs/generic/personal_travel.dm)
+// -- defined here (loaded early in the .dme) rather than in that file, since
+// living_defines.dm's in_recent_combat() needs PERSONAL_TRAVEL_COMBAT_LOCKOUT
+// and is compiled long before that program file is reached.
+/// How far (overmap tiles, same get_dist() space teleporter.dm already uses
+/// between GLOB.map_sectors markers) an away site/sector can be and still
+/// show up as a Leap destination.
+#define PERSONAL_TRAVEL_LEAP_RANGE 10
+/// Shared cooldown across all three actions -- single-var, per-program-
+/// instance, since each program instance belongs to one PDA/holder, not a
+/// shared machine.
+#define PERSONAL_TRAVEL_COOLDOWN (2 MINUTES + 30 SECONDS)
+/// How long after taking or dealing real combat damage the program refuses
+/// every action -- "can't teleport out of a fight."
+#define PERSONAL_TRAVEL_COMBAT_LOCKOUT 10 MINUTES
+/// Channel time before any travel action actually resolves.
+#define PERSONAL_TRAVEL_SPOOLUP 15 SECONDS
+/// Extra overmap zoom-out applied on top of world.view for the Sector View
+/// toggle -- matches the Sensors console's own extra_view (sensors.dm).
+#define PERSONAL_TRAVEL_EXTRA_VIEW 4
+
+/// Personal-account cost to self-register a new faction via
+/// faction_manage.dm's "start_founding" action. Deducted (and becomes the
+/// new faction's starting balance) only once the founding petition
+/// succeeds. Declared here (not in faction_manage.dm) so
+/// persistence_factions.dm, which is #included earlier in the .dme, can
+/// also see it.
+#define FACTION_CREATION_COST 100000
+/// Distinct OTHER ckeys (not the founder) required before a founding
+/// petition auto-finalizes into a real faction.
+#define FACTION_FOUNDING_REQUIRED_SUPPORTERS 10
+
 #define PROGRAM_STATE_DISABLED -1
 #define PROGRAM_STATE_KILLED 0
 #define PROGRAM_STATE_BACKGROUND 1

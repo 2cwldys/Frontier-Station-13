@@ -559,6 +559,8 @@ ABSTRACT_TYPE(/obj/structure/machinery/power/apc)
 			opened = COVER_CLOSED
 			update_icon()
 	else if (attacking_item.tool_behaviour == TOOL_CROWBAR && !((stat & BROKEN) || hacker) )
+		if(!attacking_item.tool_use_check(user, 0))
+			return
 		if(coverlocked && !(stat & MAINT))
 			to_chat(user, SPAN_WARNING("The cover is locked and cannot be opened."))
 			return
@@ -566,6 +568,7 @@ ABSTRACT_TYPE(/obj/structure/machinery/power/apc)
 			opened = COVER_OPENED
 			panel_open = TRUE
 			update_icon()
+			attacking_item.degrade_durability(attacking_item.durability_per_use)
 
 	// BORG GRIPPER: Pull the power cell..
 	else if (istype(attacking_item, /obj/item/gripper))
@@ -604,6 +607,8 @@ ABSTRACT_TYPE(/obj/structure/machinery/power/apc)
 
 	// SCREWDRIVER: Expose wiring panel.
 	else if	(attacking_item.tool_behaviour == TOOL_SCREWDRIVER)
+		if(!attacking_item.tool_use_check(user, 0))
+			return
 		if(opened != COVER_CLOSED)
 			if (cell)
 				to_chat(user, SPAN_WARNING("Close the APC first.")) //Less hints more mystery!
@@ -623,10 +628,12 @@ ABSTRACT_TYPE(/obj/structure/machinery/power/apc)
 					to_chat(user, SPAN_WARNING("There is nothing to secure."))
 					return
 				update_icon()
+				attacking_item.degrade_durability(attacking_item.durability_per_use)
 		else
 			panel_open = !panel_open
 			to_chat(user, "The wires have been [panel_open ? "exposed" : "unexposed"]")
 			update_icon()
+			attacking_item.degrade_durability(attacking_item.durability_per_use)
 
 	// CABLE COIL: Install the power terminal (wire stuff on the floor in front of the APC).
 	else if (attacking_item.tool_behaviour == TOOL_CABLECOIL && !terminal && opened != COVER_CLOSED && has_electronics != HAS_ELECTRONICS_SECURED)

@@ -40,16 +40,22 @@
 	data["faction_name"] = net ? get_faction_name(net) : null
 	data["page"] = page
 	data["messages"] = list()
-	if(net && SSpersistence.databaseCheckConnection("faction chat ui_data"))
-		var/datum/db_query/q = SSdbcore.NewQuery(
-			"SELECT sender_name, message, sent_at FROM ss13_faction_chat WHERE faction_uid = :net ORDER BY msg_id DESC LIMIT 50 OFFSET :off",
-			list("net" = net, "off" = page * 50)
-		)
-		q.Execute()
-		if(SSpersistence.databaseCheckQueryResult(q, "faction chat select"))
-			while(q.NextRow())
-				data["messages"] += list(list("sender" = q.item[1], "message" = q.item[2], "sent_at" = q.item[3]))
-		qdel(q)
+	data["db_error"] = FALSE
+	if(net)
+		if(!SSpersistence.databaseCheckConnection("faction chat ui_data"))
+			data["db_error"] = TRUE
+		else
+			var/datum/db_query/q = SSdbcore.NewQuery(
+				"SELECT sender_name, message, sent_at FROM ss13_faction_chat WHERE faction_uid = :net ORDER BY msg_id DESC LIMIT 50 OFFSET :off",
+				list("net" = net, "off" = page * 50)
+			)
+			q.Execute()
+			if(SSpersistence.databaseCheckQueryResult(q, "faction chat select"))
+				while(q.NextRow())
+					data["messages"] += list(list("sender" = q.item[1], "message" = q.item[2], "sent_at" = q.item[3]))
+			else
+				data["db_error"] = TRUE
+			qdel(q)
 	return data
 
 /datum/computer_file/program/faction_chat/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
@@ -60,22 +66,29 @@
 		if("send")
 			var/net = _member_net(user)
 			if(!net)
+				to_chat(user, SPAN_WARNING("You need a faction-issued ID with a real job assignment to use this."))
 				return TRUE
 			if(last_sent_by_ckey[user.ckey] && (world.time - last_sent_by_ckey[user.ckey] < 20))
+				to_chat(user, SPAN_WARNING("You're sending messages too quickly -- wait a moment."))
 				return TRUE
 			var/message = sanitize(params["message"], 512)
 			if(!message || !length(message))
+				to_chat(user, SPAN_WARNING("Message cannot be empty."))
 				return TRUE
 			last_sent_by_ckey[user.ckey] = world.time
 			var/sender_name = user.real_name || "Unknown"
 			if(!SSpersistence.databaseCheckConnection("faction chat send"))
+				to_chat(user, SPAN_WARNING("Database connection failed -- message not sent."))
 				return TRUE
 			var/datum/db_query/iq = SSdbcore.NewQuery(
 				"INSERT INTO ss13_faction_chat (faction_uid, sender_name, sender_ckey, message) VALUES (:net, :name, :ckey, :msg)",
 				list("net" = net, "name" = sender_name, "ckey" = user.ckey, "msg" = message)
 			)
 			iq.Execute()
-			SSpersistence.databaseCheckQueryResult(iq, "faction chat insert")
+			if(!SSpersistence.databaseCheckQueryResult(iq, "faction chat insert"))
+				to_chat(user, SPAN_WARNING("Database error -- message not sent."))
+				qdel(iq)
+				return TRUE
 			qdel(iq)
 			_deliver_pings(net, sender_name, message)
 			return TRUE
