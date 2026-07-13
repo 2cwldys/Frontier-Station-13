@@ -14,6 +14,20 @@
 	groupable = FALSE
 	spawn_amount = 1
 
+/singleton/cargo_item/porta_turret
+	category = "security"
+	name = "security turret crate"
+	supplier = "Hub"
+	description = "A crate containing two portable defense turrets, disassembled for transport. Wrench to anchor once positioned; use a faction tagger to assign targeting."
+	price = 8000
+	items = list(
+		/obj/structure/machinery/porta_turret/crate
+	)
+	access = ACCESS_ARMORY
+	container_type = "crate"
+	groupable = FALSE
+	spawn_amount = 2
+
 /singleton/cargo_item/stunbaton
 	category = "security"
 	name = "stunbaton"

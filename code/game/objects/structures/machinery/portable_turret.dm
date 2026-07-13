@@ -136,6 +136,9 @@
 	if(!immobile)
 		. += "It [anchored ? "is" : "could be"] anchored to the floor with some <b>bolts</b>."
 
+/obj/structure/machinery/porta_turret/crate
+	anchored = FALSE
+
 /obj/structure/machinery/porta_turret/crescent
 	enabled = FALSE
 	ailock = TRUE
