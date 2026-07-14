@@ -136,6 +136,18 @@ GLOBAL_DATUM(map_overmap, /area/overmap)
 	. = ..()
 
 /obj/effect/overmap/visitable/proc/move_to_starting_location()
+	set waitfor = FALSE
+	if(!SSatlas.current_map.use_overmap)
+		return
+	// build_overmap() can still be mid-build at this point (its
+	// add_new_zlevel() call sleeps on the zlevel-add latch/CHECK_TICK
+	// before overmap_z is assigned, and it runs waitfor=FALSE). Every
+	// locate() below silently resolves to null on z 0, and forceMove(null)
+	// is a no-op (atoms_movable.dm) -- which used to strand the marker on
+	// its mapped .dmm turf inside the ship's own hull. waitfor=FALSE keeps
+	// Initialize() callers from sleeping; placement completes as soon as
+	// the overmap exists.
+	UNTIL(SSatlas.current_map.overmap_z)
 	var/map_low = OVERMAP_EDGE
 	var/map_high = SSatlas.current_map.overmap_size - OVERMAP_EDGE
 	var/turf/home
@@ -191,6 +203,26 @@ GLOBAL_DATUM(map_overmap, /area/overmap)
 
 	if(!invisible_until_ghostrole_spawn)
 		forceMove(home)
+
+/// Sector view cameras onto a marker's loc -- a marker whose placement
+/// never ran or lost an init race (e.g. a retrieved ship's marker left on
+/// its mapped .dmm turf inside its own cockpit) shows ship interior
+/// instead of the overmap. Walks nested markers to their root (nesting =
+/// docked ships, legitimate) and re-places the root if it isn't actually
+/// on the overmap z. No-op for healthy markers.
+/proc/repair_stray_overmap_marker(obj/effect/overmap/target)
+	if(!istype(target))
+		return
+	var/obj/effect/overmap/root = target
+	while(istype(root.loc, /obj/effect/overmap))
+		root = root.loc
+	var/obj/effect/overmap/visitable/stray = root
+	if(!istype(stray) || stray.invisible_until_ghostrole_spawn)
+		return
+	var/turf/root_turf = get_turf(stray)
+	if(!root_turf || root_turf.z != SSatlas.current_map.overmap_z)
+		log_module_sectors("repair_stray_overmap_marker: [stray] was at [root_turf ? "[root_turf.x],[root_turf.y],[root_turf.z]" : "nullspace"], re-placing on the overmap.")
+		stray.move_to_starting_location()
 
 //This is called later in the init order by SSshuttle to populate sector objects. Importantly for subtypes, shuttles will be created by then.
 /obj/effect/overmap/visitable/proc/populate_sector_objects()
@@ -330,10 +362,24 @@ GLOBAL_DATUM(map_overmap, /area/overmap)
 /obj/effect/overmap/visitable/sector/proc/generate_magnet_survey_result()
 	magnet_survey_result = ""
 
+GLOBAL_VAR_INIT(building_overmap, FALSE)
+
 /proc/build_overmap()
 	set waitfor = FALSE
 	if(!SSatlas.current_map.use_overmap)
 		return 1
+
+	// add_new_zlevel() below can sleep (zlevel-add latch / CHECK_TICK)
+	// before overmap_z is assigned; with waitfor=FALSE, every visitable
+	// Initialize() racing through that window used to launch its own
+	// duplicate build, producing multiple orphaned "Overmap" z-levels with
+	// markers scattered across them. One-shot latch: first caller builds,
+	// everyone else defers to move_to_starting_location()'s own
+	// UNTIL(overmap_z) wait. Deliberately never reset -- the overmap is
+	// built exactly once per round.
+	if(GLOB.building_overmap)
+		return 1
+	GLOB.building_overmap = TRUE
 
 	log_module_sectors("Building overmap...")
 	var/datum/space_level/overmap_spacelevel = SSmapping.add_new_zlevel("Overmap", ZTRAITS_OVERMAP, contain_turfs = FALSE)

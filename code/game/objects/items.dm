@@ -1295,6 +1295,11 @@ modules/mob/living/carbon/human/life.dm if you die, you will be zoomed out.
 	if(delay >= MIN_TOOL_SOUND_DELAY)
 		play_tool_sound(target, volume)
 
+	// Wear was originally wired to COMSIG_ITEM_TOOL_ACTED, which nothing in
+	// this fork ever sends (the modern tool_act() pipeline has no
+	// implementations) -- apply it here instead, the one chokepoint every
+	// delayed/checked tool action shares. No-ops for degrades_with_use=FALSE.
+	degrade_durability(durability_per_use)
 	return TRUE
 
 // Called before use_tool if there is a delay, or by use_tool if there isn't.

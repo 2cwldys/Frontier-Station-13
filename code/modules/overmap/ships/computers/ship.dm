@@ -150,6 +150,10 @@ somewhere on that shuttle. Subtypes of these can be then used to perform ship ov
 	if(!target_sector)
 		target_sector = linked
 	if(target_sector)
+		// Self-heal markers stranded off the overmap (failed/raced
+		// placement) before pointing the camera at them -- see
+		// repair_stray_overmap_marker (sectors.dm).
+		repair_stray_overmap_marker(target_sector)
 		user.reset_view(target_sector)
 	if(user.client)
 		// Cache the real dynamic view so unlook() can restore it directly
@@ -265,7 +269,13 @@ somewhere on that shuttle. Subtypes of these can be then used to perform ship ov
 		return FALSE
 
 	var/flags = issilicon(user) ? USE_ALLOW_NON_ADJACENT : 0
-	if (use_check_and_message(user, flags) || user.blinded || !operable() || !linked)
+	// No `!linked` here -- look() resolves the sector live from this
+	// console's own Z and works with linked null/stale, but this proc is
+	// polled every tick by handle_vision() (life.dm) and any negative
+	// return snaps the camera back to the mob, silently closing the
+	// overmap whenever linked lost its Initialize() race or went stale
+	// across a save/stash cycle.
+	if (use_check_and_message(user, flags) || user.blinded || !operable())
 		return -1
 	else
 		return SEE_THRU

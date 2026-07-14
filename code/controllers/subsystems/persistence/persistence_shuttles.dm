@@ -446,10 +446,21 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 /// docking_beacon has no per-instance security_radius the way faction
 /// beacons do.
 #define DRYDOCK_SHIP_PLACEMENT_RADIUS 3
-/datum/controller/subsystem/persistence/proc/drydockPlaceOvermapMarker(obj/effect/overmap/visitable/ship/landable/marker, obj/structure/machinery/docking_beacon/beacon)
+/datum/controller/subsystem/persistence/proc/drydockPlaceOvermapMarker(obj/effect/overmap/visitable/ship/landable/marker, obj/structure/machinery/docking_beacon/beacon, is_retry = FALSE)
+	if(QDELETED(marker) || QDELETED(beacon))
+		return
 	var/obj/effect/overmap/visitable/beacon_sector = GLOB.map_sectors["[GET_Z(beacon)]"]
 	if(!istype(beacon_sector))
-		log_drydock_warning("drydockPlaceOvermapMarker: beacon '[beacon.landmark_tag]' on z=[GET_Z(beacon)] has no overmap sector, leaving marker at its default placement.")
+		// Never leave the marker at its mapped .dmm turf (the ship's own
+		// cockpit) -- sector view cameras onto the marker's loc, so an
+		// unplaced marker shows ship interior instead of the overmap.
+		// Random-place on the overmap now, and retry the intended
+		// near-beacon placement once, for the init-order race where the
+		// beacon's sector hasn't registered yet during post-save retrieval.
+		log_drydock_warning("drydockPlaceOvermapMarker: beacon '[beacon.landmark_tag]' on z=[GET_Z(beacon)] has no overmap sector, [is_retry ? "keeping fallback placement" : "using fallback placement and scheduling one retry"].")
+		marker.move_to_starting_location()
+		if(!is_retry)
+			addtimer(CALLBACK(src, PROC_REF(drydockPlaceOvermapMarker), marker, beacon, TRUE), 1 MINUTE)
 		return
 
 	var/map_low = OVERMAP_EDGE

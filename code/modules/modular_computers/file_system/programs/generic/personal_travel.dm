@@ -251,6 +251,10 @@
 	if(!my_sector)
 		to_chat(user, SPAN_WARNING("No overmap position could be found."))
 		return
+	// Self-heal markers stranded off the overmap (failed/raced placement)
+	// before pointing the camera at them -- see repair_stray_overmap_marker
+	// (sectors.dm).
+	repair_stray_overmap_marker(my_sector)
 	user.reset_view(my_sector)
 	if(user.client)
 		// Cache the real dynamic view so _stop_viewing() can restore it
@@ -298,6 +302,16 @@
 			c.mob.apply_gameui_border()
 	UnregisterSignal(user, COMSIG_MOVABLE_MOVED)
 	viewing_user = null
+
+/// handle_vision() (life.dm) polls machine.check_eye() every tick and
+/// snaps the camera back to the mob on any negative return. The base
+/// program check_eye() is an unconditional -1 (program.dm), which yanked
+/// Sector View shut whenever user.machine happened to be set to this
+/// computer. Same override pattern as the camera monitor program.
+/datum/computer_file/program/personal_travel/check_eye(mob/user)
+	if(viewing_user == user)
+		return SEE_THRU
+	return -1
 
 /datum/computer_file/program/personal_travel/kill_program(forced = 0)
 	if(viewing_user)

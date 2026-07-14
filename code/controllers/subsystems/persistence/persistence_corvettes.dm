@@ -279,10 +279,21 @@ GLOBAL_LIST_EMPTY(faction_corvettes)
 /// rather than inventing a new one. Mirrors move_to_starting_location()'s
 /// own retry-then-exhaustive-scan-then-share-a-tile fallback shape
 /// (sectors.dm:127-182).
-/datum/controller/subsystem/persistence/proc/corvettePlaceOvermapMarker(obj/effect/overmap/visitable/ship/landable/marker, obj/structure/machinery/faction_beacon/beacon)
+/datum/controller/subsystem/persistence/proc/corvettePlaceOvermapMarker(obj/effect/overmap/visitable/ship/landable/marker, obj/structure/machinery/faction_beacon/beacon, is_retry = FALSE)
+	if(QDELETED(marker) || QDELETED(beacon))
+		return
 	var/obj/effect/overmap/visitable/beacon_sector = GLOB.map_sectors["[GET_Z(beacon)]"]
 	if(!istype(beacon_sector))
-		log_corvette_warning("corvettePlaceOvermapMarker: beacon on z=[GET_Z(beacon)] has no overmap sector, leaving marker at its default placement.")
+		// Never leave the marker at its mapped .dmm turf (the ship's own
+		// cockpit) -- sector view cameras onto the marker's loc, so an
+		// unplaced marker shows ship interior instead of the overmap.
+		// Random-place on the overmap now, and retry the intended
+		// near-beacon placement once, for the init-order race where the
+		// beacon's sector hasn't registered yet during post-save retrieval.
+		log_corvette_warning("corvettePlaceOvermapMarker: beacon on z=[GET_Z(beacon)] has no overmap sector, [is_retry ? "keeping fallback placement" : "using fallback placement and scheduling one retry"].")
+		marker.move_to_starting_location()
+		if(!is_retry)
+			addtimer(CALLBACK(src, PROC_REF(corvettePlaceOvermapMarker), marker, beacon, TRUE), 1 MINUTE)
 		return
 
 	var/map_low = OVERMAP_EDGE

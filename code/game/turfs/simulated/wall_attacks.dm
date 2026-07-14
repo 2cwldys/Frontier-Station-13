@@ -144,6 +144,7 @@
 				return
 			user.do_attack_animation(src, used_item = attacking_item)
 			to_chat(user, SPAN_NOTICE("\The [src] crumbles away under the force of your [attacking_item]."))
+			SEND_SIGNAL(attacking_item, COMSIG_ITEM_MELEE_HIT)
 			dismantle_wall(TRUE)
 			return
 
@@ -397,6 +398,7 @@
 			damage_to_deal -= weaken
 			visible_message(SPAN_WARNING("[user] strikes \the [src] with \the [attacking_item], [is_sharp(attacking_item) ? "slicing some of the plating" : "putting a heavy dent on it"]!"))
 			add_damage(damage_to_deal, attacking_item.damage_flags(), attacking_item.damtype, attacking_item.armor_penetration, attacking_item)
+			SEND_SIGNAL(attacking_item, COMSIG_ITEM_MELEE_HIT)
 		else
 			visible_message(SPAN_WARNING("[user] strikes \the [src] with \the [attacking_item], but it bounces off!"))
 			playsound(src, hitsound, 25, 1)

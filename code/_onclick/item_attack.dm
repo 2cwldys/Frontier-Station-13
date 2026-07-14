@@ -68,6 +68,9 @@ This calls [atom/proc/tool_act], among others.
 			user.do_attack_animation(src)
 			visible_message(SPAN_DANGER("[user] [pick(attacking_item.attack_verb)] \the [src]!"))
 			add_damage(attacking_item.force, attacking_item.damage_flags(), attacking_item.damtype, attacking_item.armor_penetration, attacking_item)
+			// Same wear trigger /obj/item/attack() fires on mob hits -- without
+			// this, melee vs objects never degrades the weapon at all.
+			SEND_SIGNAL(attacking_item, COMSIG_ITEM_MELEE_HIT)
 			if(hitsound)
 				playsound(src, hitsound, attacking_item.get_clamped_volume(), 1, falloff_distance = 0)
 			else

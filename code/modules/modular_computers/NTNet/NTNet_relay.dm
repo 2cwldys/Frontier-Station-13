@@ -123,9 +123,12 @@
 
 /obj/structure/machinery/ntnet_relay/attackby(obj/item/attacking_item, mob/user)
 	if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		if(!attacking_item.tool_use_check(user, 0))
+			return
 		attacking_item.play_tool_sound(get_turf(src), 50)
 		anchored = !anchored
 		to_chat(user, anchored ? SPAN_NOTICE("You secure \the [src] in place.") : SPAN_NOTICE("You unsecure \the [src]."))
+		attacking_item.degrade_durability(attacking_item.durability_per_use)
 		return
 	if(attacking_item.tool_behaviour == TOOL_SCREWDRIVER)
 		attacking_item.play_tool_sound(get_turf(src), 50)

@@ -317,6 +317,10 @@
 	if(attacking_item.tool_behaviour == TOOL_HAMMER && user.a_intent != I_HURT)
 		var/obj/item/stack/stack = usr.get_inactive_hand()
 		if(istype(stack) && stack.get_material_name() == get_material_name())
+			// Gated only once the repair attempt is real (stack in hand) --
+			// a broken hammer in hand must not block plain door use.
+			if(!attacking_item.tool_use_check(user, 0))
+				return TRUE
 			if(stat & BROKEN)
 				to_chat(user, SPAN_NOTICE("It looks like \the [src] is pretty busted. It's going to need more than just patching up now."))
 				return TRUE
@@ -344,6 +348,7 @@
 
 			if (transfer)
 				to_chat(user, SPAN_NOTICE("You fit [transfer] [stack.singular_name]\s to damaged and broken parts on \the [src]."))
+				attacking_item.degrade_durability(attacking_item.durability_per_use)
 
 			return TRUE
 
@@ -364,15 +369,23 @@
 		return TRUE
 
 	if(repairing && attacking_item.tool_behaviour == TOOL_CROWBAR)
+		if(!attacking_item.tool_use_check(user, 0))
+			return TRUE
 		to_chat(user, SPAN_NOTICE("You remove \the [repairing]."))
 		attacking_item.play_tool_sound(get_turf(src), 50)
 		repairing.forceMove(user.loc)
 		repairing = null
+		attacking_item.degrade_durability(attacking_item.durability_per_use)
 		return TRUE
 
 	//psa to whoever coded this, there are plenty of objects that need to call attack() on doors without bludgeoning them.
 	if(src.density && istype(attacking_item, /obj/item) && user.a_intent == I_HURT && !istype(attacking_item, /obj/item/card))
 		var/obj/item/W = attacking_item
+		// This melee path never chains to the gated /atom/movable/attackby --
+		// gate and wear it here directly.
+		if(W.wear_broken)
+			to_chat(user, SPAN_WARNING("\The [W] is broken and can't be used to attack."))
+			return TRUE
 		user.setClickCooldown(DEFAULT_ATTACK_COOLDOWN)
 		if(W.damtype == DAMAGE_BRUTE || W.damtype == DAMAGE_BURN)
 			user.do_attack_animation(src)
@@ -382,6 +395,7 @@
 				user.visible_message(SPAN_DANGER("\The [user] forcefully strikes \the [src] with \the [W]!"))
 				playsound(src.loc, hitsound, W.get_clamped_volume(), TRUE, extrarange = MEDIUM_RANGE_SOUND_EXTRARANGE)
 				add_damage(W.force, W.damage_flags(), W.damtype, W.armor_penetration, W)
+				SEND_SIGNAL(W, COMSIG_ITEM_MELEE_HIT)
 		return TRUE
 
 	if(src.operating > 0 || isrobot(user))
