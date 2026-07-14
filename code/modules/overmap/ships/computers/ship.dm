@@ -188,6 +188,11 @@ somewhere on that shuttle. Subtypes of these can be then used to perform ship ov
 		// already restores it correctly on the way back out.
 		user.clear_fullscreen("gameui_border", FALSE)
 	RegisterSignal(user, COMSIG_MOVABLE_MOVED, PROC_REF(unlook))
+	// Aghosting/disconnecting is a key transfer, not a Move -- without this
+	// hook the viewers weakref (and the mob's `machine`) dangle across the
+	// round-trip, and this console's check_eye() then yanks any later
+	// sector view back to the mob every tick (life.dm's handle_vision).
+	RegisterSignal(user, COMSIG_MOB_LOGOUT, PROC_REF(unlook))
 	if(user.eyeobj)
 		RegisterSignal(user, COMSIG_MOVABLE_MOVED, PROC_REF(unlook))
 	LAZYDISTINCTADD(viewers, WEAKREF(user))
@@ -236,11 +241,11 @@ somewhere on that shuttle. Subtypes of these can be then used to perform ship ov
 			c.mob.reload_fullscreen()
 			c.mob.apply_gameui_border()
 
-	UnregisterSignal(user, COMSIG_MOVABLE_MOVED)
+	UnregisterSignal(user, list(COMSIG_MOVABLE_MOVED, COMSIG_MOB_LOGOUT))
 
 	if(isEye(user)) // If we're an AI eye, the computer has our AI mob in its viewers list not the eye mob
 		var/mob/abstract/eye/E = user
-		UnregisterSignal(E.owner, COMSIG_MOVABLE_MOVED)
+		UnregisterSignal(E.owner, list(COMSIG_MOVABLE_MOVED, COMSIG_MOB_LOGOUT))
 		LAZYREMOVE(viewers, WEAKREF(E.owner))
 	LAZYREMOVE(viewers, WEAKREF(user))
 	if(linked)

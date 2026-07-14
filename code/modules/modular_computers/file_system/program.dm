@@ -196,8 +196,13 @@ ABSTRACT_TYPE(/datum/computer_file/program)
 	return FALSE
 
 /// Allows active programs to preserve non-standard user views, such as camera monitors.
+/// FALSE (0) = "not my view session, no opinion" -- handle_vision (life.dm)
+/// treats any NEGATIVE return as "cancel the view every tick", which is only
+/// correct for a program-owned session gone invalid (camera monitor overrides
+/// this with its own -1 for that case). A stale mob `machine` ref polling a
+/// default -1 here used to yank unrelated sector views back to the mob.
 /datum/computer_file/program/proc/check_eye(mob/user)
-	return -1
+	return FALSE
 
 /// Allows active programs to grant equipment vision while controlling the user's view.
 /datum/computer_file/program/proc/grants_equipment_vision(mob/user)

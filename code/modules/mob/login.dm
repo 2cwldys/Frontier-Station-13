@@ -104,6 +104,14 @@
 	if(client) //Should work based on "change_view" but we lack the infrastructure behind to make it useful, for now
 		client.attempt_auto_fit_viewport()
 
+	if(client && client.saved_dynamic_view)
+		// A sector view was open when this client last detached (aghost,
+		// disconnect) -- the exit path never ran client-side, so this stale
+		// cache would permanently block refit_dynamic_view()'s recompute
+		// guard and strand the expanded view. Discard and refit fresh.
+		client.saved_dynamic_view = null
+		client.refit_dynamic_view()
+
 	if(machine)
 		machine.on_user_login(src)
 

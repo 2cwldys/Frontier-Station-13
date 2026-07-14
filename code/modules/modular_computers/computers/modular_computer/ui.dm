@@ -212,7 +212,11 @@
 /obj/item/modular_computer/check_eye(mob/user)
 	if(active_program)
 		return active_program.check_eye(user)
-	return ..()
+	// FALSE, not ..() (/atom's -1): a computer with no running program
+	// grants no view and should have no opinion -- -1 makes a stale
+	// mob `machine` ref cancel unrelated views every tick (see
+	// program.dm's check_eye note).
+	return FALSE
 
 /obj/item/modular_computer/grants_equipment_vision(mob/user)
 	if(active_program)

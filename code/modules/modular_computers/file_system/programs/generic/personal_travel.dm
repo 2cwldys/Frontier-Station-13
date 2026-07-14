@@ -278,6 +278,11 @@
 	// not a mob -- as user and crashed on user.reset_view(), aborting
 	// cleanup before client.view/gameui_border were ever restored.)
 	RegisterSignal(user, COMSIG_MOVABLE_MOVED, PROC_REF(_stop_viewing))
+	// Aghosting/disconnecting is a key transfer, not a Move -- without this
+	// hook viewing_user dangles across the round-trip, inverting the toggle
+	// (first click "exits" a phantom session) and leaving check_eye()
+	// answering for a session that no longer exists.
+	RegisterSignal(user, COMSIG_MOB_LOGOUT, PROC_REF(_stop_viewing))
 	viewing_user = user
 
 /datum/computer_file/program/personal_travel/proc/_stop_viewing(mob/user)
@@ -300,7 +305,7 @@
 		if(c.mob)
 			c.mob.reload_fullscreen()
 			c.mob.apply_gameui_border()
-	UnregisterSignal(user, COMSIG_MOVABLE_MOVED)
+	UnregisterSignal(user, list(COMSIG_MOVABLE_MOVED, COMSIG_MOB_LOGOUT))
 	viewing_user = null
 
 /// handle_vision() (life.dm) polls machine.check_eye() every tick and
@@ -311,7 +316,14 @@
 /datum/computer_file/program/personal_travel/check_eye(mob/user)
 	if(viewing_user == user)
 		return SEE_THRU
-	return -1
+	// FALSE (0), not -1: negative means "actively cancel the view NOW,
+	// every tick" (handle_vision, life.dm) -- correct only for a session
+	// this program owns that went invalid. A stale `machine` ref can point
+	// here long after use (aghost closes the TGUI without the ui_status
+	// recheck that calls unset_machine()), and -1 would then yank ANY
+	// other console's sector view back to the mob every tick. Same
+	// semantics as the ship console's !viewing_overmap() branch (ship.dm).
+	return FALSE
 
 /datum/computer_file/program/personal_travel/kill_program(forced = 0)
 	if(viewing_user)
