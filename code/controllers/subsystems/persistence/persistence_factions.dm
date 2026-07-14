@@ -958,6 +958,48 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	log_game("Site '[here_template.id]' at z=[row_last_z] auto-unpinned: [expected_notes] released.")
 	return TRUE
 
+/**
+ * Faction-facing wrapper for the admin "Rename Site" action below: renames
+ * the pinned away site occupying the given z, persisting via
+ * ss13_persistent_away_sites.custom_name (restored every boot by
+ * build_pinned_away_sites(), map.dm). Blank new_name restores the template
+ * default. Returns null on success, or a player-readable refusal reason.
+ * Resolution is by the z's own template id -- the same authoritative lookup
+ * pin/unpin above use -- so unlike the admin verb's last_z path this can
+ * never touch a different site through a stale z number.
+ */
+/proc/persistence_rename_pinned_site_at_z(z, new_name)
+	var/datum/map_template/here_template = GLOB.map_templates["[z]"]
+	if(!istype(here_template, /datum/map_template/ruin/away_site))
+		return "This location is not a renamable away site."
+	if(!SSpersistence.databaseCheckConnection("persistence_rename_pinned_site_at_z"))
+		return "Database connection unavailable."
+
+	var/datum/db_query/check = SSdbcore.NewQuery(
+		"SELECT id FROM ss13_persistent_away_sites WHERE template_name = :tn AND map_path = :mp",
+		list("tn" = here_template.id, "mp" = "[SSatlas.current_map.path]")
+	)
+	check.Execute()
+	var/pinned = check.NextRow()
+	qdel(check)
+	if(!pinned)
+		return "This site is not pinned for persistence -- its name cannot persist."
+
+	var/datum/db_query/rnq = SSdbcore.NewQuery(
+		"UPDATE ss13_persistent_away_sites SET custom_name = :cn WHERE template_name = :tn AND map_path = :mp",
+		list("cn" = (new_name != "" ? new_name : null), "tn" = here_template.id, "mp" = "[SSatlas.current_map.path]")
+	)
+	rnq.Execute()
+	SSpersistence.databaseCheckQueryResult(rnq, "persistence_rename_pinned_site_at_z")
+	qdel(rnq)
+
+	// Live apply -- z is the caller's own current z this session, so this
+	// marker lookup is direct and always the right site.
+	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[z]"]
+	if(istype(marker))
+		marker.name = (new_name != "" ? new_name : initial(marker.name))
+	return null
+
 /// Pin/unpin overmap away sites for persistence (ss13_persistent_away_sites).
 /// A pinned site always spawns, keeps its overmap position, gets a
 /// deterministic z-number, and saves/loads like a station deck. Default for

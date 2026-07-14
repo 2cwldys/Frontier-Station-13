@@ -18,6 +18,7 @@ type FactionBeaconData = {
   fuel_credits: number;
   max_fuel_credits: number;
   requires_fuel: BooleanLike;
+  site_name: string | null;
 };
 
 export const FactionBeacon = (props) => {
@@ -36,6 +37,7 @@ export const FactionBeacon = (props) => {
     fuel_credits,
     max_fuel_credits,
     requires_fuel,
+    site_name,
   } = data;
   const [withdrawAmount, setWithdrawAmount] = useState(0);
 
@@ -55,7 +57,7 @@ export const FactionBeacon = (props) => {
 
   return (
     <Window width={420} height={requires_fuel ? 500 : 340} title="Faction Beacon">
-      <Window.Content>
+      <Window.Content scrollable>
         <Section title="Status">
           <Box mb={1}>
             Network:{' '}
@@ -95,6 +97,22 @@ export const FactionBeacon = (props) => {
           </Box>
           {!active && !!refusal_reason && (
             <NoticeBox>Not active: {refusal_reason}.</NoticeBox>
+          )}
+          {!!site_name && (
+            <Box mb={1}>
+              Site:{' '}
+              <Box inline bold>
+                {site_name}
+              </Box>{' '}
+              <Button
+                icon="pen"
+                disabled={!can_configure}
+                tooltip={disabledReason || undefined}
+                onClick={() => act('rename_site')}
+              >
+                Rename Site
+              </Button>
+            </Box>
           )}
           <Box mt={1}>
             <Button

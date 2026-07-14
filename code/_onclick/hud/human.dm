@@ -251,6 +251,9 @@
 		if(H.client.prefs.toggles_secondary & VIGNETTE)
 			H.apply_vignette()
 
+		if(H.client.prefs.toggles_secondary & CRT_SCANLINES)
+			H.apply_crt_scanlines()
+
 
 /mob/living/carbon/human/verb/toggle_hotkey_verbs()
 	set category = "OOC"

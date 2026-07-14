@@ -54,6 +54,10 @@
 	/// currently borrowing this program's camera, so kill_program()/the
 	/// toggle-off path know exactly who to restore.
 	var/mob/viewing_user = null
+	/// Spool-up generation counter: the 5s/10s spark pulses are scheduled
+	/// up front and carry the sequence they belong to -- bumping this on
+	/// interrupt/abort invalidates any still-pending pulses.
+	var/spool_seq = 0
 
 /datum/computer_file/program/personal_travel/proc/_current_sector(mob/user)
 	if(!user)
@@ -81,6 +85,29 @@
 
 	data["cooldown_seconds_left"] = max(0, round((next_travel_time - world.time) / 10))
 	data["has_hardsuit"] = _has_hardsuit(user)
+
+	// "You are in X territory." -- any active faction beacon whose coverage
+	// (own station Zs, or security_radius around its sector) includes the
+	// user's current sector. Same coverage logic as the return-beacon loop
+	// below, minus the own-faction filter. First covering beacon wins.
+	data["territory_faction"] = null
+	if(my_sector)
+		for(var/obj/structure/machinery/faction_beacon/B in world)
+			if(istype(B, /obj/structure/machinery/faction_beacon/hub))
+				continue
+			if(!B.active || !B.powered || QDELETED(B))
+				continue
+			var/covers = (GET_Z(user) in B._station_zs())
+			if(!covers && B.security_radius > 0)
+				var/obj/effect/overmap/visitable/beacon_sector = GLOB.map_sectors["[GET_Z(B)]"]
+				if(istype(beacon_sector))
+					for(var/obj/effect/overmap/visitable/V in range(B.security_radius, beacon_sector))
+						if(V == my_sector)
+							covers = TRUE
+							break
+			if(covers)
+				data["territory_faction"] = get_faction_name(B.faction_uid)
+				break
 
 	data["leap_destinations"] = list()
 	if(my_sector)
@@ -200,21 +227,28 @@
 
 	to_chat(user, SPAN_NOTICE("\The [computer] begins calibrating a bluespace jump..."))
 	var/turf/spool_turf = get_turf(user)
-	_travel_spool_pulse(spool_turf)
-	addtimer(CALLBACK(src, PROC_REF(_travel_spool_pulse), spool_turf), 5 SECONDS)
-	addtimer(CALLBACK(src, PROC_REF(_travel_spool_pulse), spool_turf), 10 SECONDS)
+	var/seq = ++spool_seq
+	_travel_spool_pulse(spool_turf, seq)
+	addtimer(CALLBACK(src, PROC_REF(_travel_spool_pulse), spool_turf, seq), 5 SECONDS)
+	addtimer(CALLBACK(src, PROC_REF(_travel_spool_pulse), spool_turf, seq), 10 SECONDS)
 	if(!do_after(user, PERSONAL_TRAVEL_SPOOLUP, user))
+		spool_seq++ // invalidate the pending spark pulses above
 		to_chat(user, SPAN_WARNING("Bluespace calibration interrupted."))
 		return TRUE
 	if(user.in_recent_combat())
+		spool_seq++ // invalidate the pending spark pulses above
 		to_chat(user, SPAN_WARNING("Combat detected -- jump aborted."))
 		return TRUE
 
 	_execute_travel(user, destination)
 	return TRUE
 
-/datum/computer_file/program/personal_travel/proc/_travel_spool_pulse(turf/T)
+/datum/computer_file/program/personal_travel/proc/_travel_spool_pulse(turf/T, seq)
 	if(!T)
+		return
+	// Stale pulse from an interrupted/aborted spool-up -- the sparks must
+	// stop the moment the calibration does.
+	if(seq != spool_seq)
 		return
 	spark(T, 2, GLOB.alldirs)
 	playsound(T, 'sound/effects/sparks4.ogg', 20, 1)
@@ -255,6 +289,10 @@
 	// before pointing the camera at them -- see repair_stray_overmap_marker
 	// (sectors.dm).
 	repair_stray_overmap_marker(my_sector)
+	// check_eye()'s sight grant (the full-reveal trio) only flows while the
+	// hosting computer IS the mob's polled `machine` -- claim it explicitly
+	// (PDAs in hand never set it on their own).
+	user.set_machine(computer)
 	user.reset_view(my_sector)
 	if(user.client)
 		// Cache the real dynamic view so _stop_viewing() can restore it
@@ -305,6 +343,8 @@
 		if(c.mob)
 			c.mob.reload_fullscreen()
 			c.mob.apply_gameui_border()
+	if(user.machine == computer)
+		user.unset_machine()
 	UnregisterSignal(user, list(COMSIG_MOVABLE_MOVED, COMSIG_MOB_LOGOUT))
 	viewing_user = null
 
@@ -315,7 +355,9 @@
 /// computer. Same override pattern as the camera monitor program.
 /datum/computer_file/program/personal_travel/check_eye(mob/user)
 	if(viewing_user == user)
-		return SEE_THRU
+		// Full-reveal trio (camera XRay pattern) -- see ship.dm's check_eye
+		// note: hides nothing on the overmap plane behind opaque hazards.
+		return SEE_THRU|SEE_TURFS|SEE_OBJS|SEE_MOBS
 	// FALSE (0), not -1: negative means "actively cancel the view NOW,
 	// every tick" (handle_vision, life.dm) -- correct only for a session
 	// this program owns that went invalid. A stale `machine` ref can point

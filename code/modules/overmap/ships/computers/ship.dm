@@ -187,6 +187,11 @@ somewhere on that shuttle. Subtypes of these can be then used to perform ship ov
 		// it was never designed for. unlook()'s refit_dynamic_view() call
 		// already restores it correctly on the way back out.
 		user.clear_fullscreen("gameui_border", FALSE)
+	// check_eye()'s sight grant (the full-reveal trio above) only flows
+	// while this console IS the mob's polled `machine` -- claim it
+	// explicitly rather than relying on whatever Topic/TGUI interaction
+	// happened to set it last.
+	user.set_machine(src)
 	RegisterSignal(user, COMSIG_MOVABLE_MOVED, PROC_REF(unlook))
 	// Aghosting/disconnecting is a key transfer, not a Move -- without this
 	// hook the viewers weakref (and the mob's `machine`) dangle across the
@@ -241,6 +246,8 @@ somewhere on that shuttle. Subtypes of these can be then used to perform ship ov
 			c.mob.reload_fullscreen()
 			c.mob.apply_gameui_border()
 
+	if(user.machine == src)
+		user.unset_machine()
 	UnregisterSignal(user, list(COMSIG_MOVABLE_MOVED, COMSIG_MOB_LOGOUT))
 
 	if(isEye(user)) // If we're an AI eye, the computer has our AI mob in its viewers list not the eye mob
@@ -283,7 +290,12 @@ somewhere on that shuttle. Subtypes of these can be then used to perform ship ov
 	if (use_check_and_message(user, flags) || user.blinded || !operable())
 		return -1
 	else
-		return SEE_THRU
+		// Full-reveal trio (camera XRay pattern, camera.dm): without it the
+		// opaque overmap hazard clusters (meteor/dust fields) and the map
+		// edge ring black out chunks of the sector view. handle_vision ORs
+		// this into sight each tick; server-side sensor view()/range()
+		// mechanics are unaffected.
+		return SEE_THRU|SEE_TURFS|SEE_OBJS|SEE_MOBS
 
 /obj/structure/machinery/computer/ship/Destroy()
 	SSshuttle.lonely_ship_computers -= src

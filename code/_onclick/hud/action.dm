@@ -27,7 +27,10 @@
 	var/processing = 0
 	var/active = 0
 	var/atom/movable/screen/movable/action_button/button = null
-	var/button_icon = 'icons/hud/action_buttons/actions.dmi'
+	// The Serenity-ported blue HUD art (icons/hud/mob/actions.dmi) -- the
+	// old gray icons/hud/action_buttons/actions.dmi predates the port and
+	// mismatches the rest of the UI.
+	var/button_icon = 'icons/hud/mob/actions.dmi'
 	var/button_icon_state = "default"
 	var/button_icon_color
 	var/background_icon_state = "bg_default"
@@ -179,7 +182,7 @@
 //Hide/Show Action Buttons ... Button
 /atom/movable/screen/movable/action_button/hide_toggle
 	name = "Hide Buttons"
-	icon = 'icons/hud/action_buttons/actions.dmi'
+	icon = 'icons/hud/mob/actions.dmi' // Serenity-ported blue art, see button_icon above
 	icon_state = "bg_default"
 	var/hidden = 0
 

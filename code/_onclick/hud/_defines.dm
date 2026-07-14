@@ -43,7 +43,11 @@
 #define ui_drop        "EAST-1:28,SOUTH+1:8"
 #define ui_throw       "EAST-1:28,SOUTH+2:5"
 #define ui_drop_throw  "EAST-1:28,SOUTH+2:5"
-#define ui_pull_resist "EAST-1:28,SOUTH+2:8"
+// Lowered 6px from the original SOUTH+2:8 to sit flush above ui_throw --
+// the act_resist art carries baked-in vertical padding the other act_*
+// states don't, so its anchor needs to compensate. (First try -10px sat
+// slightly too low; eyeball-tuned constant.)
+#define ui_pull_resist "EAST-1:28,SOUTH+2:2"
 #define ui_pull        "EAST-1:28,SOUTH+4:5"
 #define ui_morph_resist "EAST-2:26,SOUTH:5"
 #define ui_acti "EAST-2:26,SOUTH:5"

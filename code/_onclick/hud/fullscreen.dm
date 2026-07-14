@@ -228,6 +228,82 @@
 		if(scale > 1)
 			v.transform = matrix(scale, 0, 0, 0, scale, 0)
 
+// Preference-gated (CRT_SCANLINES) old-CRT roll band: a faint DARK band
+// (the classic CRT "rolling shutter") that periodically sweeps down the
+// entire game window with a slight horizontal waver. Sized by
+// apply_crt_scanlines() below; the art is the same solid 32x32 white tile
+// the lighting backdrop uses, tinted black and stretched via transform.
+// Self-driving: timer-armed single-sweep animates (the codebase's reliable
+// pattern for screen-object pixel animation -- progressbar/langchat), NOT a
+// looping animate() chain, whose delay-step/loop semantics proved flaky.
+/atom/movable/screen/fullscreen/crt_scanlines
+	icon = 'icons/hud/mob/white.dmi'
+	icon_state = "flash"
+	screen_loc = "CENTER,CENTER"
+	layer = CRT_SCANLINES_LAYER
+	color = "#000000"
+	alpha = 25
+	/// Sweep span in pixels -- the client's view pixel height, kept current
+	/// by apply_crt_scanlines(). 480 = the 15x15 default view.
+	var/sweep_px_h = 480
+	/// Horizontal stretch factor (view px width / 32), kept current by
+	/// apply_crt_scanlines().
+	var/sweep_scale_x = 15
+	/// One-shot latch so re-applies never stack extra roll timer loops.
+	var/rolling = FALSE
+
+/// This band's transform at a given sweep position (c = x-translate,
+/// f = y-translate, plus the width/thickness scale). ALL movement is done
+/// through transform translation: transform rendering on fullscreen screens
+/// is proven in-game (vignette/gameui_border/chilled), while pixel_x/pixel_y
+/// offsets proved not to render on them at all (two failed rounds).
+/atom/movable/screen/fullscreen/crt_scanlines/proc/band_matrix(x_off, y_off)
+	return matrix(sweep_scale_x, 0, x_off, 0, 2 / 32, y_off)
+
+/atom/movable/screen/fullscreen/crt_scanlines/proc/start_rolling()
+	if(rolling)
+		return
+	rolling = TRUE
+	addtimer(CALLBACK(src, PROC_REF(crt_roll)), rand(2 SECONDS, 6 SECONDS))
+
+/// One top-to-bottom sweep with a gentle side-to-side waver (segmented
+/// eased chain), then re-arms itself at a randomized interval -- the
+/// randomized hold is the "occasional" pacing (mirrors the fast-roll/
+/// long-tail feel of the Serenity character doll's baked animation).
+/atom/movable/screen/fullscreen/crt_scanlines/proc/crt_roll()
+	if(QDELETED(src))
+		return
+	// +16px so the band starts/ends fully clipped off the view edges.
+	var/top = sweep_px_h / 2 + 16
+	var/step_y = (top * 2) / 6
+	transform = band_matrix(0, top)
+	// 6 x 0.5s steps = a ~3s glide down the screen (1.5s read too fast,
+	// 6s too slow -- eyeball-tuned midpoint).
+	animate(src, transform = band_matrix(3, top - step_y), time = 0.5 SECONDS, easing = SINE_EASING)
+	animate(transform = band_matrix(-3, top - 2 * step_y), time = 0.5 SECONDS, easing = SINE_EASING)
+	animate(transform = band_matrix(3, top - 3 * step_y), time = 0.5 SECONDS, easing = SINE_EASING)
+	animate(transform = band_matrix(-3, top - 4 * step_y), time = 0.5 SECONDS, easing = SINE_EASING)
+	animate(transform = band_matrix(3, top - 5 * step_y), time = 0.5 SECONDS, easing = SINE_EASING)
+	animate(transform = band_matrix(0, top - 6 * step_y), time = 0.5 SECONDS, easing = SINE_EASING)
+	addtimer(CALLBACK(src, PROC_REF(crt_roll)), rand(8 SECONDS, 16 SECONDS))
+
+/// Applies (or re-scales, if already present) the preference-gated CRT
+/// scanline roll. Same transform-scaling approach as apply_vignette() above.
+/mob/living/carbon/human/proc/apply_crt_scanlines()
+	overlay_fullscreen("crt_scanlines", /atom/movable/screen/fullscreen/crt_scanlines)
+	// overlay_fullscreen() returns null when the overlay already exists --
+	// fetch it back out of screens[] (same as apply_gameui_border() below)
+	// so re-applies still rescale.
+	var/atom/movable/screen/fullscreen/crt_scanlines/s = screens["crt_scanlines"]
+	if(!s || !client)
+		return
+	var/list/vs = getviewsize(client.view)
+	s.sweep_scale_x = vs[1] * WORLD_ICON_SIZE / 32
+	s.sweep_px_h = vs[2] * WORLD_ICON_SIZE
+	// Park the band off the top edge until the first roll fires.
+	s.transform = s.band_matrix(0, s.sweep_px_h / 2 + 16)
+	s.start_rolling()
+
 // Decorative game window border. GAMEUI_BORDER_LAYER sits above film grain
 // and vignette but below CHILLED_LAYER (chilled must stay visible over it)
 // and still below HUD_PLANE. Same 480x480 single-state convention as

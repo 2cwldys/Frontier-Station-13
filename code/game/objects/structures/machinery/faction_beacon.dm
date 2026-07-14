@@ -749,6 +749,8 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	data["fuel_credits"] = fuel_credits
 	data["max_fuel_credits"] = max_fuel_credits
 	data["requires_fuel"] = requires_fuel
+	var/obj/effect/overmap/visitable/here = GLOB.map_sectors["[GET_Z(src)]"]
+	data["site_name"] = istype(here) ? here.name : null
 	return data
 
 /obj/structure/machinery/faction_beacon/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
@@ -815,6 +817,21 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 			cash.update_icon()
 			to_chat(user, SPAN_GOOD("Withdrew [amount] credits."))
 			log_game("[key_name(user)] withdrew [amount] fuel credits from a faction beacon at ([x],[y],[z]).")
+			. = TRUE
+		if("rename_site")
+			if(!can_configure_faction_shackle(user, faction_uid, 1))
+				to_chat(user, SPAN_WARNING("You need command access in [faction_uid ? get_faction_name(faction_uid) : "this beacon's faction"] to rename this site."))
+				return
+			var/obj/effect/overmap/visitable/here = GLOB.map_sectors["[GET_Z(src)]"]
+			var/new_site_name = tgui_input_text(user, "New overmap name for this site (leave blank to restore the default):", "Rename Site", here ? here.name : "", max_length = 128)
+			if(isnull(new_site_name))
+				return
+			var/refusal = persistence_rename_pinned_site_at_z(GET_Z(src), new_site_name)
+			if(refusal)
+				to_chat(user, SPAN_WARNING(refusal))
+				return
+			to_chat(user, SPAN_GOOD("[new_site_name != "" ? "Site renamed to '[new_site_name]'" : "Site name restored to its default"] -- persists across reboots."))
+			log_game("[key_name(user)] [new_site_name != "" ? "renamed pinned site to '[new_site_name]'" : "cleared pinned site custom name"] via faction beacon at ([x],[y],[z]).")
 			. = TRUE
 
 /// Shared power-toggle body -- used by the TGUI's "toggle_power" action.

@@ -192,6 +192,48 @@
 /mob/living/carbon/human/Moved(atom/old_loc, movement_dir, forced, list/old_locs)
 	. = ..()
 	if(fov) update_vision_cone()
+	_ping_rear_observers()
+
+// ── Behind-you awareness ping ──────────────────────────────────────────────
+// A personal-only pulse shown to a player when another human moves inside
+// their blind rear arc, up to BEHIND_PING_RANGE tiles away -- they can't
+// see the mover (FOV cone hides them), but they can tell something is
+// moving back there. Art is the hide.dmi "behind" state (Serenity family).
+
+#define BEHIND_PING_RANGE 3
+
+/mob/living/carbon/human
+	var/next_behind_ping = 0
+
+/// Called from Moved() above: pulse every nearby player whose ACTIVE cone
+/// hides this mover (same InCone rear-arc test update_vision_cone() uses).
+/mob/living/carbon/human/proc/_ping_rear_observers()
+	var/turf/T = get_turf(src)
+	if(!T)
+		return
+	for(var/mob/living/carbon/human/H in range(BEHIND_PING_RANGE, T))
+		if(H == src || !H.client || !H.fov || !H.fov.alpha)
+			continue
+		if(world.time < H.next_behind_ping)
+			continue
+		if(!InCone(H, OPPOSITE_DIR(H.dir)))
+			continue
+		H.next_behind_ping = world.time + 1 SECOND
+		var/image/ping = image('icons/mob/hide.dmi', T, "behind")
+		// FULLSCREEN_PLANE + a layer above the cone overlay so the pulse
+		// shows THROUGH the black rear-arc cone instead of under it.
+		ping.plane = FULLSCREEN_PLANE
+		ping.layer = GAMEUI_BORDER_LAYER
+		ping.alpha = 160
+		H.client.images += ping
+		addtimer(CALLBACK(GLOBAL_PROC, /proc/_behind_ping_cleanup, H.client, ping), 1 SECOND)
+
+/proc/_behind_ping_cleanup(client/C, image/I)
+	if(C)
+		C.images -= I
+	qdel(I)
+
+#undef BEHIND_PING_RANGE
 
 // ── Living mob cleanup when dying/disconnecting ───────────────────────────
 

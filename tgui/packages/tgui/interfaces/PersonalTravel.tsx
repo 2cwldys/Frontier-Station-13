@@ -17,6 +17,7 @@ type BeaconDestination = {
 
 type PersonalTravelData = {
   sector_name: string;
+  territory_faction: string | null;
   is_away_site: BooleanLike;
   viewing: BooleanLike;
   in_combat: BooleanLike;
@@ -31,7 +32,7 @@ export const PersonalTravel = (props) => {
   const { act, data } = useBackend<PersonalTravelData>();
   const {
     sector_name,
-    is_away_site,
+    territory_faction,
     viewing,
     in_combat,
     combat_seconds_left,
@@ -57,13 +58,12 @@ export const PersonalTravel = (props) => {
             <Box inline bold color="good">
               {sector_name}
             </Box>
-            {!!is_away_site && (
-              <Box inline color="label">
-                {' '}
-                (away site)
-              </Box>
-            )}
           </Box>
+          {!!territory_faction && (
+            <Box mb={1} color="average">
+              You are in {territory_faction} territory.
+            </Box>
+          )}
           <Button
             icon="satellite-dish"
             color={viewing ? 'good' : 'grey'}
@@ -102,12 +102,6 @@ export const PersonalTravel = (props) => {
                 <Table.Row key={dest.ref} className="candystripe">
                   <Table.Cell bold>
                     {dest.name}
-                    {!!dest.is_away_site && (
-                      <Box inline color="label">
-                        {' '}
-                        (away site)
-                      </Box>
-                    )}
                   </Table.Cell>
                   <Table.Cell color="label">{dest.distance}</Table.Cell>
                   <Table.Cell>

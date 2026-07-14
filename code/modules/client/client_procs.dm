@@ -69,6 +69,12 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 		stat_panel.reinitialize()
 	if(href_list["hide_stat_cover"])
 		hide_stat_cover()
+		mob?.playsound_local(null, 'sound/machines/terminal/terminal_button01.ogg', 35)
+	if(href_list["statcover_jitter"])
+		// The cover's JS keeps jittering (and pinging) while the window is
+		// hidden -- only voice the jitter when the art is actually on screen.
+		if(statcover_visible)
+			mob?.playsound_local(null, 'sound/effects/jitter.ogg', 50)
 
 	if (href_list["EMERG"] && href_list["EMERG"] == "action")
 		if (!info_sent)
@@ -913,6 +919,24 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 		H.clear_fullscreen("vignette")
 		to_chat(usr, SPAN_NOTICE("Vignette: <b>OFF</b>"))
 
+/client/verb/toggle_crt_scanlines()
+	set name = "Toggle CRT Scanlines"
+	set category = "Preferences.Menu"
+	set desc = "Toggles the occasional CRT scanline roll overlay. On by default."
+
+	prefs.toggles_secondary ^= CRT_SCANLINES
+	prefs.save_preferences()
+
+	var/mob/living/carbon/human/H = mob
+	if(!istype(H)) return
+
+	if(prefs.toggles_secondary & CRT_SCANLINES)
+		H.apply_crt_scanlines()
+		to_chat(usr, SPAN_NOTICE("CRT scanlines: <b>ON</b>"))
+	else
+		H.clear_fullscreen("crt_scanlines")
+		to_chat(usr, SPAN_NOTICE("CRT scanlines: <b>OFF</b>"))
+
 /client/verb/toggle_status_bar()
 	set name = "Toggle Status Bar"
 	set category = "Preferences.Menu"
@@ -1217,6 +1241,7 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 			SSstatpanels.immediate_send_stat_data(src)
 		if("Show-Cover")
 			show_stat_cover()
+			mob?.playsound_local(null, 'sound/machines/terminal/terminal_button03.ogg', 35)
 
 /// compiles a full list of verbs and sends it to the browser
 /client/proc/init_verbs()

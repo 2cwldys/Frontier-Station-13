@@ -90,7 +90,8 @@
 		"<b>Hide Item Tooltips:</b> <a href='byond://?src=[REF(src)];paratoggle=[HIDE_ITEM_TOOLTIPS]'><b>[(pref.toggles_secondary & HIDE_ITEM_TOOLTIPS) ? "Yes" : "No"]</b></a><br>",
 		"<b>Progress Bars:</b> <a href='byond://?src=[REF(src)];paratoggle=[PROGRESS_BARS]'><b>[(pref.toggles_secondary & PROGRESS_BARS) ? "Yes" : "No"]</b></a><br>",
 		"<b>Floating Messages:</b> <a href='byond://?src=[REF(src)];paratoggle=[FLOATING_MESSAGES]'><b>[(pref.toggles_secondary & FLOATING_MESSAGES) ? "Yes" : "No"]</b></a><br>",
-		"<b>Hotkey Mode Default:</b> <a href='byond://?src=[REF(src)];paratoggle=[HOTKEY_DEFAULT]'><b>[(pref.toggles_secondary & HOTKEY_DEFAULT) ? "On" : "Off"]</b></a><br>"
+		"<b>Hotkey Mode Default:</b> <a href='byond://?src=[REF(src)];paratoggle=[HOTKEY_DEFAULT]'><b>[(pref.toggles_secondary & HOTKEY_DEFAULT) ? "On" : "Off"]</b></a><br>",
+		"<b>CRT Scanlines:</b> <a href='byond://?src=[REF(src)];paratoggle=[CRT_SCANLINES]'><b>[(pref.toggles_secondary & CRT_SCANLINES) ? "On" : "Off"]</b></a><br>"
 	)
 
 	. = dat.Join()

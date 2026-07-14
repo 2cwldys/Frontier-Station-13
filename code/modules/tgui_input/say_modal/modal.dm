@@ -61,7 +61,7 @@
 /datum/tgui_say/proc/load()
 	window_open = FALSE
 
-	winset(client, "tgui_say", "pos=700,500;is-visible=0;")
+	winset(client, "tgui_say", "is-visible=0;")
 
 	window.send_message("props", list(
 		"lightMode" = client?.prefs.tgui_say_light_mode,
