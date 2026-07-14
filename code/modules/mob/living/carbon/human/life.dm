@@ -1511,6 +1511,12 @@
 		var/viewflags = machine.check_eye(src)
 		if(viewflags < 0)
 			reset_view(null, 0)
+			// A negative check_eye means the machine's view session is dead.
+			// Release the ref too: classic machinery (e.g. slot machines)
+			// never unsets itself when the user walks away, and a stale
+			// /atom-default -1 here would otherwise veto every later view
+			// (sector view etc.) on every tick, forever.
+			unset_machine()
 		else if(viewflags)
 			set_sight(sight|viewflags)
 		machine_has_equipment_vision = machine.grants_equipment_vision(src)
