@@ -422,7 +422,7 @@
 			ping("Insufficient funds in account.")
 			return FALSE
 		else
-			customer_account.money -= total_price
+			customer_account.adjust_money(-total_price)
 			var/datum/transaction/transaction = new()
 			transaction.target_name = "Computer Manufacturer (via [src.name])"
 			transaction.purpose = "Purchase of [(devtype == LAPVEND_DEVICE_LAPTOP) ? "laptop computer" : "tablet microcomputer"]."

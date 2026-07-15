@@ -141,6 +141,7 @@ GLOBAL_LIST(global_huds)
 	var/atom/movable/screen/l_hand_hud_object
 	var/atom/movable/screen/action_intent
 	var/atom/movable/screen/movement_intent/move_intent
+	var/atom/movable/screen/freelook_toggle/freelook_toggle
 	var/atom/movable/screen/grab_intent
 	var/atom/movable/screen/hurt_intent
 	var/atom/movable/screen/disarm_intent

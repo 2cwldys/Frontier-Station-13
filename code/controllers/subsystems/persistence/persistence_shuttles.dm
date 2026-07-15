@@ -285,7 +285,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 				to_chat(user, SPAN_WARNING("Insufficient funds."))
 			log_drydock_warning("drydockBuy: refused -- [acting] has insufficient personal funds ([template.price] cr).")
 			return FALSE
-		acc.money -= template.price
+		acc.adjust_money(-template.price)
 
 	if(!databaseCheckConnection("drydockBuy"))
 		if(user)

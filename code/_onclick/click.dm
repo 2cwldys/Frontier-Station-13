@@ -427,6 +427,32 @@
 	if(direction != dir)
 		facedir(direction, force_face)
 
+// Continuous face-the-mouse for the freelook toggle. Mirrors face_atom()'s
+// cardinal-only direction math, but sets facing_dir directly instead of
+// going through facedir() -- facedir() no-ops while client.moving is TRUE
+// and never engages the facing_dir lock, so it can't hold a direction
+// across movement steps the way the moonwalking system does.
+/mob/living/carbon/human/proc/freelook_face(atom/A)
+	if(!A || !x || !y || !A.x || !A.y || !canface())
+		return
+	var/dx = A.x - x
+	var/dy = A.y - y
+	if(!dx && !dy)
+		return
+	var/direction = (abs(dx) < abs(dy)) ? (dy > 0 ? NORTH : SOUTH) : (dx > 0 ? EAST : WEST)
+	if(dir != direction)
+		set_dir(direction)
+	facing_dir = direction
+
+/client/MouseMove(atom/object, location, control, params)
+	. = ..()
+	if(control != "mapwindow.map" || !object)
+		return
+	var/mob/living/carbon/human/H = mob
+	if(!istype(H) || !H.freelook_active || H.stat != CONSCIOUS)
+		return
+	H.freelook_face(object)
+
 GLOBAL_LIST(click_catchers)
 
 /atom/movable/screen/click_catcher

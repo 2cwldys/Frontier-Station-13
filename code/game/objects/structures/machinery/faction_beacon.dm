@@ -143,6 +143,8 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	if(world.time >= next_sweep_time)
 		next_sweep_time = world.time + FACTION_BEACON_SWEEP_INTERVAL
 		_sweep_unassigned_objects(_station_zs())
+		_apply_security_radius_grant()
+		zone_security_update_overmap()
 	if(requires_fuel && world.time >= next_fuel_drain_time)
 		next_fuel_drain_time = world.time + BEACON_FUEL_DRAIN_INTERVAL
 		fuel_credits = max(0, fuel_credits - BEACON_FUEL_DRAIN_AMOUNT)
@@ -383,7 +385,6 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		update_icon()
 		return
 
-	var/beacon_z = GET_Z(src)
 	var/list/station_zs = _station_zs()
 	for(var/z in station_zs)
 		GLOB.faction_beacon_by_z["[z]"] = src
@@ -420,22 +421,10 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		persistence_pin_site_at_z(z, "Faction: [faction_uid]")
 
 	// Extends the security guarantee to nearby overmap sectors within
-	// security_radius, same range() mechanic telecomms machines use for their
-	// own broadcast reach. Never touches an already-highsec Z (same exception
-	// as this beacon's own Zs, just above), and never touches a Z already
-	// claimed by a different active beacon (respects other factions' territory).
-	if(SSatlas.current_map.use_overmap && security_radius > 0)
-		var/obj/effect/overmap/visitable/my_sector = GLOB.map_sectors["[beacon_z]"]
-		if(istype(my_sector))
-			for(var/obj/effect/overmap/visitable/V in range(security_radius, my_sector))
-				for(var/nearby_z in V.map_z)
-					if(nearby_z in station_zs)
-						continue
-					var/obj/structure/machinery/faction_beacon/other = GLOB.faction_beacon_by_z["[nearby_z]"]
-					if(other && !QDELETED(other) && other != src)
-						continue
-					if(zone_security_get(nearby_z) < guaranteed_security_tier)
-						persistence_set_zone_security(nearby_z, guaranteed_security_tier)
+	// security_radius -- see _apply_security_radius_grant() for the actual
+	// range() sweep, also re-run periodically by process() so a site
+	// generated or moved into range afterward gets picked up too.
+	_apply_security_radius_grant()
 
 	// Always refresh the overmap/border visuals on a successful claim,
 	// regardless of whether any of the writes above actually changed a
@@ -444,6 +433,31 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	// without ever repainting, and its contribution to the border would
 	// silently never appear.
 	zone_security_update_overmap()
+
+/// Grants this beacon's guaranteed_security_tier to every overmap sector
+/// within security_radius that isn't already at/above it, skipping this
+/// beacon's own station Zs and any Z another active beacon already claims.
+/// Called once from _apply_network() on activation, and periodically from
+/// process() so a site generated or moved into range afterward -- which
+/// would otherwise never be swept up until a full power-cycle -- gets
+/// picked up within one sweep interval instead.
+/obj/structure/machinery/faction_beacon/proc/_apply_security_radius_grant()
+	if(!SSatlas.current_map.use_overmap || security_radius <= 0)
+		return
+	var/beacon_z = GET_Z(src)
+	var/list/station_zs = _station_zs()
+	var/obj/effect/overmap/visitable/my_sector = GLOB.map_sectors["[beacon_z]"]
+	if(!istype(my_sector))
+		return
+	for(var/obj/effect/overmap/visitable/V in range(security_radius, my_sector))
+		for(var/nearby_z in V.map_z)
+			if(nearby_z in station_zs)
+				continue
+			var/obj/structure/machinery/faction_beacon/other = GLOB.faction_beacon_by_z["[nearby_z]"]
+			if(other && !QDELETED(other) && other != src)
+				continue
+			if(zone_security_get(nearby_z) < guaranteed_security_tier)
+				persistence_set_zone_security(nearby_z, guaranteed_security_tier)
 
 /// Claims every UNASSIGNED (persistent_network/req_access_faction/etc.
 /// still empty) compatible object across the given Zs for this beacon's

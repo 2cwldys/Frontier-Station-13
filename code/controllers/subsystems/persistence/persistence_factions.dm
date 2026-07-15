@@ -1051,7 +1051,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			msg += "  #[row["id"]] [row["template"]][row["notes"] ? " ([row["notes"]])" : ""] -- [row["enabled"] ? "ENABLED" : "disabled"], overmap ([row["om_x"]],[row["om_y"]])[appearance_info], [live]\n"
 		to_chat(usr, SPAN_NOTICE(msg))
 
-		var/action = tgui_input_list(usr, "Select action:", "Persistent Overmap Sites", list("Pin Site I'm At", "Pin From Template List", "Rename Site", "Change Icon", "Toggle Enabled", "Unpin Site", "Close"))
+		var/action = tgui_input_list(usr, "Select action:", "Persistent Overmap Sites", list("Pin Site I'm At", "Pin From Template List", "Rename Site", "Change Icon", "Move Site", "Toggle Enabled", "Unpin Site", "Close"))
 		if(!action || action == "Close")
 			return
 
@@ -1204,6 +1204,90 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			to_chat(usr, SPAN_GOOD("'[icon_row["template"]]' overmap icon [new_icon_state ? "set to '[new_icon_state]'" : "restored to template default"] -- persists across reboots."))
 			log_and_message_admins("[new_icon_state ? "set pinned overmap site '[icon_row["template"]]' icon to '[new_icon_state]'" : "cleared custom icon on pinned overmap site '[icon_row["template"]]'"]", usr)
 
+		else if(action == "Move Site")
+			// Lists BOTH pinned sites (from `rows`) and dynamic ones currently
+			// live this session -- Move Site isn't restricted to pinned rows,
+			// unlike every other action here, since relocating a dynamic site
+			// is still meaningful (it just isn't written to the DB).
+			var/list/move_choices = list()
+			for(var/list/row in rows)
+				move_choices["#[row["id"]] [row["template"]][row["custom_name"] ? " ('[row["custom_name"]]')" : ""] (pinned)"] = row
+			for(var/z_key in GLOB.map_sectors)
+				var/z_num = text2num(z_key)
+				if(!z_num || (z_num in GLOB.persistence_pinned_site_z))
+					continue // pinned sites already listed above via their DB row
+				var/datum/map_template/dyn_template = GLOB.map_templates[z_key]
+				if(!istype(dyn_template, /datum/map_template/ruin/away_site))
+					continue
+				var/obj/effect/overmap/visitable/dyn_marker = GLOB.map_sectors[z_key]
+				if(!istype(dyn_marker) || istype(dyn_marker, /obj/effect/overmap/visitable/sector/exoplanet))
+					continue
+				move_choices["[dyn_template.id] (dynamic, z=[z_num])"] = list("dynamic" = TRUE, "z" = z_num, "template" = dyn_template.id)
+			if(!length(move_choices))
+				to_chat(usr, SPAN_WARNING("No movable sites found -- a site must be currently loaded this session to move it."))
+				continue
+			var/move_pick = tgui_input_list(usr, "Move which site?", "Move Site", move_choices)
+			if(!move_pick)
+				continue
+			var/list/move_row = move_choices[move_pick]
+			var/is_dynamic = !!move_row["dynamic"]
+			var/move_z = is_dynamic ? move_row["z"] : move_row["last_z"]
+			var/obj/effect/overmap/visitable/move_marker = GLOB.map_sectors["[move_z]"]
+			if(!istype(move_marker))
+				to_chat(usr, SPAN_WARNING("'[move_row["template"]]' isn't currently loaded -- it must be live this session to move."))
+				continue
+			// Same stale-z guard Rename Site/Change Icon already use -- a pinned
+			// row's last_z can go stale if an earlier row failed to load this
+			// boot, letting a later site land on the failed row's old z.
+			if(!is_dynamic)
+				var/datum/map_template/move_template = GLOB.map_templates["[move_z]"]
+				if(!move_template || move_template.id != move_row["template"])
+					to_chat(usr, SPAN_WARNING("'[move_row["template"]]' isn't actually loaded at z=[move_z] this session (stale record) -- refusing to move a different site."))
+					continue
+
+			var/map_low = OVERMAP_EDGE
+			var/map_high = SSatlas.current_map.overmap_size - OVERMAP_EDGE
+			var/new_x = tgui_input_number(usr, "New overmap X ([map_low]-[map_high]):", "Move Site", move_marker.start_x, map_high, map_low)
+			if(isnull(new_x))
+				continue
+			var/new_y = tgui_input_number(usr, "New overmap Y ([map_low]-[map_high]):", "Move Site", move_marker.start_y, map_high, map_low)
+			if(isnull(new_y))
+				continue
+			new_x = clamp(new_x, map_low, map_high)
+			new_y = clamp(new_y, map_low, map_high)
+
+			var/turf/move_dest = locate(new_x, new_y, SSatlas.current_map.overmap_z)
+			if(!move_dest)
+				to_chat(usr, SPAN_WARNING("No overmap tile at ([new_x],[new_y])."))
+				continue
+			var/obj/effect/overmap/visitable/move_occupant = locate() in move_dest
+			if(move_occupant && move_occupant != move_marker)
+				to_chat(usr, SPAN_WARNING("([new_x],[new_y]) is already occupied by '[move_occupant.name]' -- pick another tile."))
+				continue
+
+			move_marker.start_x = new_x
+			move_marker.start_y = new_y
+			move_marker.forceMove(move_dest)
+
+			if(!is_dynamic)
+				var/datum/db_query/mvq = SSdbcore.NewQuery(
+					"UPDATE ss13_persistent_away_sites SET overmap_x = :ox, overmap_y = :oy WHERE id = :id",
+					list("ox" = new_x, "oy" = new_y, "id" = move_row["id"])
+				)
+				mvq.Execute()
+				SSpersistence.databaseCheckQueryResult(mvq, "persistent_overmap_sites move")
+				qdel(mvq)
+
+			// Immediate re-sync instead of waiting on the next periodic beacon
+			// sweep -- see _apply_security_radius_grant() (faction_beacon.dm).
+			for(var/obj/structure/machinery/faction_beacon/B in world)
+				if(B.active && B.powered)
+					B._apply_security_radius_grant()
+			zone_security_update_overmap()
+
+			to_chat(usr, SPAN_GOOD("Moved '[move_row["template"]]' to overmap ([new_x],[new_y])[is_dynamic ? " (dynamic -- not saved, resets next boot)" : " -- persists across reboots"]."))
+			log_and_message_admins("moved overmap site '[move_row["template"]]' to ([new_x],[new_y])", usr)
+
 		else if(action == "Toggle Enabled")
 			if(!length(rows))
 				to_chat(usr, SPAN_WARNING("No sites are pinned."))
@@ -1250,13 +1334,24 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			uq.Execute()
 			SSpersistence.databaseCheckQueryResult(uq, "persistent_overmap_sites unpin")
 			qdel(uq)
+			// Same stale-z guard Rename Site/Change Icon already use -- last_z
+			// can point at a DIFFERENT site's z if an earlier row failed to
+			// load this boot and a later site landed on the failed row's old z
+			// (sequential z-allocation in build_pinned_away_sites()). Without
+			// this, purging/evicting by a stale last_z silently destroys an
+			// unrelated, still-live site's saved persistence data.
+			var/datum/map_template/unpin_template = unpin_row["last_z"] ? GLOB.map_templates["[unpin_row["last_z"]]"] : null
+			var/unpin_z_matches = unpin_template && (unpin_template.id == unpin_row["template"])
 			if(purge_choice == "Purge" && unpin_row["last_z"])
-				SSpersistence.purgeZRows(unpin_row["last_z"])
-			if(unpin_row["last_z"] && (unpin_row["last_z"] in GLOB.persistence_pinned_site_z))
+				if(unpin_z_matches)
+					SSpersistence.purgeZRows(unpin_row["last_z"])
+				else
+					to_chat(usr, SPAN_WARNING("z=[unpin_row["last_z"]] no longer matches '[unpin_row["template"]]' this session (stale record) -- skipped purging live data to avoid deleting an unrelated site's saved rows."))
+			if(unpin_row["last_z"] && unpin_z_matches && (unpin_row["last_z"] in GLOB.persistence_pinned_site_z))
 				GLOB.persistence_pinned_site_z -= unpin_row["last_z"]
 				GLOB.persistence_zlevel_allow -= unpin_row["last_z"]
-			to_chat(usr, SPAN_GOOD("Unpinned '[unpin_row["template"]]'[purge_choice == "Purge" ? " and purged its saved rows" : " (saved rows kept)"]. Dynamic again from next boot."))
-			log_and_message_admins("unpinned overmap site '[unpin_row["template"]]'[purge_choice == "Purge" ? " (rows purged)" : ""]", usr)
+			to_chat(usr, SPAN_GOOD("Unpinned '[unpin_row["template"]]'[(purge_choice == "Purge" && unpin_z_matches) ? " and purged its saved rows" : " (saved rows kept)"]. Dynamic again from next boot."))
+			log_and_message_admins("unpinned overmap site '[unpin_row["template"]]'[(purge_choice == "Purge" && unpin_z_matches) ? " (rows purged)" : ""]", usr)
 
 /// Inject an away-site template at a chosen overmap tile at runtime -- the
 /// same kind of z-level that normally only spawns randomly at boot, placed
@@ -1331,6 +1426,13 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		marker.start_y = pick_y
 		if(marker.loc)
 			marker.forceMove(target_tile)
+
+	// Grant the real security tier immediately if this landed inside an
+	// active beacon's radius, instead of waiting up to one sweep interval
+	// for process()'s periodic _apply_security_radius_grant() to catch it.
+	for(var/obj/structure/machinery/faction_beacon/B in world)
+		if(B.active && B.powered)
+			B._apply_security_radius_grant()
 
 	// Paint the new marker's zone-security outline/border immediately --
 	// otherwise it sits unpainted until some unrelated later zone change

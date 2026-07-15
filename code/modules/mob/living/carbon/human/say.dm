@@ -262,8 +262,8 @@
 	var/list/returns = ..()
 	returns = species.handle_speech_sound(src, returns)
 	if(!returns[1] && COOLDOWN_FINISHED(src, mumble_sound_cd))
-		if(istype(wear_suit, /obj/item/clothing/suit/space))
-			return returns // sealed hardsuit -- no audible mutter
+		if(istype(wear_suit, /obj/item/clothing/suit/space) && istype(head, /obj/item/clothing/head/helmet/space))
+			return returns // sealed hardsuit + helmet -- no audible mutter
 		var/turf/T = get_turf(src)
 		var/datum/gas_mixture/env = T?.return_air()
 		if(!env || XGM_PRESSURE(env) < SOUND_MINIMUM_PRESSURE)

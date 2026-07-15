@@ -15,9 +15,16 @@ type BeaconDestination = {
   name: string;
 };
 
+type PrimedTarget = {
+  ref: string;
+  name: string;
+  distance: number;
+};
+
 type PersonalTravelData = {
   sector_name: string;
   territory_faction: string | null;
+  primed: PrimedTarget | null;
   is_away_site: BooleanLike;
   viewing: BooleanLike;
   in_combat: BooleanLike;
@@ -33,6 +40,7 @@ export const PersonalTravel = (props) => {
   const {
     sector_name,
     territory_faction,
+    primed,
     viewing,
     in_combat,
     combat_seconds_left,
@@ -85,6 +93,25 @@ export const PersonalTravel = (props) => {
             <NoticeBox danger>
               No hardsuit worn -- Leap is unavailable.
             </NoticeBox>
+          )}
+          {!!primed && (
+            <Box mb={1}>
+              Primed target:{' '}
+              <Box inline bold color="good">
+                {primed.name}
+              </Box>{' '}
+              <Box inline color="label">
+                (distance {primed.distance})
+              </Box>{' '}
+              <Button
+                icon="bolt"
+                color="good"
+                disabled={actionsDisabled || !has_hardsuit}
+                onClick={() => act('leap', { sector_ref: primed.ref })}
+              >
+                Leap
+              </Button>
+            </Box>
           )}
           {leap_destinations.length === 0 && (
             <Box italic color="label">

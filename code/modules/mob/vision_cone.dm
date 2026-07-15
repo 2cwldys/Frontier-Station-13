@@ -187,11 +187,16 @@
 // ── Movement hook ──────────────────────────────────────────────────────────
 // The cone test depends on relative position, not just facing -- walking
 // past someone changes whether they're in-cone even with dir unchanged, so
-// this needs the same recompute set_dir() already triggers.
+// this needs the same recompute set_dir() already triggers. Generalized to
+// every living mob (not just humans) so the rear-observer ping below fires
+// for ANY mover stepping behind a human's cone -- the cone itself stays
+// human-only, gated by the ishuman() check.
 
-/mob/living/carbon/human/Moved(atom/old_loc, movement_dir, forced, list/old_locs)
+/mob/living/Moved(atom/old_loc, movement_dir, forced, list/old_locs)
 	. = ..()
-	if(fov) update_vision_cone()
+	if(ishuman(src))
+		var/mob/living/carbon/human/H = src
+		if(H.fov) H.update_vision_cone()
 	_ping_rear_observers()
 
 // ── Behind-you awareness ping ──────────────────────────────────────────────
@@ -207,7 +212,10 @@
 
 /// Called from Moved() above: pulse every nearby player whose ACTIVE cone
 /// hides this mover (same InCone rear-arc test update_vision_cone() uses).
-/mob/living/carbon/human/proc/_ping_rear_observers()
+/// Defined on /mob/living (not human-only) so any mob type moving behind a
+/// human's cone triggers the pulse -- the observers checked below are still
+/// always human, since only humans have a real cone to hide behind.
+/mob/living/proc/_ping_rear_observers()
 	var/turf/T = get_turf(src)
 	if(!T)
 		return

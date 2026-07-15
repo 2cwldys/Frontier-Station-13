@@ -1004,7 +1004,7 @@ window "info_and_buttons"
 	elem "info_button_child"
 		type = CHILD
 		pos = 0,0
-		size = 640x477
+		size = 640x480
 		anchor1 = 0,0
 		anchor2 = 100,100
 		background-color = #0d1b33
@@ -1399,7 +1399,7 @@ window "statwindow"
 window "tgui_say"
 	elem "tgui_say"
 		type = MAIN
-		pos = 848,500
+		pos = 848,504
 		size = 380x30
 		is-visible = false
 		saved-params = ""
@@ -1410,5 +1410,5 @@ window "tgui_say"
 		pos = 0,0
 		size = 380x30
 		anchor1 = 0,0
-		anchor2 = 0,0
+		anchor2 = 100,100
 		saved-params = ""

@@ -48,6 +48,19 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 		if(ZONE_MEDSEC)  return "medsec"
 	return "nullsec"
 
+/// TRUE when damage/destruction at this turf is blocked by highsec zone
+/// protection (station anti-grief -- the CentCom-indestructibility idea
+/// generalized to any HIGHSEC z). Admins bypass when a user context is
+/// supplied; so do Hub-faction members carrying engineering access (real
+/// engineering work shouldn't need an admin). Contextless damage
+/// (explosions, fire, subsystem-driven) is always blocked in highsec.
+/proc/zone_damage_protected(turf/T, mob/user)
+	if(!T || zone_security_get(T.z) != ZONE_HIGHSEC)
+		return FALSE
+	if(user && (check_rights(R_ADMIN, 0, user) || zone_engineering_exempt(user)))
+		return FALSE
+	return TRUE
+
 /**
  * Load zone rows from the database into the in-memory map, then paint the
  * overmap markers. Called from SSpersistence.Initialize().
@@ -252,6 +265,22 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 	var/mob/living/carbon/human/H = M
 	var/obj/item/card/id/I = H.GetIdCard()
 	if(!I || !(ACCESS_SECURITY in I.access))
+		return FALSE
+	if(!get_faction_member(H.ckey, "hub"))
+		return FALSE
+	return TRUE
+
+/**
+ * TRUE for Hub-faction members carrying engineering access -- they can
+ * perform real engineering work (repairs, construction, demolition) on
+ * highsec structures without needing admin rights.
+ */
+/proc/zone_engineering_exempt(mob/M)
+	if(!M || !ishuman(M) || !M.ckey)
+		return FALSE
+	var/mob/living/carbon/human/H = M
+	var/obj/item/card/id/I = H.GetIdCard()
+	if(!I || !(ACCESS_ENGINE in I.access))
 		return FALSE
 	if(!get_faction_member(H.ckey, "hub"))
 		return FALSE

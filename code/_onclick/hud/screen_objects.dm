@@ -742,6 +742,24 @@
 
 #undef BLACKLIST_SPECIES_RUNNING
 
+/atom/movable/screen/freelook_toggle
+	name = "freelook"
+	icon = 'icons/hud/mob/screen/look_inactive.png'
+	screen_loc = "EAST-4:22,SOUTH:5"
+
+/atom/movable/screen/freelook_toggle/Click(location, control, params)
+	if(!usr)
+		return TRUE
+	var/mob/living/carbon/human/H = usr
+	if(!istype(H))
+		return TRUE
+	H.freelook_active = !H.freelook_active
+	icon = H.freelook_active ? 'icons/hud/mob/screen/look_active.png' : 'icons/hud/mob/screen/look_inactive.png'
+	if(!H.freelook_active)
+		H.facing_dir = null
+	to_chat(H, SPAN_NOTICE("Freelook is now [H.freelook_active ? "enabled" : "disabled"]."))
+	return TRUE
+
 /// Hand slots are special to handle the handcuffs overlay
 /atom/movable/screen/inventory/hand
 	var/image/handcuff_overlay

@@ -32,6 +32,13 @@
 	///How precise (turf range) is the teleportation
 	var/precision = 1
 
+/// Purely visual bluespace flash -- never teleports, and (unlike a
+/// target-less base portal) never self-deletes on contact: teleport()
+/// qdels a portal with no target the moment anything enters its turf,
+/// which erased same-tick decorative spawns before they ever rendered.
+/obj/effect/portal/decorative
+	does_teleport = FALSE
+
 /obj/effect/portal/Initialize(mapload, turf/set_target, set_creator, lifespan = 300, precise = 1)
 	. = ..()
 

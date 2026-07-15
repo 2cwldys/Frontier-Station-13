@@ -937,6 +937,27 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 		H.clear_fullscreen("crt_scanlines")
 		to_chat(usr, SPAN_NOTICE("CRT scanlines: <b>OFF</b>"))
 
+// TEMPORARY diagnostic (remove once the right-column bottom band is
+// confirmed fixed): dumps live geometry for every pane in the chain.
+/client/verb/debug_ui_geometry()
+	set name = "Debug UI Geometry"
+	set category = "OOC.Debug"
+	set desc = "TEMPORARY: dumps right-column pane geometry for gap diagnosis."
+
+	to_chat(src, "DEBUG uigeo: is-maximized=[winget(src, "mainwindow", "is-maximized")] screen-size=[winget(src, null, "screen-size")] split=[winget(src, "mainwindow.split", "splitter")]")
+	for(var/t in list(
+		"mainwindow", "mainwindow.split",
+		"info_and_buttons", "info_and_buttons.info_button_child",
+		"infobuttons",
+		"infowindow", "infowindow.info",
+		"statwindow",
+		"outputwindow", "outputwindow.output_input_child",
+		"input_and_buttons", "input_and_buttons.input_buttons_child",
+		"inputwindow", "inputwindow.input",
+		"inputbuttons",
+	))
+		to_chat(src, "DEBUG uigeo: [t] pos=[winget(src, t, "pos")] size=[winget(src, t, "size")]")
+
 /client/verb/toggle_status_bar()
 	set name = "Toggle Status Bar"
 	set category = "Preferences.Menu"

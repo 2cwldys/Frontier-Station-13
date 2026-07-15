@@ -126,7 +126,7 @@
 
 			if(starting_funds > 0)
 				//subtract the money
-				SSeconomy.station_account.money -= starting_funds
+				SSeconomy.station_account.adjust_money(-starting_funds)
 
 				//create a transaction log entry
 				var/datum/transaction/trx = create_transation(account_name, "New account activation", "([starting_funds])")
@@ -150,7 +150,8 @@
 			var/datum/money_account/Acc = SSeconomy.get_account(account)
 			if(Acc)
 				log_and_message_admins("added [amount] credits to the [Acc.owner_name] account.")
-				Acc.money = min(Acc.money + amount, FUND_CAP)
+				var/new_amount = min(Acc.money + amount, FUND_CAP)
+				Acc.adjust_money(new_amount - Acc.money)
 
 		if("remove_funds")
 			if(access_level != 2)
@@ -161,7 +162,8 @@
 			var/datum/money_account/Acc = SSeconomy.get_account(account)
 			if(Acc)
 				log_and_message_admins("removed [amount] credits from the [Acc.owner_name] account.")
-				Acc.money = max(Acc.money - amount, -FUND_CAP)
+				var/new_amount = max(Acc.money - amount, -FUND_CAP)
+				Acc.adjust_money(new_amount - Acc.money)
 
 		if("revoke_payroll")
 			var/account = params["account"]
@@ -172,8 +174,8 @@
 				var/account_trx = create_transation(SSeconomy.station_account.owner_name, "Revoke payroll", "[funds]")
 				var/station_trx = create_transation(Acc.owner_name, "Revoke payroll", funds)
 
-				SSeconomy.station_account.money += funds
-				Acc.money = 0
+				SSeconomy.station_account.adjust_money(funds)
+				Acc.adjust_money(-funds)
 
 				SSeconomy.add_transaction_log(Acc,account_trx)
 				SSeconomy.add_transaction_log(SSeconomy.station_account,station_trx)

@@ -109,6 +109,12 @@
 	if(!user)
 		return
 
+	// Highsec zone protection -- interactive feedback here; the underlying
+	// damage/dismantle/melt endpoints are guarded independently.
+	if(zone_damage_protected(src, user))
+		to_chat(user, SPAN_WARNING("\The [src] is protected by SCC security regulations -- it resists all tampering."))
+		return
+
 	//get the user's location
 	if(!istype(user.loc, /turf))
 		return	//can't do this stuff whilst inside objects and such

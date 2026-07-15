@@ -185,7 +185,7 @@ SUBSYSTEM_DEF(economy)
 /datum/controller/subsystem/economy/proc/charge_to_account(var/attempt_account_number, var/source_name, var/purpose, var/terminal_id, var/amount)
 	var/datum/money_account/D = get_account(attempt_account_number)
 	if(D && !D.suspended)
-		D.money += amount
+		D.adjust_money(amount)
 
 		//create a transaction log entry
 		var/datum/transaction/T = new()
@@ -318,6 +318,13 @@ SUBSYSTEM_DEF(economy)
 							//1 - require manual login / account number and pin
 							//2 - require card and manual login
 	var/ckey = null			// owning player ckey, set for player accounts to enable persistence
+
+/// Adjusts the balance by delta (positive = credit, negative = debit) and
+/// immediately persists the new balance -- the personal-account analog of
+/// faction_debit()/faction_credit(), which already do this for factions.
+/datum/money_account/proc/adjust_money(delta)
+	money += delta
+	SSpersistence.economySaveAccountNow(src)
 
 /datum/transaction
 	var/target_name = ""

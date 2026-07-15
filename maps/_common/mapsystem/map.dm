@@ -365,6 +365,14 @@
 			log_admin("Loaded away site [template]!")
 		else
 			log_admin("Failed loading away site [template]!")
+
+	// zoneSecurityInitialize()'s one-time boot repaint (SSpersistence.Initialize(),
+	// init_order -10) runs BEFORE away sites are loaded here (SSmapping.Initialize(),
+	// init_order -2) -- every site placed above (pinned respawns and this RNG pool)
+	// registers into GLOB.map_sectors too late to have been painted, and nothing else
+	// ever repaints them unless an unrelated later zone/beacon event happens to. One
+	// more repaint here, after every site for the round actually exists, closes that gap.
+	zone_security_update_overmap()
 #endif
 
 /**

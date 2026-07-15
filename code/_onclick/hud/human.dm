@@ -116,6 +116,12 @@
 		src.adding += using
 		move_intent = using
 
+	// ── Freelook (face-the-mouse toggle) ─────────────────────────────────────
+	using = new /atom/movable/screen/freelook_toggle()
+	using.icon = target.freelook_active ? 'icons/hud/mob/screen/look_active.png' : 'icons/hud/mob/screen/look_inactive.png'
+	src.adding += using
+	freelook_toggle = using
+
 	// ── Attack intent — uses dark_original.dmi to preserve green/yellow/red colors ──
 	if(hud_data.has_a_intent)
 		using = new /atom/movable/screen()

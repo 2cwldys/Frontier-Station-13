@@ -131,7 +131,7 @@ GLOBAL_LIST_INIT_TYPED(all_cargo_receptacles, /obj/structure/cargo_receptacle, l
 	if(package.pays_horizon_account)
 		var/datum/money_account/supply_account = SScargo.supply_account
 		if(supply_account && !supply_account.suspended)
-			supply_account.money += package.pay_amount
+			supply_account.adjust_money(package.pay_amount)
 
 			//create a transaction log entry
 			var/datum/transaction/transaction = new()
@@ -151,7 +151,7 @@ GLOBAL_LIST_INIT_TYPED(all_cargo_receptacles, /obj/structure/cargo_receptacle, l
 			var/tip_amount = package.pay_amount * 0.02
 			found_user_account = TRUE
 
-			courier_account.money += tip_amount
+			courier_account.adjust_money(tip_amount)
 
 			//create a transaction log entry
 			var/datum/transaction/transaction = new()

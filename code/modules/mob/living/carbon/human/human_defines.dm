@@ -6,6 +6,9 @@
 	var/atom/movable/screen/fov_mask
 	var/atom/movable/screen/fov_mask_two
 
+	// Freelook (face-the-mouse) toggle
+	var/freelook_active = FALSE
+
 	// Film grain screen object
 	var/atom/movable/screen/film_grain
 

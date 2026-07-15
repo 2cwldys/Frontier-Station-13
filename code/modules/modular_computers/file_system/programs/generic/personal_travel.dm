@@ -9,12 +9,13 @@
  * telepad_cargo/travel/hub instance directly by type (see telepad_travel.dm),
  * bypassing that pad's normal link_code matching entirely.
  *
- * Leap requires a hardsuit (you're dropped on open space near the target,
- * not delivered somewhere sheltered) and only ever targets sectors that
- * already exist as live Zs -- see docs/overmap-traversal-research.md for why
- * on-demand Z materialization for a proximity mechanic is deliberately
- * avoided here. Return to Beacon / Return to Hub need no hardsuit and land
- * at a normal safe spot.
+ * Leap requires a hardsuit (you may be dropped in open space near the
+ * target, or on unsheltered solid ground for asteroid/exoplanet sites --
+ * either way, not delivered somewhere sheltered) and only ever targets
+ * sectors that already exist as live Zs -- see
+ * docs/overmap-traversal-research.md for why on-demand Z materialization
+ * for a proximity mechanic is deliberately avoided here. Return to Beacon /
+ * Return to Hub need no hardsuit and land at a normal safe spot.
  *
  * All three travel actions share a 15-second interruptible spool-up, a
  * cooldown, and a 10-minute post-combat lockout (see last_combat_time,
@@ -28,13 +29,38 @@
  * mis-scale it).
  */
 
-/// Any /turf/space-type turf found on the given Z -- Leap's landing spot.
-/// Returns null if somehow no space turf exists on that Z (should not
-/// happen for any real away site/sector, which are always embedded in
-/// open space).
+/// Leap's landing spot on the given Z. Away sites embedded in open space
+/// land on a non-dense /turf/space tile; solid-ground away sites (asteroids,
+/// exoplanets) have no space turfs at all, so this falls back to a
+/// non-dense /turf/simulated/floor/exoplanet tile (covers every
+/// asteroid/exoplanet biome floor via inheritance) that isn't blocked by a
+/// dense anchored object -- same safety shape as
+/// first_responder_clear_turf_near() (first_responder.dm). Picks randomly
+/// among whichever candidate list is non-empty, rather than always the
+/// first raster-order tile. Returns null only if the whole Z is
+/// impassable, which should not happen for any real away site/sector.
 /proc/personal_travel_find_space_landing(z)
+	var/list/space_candidates = list()
 	for(var/turf/space/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
-		return T
+		if(!T.density)
+			space_candidates += T
+	if(length(space_candidates))
+		return pick(space_candidates)
+
+	var/list/ground_candidates = list()
+	for(var/turf/simulated/floor/exoplanet/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+		if(T.density)
+			continue
+		var/blocked = FALSE
+		for(var/obj/O in T)
+			if(O.density && O.anchored)
+				blocked = TRUE
+				break
+		if(!blocked)
+			ground_candidates += T
+	if(length(ground_candidates))
+		return pick(ground_candidates)
+
 	return null
 
 /datum/computer_file/program/personal_travel
@@ -54,6 +80,16 @@
 	/// currently borrowing this program's camera, so kill_program()/the
 	/// toggle-off path know exactly who to restore.
 	var/mob/viewing_user = null
+	/// Sensor-style marker images cast to the viewer while Sector View is
+	/// active (requires_contact overmap objects are invisible atoms; ship
+	/// sensors reveal them via contact images -- this is the same trick,
+	/// program-owned, solo-viewer).
+	var/list/sensor_images = list()
+	/// Next world.time the sensor markers get rebuilt (ships move).
+	var/sensor_refresh_next = 0
+	/// "\ref" of the sector primed as leap target by clicking it in Sector
+	/// View. Validated live in ui_data and by the normal leap gates.
+	var/primed_ref = null
 	/// Spool-up generation counter: the 5s/10s spark pulses are scheduled
 	/// up front and carry the sequence they belong to -- bumping this on
 	/// interrupt/abort invalidates any still-pending pulses.
@@ -108,6 +144,16 @@
 			if(covers)
 				data["territory_faction"] = get_faction_name(B.faction_uid)
 				break
+
+	// Click-primed leap target (Sector View) -- validated live so a stale
+	// or out-of-range prime clears itself.
+	data["primed"] = null
+	if(primed_ref)
+		var/obj/effect/overmap/visitable/primed = locate(primed_ref)
+		if(istype(primed) && my_sector && get_dist(my_sector, primed) <= PERSONAL_TRAVEL_LEAP_RANGE && length(primed.map_z))
+			data["primed"] = list("ref" = primed_ref, "name" = primed.name, "distance" = get_dist(my_sector, primed))
+		else
+			primed_ref = null
 
 	data["leap_destinations"] = list()
 	if(my_sector)
@@ -259,10 +305,10 @@
 /datum/computer_file/program/personal_travel/proc/_execute_travel(mob/user, turf/dest)
 	var/turf/origin = get_turf(user)
 	if(origin)
-		new /obj/effect/portal(origin, null, null, 5 SECONDS, 0)
+		new /obj/effect/portal/decorative(origin, null, null, 5 SECONDS, 0)
 		spark(origin, 3, GLOB.alldirs)
 		playsound(origin, 'sound/effects/phasein.ogg', 30, 1)
-	new /obj/effect/portal(dest, null, null, 5 SECONDS, 0)
+	new /obj/effect/portal/decorative(dest, null, null, 5 SECONDS, 0)
 	spark(dest, 3, GLOB.alldirs)
 	user.forceMove(dest)
 	playsound(dest, 'sound/effects/phasein.ogg', 30, 1)
@@ -308,20 +354,21 @@
 		// real map-window pixel size -- a flat overmap view doesn't. Hide
 		// rather than mis-scale it (same fix as the Nav/Sensors sector view).
 		user.clear_fullscreen("gameui_border", FALSE)
-	// _stop_viewing() takes a single mob/user param -- COMSIG_MOVABLE_MOVED
-	// dispatches as (target_mob, old_loc, forced); DM silently drops the
-	// extra args for a single-param proc, so target_mob lands correctly in
-	// user. (A prior version routed this through a two-param
-	// COMSIG_TGUI_CLOSE-shaped wrapper, which received old_loc -- a turf,
-	// not a mob -- as user and crashed on user.reset_view(), aborting
-	// cleanup before client.view/gameui_border were ever restored.)
-	RegisterSignal(user, COMSIG_MOVABLE_MOVED, PROC_REF(_stop_viewing))
+	// No COMSIG_MOVABLE_MOVED cancel here, deliberately: a handheld program
+	// travels WITH the user (drifting in zero-g fires Move() constantly and
+	// used to kill the view within seconds anywhere without gravity). Ship
+	// consoles keep their walk-away cancel; this one exits via the toggle,
+	// logout, or kill_program().
 	// Aghosting/disconnecting is a key transfer, not a Move -- without this
 	// hook viewing_user dangles across the round-trip, inverting the toggle
 	// (first click "exits" a phantom session) and leaving check_eye()
 	// answering for a session that no longer exists.
 	RegisterSignal(user, COMSIG_MOB_LOGOUT, PROC_REF(_stop_viewing))
+	// Click-to-prime: clicking a sensor-revealed sector marks it as the
+	// pending leap target (see _sector_click below).
+	RegisterSignal(user, COMSIG_MOB_CLICKON, PROC_REF(_sector_click))
 	viewing_user = user
+	_refresh_sensor_view(user)
 
 /datum/computer_file/program/personal_travel/proc/_stop_viewing(mob/user)
 	if(!user)
@@ -345,8 +392,73 @@
 			c.mob.apply_gameui_border()
 	if(user.machine == computer)
 		user.unset_machine()
-	UnregisterSignal(user, list(COMSIG_MOVABLE_MOVED, COMSIG_MOB_LOGOUT))
+	if(user.client)
+		for(var/image/I in sensor_images)
+			user.client.images -= I
+	sensor_images.Cut()
+	UnregisterSignal(user, list(COMSIG_MOB_LOGOUT, COMSIG_MOB_CLICKON))
 	viewing_user = null
+
+/// Shows the viewer the same overmap objects ship sensors would reveal:
+/// requires_contact effects are INVISIBLE atoms (INVISIBILITY_OVERMAP,
+/// overmap_object.dm:134) -- ship sensors render them via contact images
+/// cast to navigation_viewers (contacts/_contacts.dm). Same trick here,
+/// program-owned and cast only to this viewer. Rebuilt periodically from
+/// process_tick() while viewing, since ships move.
+/datum/computer_file/program/personal_travel/proc/_refresh_sensor_view(mob/user)
+	if(!user?.client)
+		return
+	for(var/image/I in sensor_images)
+		user.client.images -= I
+	sensor_images.Cut()
+	var/obj/effect/overmap/visitable/my_sector = _current_sector(user)
+	if(!my_sector)
+		return
+	var/turf/T = get_turf(my_sector)
+	if(!T)
+		return
+	// view() (not range) -- the same opacity-respecting scan ship sensors
+	// use (contact_sensors.dm), so hazard clouds block this too.
+	for(var/obj/effect/overmap/O in view(PERSONAL_TRAVEL_LEAP_RANGE, T))
+		if(O == my_sector || !O.requires_contact)
+			continue
+		var/image/marker = image(null, O)
+		marker.appearance = O.appearance
+		// The appearance copy inherits the effect's INVISIBILITY_OVERMAP --
+		// reset it (and alpha) or the marker hides exactly like the atom.
+		marker.invisibility = 0
+		marker.alpha = 255
+		marker.mouse_opacity = MOUSE_OPACITY_ICON
+		user.client.images += marker
+		sensor_images += marker
+
+/datum/computer_file/program/personal_travel/process_tick()
+	. = ..()
+	if(viewing_user && world.time >= sensor_refresh_next)
+		sensor_refresh_next = world.time + 2 SECONDS
+		_refresh_sensor_view(viewing_user)
+
+/// COMSIG_MOB_CLICKON handler while Sector View is active: clicking a
+/// sensor-revealed sector primes it as the pending leap target. The actual
+/// leap still flows through the normal "leap" ui_act gates (range,
+/// hardsuit, spool-up, combat lockout) -- priming is just target selection.
+/datum/computer_file/program/personal_travel/proc/_sector_click(mob/source, atom/A, params)
+	SIGNAL_HANDLER
+	if(source != viewing_user)
+		return
+	if(!istype(A, /obj/effect/overmap))
+		return
+	if(!istype(A, /obj/effect/overmap/visitable/sector) || istype(A, /obj/effect/overmap/visitable/sector/temporary))
+		to_chat(source, SPAN_WARNING("\The [A] cannot be primed as a leap destination."))
+		return COMSIG_MOB_CANCEL_CLICKON
+	var/obj/effect/overmap/visitable/target = A
+	var/obj/effect/overmap/visitable/my_sector = _current_sector(source)
+	if(!my_sector || get_dist(my_sector, target) > PERSONAL_TRAVEL_LEAP_RANGE || !length(target.map_z))
+		to_chat(source, SPAN_WARNING("\The [target] is out of leap range."))
+		return COMSIG_MOB_CANCEL_CLICKON
+	primed_ref = "\ref[target]"
+	to_chat(source, SPAN_GOOD("Primed [target.name] as the leap destination."))
+	return COMSIG_MOB_CANCEL_CLICKON
 
 /// handle_vision() (life.dm) polls machine.check_eye() every tick and
 /// snaps the camera back to the mob on any negative return. The base

@@ -1,5 +1,8 @@
 /turf/simulated/floor/ex_act(severity)
 	//set src in oview(1)
+	// Highsec zone protection -- explosions are contextless, always blocked.
+	if(zone_damage_protected(src))
+		return
 	var/area/A = get_area(src)
 	if(A && (A.area_flags & AREA_FLAG_INDESTRUCTIBLE_TURFS))
 		switch(severity)

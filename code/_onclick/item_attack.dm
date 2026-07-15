@@ -64,6 +64,11 @@ This calls [atom/proc/tool_act], among others.
 			if(attacking_item.wear_broken)
 				to_chat(user, SPAN_WARNING("\The [attacking_item] is broken and can't be used to attack."))
 				return TRUE
+			// Highsec zone protection: give attackers a clear refusal here
+			// (the add_damage master gate would zero the damage silently).
+			if(zone_damage_protected(get_turf(src), user))
+				to_chat(user, SPAN_WARNING("\The [src] is protected by SCC security regulations -- it resists the attack."))
+				return TRUE
 			user.setClickCooldown(DEFAULT_ATTACK_COOLDOWN)
 			user.do_attack_animation(src)
 			visible_message(SPAN_DANGER("[user] [pick(attacking_item.attack_verb)] \the [src]!"))

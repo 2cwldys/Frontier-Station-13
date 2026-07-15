@@ -138,6 +138,23 @@ GLOBAL_LIST_EMPTY(persistence_economy_cache)
 	qdel(upsert)
 	return ok
 
+/// Immediately persists one account's current balance/transactions, instead of
+/// waiting for the next economyFinalize() tick -- called right after any
+/// balance-changing operation so a crash/early shutdown can't lose a
+/// deduction whose purchase already happened in the live world.
+/datum/controller/subsystem/persistence/proc/economySaveAccountNow(datum/money_account/account)
+	if(!account || !databaseCheckConnection("economySaveAccountNow"))
+		return
+	if(account.ckey)
+		_economySaveOneAccount(account, account.ckey, account.owner_name)
+	else if(account == SSeconomy.station_account)
+		_economySaveOneAccount(account, "_station_", "Station Account")
+	else
+		for(var/dept in SSeconomy.department_accounts)
+			if(SSeconomy.department_accounts[dept] == account)
+				_economySaveOneAccount(account, "_dept_[dept]_", "[dept] Department")
+				return
+
 /**
  * Attempt to restore a previously saved money account for the given mob.
  * Returns the restored account if found, null otherwise.
