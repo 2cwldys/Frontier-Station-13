@@ -656,6 +656,7 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 		if(QDELETED(A)) continue
 		A.forceMove(destination)
 	// Visual/audio feedback at the destination
+	spark(destination, 5, GLOB.alldirs)
 	playsound(destination, 'sound/effects/phasein.ogg', 50, 1)
 
 // ============================================================

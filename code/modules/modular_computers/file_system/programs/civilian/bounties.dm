@@ -35,7 +35,6 @@
 			"reward"          = row["reward"],
 			"status"          = row["status"],
 			"poster_ckey"     = row["poster_ckey"],
-			"accepter_count"  = length(row["accepters"]),
 			"accepted_by_me"  = (user.ckey in row["accepters"])
 		))
 	data["bounties"] = bounty_list

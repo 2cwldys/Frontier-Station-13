@@ -37,7 +37,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	// Load faction info + balances
 	try
 		var/datum/db_query/q = SSdbcore.NewQuery(
-			{"SELECT f.uid, f.name, f.abbreviation, COALESCE(a.balance, 0), COALESCE(a.cards_epoch, 0), f.founder_ckey, COALESCE(a.master_card_lost, 0)
+			{"SELECT f.uid, f.name, f.abbreviation, COALESCE(a.balance, 0), COALESCE(a.cards_epoch, 0), f.founder_ckey, COALESCE(a.master_card_lost, 0), f.color
 			FROM ss13_factions f
 			LEFT JOIN ss13_faction_accounts a ON a.faction_uid = f.uid"},
 			list()
@@ -52,7 +52,8 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 					"balance"          = text2num(q.item[4]) || 0,
 					"cards_epoch"      = text2num(q.item[5]) || 0,
 					"founder_ckey"     = q.item[6],
-					"master_card_lost" = !!text2num(q.item[7])
+					"master_card_lost" = !!text2num(q.item[7]),
+					"color"            = q.item[8]
 				)
 		qdel(q)
 	catch(var/exception/faction_info_e)
@@ -496,6 +497,39 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 		)
 		mq.Execute()
 		qdel(mq)
+	return TRUE
+
+/// A faction's current color (hex string "#rrggbb"), or null if never set.
+/// Used to tint clothing/equipment tagged to this faction with the faction
+/// tagger (persistence_faction_tagger.dm) -- tagged items never store their
+/// own frozen color, they always resolve it live from here.
+/proc/get_faction_color(uid)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return null
+	return GLOB.persistence_faction_cache[uid]["color"]
+
+/// Sets a faction's color, persists it, and immediately re-tints every
+/// currently-tagged /obj/item/clothing in the world (wherever it currently
+/// is -- worn, in a bag, in a locker, on the floor) so "faction color"
+/// always means the CURRENT color, never a stale one from tag time.
+/proc/set_faction_color(uid, new_color)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return FALSE
+	GLOB.persistence_faction_cache[uid]["color"] = new_color
+	if(GLOB.config.sql_enabled && SSdbcore.Connect())
+		var/datum/db_query/cq = SSdbcore.NewQuery(
+			"UPDATE ss13_factions SET color = :color WHERE uid = :uid",
+			list("uid" = uid, "color" = new_color)
+		)
+		cq.Execute()
+		qdel(cq)
+	for(var/obj/item/clothing/C in world)
+		if(C.faction_tag_uid == uid)
+			C.color = new_color
+			C.update_icon()
+			C.update_clothing_icon()
 	return TRUE
 
 /// A faction charge card is valid only if it was printed under the faction's

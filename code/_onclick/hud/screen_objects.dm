@@ -753,12 +753,28 @@
 	var/mob/living/carbon/human/H = usr
 	if(!istype(H))
 		return TRUE
-	H.freelook_active = !H.freelook_active
-	icon = H.freelook_active ? 'icons/hud/mob/screen/look_active.png' : 'icons/hud/mob/screen/look_inactive.png'
-	if(!H.freelook_active)
-		H.facing_dir = null
-	to_chat(H, SPAN_NOTICE("Freelook is now [H.freelook_active ? "enabled" : "disabled"]."))
+	H.toggle_freelook()
 	return TRUE
+
+/// Shared by the HUD icon's Click() above and the "L" hotkey-mode keybind
+/// (freelook_toggle_hotkey(), same file) so both toggle paths stay in sync
+/// -- flips freelook_active, clears any locked facing_dir on disable, and
+/// refreshes the HUD icon directly (hud_used.freelook_toggle) since only
+/// the icon's own Click() had been doing that until now.
+/mob/living/carbon/human/proc/toggle_freelook()
+	freelook_active = !freelook_active
+	if(!freelook_active)
+		facing_dir = null
+	if(hud_used?.freelook_toggle)
+		hud_used.freelook_toggle.icon = freelook_active ? 'icons/hud/mob/screen/look_active.png' : 'icons/hud/mob/screen/look_inactive.png'
+	to_chat(src, SPAN_NOTICE("Freelook is now [freelook_active ? "enabled" : "disabled"]."))
+
+/// Hotkey-mode-only keybind (see interface/skin.dmf's "hotkeymode" macro set,
+/// "L" -> "freelook-toggle") -- hidden so it never shows in the verb panel.
+/mob/living/carbon/human/verb/freelook_toggle_hotkey()
+	set hidden = TRUE
+	set name = "freelook-toggle"
+	toggle_freelook()
 
 /// Hand slots are special to handle the handcuffs overlay
 /atom/movable/screen/inventory/hand

@@ -132,6 +132,66 @@
 	_apply_network()
 	return TRUE
 
+// ------- Clothing/equipment (tints to the faction's color, get_faction_color()/
+// set_faction_color(), persistence_factions.dm) -- unlike every other type
+// above, this is a genuinely portable item, not fixed machinery, so it
+// persists via the generic persistent_objects_get_content()/apply_content()
+// passthrough (serializePersistentItem(), persistence_mobs.dm) instead of
+// worldstate/objectsRegisterTrack -- that passthrough already fires for an
+// item wherever it happens to be serialized (character inventory, closet
+// contents, or loose floor items), no registration call needed here. -------
+
+/// Original (pre-tag) color, captured once ever on first tag so "Default"
+/// (the tagger's existing "release" action) can restore it exactly --
+/// never recaptured on later tag/release cycles so it can't drift into
+/// whatever the faction color happened to be at the time.
+/obj/item/clothing/var/faction_tag_uid = null
+/obj/item/clothing/var/faction_tag_original_color = null
+/obj/item/clothing/var/faction_tag_original_captured = FALSE
+
+/obj/item/clothing/faction_tagger_compatible()
+	return TRUE
+
+/obj/item/clothing/faction_tagger_get_uid()
+	return faction_tag_uid
+
+/obj/item/clothing/faction_tagger_set(new_uid, mob/user)
+	if(!faction_tag_original_captured)
+		faction_tag_original_color = color
+		faction_tag_original_captured = TRUE
+	faction_tag_uid = new_uid
+	color = new_uid ? get_faction_color(new_uid) : faction_tag_original_color
+	update_icon()
+	update_clothing_icon()
+	return TRUE
+
+/// Generic persistence passthrough (see serializePersistentItem(),
+/// persistence_mobs.dm) -- no-op until this item has actually been tagged at
+/// least once, so untagged clothing (the overwhelming majority) never grows
+/// an extra saved blob.
+/obj/item/clothing/persistent_objects_get_content()
+	var/list/content = ..()
+	if(!faction_tag_original_captured)
+		return content
+	content["faction_tag_uid"] = faction_tag_uid
+	content["faction_tag_original_color"] = faction_tag_original_color
+	content["faction_tag_original_captured"] = TRUE
+	return content
+
+/// Re-resolves color from the faction's CURRENT color (not a frozen saved
+/// value) so a restored item stays consistent even if the faction's color
+/// changed while this item was serialized away.
+/obj/item/clothing/persistent_objects_apply_content(content, x, y, z)
+	. = ..()
+	if(!islist(content) || !content["faction_tag_original_captured"])
+		return
+	faction_tag_uid = content["faction_tag_uid"]
+	faction_tag_original_color = content["faction_tag_original_color"]
+	faction_tag_original_captured = TRUE
+	color = faction_tag_uid ? get_faction_color(faction_tag_uid) : faction_tag_original_color
+	update_icon()
+	update_clothing_icon()
+
 // ------- Airlock (delegates to the pre-existing req_access_faction lock --
 // see allowed() in airlock.dm, already fully persisted via worldstate_vars) -------
 

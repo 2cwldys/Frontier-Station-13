@@ -70,6 +70,7 @@ type FactionData = {
   id_purges: FactionIdPurge[];
   is_founder: BooleanLike;
   master_card_lost: BooleanLike;
+  color: string | null;
   faction_creation_enabled: BooleanLike;
   founding_required: number;
   petitions: FoundingPetition[];
@@ -180,10 +181,12 @@ export const FactionManagement = (props) => {
     cards_epoch,
     is_founder,
     master_card_lost,
+    color,
     faction_creation_enabled,
     founding_required,
     petitions,
   } = data;
+  const [colorPick, setColorPick] = useState(color ?? '#ffffff');
 
   const foundingSection = (
     <FoundingSection
@@ -254,6 +257,39 @@ export const FactionManagement = (props) => {
               {last_payroll > 0
                 ? `${Math.floor(last_payroll / 600)} min ago`
                 : 'Not yet this session'}
+            </LabeledList.Item>
+            <LabeledList.Item label="Faction Color">
+              <Box
+                inline
+                mr={1}
+                style={{
+                  display: 'inline-block',
+                  width: '16px',
+                  height: '16px',
+                  verticalAlign: 'middle',
+                  backgroundColor: color ?? '#ffffff',
+                  border: '1px solid #666666',
+                }}
+              />
+              {color ?? 'Not set'}
+              {canManage && (
+                <>
+                  <input
+                    type="color"
+                    value={colorPick}
+                    onChange={(e) => setColorPick(e.target.value)}
+                    style={{ marginLeft: '8px', verticalAlign: 'middle' }}
+                  />
+                  <Button
+                    ml={1}
+                    icon="paint-roller"
+                    tooltip="Tints any clothing/equipment currently tagged to this faction with the faction tagger, immediately."
+                    onClick={() => act('set_faction_color', { color: colorPick })}
+                  >
+                    Set
+                  </Button>
+                </>
+              )}
             </LabeledList.Item>
           </LabeledList>
           {canManage && (

@@ -9,7 +9,6 @@ type Bounty = {
   reward: number;
   status: string;
   poster_ckey: string;
-  accepter_count: number;
   accepted_by_me: BooleanLike;
 };
 
@@ -64,14 +63,12 @@ export const Bounties = (props) => {
             <Table.Row header>
               <Table.Cell>Target</Table.Cell>
               <Table.Cell>Reward</Table.Cell>
-              <Table.Cell>Accepters</Table.Cell>
               <Table.Cell>Action</Table.Cell>
             </Table.Row>
             {(bounties ?? []).map((bounty) => (
               <Table.Row key={bounty.id}>
                 <Table.Cell>{bounty.target_name}</Table.Cell>
                 <Table.Cell>{bounty.reward} cr</Table.Cell>
-                <Table.Cell>{bounty.accepter_count}</Table.Cell>
                 <Table.Cell>
                   {bounty.accepted_by_me ? (
                     <Box color="good" inline bold>
@@ -105,7 +102,7 @@ export const Bounties = (props) => {
             ))}
             {!bounties?.length && (
               <Table.Row>
-                <Table.Cell colSpan={4}>
+                <Table.Cell colSpan={3}>
                   <Box color="label">No open bounties.</Box>
                 </Table.Cell>
               </Table.Row>

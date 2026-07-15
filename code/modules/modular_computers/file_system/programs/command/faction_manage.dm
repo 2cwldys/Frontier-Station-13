@@ -162,6 +162,7 @@
 		data["cards_epoch"] = get_faction_cards_epoch(net)
 		data["is_founder"] = (user.ckey == get_faction_founder_ckey(net))
 		data["master_card_lost"] = get_faction_master_card_lost(net)
+		data["color"] = get_faction_color(net)
 
 		// Panic Purge audit trail -- officer+-visible record of who purged
 		// IDs and when, distinct from log_game()/message_admins() (admin-only).
@@ -192,6 +193,7 @@
 		data["id_purges"]      = list()
 		data["is_founder"]        = FALSE
 		data["master_card_lost"]  = FALSE
+		data["color"]             = null
 
 	return data
 
@@ -620,6 +622,22 @@
 			if(op_rank < 2) return
 			SSpersistence.factionPayroll(net)
 			to_chat(user, SPAN_GOOD("Payroll triggered for [get_faction_name(net)]."))
+			. = TRUE
+
+		// ---- Set Faction Color -----------------------------------------------
+		// Tints any clothing/equipment currently tagged to this faction with
+		// the faction tagger, immediately and everywhere (worn, stored, on the
+		// floor) -- see set_faction_color() (persistence_factions.dm).
+		if("set_faction_color")
+			if(op_rank < 2) return
+			var/new_color = params["color"]
+			var/static/regex/hex_color_check = regex(@"^#[0-9A-Fa-f]{6}$")
+			if(!new_color || !hex_color_check.Find(new_color))
+				to_chat(user, SPAN_WARNING("Invalid color."))
+				return
+			set_faction_color(net, new_color)
+			to_chat(user, SPAN_GOOD("[get_faction_name(net)]'s color updated -- tagged equipment refreshed immediately."))
+			log_game("[key_name(user)] set faction '[net]' color to [new_color] via faction_manage.")
 			. = TRUE
 
 		// ---- Print Faction Charge Card --------------------------------------

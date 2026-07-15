@@ -122,4 +122,10 @@
 			var/summary = exp_lines.len ? jointext(exp_lines, "; ") : "miscellaneous items"
 			status_message = "Exported [exp_total] cr: [summary]. Credited to [get_faction_name(net)]."
 			log_game("[key_name(user)] exported [exp_total] cr of goods to faction [net] via cargo exports terminal.")
+
+			// Send-off feedback -- matches the sound persistence_telepad_deliver()
+			// already plays for an INCOMING order arriving at this same pad
+			// (persistence_cryo.dm), so export and delivery sound consistent.
+			spark(pad_turf, 5, GLOB.alldirs)
+			playsound(pad_turf, 'sound/effects/phasein.ogg', 50, 1)
 			return TRUE

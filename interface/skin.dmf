@@ -659,6 +659,9 @@ macro "hotkeymode"
   elem
     name = "R"
     command = "throw_intent_toggle"
+  elem
+    name = "L"
+    command = "freelook-toggle"
 
 
 macro "borgmacro"
