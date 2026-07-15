@@ -52,6 +52,17 @@
 	layer         = FULLSCREEN_LAYER
 	plane         = HIDDEN_SHIT_PLANE
 
+// Rear-observer "something moved behind you" flash -- see _ping_rear_observers().
+/atom/movable/screen/behind_ping
+	icon          = 'icons/mob/hide.dmi'
+	icon_state    = "behind"
+	name          = " "
+	screen_loc    = "1,1"
+	mouse_opacity = MOUSE_OPACITY_TRANSPARENT
+	layer         = GAMEUI_BORDER_LAYER
+	plane         = FULLSCREEN_PLANE
+	alpha         = 160
+
 // ── Film grain screen object ───────────────────────────────────────────────
 
 /atom/movable/screen/film_grain
@@ -227,18 +238,16 @@
 		if(!InCone(H, OPPOSITE_DIR(H.dir)))
 			continue
 		H.next_behind_ping = world.time + 1 SECOND
-		var/image/ping = image('icons/mob/hide.dmi', T, "behind")
-		// FULLSCREEN_PLANE + a layer above the cone overlay so the pulse
-		// shows THROUGH the black rear-arc cone instead of under it.
-		ping.plane = FULLSCREEN_PLANE
-		ping.layer = GAMEUI_BORDER_LAYER
-		ping.alpha = 160
-		H.client.images += ping
+		// Screen overlay (not a world-turf image) -- GAMEUI_BORDER_LAYER on
+		// FULLSCREEN_PLANE so the pulse shows THROUGH the black rear-arc cone
+		// instead of under it, same rendering convention as fov/fov_mask_two.
+		var/atom/movable/screen/behind_ping/ping = new()
+		H.client.screen += ping
 		addtimer(CALLBACK(GLOBAL_PROC, /proc/_behind_ping_cleanup, H.client, ping), 1 SECOND)
 
-/proc/_behind_ping_cleanup(client/C, image/I)
+/proc/_behind_ping_cleanup(client/C, atom/movable/screen/behind_ping/I)
 	if(C)
-		C.images -= I
+		C.screen -= I
 	qdel(I)
 
 #undef BEHIND_PING_RANGE
