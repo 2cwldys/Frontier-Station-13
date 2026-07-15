@@ -207,6 +207,8 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/manage_persistent_overmap_sites,
 	/datum/admins/proc/generate_away_site,
 	/datum/admins/proc/remove_away_site,
+	/datum/admins/proc/manage_cargo_exports,
+	/datum/admins/proc/manage_missions,
 	/datum/admins/proc/set_zone_security,
 	/datum/admins/proc/view_overmap,
 	/datum/admins/proc/return_to_lobby,
