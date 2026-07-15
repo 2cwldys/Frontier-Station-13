@@ -269,6 +269,19 @@ SUBSYSTEM_DEF(economy)
 		return all_money_accounts["[account_number]"]
 	return
 
+/// Finds a player's personal account by ckey, regardless of which character
+/// they're currently playing -- used to pay bounty/mission rewards to the
+/// right player rather than a specific account number.
+/datum/controller/subsystem/economy/proc/get_account_by_ckey(var/ckey)
+	RETURN_TYPE(/datum/money_account)
+	if(!ckey)
+		return
+	for(var/account_key in all_money_accounts)
+		var/datum/money_account/M = all_money_accounts[account_key]
+		if(M.ckey == ckey)
+			return M
+	return
+
 //gets a departmental account by name
 /datum/controller/subsystem/economy/proc/get_department_account(var/department)
 	RETURN_TYPE(/datum/money_account)

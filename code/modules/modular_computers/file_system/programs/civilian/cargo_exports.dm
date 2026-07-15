@@ -100,9 +100,8 @@
 				status_message = "No faction telepad found for network '[net]'. Place and link a cargo telepad nearby."
 				return TRUE
 
-			// Reset all export datum totals before scanning
-			for(var/datum/export/E in SScargo.exports_list)
-				E.export_end()
+			// Reset generic export totals before scanning
+			SScargo.reset_generic_export_totals()
 
 			// Scan everything on the telepad turf (skip the telepad machinery itself)
 			for(var/atom/movable/A in pad_turf)
@@ -110,13 +109,10 @@
 				SScargo.export_item_and_contents(A)
 
 			// Collect results
-			var/exp_total = 0
+			var/exp_total = SScargo.generic_export_total
 			var/list/exp_lines = list()
-			for(var/datum/export/E in SScargo.exports_list)
-				if(E.total_cost <= 0) continue
-				exp_lines += "[E.unit_name]: [E.total_amount] units -- [E.total_cost] cr"
-				exp_total += E.total_cost
-				E.export_end()
+			for(var/item_name in SScargo.generic_export_lines)
+				exp_lines += "[item_name]: [SScargo.generic_export_lines[item_name]] cr"
 
 			if(!exp_total)
 				status_message = "No exportable items found on the telepad. Place items or crates on the telepad first."

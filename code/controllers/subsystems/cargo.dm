@@ -49,6 +49,12 @@ SUBSYSTEM_DEF(cargo)
 	var/list/exports_list = list()
 	var/list/bounties_list = list()
 
+	// Generic DB-priced export totals for the current sale cycle -- see
+	// get_cargo_export_price() (persistence_cargo_exports.dm). Replaces the
+	// old per-/datum/export total_cost/total_amount accumulation.
+	var/generic_export_total = 0
+	var/list/generic_export_lines = list()
+
 /datum/controller/subsystem/cargo/Recover()
 	src.shuttle = SScargo.shuttle
 	src.cargo_items = SScargo.cargo_items
@@ -515,6 +521,8 @@ SUBSYSTEM_DEF(cargo)
 	var/matched_bounty = FALSE
 	var/sold_atoms = ""
 
+	reset_generic_export_totals()
+
 	for(var/area/subarea in shuttle.shuttle_area)
 		for(var/atom/movable/AM in subarea)
 			if(bounty_ship_item_and_contents(AM, dry_run = FALSE))
@@ -528,15 +536,9 @@ SUBSYSTEM_DEF(cargo)
 	if(matched_bounty)
 		msg += "Bounty items received. An update has been sent to all bounty consoles.\n"
 
-	for(var/a in exports_list)
-		var/datum/export/E = a
-		var/export_text = E.total_printout()
-		if(!export_text)
-			continue
-
-		msg += export_text + "\n"
-		current_shipment.shipment_cost_sell += E.total_cost
-		E.export_end()
+	if(generic_export_total)
+		msg += "[generic_export_total]₵: Received[sold_atoms]\n"
+		current_shipment.shipment_cost_sell += generic_export_total
 
 	charge_cargo("Shipment #[current_shipment.shipment_num] - Income", -current_shipment.shipment_cost_sell)
 	current_shipment.message = msg

@@ -473,6 +473,24 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/wl_e)
 		log_subsystem_persistence_panic("Unhandled exception during join whitelist initialization: [wl_e]")
 
+	log_subsystem_persistence_info("Starting cargo exports initialization...")
+	try
+		cargoExportsInitialize()
+	catch(var/exception/ce_e)
+		log_subsystem_persistence_error("Cargo exports init failed: [ce_e] on [ce_e.file]:[ce_e.line]")
+
+	log_subsystem_persistence_info("Starting bounties initialization...")
+	try
+		bountiesInitialize()
+	catch(var/exception/bt_e)
+		log_subsystem_persistence_error("Bounties init failed: [bt_e] on [bt_e.file]:[bt_e.line]")
+
+	log_subsystem_persistence_info("Starting missions initialization...")
+	try
+		missionsInitialize()
+	catch(var/exception/ms_e)
+		log_subsystem_persistence_error("Missions init failed: [ms_e] on [ms_e.file]:[ms_e.line]")
+
 	log_subsystem_persistence_info("Starting area initialization...")
 	try
 		// Before objectsInitialize()/worldstateInitialize() -- a restored
