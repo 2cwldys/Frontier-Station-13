@@ -251,6 +251,13 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		return "not anchored -- wrench it to the floor first"
 	if(!powered)
 		return "not powered"
+	// Any Z a live mission is currently using (auto-generated for the
+	// mission, or a dynamic/admin-placed site it's reusing) is meant to
+	// stay uncontrolled -- no faction may ever claim it, even if a beacon
+	// gets hauled in and powered up there. Lifts on its own once the
+	// mission ends (is_active_mission_sector(), persistence_missions.dm).
+	if(is_active_mission_sector(GET_Z(src)))
+		return "this sector is reserved for an active mission -- no faction may claim it"
 	// Reuses the exact same type check persistence_pin_site_at_z() already
 	// trusts to identify "this Z belongs to a ship, not a claimable site"
 	// (persistence_factions.dm) -- covers a corvette's own interior Z

@@ -37,7 +37,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	// Load faction info + balances
 	try
 		var/datum/db_query/q = SSdbcore.NewQuery(
-			{"SELECT f.uid, f.name, f.abbreviation, COALESCE(a.balance, 0), COALESCE(a.cards_epoch, 0)
+			{"SELECT f.uid, f.name, f.abbreviation, COALESCE(a.balance, 0), COALESCE(a.cards_epoch, 0), f.founder_ckey, COALESCE(a.master_card_lost, 0)
 			FROM ss13_factions f
 			LEFT JOIN ss13_faction_accounts a ON a.faction_uid = f.uid"},
 			list()
@@ -47,10 +47,12 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 			while(q.NextRow())
 				// Normalize keys on load -- legacy rows may carry raw display-name uids
 				GLOB.persistence_faction_cache[normalize_faction_uid(q.item[1])] = list(
-					"name"         = q.item[2],
-					"abbreviation" = q.item[3],
-					"balance"      = text2num(q.item[4]) || 0,
-					"cards_epoch"  = text2num(q.item[5]) || 0
+					"name"             = q.item[2],
+					"abbreviation"     = q.item[3],
+					"balance"          = text2num(q.item[4]) || 0,
+					"cards_epoch"      = text2num(q.item[5]) || 0,
+					"founder_ckey"     = q.item[6],
+					"master_card_lost" = !!text2num(q.item[7])
 				)
 		qdel(q)
 	catch(var/exception/faction_info_e)
@@ -287,8 +289,8 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	SSeconomy.charge_to_account(acct_num, "Faction Founding", "Founded faction '[petition["faction_name"]]'", null, -FACTION_CREATION_COST)
 
 	var/datum/db_query/cf_q1 = SSdbcore.NewQuery(
-		"INSERT INTO ss13_factions (uid, name, abbreviation, is_lore) VALUES (:uid, :name, :abbr, 0)",
-		list("uid" = faction_uid, "name" = petition["faction_name"], "abbr" = petition["abbreviation"])
+		"INSERT INTO ss13_factions (uid, name, abbreviation, is_lore, founder_ckey) VALUES (:uid, :name, :abbr, 0, :founder)",
+		list("uid" = faction_uid, "name" = petition["faction_name"], "abbr" = petition["abbreviation"], "founder" = founder_ckey)
 	)
 	cf_q1.Execute()
 	databaseCheckQueryResult(cf_q1, "tryFinalizeFounding insert")
@@ -304,7 +306,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 
 	if(!islist(GLOB.persistence_faction_cache))
 		GLOB.persistence_faction_cache = list()
-	GLOB.persistence_faction_cache[faction_uid] = list("name" = petition["faction_name"], "abbreviation" = petition["abbreviation"], "balance" = FACTION_CREATION_COST)
+	GLOB.persistence_faction_cache[faction_uid] = list("name" = petition["faction_name"], "abbreviation" = petition["abbreviation"], "balance" = FACTION_CREATION_COST, "founder_ckey" = founder_ckey, "master_card_lost" = FALSE)
 	if(!islist(GLOB.persistence_faction_jobs_cache))
 		GLOB.persistence_faction_jobs_cache = list()
 	GLOB.persistence_faction_jobs_cache[faction_uid] = list()
@@ -453,6 +455,47 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 		)
 		eq.Execute()
 		qdel(eq)
+	return TRUE
+
+/// The ckey of the faction's original founder, set once at founding and
+/// never reassigned -- null for factions founded before this feature
+/// existed, or created via the admin "create faction" verb (no player
+/// founder). This is the one identity that survives even a full Panic
+/// Purge (faction_manage.dm), gating the founder-only "Print Master Card"
+/// action so a founder can always recover from a lost/compromised card
+/// even if it cost them their own rank-2 access in the process.
+/proc/get_faction_founder_ckey(uid)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return null
+	return GLOB.persistence_faction_cache[uid]["founder_ckey"]
+
+/// Whether a faction's master card is currently considered lost (revoked via
+/// Panic Purge and not yet replaced) -- gates the "Print Master Card" action
+/// so a fresh one can't be minted while the existing one is still presumably
+/// valid and in someone's hands.
+/proc/get_faction_master_card_lost(uid)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return FALSE
+	return !!GLOB.persistence_faction_cache[uid]["master_card_lost"]
+
+/// Sets whether a faction's master card is considered lost, persisting the
+/// flag so it survives a reboot (a compromised master card shouldn't become
+/// valid again just because the server restarted).
+/proc/set_faction_master_card_lost(uid, lost)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return FALSE
+	GLOB.persistence_faction_cache[uid]["master_card_lost"] = lost
+	if(GLOB.config.sql_enabled && SSdbcore.Connect())
+		var/datum/db_query/mq = SSdbcore.NewQuery(
+			{"INSERT INTO ss13_faction_accounts (faction_uid, master_card_lost) VALUES (:uid, :lost)
+			ON DUPLICATE KEY UPDATE master_card_lost = VALUES(master_card_lost), saved_at = NOW()"},
+			list("uid" = uid, "lost" = lost ? 1 : 0)
+		)
+		mq.Execute()
+		qdel(mq)
 	return TRUE
 
 /// A faction charge card is valid only if it was printed under the faction's
@@ -1353,6 +1396,110 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			to_chat(usr, SPAN_GOOD("Unpinned '[unpin_row["template"]]'[(purge_choice == "Purge" && unpin_z_matches) ? " and purged its saved rows" : " (saved rows kept)"]. Dynamic again from next boot."))
 			log_and_message_admins("unpinned overmap site '[unpin_row["template"]]'[(purge_choice == "Purge" && unpin_z_matches) ? " (rows purged)" : ""]", usr)
 
+/// Picks a random unoccupied overmap tile -- optionally (avoid_unsecured_zones)
+/// excluding any tile within an active+powered faction beacon's claimed
+/// medsec/highsec security_radius, the same range()-based geometry
+/// zone_security_update_overmap_borders() uses to paint that territory,
+/// checked here proactively at selection time instead of reactively after
+/// spawning. Returns null if no valid tile turns up after a handful of
+/// random attempts.
+/proc/_pick_free_overmap_tile(avoid_unsecured_zones = FALSE)
+	if(!SSatlas.current_map.overmap_z)
+		return null
+	var/map_low = OVERMAP_EDGE
+	var/map_high = SSatlas.current_map.overmap_size - OVERMAP_EDGE
+
+	var/list/secured_sectors = list()
+	if(avoid_unsecured_zones)
+		for(var/obj/structure/machinery/faction_beacon/B in world)
+			if(!B.active || !B.powered || B.security_radius <= 0 || B.guaranteed_security_tier < ZONE_MEDSEC)
+				continue
+			var/obj/effect/overmap/visitable/beacon_sector = GLOB.map_sectors["[GET_Z(B)]"]
+			if(istype(beacon_sector))
+				secured_sectors += list(list("sector" = beacon_sector, "radius" = B.security_radius))
+
+	for(var/attempt in 1 to 20)
+		var/turf/candidate = locate(rand(map_low, map_high), rand(map_low, map_high), SSatlas.current_map.overmap_z)
+		if(!candidate)
+			continue
+		if(locate(/obj/effect/overmap/visitable) in candidate)
+			continue
+		var/blocked = FALSE
+		for(var/list/entry in secured_sectors)
+			if(get_dist(candidate, entry["sector"]) <= entry["radius"])
+				blocked = TRUE
+				break
+		if(!blocked)
+			return candidate
+	return null
+
+/**
+ * Core away-site placement logic shared by "Generate Away Site" and the
+ * missions auto-gen system (accept_mission()). If target_tile is given, the
+ * site loads there directly -- the admin-verb path, which already prompted
+ * for and validated a specific tile. If target_tile is null, a free tile is
+ * picked instead (_pick_free_overmap_tile()) -- if avoid_unsecured_zones is
+ * also TRUE (the missions auto-gen path), the search itself excludes every
+ * active beacon's claimed radius up front, so the result is nullsec by
+ * construction rather than spawned-then-checked-then-retried. Returns the
+ * new Z on success, or null (template already loaded without
+ * TEMPLATE_FLAG_ALLOW_DUPLICATES, no overmap, no valid tile found, or the
+ * load itself failed).
+ */
+/proc/_spawn_away_site_for_template(datum/map_template/ruin/away_site/site, turf/target_tile, avoid_unsecured_zones = FALSE)
+	if(!site)
+		return null
+	if(site.loaded && !(site.template_flags & TEMPLATE_FLAG_ALLOW_DUPLICATES))
+		return null
+	if(!SSatlas.current_map.overmap_z)
+		return null
+
+	if(!target_tile)
+		target_tile = _pick_free_overmap_tile(avoid_unsecured_zones)
+		if(!target_tile)
+			return null
+
+	var/pick_x = target_tile.x
+	var/pick_y = target_tile.y
+
+	// Suspend ZAS during the load or the freshly loaded site gets vented
+	// (same recipe as the Map Template - Place In New Z verb).
+	var/z_before = world.maxz
+	SSair.can_fire = FALSE
+	var/bounds = site.load_new_z(FALSE)
+	SSair.can_fire = TRUE
+	if(!bounds)
+		return null
+
+	var/site_z = z_before + 1
+	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[site_z]"]
+	if(marker)
+		marker.start_x = pick_x
+		marker.start_y = pick_y
+		if(marker.loc)
+			marker.forceMove(target_tile)
+
+	// Grant the real security tier immediately if this landed inside an
+	// active beacon's radius, instead of waiting up to one sweep interval
+	// for process()'s periodic _apply_security_radius_grant() to catch it.
+	for(var/obj/structure/machinery/faction_beacon/B in world)
+		if(B.active && B.powered)
+			B._apply_security_radius_grant()
+
+	if(avoid_unsecured_zones && zone_security_get(site_z) != ZONE_NULLSEC)
+		// Shouldn't happen -- the tile search above already excluded every
+		// claimed radius -- but guard against a beacon powering on in the
+		// same tick as this load.
+		_despawn_away_site_z(site_z, FALSE)
+		return null
+
+	// Paint the new marker's zone-security outline/border immediately --
+	// otherwise it sits unpainted until some unrelated later zone change
+	// happens to trigger a full repaint (zone_security_update_overmap()
+	// is only ever called at boot or on an explicit zone change).
+	zone_security_update_overmap()
+	return site_z
+
 /// Inject an away-site template at a chosen overmap tile at runtime -- the
 /// same kind of z-level that normally only spawns randomly at boot, placed
 /// deliberately mid-session. The site is DYNAMIC (gone on reboot, never saved)
@@ -1408,40 +1555,70 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 
 	log_and_message_admins("is generating away site '[tmpl_pick]' at overmap ([pick_x],[pick_y])", usr)
 
-	// Suspend ZAS during the load or the freshly loaded site gets vented
-	// (same recipe as the Map Template - Place In New Z verb).
-	var/z_before = world.maxz
-	SSair.can_fire = FALSE
-	var/bounds = site.load_new_z(FALSE)
-	SSair.can_fire = TRUE
-	if(!bounds)
+	var/site_z = _spawn_away_site_for_template(site, target_tile)
+	if(!site_z)
 		to_chat(usr, SPAN_WARNING("Failed to load '[tmpl_pick]'."))
 		log_and_message_admins("failed to generate away site '[tmpl_pick]'", usr)
 		return
 
-	var/site_z = z_before + 1
-	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[site_z]"]
-	if(marker)
-		marker.start_x = pick_x
-		marker.start_y = pick_y
-		if(marker.loc)
-			marker.forceMove(target_tile)
-
-	// Grant the real security tier immediately if this landed inside an
-	// active beacon's radius, instead of waiting up to one sweep interval
-	// for process()'s periodic _apply_security_radius_grant() to catch it.
-	for(var/obj/structure/machinery/faction_beacon/B in world)
-		if(B.active && B.powered)
-			B._apply_security_radius_grant()
-
-	// Paint the new marker's zone-security outline/border immediately --
-	// otherwise it sits unpainted until some unrelated later zone change
-	// happens to trigger a full repaint (zone_security_update_overmap()
-	// is only ever called at boot or on an explicit zone change).
-	zone_security_update_overmap()
-
 	to_chat(usr, SPAN_GOOD("Generated '[tmpl_pick]' at overmap ([pick_x],[pick_y]), z=[site_z]. It is DYNAMIC (gone on reboot, not saved) -- pin it via Persistent Overmap Sites to make it permanent."))
 	log_and_message_admins("generated away site '[tmpl_pick]' at overmap ([pick_x],[pick_y]), z=[site_z]", usr)
+
+/**
+ * Core away-site teardown shared by "Remove Away Site" and the missions
+ * auto-gen cleanup (turn-in-triggered despawn of a mission-spawned sector).
+ * Wipes every turf on z to space, deletes the overmap marker, and cleans
+ * zone-security/persistence-toggle state. purge_incidental controls whether
+ * incidental persistence rows for z are also purged (SSpersistence.purgeZRows) --
+ * defaults TRUE (dynamic/mission-spawned sites always want this); callers
+ * tearing down a PINNED site pass the admin's own Purge/Keep choice instead.
+ * Caller is responsible for confirming no one is still on z
+ * (zlevel_has_players()) and, for pinned sites, its own
+ * ss13_persistent_away_sites row cleanup -- this proc only ever handles the
+ * always-safe, non-pin-specific teardown.
+ */
+/proc/_despawn_away_site_z(z, purge_incidental = TRUE)
+	if(!z)
+		return
+	if(purge_incidental)
+		SSpersistence.purgeZRows(z)
+
+	// Clean up zone security + persistence-toggle rows/state for this z too --
+	// otherwise a stale tier/toggle could silently apply to whatever different
+	// site happens to load at this same Z number on a future boot.
+	if(SSpersistence.databaseCheckConnection("_despawn_away_site_z cleanup"))
+		var/datum/db_query/del_sec = SSdbcore.NewQuery(
+			"DELETE FROM ss13_zone_security WHERE z = :z AND map_path = :mp",
+			list("z" = z, "mp" = "[SSatlas.current_map.path]")
+		)
+		del_sec.Execute()
+		qdel(del_sec)
+		var/datum/db_query/del_persist = SSdbcore.NewQuery(
+			"DELETE FROM ss13_zlevel_persistence WHERE z = :z AND map_path = :mp",
+			list("z" = z, "mp" = "[SSatlas.current_map.path]")
+		)
+		del_persist.Execute()
+		qdel(del_persist)
+	GLOB.zone_security_by_z -= "[z]"
+	GLOB.persistence_zlevel_skip -= z
+	GLOB.persistence_zlevel_allow -= z
+
+	// Delete every remaining atom/mob (caller already guaranteed player-free),
+	// wipe turfs to plain space, then remove the overmap marker. Snapshot each
+	// turf's contents first -- can't qdel while iterating a turf's live
+	// contents list (same gotcha reset_zlevel() already works around).
+	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+		var/list/contents_snapshot = T.contents.Copy()
+		for(var/atom/movable/AM in contents_snapshot)
+			qdel(AM)
+		T.ChangeTurf(/turf/space)
+		CHECK_TICK
+
+	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[z]"]
+	if(marker)
+		qdel(marker)
+	GLOB.map_sectors -= "[z]"
+	zone_security_update_overmap()
 
 /**
  * Fully removes a currently-loaded away site (pinned or dynamic) -- wipes its
@@ -1488,6 +1665,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		return
 
 	var/datum/map_template/tmpl = GLOB.map_templates["[z_pick]"]
+	var/purge_incidental = TRUE
 
 	if(z_pick in GLOB.persistence_pinned_site_z)
 		var/datum/db_query/find_row = SSdbcore.NewQuery(
@@ -1506,54 +1684,11 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			del_row.Execute()
 			SSpersistence.databaseCheckQueryResult(del_row, "remove_away_site unpin")
 			qdel(del_row)
-			if(purge_choice == "Purge")
-				SSpersistence.purgeZRows(z_pick)
+			purge_incidental = (purge_choice == "Purge")
 		GLOB.persistence_pinned_site_z -= z_pick
 		GLOB.persistence_zlevel_allow -= z_pick
-	else
-		// Dynamic site -- no away-site row to clean, but purge any incidental
-		// persistence rows regardless (harmless no-op if none exist).
-		SSpersistence.purgeZRows(z_pick)
 
-	// Clean up zone security + persistence-toggle rows/state for this z too --
-	// otherwise a stale tier/toggle could silently apply to whatever different
-	// site happens to load at this same Z number on a future boot. Runs
-	// unconditionally (pinned or dynamic) since either could independently
-	// have accumulated a security tier or persistence toggle.
-	if(SSpersistence.databaseCheckConnection("remove_away_site cleanup"))
-		var/datum/db_query/del_sec = SSdbcore.NewQuery(
-			"DELETE FROM ss13_zone_security WHERE z = :z AND map_path = :mp",
-			list("z" = z_pick, "mp" = "[SSatlas.current_map.path]")
-		)
-		del_sec.Execute()
-		qdel(del_sec)
-		var/datum/db_query/del_persist = SSdbcore.NewQuery(
-			"DELETE FROM ss13_zlevel_persistence WHERE z = :z AND map_path = :mp",
-			list("z" = z_pick, "mp" = "[SSatlas.current_map.path]")
-		)
-		del_persist.Execute()
-		qdel(del_persist)
-	GLOB.zone_security_by_z -= "[z_pick]"
-	GLOB.persistence_zlevel_skip -= z_pick
-	GLOB.persistence_zlevel_allow -= z_pick
-
-	// Teardown: delete every remaining atom/mob (already guaranteed
-	// player-free by the guard above), wipe turfs to plain space, then remove
-	// the overmap marker. Snapshot each turf's contents first -- can't qdel
-	// while iterating a turf's live contents list (same gotcha reset_zlevel()
-	// already works around).
-	for(var/turf/T in block(locate(1, 1, z_pick), locate(world.maxx, world.maxy, z_pick)))
-		var/list/contents_snapshot = T.contents.Copy()
-		for(var/atom/movable/AM in contents_snapshot)
-			qdel(AM)
-		T.ChangeTurf(/turf/space)
-		CHECK_TICK
-
-	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[z_pick]"]
-	if(marker)
-		qdel(marker)
-	GLOB.map_sectors -= "[z_pick]"
-	zone_security_update_overmap()
+	_despawn_away_site_z(z_pick, purge_incidental)
 
 	to_chat(usr, SPAN_GOOD("Removed the away site at Z=[z_pick]."))
 	log_and_message_admins("removed away site at Z=[z_pick]", usr)

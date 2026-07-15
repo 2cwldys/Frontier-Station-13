@@ -16,7 +16,7 @@
 	extended_desc = "Post a cash bounty on a person, or browse and accept open bounties."
 	usage_flags = PROGRAM_CONSOLE | PROGRAM_LAPTOP | PROGRAM_TABLET
 	requires_ntnet = FALSE
-	size = 4
+	size = 2
 	tgui_id = "Bounties"
 	ui_auto_update = TRUE
 
@@ -30,12 +30,13 @@
 	var/list/bounty_list = list()
 	for(var/list/row in GLOB.active_bounties)
 		bounty_list += list(list(
-			"id"            = row["id"],
-			"target_name"   = row["target_name"],
-			"reward"        = row["reward"],
-			"status"        = row["status"],
-			"poster_ckey"   = row["poster_ckey"],
-			"accepter_ckey" = row["accepter_ckey"]
+			"id"              = row["id"],
+			"target_name"     = row["target_name"],
+			"reward"          = row["reward"],
+			"status"          = row["status"],
+			"poster_ckey"     = row["poster_ckey"],
+			"accepter_count"  = length(row["accepters"]),
+			"accepted_by_me"  = (user.ckey in row["accepters"])
 		))
 	data["bounties"] = bounty_list
 	return data

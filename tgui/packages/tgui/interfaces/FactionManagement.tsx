@@ -68,6 +68,8 @@ type FactionData = {
   members: FactionMember[];
   cards_epoch: number;
   id_purges: FactionIdPurge[];
+  is_founder: BooleanLike;
+  master_card_lost: BooleanLike;
   faction_creation_enabled: BooleanLike;
   founding_required: number;
   petitions: FoundingPetition[];
@@ -176,6 +178,8 @@ export const FactionManagement = (props) => {
     known_factions,
     members,
     cards_epoch,
+    is_founder,
+    master_card_lost,
     faction_creation_enabled,
     founding_required,
     petitions,
@@ -287,6 +291,17 @@ export const FactionManagement = (props) => {
               >
                 Invalidate All Charge Cards
               </Button>
+              {(!!is_founder || op_rank === 99) && !!master_card_lost && (
+                <Button
+                  icon="id-card"
+                  color="good"
+                  ml={1}
+                  tooltip="Prints a replacement faction master card. Only available to the original founder (or an admin), and only while the current one is reported lost (Panic Purge)."
+                  onClick={() => act('print_master_card')}
+                >
+                  Print Master Card
+                </Button>
+              )}
             </Box>
           )}
           {canManage && known_factions.length > 0 && (

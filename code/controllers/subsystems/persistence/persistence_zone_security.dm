@@ -222,9 +222,19 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 /// step after ANY missed transition self-corrects and announces.
 /mob/var/zone_announce_level = -1
 
-/// Announce when this mob's current zone level differs from the last one
-/// announced. quiet_baseline suppresses the message and just records the
-/// level (used at login so every fresh join doesn't print a banner).
+/// Whether the last announced zone was a Z a live mission is currently
+/// using (is_active_mission_sector(), persistence_missions.dm -- covers
+/// both auto-generated sectors and a dynamic/admin-placed site a mission is
+/// reusing) -- tracked alongside zone_announce_level so moving directly
+/// between two nullsec Zs (plain nullsec <-> a mission sector, no
+/// highsec/medsec Z in between) still re-announces, since the tier alone
+/// wouldn't change.
+/mob/var/zone_announce_mission = FALSE
+
+/// Announce when this mob's current zone level (or mission-sector status)
+/// differs from the last one announced. quiet_baseline suppresses the
+/// message and just records the state (used at login so every fresh join
+/// doesn't print a banner).
 /mob/proc/check_zone_announce(quiet_baseline = FALSE)
 	if(!client)
 		return
@@ -236,9 +246,11 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 	if(!nz)
 		return
 	var/new_level = zone_security_get(nz)
-	if(new_level == zone_announce_level)
+	var/new_mission = is_active_mission_sector(nz)
+	if(new_level == zone_announce_level && new_mission == zone_announce_mission)
 		return
 	zone_announce_level = new_level
+	zone_announce_mission = new_mission
 	if(quiet_baseline && new_level == ZONE_NULLSEC)
 		return
 	switch(new_level)
@@ -248,6 +260,8 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 			to_chat(src, FONT_LARGE(SPAN_COLOR("#e8bb4a", "You are entering a medsec area! Piracy is outlawed, factions enforce their own laws.")))
 		else
 			to_chat(src, FONT_LARGE(SPAN_COLOR("#e04545", "You are entering a nullsec area! Hub and faction laws are not enforced here.")))
+			if(new_mission)
+				to_chat(src, FONT_LARGE(SPAN_COLOR("#e04545", "This area cannot be captured by any faction, and piracy beacons may not be installed.")))
 
 /mob/Moved(atom/old_loc, movement_dir, forced, list/old_locs)
 	. = ..()

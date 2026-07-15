@@ -160,6 +160,8 @@
 			qdel(mq)
 		data["members"] = members_out
 		data["cards_epoch"] = get_faction_cards_epoch(net)
+		data["is_founder"] = (user.ckey == get_faction_founder_ckey(net))
+		data["master_card_lost"] = get_faction_master_card_lost(net)
 
 		// Panic Purge audit trail -- officer+-visible record of who purged
 		// IDs and when, distinct from log_game()/message_admins() (admin-only).
@@ -188,6 +190,8 @@
 		data["members"]        = list()
 		data["cards_epoch"]    = 0
 		data["id_purges"]      = list()
+		data["is_founder"]        = FALSE
+		data["master_card_lost"]  = FALSE
 
 	return data
 
@@ -718,6 +722,19 @@
 			for(var/list/member in roster)
 				total_live += _revoke_member_id_now(net, member["ckey"], member["real_name"], user.ckey)
 
+			// Master card is always included -- no exemption, even if the
+			// triggering officer's own rank-2 access came from holding it
+			// themselves. It's a bearer card, not tied to any one ckey, so
+			// there's no "own card" to protect the way the member sweep
+			// protects the issuer's personal ID above. The founder-gated
+			// Print Master Card action (below) is the intended recovery path.
+			for(var/obj/item/card/id/faction_master/old_master in world)
+				if(!old_master.revoked && normalize_faction_uid(old_master.employer_faction) == net)
+					old_master.revoked = TRUE
+					old_master.access = list()
+					old_master.update_name()
+			set_faction_master_card_lost(net, TRUE)
+
 			var/datum/db_query/auditq = SSdbcore.NewQuery(
 				{"INSERT INTO ss13_faction_id_purges (faction_uid, issued_by_ckey, issued_by_name, revoked_count, member_count)
 				VALUES (:uid, :ckey, :name, :revoked, :members)"},
@@ -727,9 +744,40 @@
 			SSpersistence.databaseCheckQueryResult(auditq, "faction_manage panic_purge_ids audit")
 			qdel(auditq)
 
-			to_chat(user, SPAN_GOOD("Panic purge complete: [total_live] live ID card[total_live == 1 ? "" : "s"] revoked across [length(roster)] member[length(roster) == 1 ? "" : "s"] (your own ID was not touched). Offline members will be caught automatically when next restored."))
-			log_game("[key_name(user)] PANIC PURGED all faction IDs for '[net]' via faction_manage -- [total_live] live cards revoked across [length(roster)] members (issuer exempted).")
-			message_admins("[key_name_admin(user)] triggered a panic ID purge for faction '[net]' -- [total_live] live cards revoked across [length(roster)] members.")
+			to_chat(user, SPAN_GOOD("Panic purge complete: [total_live] live ID card[total_live == 1 ? "" : "s"] revoked across [length(roster)] member[length(roster) == 1 ? "" : "s"] (your own ID was not touched), and the faction master card has been revoked. Offline members will be caught automatically when next restored. Only [get_faction_name(net)]'s original founder can print a replacement master card."))
+			log_game("[key_name(user)] PANIC PURGED all faction IDs for '[net]' via faction_manage -- [total_live] live cards revoked across [length(roster)] members (issuer exempted), master card revoked.")
+			message_admins("[key_name_admin(user)] triggered a panic ID purge for faction '[net]' -- [total_live] live cards revoked across [length(roster)] members, master card revoked.")
+			. = TRUE
+
+		// ---- Print Master Card ------------------------------------------------
+		// Founder-gated (not the usual op_rank >= 2), so the founder can
+		// always recover from a lost/compromised master card even if Panic
+		// Purge (above) cost them their own rank-2 access (a rank-2 job
+		// title is independent of this and unaffected either way). Admins
+		// (op_rank == 99) bypass the founder check too -- the master card is
+		// a bearer item with no identity check on it at all, so admin
+		// recourse matters when the founder's gone, banned, or otherwise
+		// unreachable. Either way, master_card_lost still has to be true
+		// first -- nobody, admins included, can mint a second valid card
+		// while the current one is still out there and unrevoked.
+		if("print_master_card")
+			if(op_rank != 99 && user.ckey != get_faction_founder_ckey(net))
+				to_chat(user, SPAN_WARNING("Only [get_faction_name(net)]'s original founder (or an admin) can print a replacement master card."))
+				return
+			if(!get_faction_master_card_lost(net))
+				to_chat(user, SPAN_WARNING("The current master card hasn't been reported lost -- use Panic Purge first if it's been compromised."))
+				return
+			var/turf/spawn_turf = get_turf(computer) || get_turf(user)
+			if(!spawn_turf)
+				return
+			var/obj/item/card/id/faction_master/new_master = new(spawn_turf)
+			new_master.employer_faction = net
+			new_master.update_name()
+			set_faction_master_card_lost(net, FALSE)
+			user.put_in_hands(new_master)
+			to_chat(user, SPAN_GOOD("Printed a new master card for [get_faction_name(net)]."))
+			log_game("[key_name(user)] printed a replacement faction master card for '[net]' via faction_manage.")
+			message_admins("[key_name_admin(user)] printed a replacement master card for faction '[net]'.")
 			. = TRUE
 
 /// Tapping a mob with a handheld running Faction Management while a

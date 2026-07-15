@@ -18,7 +18,7 @@
 	required_access_download = ACCESS_CARGO
 	usage_flags = PROGRAM_CONSOLE | PROGRAM_LAPTOP
 	requires_ntnet = FALSE
-	size = 6
+	size = 2
 	color = LIGHT_COLOR_BLUE
 	tgui_id = "CargoExports"
 	ui_auto_update = TRUE  // re-poll ui_data every tick so faction link changes are reflected immediately

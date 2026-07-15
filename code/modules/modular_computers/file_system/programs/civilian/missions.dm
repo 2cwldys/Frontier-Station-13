@@ -4,8 +4,12 @@
  * Single-claim-at-a-time -- once accepted, that mission is locked to you
  * until you complete, abandon it, or an admin frees it. Kill missions spawn
  * their targets only once you actually reach the target sector (see
- * /datum/mission_instance, persistence_missions.dm); fetch missions are
- * completed by turning in the required items via this same program.
+ * /datum/mission_instance, persistence_missions.dm), and require turning in
+ * away from the sector once every target is dead (objective_complete) --
+ * same as fetch missions, which are completed by turning in the required
+ * items via this same program. Turning in specifically requires a full
+ * console or laptop -- a handheld/tablet can still browse, accept, and
+ * abandon, but not turn in (see the hardware check in ui_act() below).
  */
 
 /datum/computer_file/program/civilian/missions
@@ -16,7 +20,7 @@
 	extended_desc = "Browse and accept fetch/kill missions, or turn in a completed fetch mission."
 	usage_flags = PROGRAM_CONSOLE | PROGRAM_LAPTOP | PROGRAM_TABLET
 	requires_ntnet = FALSE
-	size = 4
+	size = 2
 	tgui_id = "Missions"
 	ui_auto_update = TRUE
 
@@ -31,17 +35,19 @@
 	for(var/list/tmpl in GLOB.mission_templates)
 		if(!tmpl["enabled"])
 			continue
+		var/datum/mission_instance/instance = tmpl["instance"]
 		mission_list += list(list(
-			"id"             = tmpl["id"],
-			"mission_type"   = tmpl["mission_type"],
-			"title"          = tmpl["title"],
-			"description"    = tmpl["description"],
-			"fetch_count"    = tmpl["fetch_count"],
-			"kill_count"     = tmpl["kill_count"],
-			"sector_uid"     = tmpl["sector_uid"],
-			"reward"         = tmpl["reward"],
-			"claimed_by_me"  = (tmpl["current_accepter_ckey"] == user.ckey),
-			"claimed"        = !!tmpl["current_accepter_ckey"]
+			"id"                 = tmpl["id"],
+			"mission_type"       = tmpl["mission_type"],
+			"title"              = tmpl["title"],
+			"description"        = tmpl["description"],
+			"fetch_count"        = tmpl["fetch_count"],
+			"kill_count"         = tmpl["kill_count"],
+			"sector_template_id" = tmpl["sector_template_id"],
+			"reward"             = tmpl["reward"],
+			"claimed_by_me"      = (tmpl["current_accepter_ckey"] == user.ckey),
+			"claimed"            = !!tmpl["current_accepter_ckey"],
+			"objective_complete" = (istype(instance) && instance.objective_complete)
 		))
 	data["missions"] = mission_list
 	return data
@@ -66,13 +72,22 @@
 			return TRUE
 
 		if("turn_in_mission")
+			if(istype(computer, /obj/item/modular_computer/handheld))
+				status_message = "Turning in a mission requires a full console or laptop -- your handheld can only track progress."
+				return TRUE
 			var/template_id = text2num(params["id"])
 			if(!template_id)
 				return TRUE
-			if(turn_in_fetch_mission(template_id, user))
+			var/list/tmpl = get_mission_template(template_id)
+			if(!tmpl)
+				return TRUE
+			var/success = (tmpl["mission_type"] == "fetch") ? turn_in_fetch_mission(template_id, user) : turn_in_kill_mission(template_id, user)
+			if(success)
 				status_message = "Mission turned in. Reward paid."
-			else
+			else if(tmpl["mission_type"] == "fetch")
 				status_message = "You don't have the required items, or this isn't your mission to turn in."
+			else
+				status_message = "Can't turn in yet -- make sure every target is eliminated and you've left the sector."
 			return TRUE
 
 		if("abandon_mission")

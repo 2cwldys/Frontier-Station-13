@@ -45,6 +45,12 @@ GLOBAL_LIST_EMPTY(piracy_beacons)
 	if(zone_security_get(GET_Z(src)) == ZONE_HIGHSEC)
 		log_game("Piracy beacon at ([x],[y],[z]) could not be assembled -- highsec space.")
 		return INITIALIZE_HINT_QDEL
+	// Any Z a live mission is currently using (auto-generated for the
+	// mission, or a dynamic/admin-placed site it's reusing) is meant to stay
+	// uncontrolled infrastructure-free ground -- no piracy beacon either.
+	if(is_active_mission_sector(GET_Z(src)))
+		log_game("Piracy beacon at ([x],[y],[z]) could not be assembled -- mission sector.")
+		return INITIALIZE_HINT_QDEL
 	GLOB.piracy_beacons += src
 
 /obj/structure/machinery/piracy_beacon/Destroy()
@@ -72,12 +78,15 @@ GLOBAL_LIST_EMPTY(piracy_beacons)
 	visible_message(SPAN_WARNING("\The [src] sputters and powers down -- out of credits."))
 	log_game("Piracy beacon at ([x],[y],[z]) auto-powered off -- ran out of fuel credits.")
 
-/// TRUE only while powered AND this Z-level is genuinely nullsec -- medsec/highsec
-/// leave the beacon dormant even if it's powered on. Computed live (not cached) so
-/// it always reflects the current security tier, including changes made by an
-/// unrelated faction/hub beacon claiming this Z later.
+/// TRUE only while powered AND this Z-level is genuinely nullsec AND not a
+/// Z a live mission is currently using (is_active_mission_sector()) --
+/// medsec/highsec, or an active mission sector, leave the beacon dormant
+/// even if it's powered on. Computed live (not cached) so it always
+/// reflects the current state, including changes made by an unrelated
+/// faction/hub beacon claiming this Z later, or a mission claiming/
+/// releasing it.
 /obj/structure/machinery/piracy_beacon/proc/is_operational()
-	return powered && zone_security_get(GET_Z(src)) == ZONE_NULLSEC
+	return powered && zone_security_get(GET_Z(src)) == ZONE_NULLSEC && !is_active_mission_sector(GET_Z(src))
 
 /obj/structure/machinery/piracy_beacon/attack_hand(mob/user)
 	. = ..()
@@ -123,7 +132,10 @@ GLOBAL_LIST_EMPTY(piracy_beacons)
 	else
 		QDEL_NULL(beacon_looping_sound)
 		if(powered)
-			to_chat(user, SPAN_WARNING("\The [src] powers up, but [zone_security_name(zone_security_get(GET_Z(src)))] space is too tightly regulated -- it stays dormant."))
+			if(is_active_mission_sector(GET_Z(src)))
+				to_chat(user, SPAN_WARNING("\The [src] powers up, but this sector is reserved for an active mission -- it stays dormant."))
+			else
+				to_chat(user, SPAN_WARNING("\The [src] powers up, but [zone_security_name(zone_security_get(GET_Z(src)))] space is too tightly regulated -- it stays dormant."))
 		else
 			to_chat(user, SPAN_WARNING("\The [src] powers down."))
 	update_icon()
@@ -193,5 +205,15 @@ GLOBAL_LIST_EMPTY(piracy_beacons)
 /proc/piracy_beacon_active_on_z(z)
 	for(var/obj/structure/machinery/piracy_beacon/P in GLOB.piracy_beacons)
 		if(GET_Z(P) == z && P.is_operational())
+			return TRUE
+	return FALSE
+
+/// TRUE if ANY piracy beacon (regardless of current power state) sits on Z --
+/// used to keep missions (persistence_missions.dm's find_mission_sector())
+/// from ever targeting a live pirate base, even one that's temporarily
+/// unpowered/out of fuel.
+/proc/piracy_beacon_present_on_z(z)
+	for(var/obj/structure/machinery/piracy_beacon/P in GLOB.piracy_beacons)
+		if(GET_Z(P) == z)
 			return TRUE
 	return FALSE
