@@ -193,6 +193,26 @@
 		mymob.internals = new /atom/movable/screen/internals()
 		hud_elements |= mymob.internals
 
+	// ── Hunger/thirst (status_hunger.dmi -- dark.dmi never got matching
+	// sprites ported for these during the Serenity rework, so this keeps the
+	// old icon file rather than the new unified one) ─────────────────────────
+	if(hud_data.has_nutrition)
+		mymob.nutrition_icon = new /atom/movable/screen/food()
+		mymob.nutrition_icon.icon = 'icons/hud/mob/status_hunger.dmi'
+		mymob.nutrition_icon.pixel_w = 8
+		mymob.nutrition_icon.icon_state = "nutrition0"
+		mymob.nutrition_icon.name = "nutrition"
+		mymob.nutrition_icon.screen_loc = ui_nutrition
+		hud_elements |= mymob.nutrition_icon
+
+	if(hud_data.has_hydration)
+		mymob.hydration_icon = new /atom/movable/screen/thirst()
+		mymob.hydration_icon.icon = 'icons/hud/mob/status_hunger.dmi'
+		mymob.hydration_icon.icon_state = "thirst0"
+		mymob.hydration_icon.name = "thirst"
+		mymob.hydration_icon.screen_loc = ui_nutrition
+		hud_elements |= mymob.hydration_icon
+
 	// ── Character doll (zone selector) — visible with puppet_new.dmi ─────────
 	mymob.zone_sel = new /atom/movable/screen/zone_sel(null)
 	mymob.zone_sel.icon = 'icons/hud/mob/puppet_new.dmi'
