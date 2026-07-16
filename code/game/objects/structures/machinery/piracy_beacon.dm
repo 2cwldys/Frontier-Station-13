@@ -51,6 +51,9 @@ GLOBAL_LIST_EMPTY(piracy_beacons)
 	if(is_active_mission_sector(GET_Z(src)))
 		log_game("Piracy beacon at ([x],[y],[z]) could not be assembled -- mission sector.")
 		return INITIALIZE_HINT_QDEL
+	if(is_asteroid_zone(GET_Z(src)))
+		log_game("Piracy beacon at ([x],[y],[z]) could not be assembled -- asteroid.")
+		return INITIALIZE_HINT_QDEL
 	GLOB.piracy_beacons += src
 
 /obj/structure/machinery/piracy_beacon/Destroy()

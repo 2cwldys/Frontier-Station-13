@@ -276,6 +276,10 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	var/obj/effect/overmap/visitable/sector = GLOB.map_sectors["[GET_Z(src)]"]
 	if(istype(sector, /obj/effect/overmap/visitable/ship/landable))
 		return "this location is aboard a ship, not a claimable site"
+	// Asteroids can still passively fall within a nearby beacon's claimed
+	// security radius -- this only blocks planting a beacon directly on one.
+	if(is_asteroid_zone(GET_Z(src)))
+		return "this is an asteroid -- it cannot be claimed directly"
 	for(var/z in _station_zs())
 		var/obj/structure/machinery/faction_beacon/holder = GLOB.faction_beacon_by_z["[z]"]
 		if(holder && holder != src && !QDELETED(holder))

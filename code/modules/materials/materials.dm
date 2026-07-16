@@ -1179,7 +1179,6 @@
 	name = MATERIAL_SHUTTLE
 	display_name = "plastitanium alloy"
 	stack_type = null
-	reinf_icon = "no_sprite"//placeholder
 	icon_base = "shuttle"
 	//wall_icon = 'icons/turf/smooth/composite_solid_color.dmi'
 	colour_blend = FALSE

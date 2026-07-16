@@ -61,6 +61,16 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 		return FALSE
 	return TRUE
 
+/// TRUE if z belongs to an asteroid exoplanet body (any variant) -- covers
+/// romanovich/ice/dumas/ytizi/chanterel/burzsia/etc, all subtypes of one
+/// base type. Asteroids can still passively fall within a nearby beacon's
+/// claimed security radius (that's zone_security_get()/_apply_security_
+/// radius_grant(), unaffected) -- this only blocks a beacon being planted
+/// directly on the asteroid itself.
+/proc/is_asteroid_zone(z)
+	var/obj/effect/overmap/visitable/sector = GLOB.map_sectors["[z]"]
+	return istype(sector, /obj/effect/overmap/visitable/sector/exoplanet/barren/asteroid)
+
 /**
  * Load zone rows from the database into the in-memory map, then paint the
  * overmap markers. Called from SSpersistence.Initialize().

@@ -767,7 +767,6 @@
 		facing_dir = null
 	if(hud_used?.freelook_toggle)
 		hud_used.freelook_toggle.icon = freelook_active ? 'icons/hud/mob/screen/look_active.png' : 'icons/hud/mob/screen/look_inactive.png'
-	to_chat(src, SPAN_NOTICE("Freelook is now [freelook_active ? "enabled" : "disabled"]."))
 
 /// Hotkey-mode-only keybind (see interface/skin.dmf's "hotkeymode" macro set,
 /// "L" -> "freelook-toggle") -- hidden so it never shows in the verb panel.
