@@ -93,7 +93,7 @@
 #define ui_nutrition "EAST-1:28,CENTER-1:11"
 #define ui_nutrition_small "EAST:4,CENTER-2:24"
 #define ui_temp "EAST-1:28,CENTER-1:13"
-#define ui_health "EAST-1:28,CENTER:15"
+#define ui_health "EAST-1:28,CENTER:18"
 #define ui_health_east_loc "EAST-1:28"
 #define ui_health_east_template "EAST-1:"
 //#define ui_internal "EAST-1:28,CENTER+1:17"
