@@ -218,21 +218,3 @@
 	persistent_network = new_uid
 	return TRUE
 
-// ------- Docking beacon (drydock pads/corvette docking -- "public" is
-// just the released/unclaimed state, matching the beacon's own ID-swipe
-// wording) -------
-
-/obj/structure/machinery/docking_beacon/faction_tagger_compatible()
-	return TRUE
-
-/obj/structure/machinery/docking_beacon/faction_tagger_get_uid()
-	return faction_restricted
-
-/obj/structure/machinery/docking_beacon/faction_tagger_set(new_uid, mob/user)
-	if(!beacon_active)
-		to_chat(user, SPAN_WARNING("Activate \the [src] before configuring its faction access."))
-		return FALSE
-	faction_restricted = new_uid || ""
-	beacon_shackled     = new_uid ? TRUE : FALSE
-	_sync_landmark_faction()
-	return TRUE

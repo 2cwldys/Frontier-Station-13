@@ -363,6 +363,22 @@
 /obj/effect/portal/permanent
 	has_lifespan = FALSE
 
+/// A stable, reliable two-way walkway opened between a docked drydock ship
+/// and wherever it's docked (see /obj/effect/overmap/visitable/ship/landable/
+/// drydock_ship's on_landing()/on_takeoff(), drydock_ship.dm) -- a docked
+/// ship's real interior never physically moves (only its overmap marker
+/// does), so without this there is no walkable connection between the two
+/// at all. Deliberately public/unrestricted (unlike the ownership-gated
+/// boarding telepad) -- a physical dock is something anyone standing there
+/// can walk through. has_lifespan = FALSE: lifetime is governed by dock
+/// status (open/closed explicitly), not a timer. failchance = 0: this is a
+/// reliable gangway, not a random unstable bluespace event.
+/obj/effect/portal/dock_link
+	name = "docking umbilical"
+	desc = "A stabilized bluespace conduit bridging a docked ship to its mooring."
+	has_lifespan = FALSE
+	failchance = 0
+
 #undef COLOR_STAGE_FIVE
 #undef COLOR_STAGE_FOUR
 #undef COLOR_STAGE_THREE

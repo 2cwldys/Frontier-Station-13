@@ -22,6 +22,32 @@
 
 	// Instantiate all remaining entries based of their type
 	// Assign persistence related vars found in /obj, apply content and add to live tracking list.
+	objectsInstantiateRows(persistent_data)
+
+	try
+		for(var/obj/structure/ladder/L in world)
+			if(!(L.allowed_directions & DOWN)) continue
+			if(L.target_down) continue
+			var/turf/LT = get_turf(L)
+			if(!LT) continue
+			var/turf/below = GET_TURF_BELOW(LT)
+			if(!below) continue
+			for(var/obj/structure/ladder/BL in below)
+				if(BL.allowed_directions & UP)
+					L.target_down = BL
+					BL.target_up = L
+					break
+	catch(var/exception/ladder_e)
+		log_subsystem_persistence_error("Persistent objects: ladder relink pass failed: [ladder_e]")
+
+/**
+ * Instantiate a list of fetched persistent-object rows into the world and
+ * register them for tracking. Shared by the boot restore (objectsInitialize())
+ * and the per-ship-Z apply (objectsApplyZ()). Returns the count instantiated.
+ */
+/datum/controller/subsystem/persistence/proc/objectsInstantiateRows(list/persistent_data)
+	PRIVATE_PROC(TRUE)
+	var/instantiated = 0
 	for (var/data in persistent_data)
 		CHECK_TICK
 		try
@@ -67,24 +93,72 @@
 			instance.persistent_objects_track_id = data["id"]
 			objectsApplyTrackContent(instance, data["content"], data["x"], data["y"], data["z"])
 			objectsRegisterTrack(instance, data["author_ckey"])
+			instantiated++
 		catch(var/exception/e)
 			log_subsystem_persistence_error("Persistent objects: Failed to instantiate [data["type"]] (id=[data["id"]]): [e]")
+	return instantiated
 
-	try
-		for(var/obj/structure/ladder/L in world)
-			if(!(L.allowed_directions & DOWN)) continue
-			if(L.target_down) continue
-			var/turf/LT = get_turf(L)
-			if(!LT) continue
-			var/turf/below = GET_TURF_BELOW(LT)
-			if(!below) continue
-			for(var/obj/structure/ladder/BL in below)
-				if(BL.allowed_directions & UP)
-					L.target_down = BL
-					BL.target_up = L
-					break
-	catch(var/exception/ladder_e)
-		log_subsystem_persistence_error("Persistent objects: ladder relink pass failed: [ladder_e]")
+/**
+ * Apply saved ship-scoped tracked objects to a freshly loaded ship Z. Rows
+ * were already remapped to this z by remapShipRows(); recreated tracks rejoin
+ * GLOB.persistence_object_track_register so future saves keep tracking them.
+ */
+/datum/controller/subsystem/persistence/proc/objectsApplyZ(z, scope)
+	var/list/scope_rows = objectsDatabaseGetActiveEntries(scope)
+	if(!islist(scope_rows) || !length(scope_rows))
+		return
+	var/instantiated = objectsInstantiateRows(scope_rows)
+	log_subsystem_persistence_info("Persistent objects: Applied [instantiated] ship tracked objects to z=[z] ([scope]).")
+
+/**
+ * Per-Z tracked-object save for a deployed ship Z. Mirrors objectsFinalize()'s
+ * add/update/expire contract, restricted to this ship's scope:
+ * - tracked objects currently on z are created/updated (their rows key under
+ *   the ship scope via the object's own turf)
+ * - scope rows whose object no longer exists anywhere are expired
+ * - scope rows whose object still exists but has moved OFF the ship are
+ *   updated in place, which migrates the row back to the object's current
+ *   scope (so carrying an item off a ship doesn't strand or expire its row)
+ */
+/datum/controller/subsystem/persistence/proc/objectsFinalizeZ(z, scope)
+	// Fetch BEFORE the add pass, mirroring objectsFinalize() -- rows created
+	// below must not be visible to this cycle's expire diff.
+	var/list/scope_rows = objectsDatabaseGetActiveEntries(scope)
+
+	var/created = 0
+	var/updated = 0
+	var/expired = 0
+
+	for (var/obj/track as anything in GLOB.persistence_object_track_register)
+		CHECK_TICK
+		var/turf/T = get_turf(track)
+		if(!T || T.z != z)
+			continue
+		if(isitem(track) && !isturf(track.loc))
+			continue
+		if (track.persistent_objects_track_id == 0)
+			objectsDatabaseAddEntry(track)
+			created++
+		else
+			objectsDatabaseUpdateEntry(track)
+			updated++
+
+	for (var/record in scope_rows)
+		CHECK_TICK
+		var/obj/found_track = null
+		for (var/obj/candidate as anything in GLOB.persistence_object_track_register)
+			if (record["id"] == candidate.persistent_objects_track_id)
+				found_track = candidate
+				break
+		if(!found_track)
+			objectsDatabaseExpireEntry(record["id"])
+			expired++
+		else
+			var/turf/T = get_turf(found_track)
+			if(!T || T.z != z)
+				objectsDatabaseUpdateEntry(found_track)
+
+	log_subsystem_persistence_info("Persistent objects: Ship z=[z] ([scope]): created [created], updated [updated], expired [expired] tracks.")
 
 /**
  * Finalize persistent object tracking.
@@ -113,7 +187,16 @@
 	var/expired = 0
 
 	// Get already stored data before saving new tracks so we can compare what has been updated or removed during the round.
+	// Deployed ship scopes are included so ship-borne tracks update/expire in
+	// the same diff (a stashed ship's scope is NOT registered, so its saved
+	// interior rows stay untouched by this pass -- that's load-bearing).
 	var/list/existing_data = objectsDatabaseGetActiveEntries()
+	if(!islist(existing_data))
+		existing_data = list()
+	for(var/ship_z in GLOB.persistence_ship_z)
+		var/list/ship_rows = objectsDatabaseGetActiveEntries(GLOB.persistence_ship_z[ship_z])
+		if(islist(ship_rows))
+			existing_data += ship_rows
 
 	for (var/obj/track as anything in GLOB.persistence_object_track_register)
 		CHECK_TICK

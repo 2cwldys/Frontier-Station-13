@@ -177,6 +177,17 @@
 
 	data["locations"] = locations
 
+	// Convenience: nearby contacts with a one-click "set as destination"
+	// instead of always requiring manual x/y entry (setx/sety/add) for a
+	// target already visible on-screen. Reuses the existing "xy" action
+	// (below) -- no new ui_act needed, just this extra data.
+	var/list/nearby_contacts = list()
+	for(var/obj/effect/overmap/visitable/nearby in view(7, connected))
+		if(nearby == connected || !nearby.scannable)
+			continue
+		nearby_contacts += list(list("name" = nearby.name, "x" = nearby.x, "y" = nearby.y))
+	data["nearby_contacts"] = nearby_contacts
+
 	return data
 
 /obj/structure/machinery/computer/ship/helm/proc/get_acceleration()

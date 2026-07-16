@@ -113,6 +113,8 @@ GLOBAL_LIST_EMPTY(persistence_atmos_cache)
 	if(!databaseCheckConnection("atmosFinalize"))
 		return
 
+	// Wipe-and-reinsert per scope: current map plus every deployed ship's
+	// scope (see persistence_ship_interiors.dm).
 	var/datum/db_query/delete_old = SSdbcore.NewQuery(
 		"DELETE FROM ss13_atmos_zones WHERE map_path = :map_path",
 		list("map_path" = "[SSatlas.current_map.path]")
@@ -120,23 +122,52 @@ GLOBAL_LIST_EMPTY(persistence_atmos_cache)
 	delete_old.Execute()
 	databaseCheckQueryResult(delete_old, "atmosFinalize delete old")
 	qdel(delete_old)
+	for(var/ship_z in GLOB.persistence_ship_z)
+		var/datum/db_query/ship_delete = SSdbcore.NewQuery(
+			"DELETE FROM ss13_atmos_zones WHERE map_path = :map_path",
+			list("map_path" = GLOB.persistence_ship_z[ship_z])
+		)
+		ship_delete.Execute()
+		databaseCheckQueryResult(ship_delete, "atmosFinalize ship scope delete")
+		qdel(ship_delete)
 
 	// Collect all zone rows then bulk INSERT in chunks  avoids 487 round-trips
 	var/list/value_rows = list()
-	var/map_path_escaped = replacetext("[SSatlas.current_map.path]", "'", "''")
 
 	for(var/zone/Z in SSair.zones)
 		CHECK_TICK
-		if(Z.invalid || !length(Z.contents))
-			continue
-		var/turf/simulated/rep = Z.contents[1]
-		if(!rep || (!is_station_level(rep.z) && !(rep.z in GLOB.persistence_pinned_site_z)) || persistence_z_manual_blocked(rep.z))
-			continue
-		if(!Z.air || !length(Z.air.gas))
-			continue
-		var/gas_json = replacetext(json_encode(Z.air.gas), "'", "''")
-		value_rows += "('[map_path_escaped]', [rep.x], [rep.y], [rep.z], '[gas_json]', [Z.air.temperature], NOW())"
+		var/row = _atmosZoneRow(Z)
+		if(row)
+			value_rows += row
 
+	var/saved = _atmosFlush(value_rows, "atmosFinalize")
+	log_subsystem_persistence_info("Atmos: Saved [saved] zone gas states for map [SSatlas.current_map.path].")
+
+/**
+ * Build the bulk-INSERT row string for one ZAS zone, keyed under its
+ * representative turf's persistence scope (ship scope for deployed ship Zs).
+ * Returns null if the zone should not be saved.
+ */
+/datum/controller/subsystem/persistence/proc/_atmosZoneRow(zone/Z)
+	PRIVATE_PROC(TRUE)
+	if(Z.invalid || !length(Z.contents))
+		return null
+	var/turf/simulated/rep = Z.contents[1]
+	if(!rep)
+		return null
+	if(!is_station_level(rep.z) && !(rep.z in GLOB.persistence_pinned_site_z) && !GLOB.persistence_ship_z["[rep.z]"])
+		return null
+	if(persistence_z_manual_blocked(rep.z))
+		return null
+	if(!Z.air || !length(Z.air.gas))
+		return null
+	var/scope_escaped = replacetext(persistence_scope_for_z(rep.z), "'", "''")
+	var/gas_json = replacetext(json_encode(Z.air.gas), "'", "''")
+	return "('[scope_escaped]', [rep.x], [rep.y], [rep.z], '[gas_json]', [Z.air.temperature], NOW())"
+
+/// Chunked bulk INSERT of collected atmos zone rows.
+/datum/controller/subsystem/persistence/proc/_atmosFlush(list/value_rows, log_context)
+	PRIVATE_PROC(TRUE)
 	var/saved = length(value_rows)
 	if(saved)
 		var/chunk_size = 200
@@ -147,8 +178,97 @@ GLOBAL_LIST_EMPTY(persistence_atmos_cache)
 				"INSERT INTO ss13_atmos_zones (map_path, rep_x, rep_y, rep_z, gas_json, temperature, saved_at) VALUES [chunk.Join(",")]"
 			)
 			bulk.Execute()
-			databaseCheckQueryResult(bulk, "atmosFinalize bulk insert")
+			databaseCheckQueryResult(bulk, "[log_context] bulk insert")
 			qdel(bulk)
 			CHECK_TICK
+	return saved
 
-	log_subsystem_persistence_info("Atmos: Saved [saved] zone gas states for map [SSatlas.current_map.path].")
+/**
+ * Per-Z atmos save for a deployed ship Z -- wipe the ship scope's rows, then
+ * re-collect zones whose representative turf sits on that z.
+ */
+/datum/controller/subsystem/persistence/proc/atmosFinalizeZ(z, scope)
+	if(!databaseCheckConnection("atmosFinalizeZ"))
+		return
+	var/datum/db_query/delete_old = SSdbcore.NewQuery(
+		"DELETE FROM ss13_atmos_zones WHERE map_path = :map_path",
+		list("map_path" = scope)
+	)
+	delete_old.Execute()
+	databaseCheckQueryResult(delete_old, "atmosFinalizeZ delete")
+	qdel(delete_old)
+
+	var/list/value_rows = list()
+	for(var/zone/Z in SSair.zones)
+		CHECK_TICK
+		if(Z.invalid || !length(Z.contents))
+			continue
+		var/turf/simulated/first_turf = Z.contents[1]
+		if(!first_turf || first_turf.z != z)
+			continue
+		var/row = _atmosZoneRow(Z)
+		if(row)
+			value_rows += row
+
+	var/saved = _atmosFlush(value_rows, "atmosFinalizeZ")
+	log_subsystem_persistence_info("Atmos: Saved [saved] ship zone gas states for z=[z] ([scope]).")
+
+/**
+ * Apply saved ship-scoped zone gas states to a freshly loaded ship Z. Called
+ * on a delay after retrieve (ZAS needs a few ticks to rebuild zones on the
+ * new Z once SSair resumes). Same consume-on-match shape as atmosApply();
+ * zones with no saved match keep the template's authored atmosphere.
+ */
+/datum/controller/subsystem/persistence/proc/atmosApplyZ(z, scope)
+	if(!databaseCheckConnection("atmosApplyZ"))
+		return
+	var/datum/db_query/query = SSdbcore.NewQuery(
+		"SELECT rep_x, rep_y, gas_json, temperature FROM ss13_atmos_zones WHERE map_path = :map_path AND rep_z = :z",
+		list("map_path" = scope, "z" = z)
+	)
+	query.Execute()
+	if(!databaseCheckQueryResult(query, "atmosApplyZ"))
+		qdel(query)
+		return
+	var/list/saved_zones = list()
+	while(query.NextRow())
+		saved_zones["[query.item[1]]|[query.item[2]]"] = list(
+			"gas_json"    = query.item[3],
+			"temperature" = text2num(query.item[4])
+		)
+	qdel(query)
+	if(!length(saved_zones))
+		return
+
+	var/applied = 0
+	for(var/zone/Z in SSair.zones)
+		CHECK_TICK
+		if(!length(saved_zones))
+			break
+		if(Z.invalid || !length(Z.contents))
+			continue
+		var/list/entry = null
+		var/turf/simulated/rep = null
+		for(var/turf/simulated/T in Z.contents)
+			if(T.z != z)
+				break // zones never span Zs; skip whole zone fast
+			var/list/candidate = saved_zones["[T.x]|[T.y]"]
+			if(candidate)
+				entry = candidate
+				rep = T
+				saved_zones -= "[T.x]|[T.y]"
+				break
+		if(!entry)
+			continue
+		try
+			var/list/gas_data = json_decode(entry["gas_json"])
+			if(!gas_data || !islist(gas_data))
+				continue
+			Z.air.gas = gas_data
+			Z.air.temperature = entry["temperature"]
+			Z.air.update_values()
+		catch(var/exception/e)
+			log_subsystem_persistence_error("Atmos: Failed to apply ship zone at ([rep.x],[rep.y],[z]): [e]")
+			continue
+		applied++
+	log_subsystem_persistence_info("Atmos: Applied [applied] ship zone gas states to z=[z] ([scope])[length(saved_zones) ? ", [length(saved_zones)] unmatched" : ""].")

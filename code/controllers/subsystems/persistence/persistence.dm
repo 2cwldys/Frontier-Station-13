@@ -43,6 +43,11 @@ GLOBAL_LIST_EMPTY(persistence_pinned_site_z)
 /// opt-in per z-level, using the same DB-backed list the verb manages.
 /// Pinned away-site z's are never blocked (their z is derived, not listed).
 /proc/persistence_z_manual_blocked(z)
+	// Deployed player-ship Zs save like pinned sites do, regardless of the
+	// manual allow list -- their content rows are ship-scoped, not map-scoped
+	// (see persistence_ship_interiors.dm).
+	if(GLOB.persistence_ship_z["[z]"])
+		return FALSE
 	if(z in GLOB.persistence_pinned_site_z)
 		return FALSE
 	return GLOB.config.manual_area_save && !(z in GLOB.persistence_zlevel_allow)
@@ -62,6 +67,11 @@ GLOBAL_LIST_EMPTY(persistence_pinned_site_z)
 	return ar && (ar.area_flags & AREA_FLAG_DRYDOCK_PAD)
 
 /proc/persistence_z_excluded(z)
+	// Deployed player-ship Zs bypass every exclusion below (they carry the
+	// away trait AND the template-loaded mark) -- must stay FIRST, like the
+	// pinned check. See persistence_ship_interiors.dm.
+	if(GLOB.persistence_ship_z["[z]"])
+		return FALSE
 	if(z in GLOB.persistence_pinned_site_z)
 		return FALSE
 	if(persistence_z_manual_blocked(z))
@@ -410,15 +420,15 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/bots_e)
 		log_subsystem_persistence_panic("Unhandled exception during bot persistence finalization: [bots_e]")
 
+	// Deployed ships are NOT auto-stashed on the periodic save -- their
+	// interiors are already covered by the Finalize sweeps above (ship Zs
+	// are no longer excluded, see persistence_ship_interiors.dm) and their
+	// ledger row persists while deployed, so nothing is lost by leaving them
+	// flying. Just keep the ledger's overmap position current.
 	try
-		drydockAutoStashAll()
-	catch(var/exception/drydock_e)
-		log_subsystem_persistence_panic("Unhandled exception during drydock auto-stash: [drydock_e]")
-
-	try
-		corvetteAutoStashAll()
-	catch(var/exception/corvette_e)
-		log_subsystem_persistence_panic("Unhandled exception during corvette auto-stash: [corvette_e]")
+		shipLedgerPositionSync()
+	catch(var/exception/pos_sync_e)
+		log_subsystem_persistence_panic("Unhandled exception during ship position sync: [pos_sync_e]")
 
 	try
 		shuttleStateFinalize()
@@ -791,11 +801,6 @@ SUBSYSTEM_DEF(persistence)
 		drydockAutoStashAll()
 	catch(var/exception/drydock_e)
 		log_subsystem_persistence_panic("Unhandled exception during drydock auto-stash: [drydock_e]")
-
-	try
-		corvetteAutoStashAll()
-	catch(var/exception/corvette_e)
-		log_subsystem_persistence_panic("Unhandled exception during corvette auto-stash: [corvette_e]")
 
 	try
 		shuttleStateFinalize()

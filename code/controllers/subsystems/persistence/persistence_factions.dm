@@ -1530,6 +1530,13 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
  * new Z on success, or null (template already loaded without
  * TEMPLATE_FLAG_ALLOW_DUPLICATES, no overmap, no valid tile found, or the
  * load itself failed).
+ *
+ * Tries the shared Z reuse pool (GLOB.reusable_z_pool,
+ * persistence_ship_interiors.dm) first via load_into_z() before falling
+ * back to a fresh load_new_z() -- the same mitigation player-ship retrieve
+ * uses, since BYOND can never shrink world.maxz back down. Multi-Z site
+ * templates (traits.len > 1) can't use a pooled single Z, so they always
+ * fall back to load_new_z().
  */
 /proc/_spawn_away_site_for_template(datum/map_template/ruin/away_site/site, turf/target_tile, avoid_unsecured_zones = FALSE)
 	if(!site)
@@ -1549,14 +1556,23 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 
 	// Suspend ZAS during the load or the freshly loaded site gets vented
 	// (same recipe as the Map Template - Place In New Z verb).
-	var/z_before = world.maxz
+	var/pool_z = (length(site.traits) == 1) ? SSpersistence.acquireReusableZ() : 0
+	var/site_z
+	var/bounds
 	SSair.can_fire = FALSE
-	var/bounds = site.load_new_z(FALSE)
+	if(pool_z)
+		bounds = site.load_into_z(pool_z)
+		site_z = pool_z
+	else
+		var/z_before = world.maxz
+		bounds = site.load_new_z(FALSE)
+		site_z = z_before + 1
 	SSair.can_fire = TRUE
 	if(!bounds)
+		if(pool_z)
+			SSpersistence.poolReusableZ(pool_z) // hand it back, this attempt never claimed it
 		return null
 
-	var/site_z = z_before + 1
 	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[site_z]"]
 	if(marker)
 		marker.start_x = pick_x
@@ -1661,6 +1677,13 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
  * (zlevel_has_players()) and, for pinned sites, its own
  * ss13_persistent_away_sites row cleanup -- this proc only ever handles the
  * always-safe, non-pin-specific teardown.
+ *
+ * purge_incidental TRUE also releases z into the shared Z reuse pool
+ * (GLOB.reusable_z_pool, persistence_ship_interiors.dm) once wiped, so a
+ * later away/mission spawn (or ship retrieve) can load onto it instead of
+ * permanently allocating a new Z-level. FALSE (a "Keep" choice tearing down
+ * a pinned site) skips pooling -- the admin explicitly wants this z's
+ * content left alone, not silently handed to something else.
  */
 /proc/_despawn_away_site_z(z, purge_incidental = TRUE)
 	if(!z)
@@ -1699,11 +1722,27 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		T.ChangeTurf(/turf/space)
 		CHECK_TICK
 
+	// Area reassignment back to the world default -- ChangeTurf() only
+	// touches the turf's type, not its area (a separate .loc assignment), so
+	// without this a future occupant's turfs would silently inherit this
+	// site's now-qdeleted custom area instances. Only matters once z can
+	// actually be reused (see the pool release below); harmless otherwise.
+	var/area/default_area = locate(world.area)
+	if(default_area)
+		for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+			var/area/current = T.loc
+			if(current != default_area)
+				T.change_area(current, default_area)
+			CHECK_TICK
+
 	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[z]"]
 	if(marker)
 		qdel(marker)
 	GLOB.map_sectors -= "[z]"
 	zone_security_update_overmap()
+
+	if(purge_incidental)
+		SSpersistence.poolReusableZ(z)
 
 /**
  * Fully removes a currently-loaded away site (pinned or dynamic) -- wipes its

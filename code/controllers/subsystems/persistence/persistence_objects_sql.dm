@@ -22,16 +22,19 @@
 
 /**
  * Retrieve persistent data entries that haven't expired.
+ * scope defaults to the current map's path; pass a ship scope key
+ * ("ship:c:<id>" / "ship:d:<id>", persistence_ship_interiors.dm) to fetch a
+ * deployed/stashed ship's rows instead.
  * RETURN: List of JSON, with ID, author_ckey, type, content, x, y, z
  */
-/datum/controller/subsystem/persistence/proc/objectsDatabaseGetActiveEntries()
+/datum/controller/subsystem/persistence/proc/objectsDatabaseGetActiveEntries(scope)
 	PRIVATE_PROC(TRUE)
 	if(!databaseCheckConnection("objectsDatabaseGetActiveEntries"))
 		return
 
 	var/datum/db_query/get_query = SSdbcore.NewQuery(
 		"SELECT id, author_ckey, type, content, x, y, z FROM ss13_persistent_objects WHERE NOW() < expires_at AND map_path = :map_path",
-		list("map_path" = "[SSatlas.current_map.path]")
+		list("map_path" = scope ? scope : "[SSatlas.current_map.path]")
 	)
 	get_query.Execute()
 
@@ -78,7 +81,9 @@
 			"x" = T.x,
 			"y" = T.y,
 			"z" = T.z,
-			"map_path" = "[SSatlas.current_map.path]"
+			// Deployed ship Zs key under their ship scope instead of the map
+			// path -- see persistence_ship_interiors.dm.
+			"map_path" = persistence_scope_for_z(T.z)
 		)
 	)
 	insert_query.Execute()
@@ -99,7 +104,10 @@
 		return
 
 	var/datum/db_query/update_query = SSdbcore.NewQuery(
-		"UPDATE ss13_persistent_objects SET author_ckey=:author_ckey, expires_at=DATE_ADD(NOW(), INTERVAL :expire_in_days DAY), content=:content, x=:x, y=:y, z=:z WHERE id = :id",
+		// map_path follows the object's current turf so a tracked object
+		// carried onto or off a deployed ship migrates between the map scope
+		// and the ship scope on its next save (persistence_ship_interiors.dm).
+		"UPDATE ss13_persistent_objects SET author_ckey=:author_ckey, expires_at=DATE_ADD(NOW(), INTERVAL :expire_in_days DAY), content=:content, x=:x, y=:y, z=:z, map_path=:map_path WHERE id = :id",
 		list(
 			"author_ckey" = track.persistent_objects_author_ckey,
 			"expire_in_days" = track.persistant_objects_expiration_time_days,
@@ -107,6 +115,7 @@
 			"x" = T.x,
 			"y" = T.y,
 			"z" = T.z,
+			"map_path" = persistence_scope_for_z(T.z),
 			"id" = track.persistent_objects_track_id
 		)
 	)

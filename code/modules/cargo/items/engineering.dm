@@ -12,33 +12,6 @@
 	access = 0
 	container_type = "crate"
 
-/singleton/cargo_item/docking_beacon
-	category = "engineering"
-	name = "docking beacon"
-	supplier = "Hub"
-	description = "Establishes a docking port at its installed location. Wrench to anchor and activate. Shuttles can navigate to any registered beacon."
-	price = 800
-	items = list(
-		/obj/structure/machinery/docking_beacon
-	)
-	access = 0
-	container_type = "crate"
-	groupable = TRUE
-
-/singleton/cargo_item/docking_beacon_3pack
-	category = "engineering"
-	name = "docking beacons (3-pack)"
-	supplier = "Hub"
-	description = "Three docking beacons. Establish multiple docking ports across different locations."
-	price = 2100
-	items = list(
-		/obj/structure/machinery/docking_beacon,
-		/obj/structure/machinery/docking_beacon,
-		/obj/structure/machinery/docking_beacon
-	)
-	access = 0
-	container_type = "crate"
-
 /singleton/cargo_item/drydock_boarding_pad
 	category = "engineering"
 	name = "drydock boarding pad"
@@ -47,18 +20,6 @@
 	price = 1500
 	items = list(
 		/obj/structure/machinery/telepad_cargo/drydock_boarding
-	)
-	access = 0
-	container_type = "crate"
-
-/singleton/cargo_item/corvette_boarding_pad
-	category = "engineering"
-	name = "corvette boarding pad"
-	supplier = "Hub"
-	description = "Boards a faction member onto their faction's deployed corvette. Configure its faction network with a faction tagger (officer access) after placement."
-	price = 1500
-	items = list(
-		/obj/structure/machinery/telepad_cargo/corvette_boarding
 	)
 	access = 0
 	container_type = "crate"

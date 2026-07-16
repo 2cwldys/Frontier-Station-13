@@ -7,7 +7,6 @@ SUBSYSTEM_DEF(mapping)
 	var/list/space_ruins_templates = list()
 	var/list/exoplanet_ruins_templates = list()
 	var/list/away_sites_templates = list()
-	var/list/faction_corvette_templates = list()
 	var/list/drydock_ship_templates = list()
 	var/list/submaps = list()
 
@@ -49,7 +48,6 @@ SUBSYSTEM_DEF(mapping)
 	space_ruins_templates = SSmapping.space_ruins_templates
 	exoplanet_ruins_templates = SSmapping.exoplanet_ruins_templates
 	away_sites_templates = SSmapping.away_sites_templates
-	faction_corvette_templates = SSmapping.faction_corvette_templates
 	drydock_ship_templates = SSmapping.drydock_ship_templates
 
 /datum/controller/subsystem/mapping/proc/preloadTemplates(path = "maps/templates/") //see master controller setup
@@ -90,8 +88,6 @@ SUBSYSTEM_DEF(mapping)
 			space_ruins_templates[MT.id] = MT
 		else if(istype(MT, /datum/map_template/ruin/away_site))
 			away_sites_templates[MT.id] = MT
-		else if(istype(MT, /datum/map_template/faction_corvette))
-			faction_corvette_templates[MT.id] = MT
 		else if(istype(MT, /datum/map_template/drydock_ship))
 			drydock_ship_templates[MT.id] = MT
 

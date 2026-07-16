@@ -1,17 +1,22 @@
-import { Button, Dropdown, LabeledList, Section, Tabs } from 'tgui-core/components';
+import { Box, Button, LabeledList, Section, Tabs } from 'tgui-core/components';
 import type { BooleanLike } from 'tgui-core/react';
 import { useState } from 'react';
 import { useBackend } from '../backend';
 import { NtosWindow } from '../layouts';
 
-type Beacon = { tag: string; label: string; faction_restricted: string | null };
+type FactionBeacon = { faction_uid: string; faction_name: string };
 type ShuttleRow = {
   shuttle_id: number;
   template_id: string;
   owner_ckey: string | null;
   faction_uid: string | null;
   stashed: BooleanLike;
+  custom_name: string | null;
+  custom_class: string | null;
+  ready: BooleanLike;
 };
+
+type CrewEntry = { ckey: string; label: string | null };
 
 type Template = {
   template_id: string;
@@ -20,11 +25,11 @@ type Template = {
 };
 
 type DrydockData = {
-  beacons: Beacon[];
-  selected_beacon: string | null;
+  faction_beacon: FactionBeacon | null;
   own_faction_name: string | null;
   personal_shuttles: ShuttleRow[];
   faction_shuttles: ShuttleRow[];
+  crew_by_ship: Record<string, CrewEntry[]>;
   is_admin: BooleanLike;
   can_buy_faction: BooleanLike;
   templates: Template[];
@@ -37,31 +42,56 @@ export const ShuttleDrydock = (props) => {
   const [tab, setTab] = useState('Drydock');
   const [buyAsFaction, setBuyAsFaction] = useState(false);
 
-  const renderRow = (row: ShuttleRow) => (
-    <LabeledList.Item key={row.shuttle_id} label={row.template_id}>
-      #{row.shuttle_id} -- {row.stashed ? 'Stashed' : 'Deployed'}
-      <Button
-        ml={1}
-        disabled={!row.stashed || !data.selected_beacon}
-        onClick={() => act('retrieve', { shuttle_id: row.shuttle_id })}
+  // Personal ships retrieve into whatever sector the computer is currently
+  // in -- no anchor needed. Faction ships still need their own faction's
+  // beacon in range.
+  const renderRow = (row: ShuttleRow) => {
+    const retrieveBlocked = row.faction_uid && !data.faction_beacon;
+    const notReady = !row.stashed && !row.ready;
+    return (
+      <LabeledList.Item
+        key={row.shuttle_id}
+        label={row.custom_name || row.template_id}
       >
-        Retrieve
-      </Button>
-      <Button
-        disabled={!!row.stashed}
-        onClick={() => act('stash', { shuttle_id: row.shuttle_id })}
-      >
-        Stash
-      </Button>
-      <Button
-        color="bad"
-        disabled={!row.stashed}
-        onClick={() => act('sell', { shuttle_id: row.shuttle_id })}
-      >
-        Remove
-      </Button>
-    </LabeledList.Item>
-  );
+        #{row.shuttle_id}
+        {row.custom_class ? ` (${row.custom_class})` : ''} --{' '}
+        {row.stashed ? 'Stashed' : notReady ? 'Initializing...' : 'Deployed'}
+        <Button
+          ml={1}
+          disabled={!row.stashed || !!retrieveBlocked}
+          onClick={() => act('retrieve', { shuttle_id: row.shuttle_id })}
+        >
+          Retrieve
+        </Button>
+        <Button
+          disabled={!!row.stashed || notReady}
+          onClick={() => act('stash', { shuttle_id: row.shuttle_id })}
+        >
+          Stash
+        </Button>
+        <Button
+          icon="pen"
+          onClick={() => act('rename_ship', { shuttle_id: row.shuttle_id })}
+        >
+          Rename
+        </Button>
+        <Button
+          color="bad"
+          disabled={!row.stashed}
+          onClick={() => act('sell', { shuttle_id: row.shuttle_id })}
+        >
+          Remove
+        </Button>
+        <Button
+          color="bad"
+          icon="radiation"
+          onClick={() => act('scuttle', { shuttle_id: row.shuttle_id })}
+        >
+          Scuttle
+        </Button>
+      </LabeledList.Item>
+    );
+  };
 
   return (
     <NtosWindow width={480} height={420}>
@@ -70,14 +100,11 @@ export const ShuttleDrydock = (props) => {
           <Tabs.Tab selected={tab === 'Drydock'} onClick={() => setTab('Drydock')}>
             Drydock
           </Tabs.Tab>
-          <Tabs.Tab
-            selected={tab === 'Beacon Status'}
-            onClick={() => setTab('Beacon Status')}
-          >
-            Beacon Status
-          </Tabs.Tab>
           <Tabs.Tab selected={tab === 'Market'} onClick={() => setTab('Market')}>
             Market
+          </Tabs.Tab>
+          <Tabs.Tab selected={tab === 'Crew'} onClick={() => setTab('Crew')}>
+            Crew
           </Tabs.Tab>
         </Tabs>
         {tab === 'Drydock' && (
@@ -93,6 +120,11 @@ export const ShuttleDrydock = (props) => {
                   ? 'Enter Ship'
                   : `Enter Ship (${data.board_cooldown}s)`}
               </Button>
+              <Box color="label" mt={1}>
+                {data.faction_beacon
+                  ? `Faction beacon in range: ${data.faction_beacon.faction_name}`
+                  : 'No faction beacon in range -- faction ships cannot retrieve here.'}
+              </Box>
             </Section>
             <Section title="Personal">
               <LabeledList>{data.personal_shuttles.map(renderRow)}</LabeledList>
@@ -107,26 +139,6 @@ export const ShuttleDrydock = (props) => {
               <LabeledList>{data.faction_shuttles.map(renderRow)}</LabeledList>
             </Section>
           </>
-        )}
-        {tab === 'Beacon Status' && (
-          <Section title="Nearby Beacons">
-            <Dropdown
-              width="100%"
-              selected={data.selected_beacon || 'No beacons in range'}
-              options={data.beacons.map((b) => b.tag)}
-              onSelected={(tag) => act('select_beacon', { tag })}
-            />
-            {data.beacons
-              .filter((b) => b.tag === data.selected_beacon)
-              .map((b) => (
-                <LabeledList key={b.tag}>
-                  <LabeledList.Item label="Label">{b.label}</LabeledList.Item>
-                  <LabeledList.Item label="Faction">
-                    {b.faction_restricted || 'Public'}
-                  </LabeledList.Item>
-                </LabeledList>
-              ))}
-          </Section>
         )}
         {tab === 'Market' && (
           <Section title="Drydock Market">
@@ -156,6 +168,60 @@ export const ShuttleDrydock = (props) => {
                 </LabeledList.Item>
               ))}
             </LabeledList>
+          </Section>
+        )}
+        {tab === 'Crew' && (
+          <Section title="Crew Lists">
+            {[...data.personal_shuttles, ...data.faction_shuttles].map(
+              (row) => {
+                const crew = data.crew_by_ship[row.shuttle_id] || [];
+                return (
+                  <Section
+                    key={row.shuttle_id}
+                    title={`${row.template_id} #${row.shuttle_id}`}
+                    level={2}
+                  >
+                    <LabeledList>
+                      {crew.length === 0 && (
+                        <LabeledList.Item label="Crew">
+                          No crew added.
+                        </LabeledList.Item>
+                      )}
+                      {crew.map((c) => (
+                        <LabeledList.Item key={c.ckey} label={c.label || c.ckey}>
+                          {c.ckey}
+                          <Button
+                            ml={1}
+                            color="bad"
+                            onClick={() =>
+                              act('remove_crew', {
+                                shuttle_id: row.shuttle_id,
+                                ckey: c.ckey,
+                              })
+                            }
+                          >
+                            Remove
+                          </Button>
+                        </LabeledList.Item>
+                      ))}
+                    </LabeledList>
+                    <Button
+                      mt={1}
+                      icon="user-plus"
+                      onClick={() =>
+                        act('add_crew', { shuttle_id: row.shuttle_id })
+                      }
+                    >
+                      Add Crew
+                    </Button>
+                  </Section>
+                );
+              },
+            )}
+            {data.personal_shuttles.length === 0 &&
+              data.faction_shuttles.length === 0 && (
+                <Box color="label">You have no ships to manage crew for.</Box>
+              )}
           </Section>
         )}
       </NtosWindow.Content>

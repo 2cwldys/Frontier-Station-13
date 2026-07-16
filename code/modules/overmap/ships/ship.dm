@@ -53,6 +53,11 @@
 	var/last_combat_roll = 0
 	var/last_turn = 0
 	var/last_combat_turn = 0
+	/// world.time this ship last fired on or was hit by ship weaponry -- see
+	/// in_recent_combat() below. Drives the drydock stash combat lockout
+	/// (drydockStash(), persistence_shuttles.dm), mirroring the mob-side
+	/// in_recent_combat()/last_combat_time pattern (living_defines.dm).
+	var/last_combat_time = 0
 
 	var/list/engines = list()
 	var/engines_state = 0 // Global on/off toggle for all engines.
@@ -407,8 +412,15 @@
 	last_combat_roll = world.time
 
 /obj/effect/overmap/visitable/ship/signal_hit(var/list/hit_data)
+	last_combat_time = world.time
 	for(var/obj/structure/machinery/computer/ship/targeting/TR in consoles)
 		TR.visible_message(SPAN_NOTICE("[icon2html(src, viewers(get_turf(TR)))] Hit confirmed on [hit_data["target_name"]] in [hit_data["target_area"]] at coordinates [hit_data["coordinates"]]."), range = 2)
+
+/// Mirrors mob/living/proc/in_recent_combat() (living.dm) -- true for
+/// SHIP_COMBAT_LOCKOUT after this ship last fired on or was hit by ship
+/// weaponry (see signal_hit() above and ship_weapon/fire(), _ship_gun.dm).
+/obj/effect/overmap/visitable/ship/proc/in_recent_combat()
+	return (world.time - last_combat_time) < SHIP_COMBAT_LOCKOUT
 
 /obj/effect/overmap/visitable/ship/proc/get_speed_sensor_increase()
 	return min(get_speed() * 1000, 50) //Engines should never increase sensor visibility by more than 50.

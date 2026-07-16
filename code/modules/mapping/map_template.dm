@@ -104,6 +104,67 @@
 
 	return bounds
 
+/**
+ * Load this template onto an EXISTING, previously wiped z-level instead of
+ * allocating a new one -- the Z-reuse path shared by player ships and away/
+ * mission sites (see GLOB.reusable_z_pool, persistence_ship_interiors.dm).
+ * Single-Z templates only: the pool hands out one z at a time, so multi-Z
+ * templates must keep using load_new_z(). Mirrors load_new_z()'s bookkeeping
+ * exactly, minus SSmapping.add_new_zlevel(); loads ZAS-correct
+ * (no_changeturf = FALSE), matching the load_new_z(FALSE) call sites this
+ * replaces.
+ */
+/datum/map_template/proc/load_into_z(z)
+	if(length(traits) > 1)
+		stack_trace("load_into_z() called on multi-Z template '[name]' -- the ship Z pool is single-Z by contract.")
+		return FALSE
+	if(z < 1 || z > world.maxz)
+		return FALSE
+
+	var/x = round((world.maxx - width)/2)
+	var/y = round((world.maxy - height)/2)
+	if (x < 1) x = 1
+	if (y < 1) y = 1
+
+	var/list/bounds = list(1.#INF, 1.#INF, 1.#INF, -1.#INF, -1.#INF, -1.#INF)
+	var/list/atoms_to_initialise = list()
+	var/shuttle_state = pre_init_shuttles()
+
+	//Since SSicon_smooth.add_to_queue() manually wakes the subsystem, we have to use enable/disable.
+	SSicon_smooth.can_fire = FALSE
+
+	GLOB.map_templates["[z]"] = src
+	GLOB.persistence_template_loaded_z |= z
+	if(SSmapping.z_list && z <= length(SSmapping.z_list))
+		SSmapping.z_list[z].name = name // rename the reused level for admin tooling
+
+	var/datum/map_load_metadata/M = maploader.load_map(file(mappath), x, y, z, no_changeturf = FALSE)
+	if(M)
+		bounds = extend_bounds_if_needed(bounds, M.bounds)
+		atoms_to_initialise += M.atoms_to_initialise
+	else
+		SSicon_smooth.can_fire = TRUE
+		return FALSE
+
+	if (accessibility_weight)
+		SSatlas.current_map.accessible_z_levels[num2text(z)] = accessibility_weight
+	if (base_turf_for_zs)
+		SSatlas.current_map.base_turf_by_z[num2text(z)] = base_turf_for_zs
+	SSatlas.current_map.player_levels |= z
+
+	smooth_zlevel(z)
+	require_area_resort()
+
+	//initialize things that are normally initialized after map load
+	init_atoms(atoms_to_initialise)
+	init_shuttles(shuttle_state)
+	log_game("Z-level [name] loaded onto pooled z=[z] at [x], [y]")
+	message_admins("Z-level [name] loaded onto pooled z=[z] at [x], [y]")
+	SSicon_smooth.can_fire = TRUE
+	loaded++
+
+	return bounds
+
 /datum/map_template/proc/pre_init_shuttles()
 	. = SSshuttle.block_queue
 	SSshuttle.block_queue = TRUE

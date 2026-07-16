@@ -225,6 +225,20 @@
 #define PERSONAL_TRAVEL_COMBAT_LOCKOUT 10 MINUTES
 /// Channel time before any travel action actually resolves.
 #define PERSONAL_TRAVEL_SPOOLUP 15 SECONDS
+
+// Drydock ship combat lockout/boarding spool-up
+// (code/controllers/subsystems/persistence/persistence_shuttles.dm,
+// code/modules/telesci/telepad_drydock_boarding.dm) -- defined here
+// alongside the personal travel defines above for the same reason (loaded
+// early, needed by ship.dm's in_recent_combat()).
+/// How long after a ship last fired on or was hit by ship weaponry
+/// (signal_hit()/ship_weapon/fire(), ship.dm/_ship_gun.dm) drydock stash
+/// refuses -- own constant rather than reusing PERSONAL_TRAVEL_COMBAT_LOCKOUT
+/// so the two can be tuned independently.
+#define SHIP_COMBAT_LOCKOUT 10 MINUTES
+/// Channel time before a drydock boarding action (pad or program) actually
+/// delivers -- so a fight can't be fled from by instantly teleporting aboard.
+#define DRYDOCK_BOARDING_SPOOLUP 15 SECONDS
 /// Extra overmap zoom-out applied on top of world.view for the Sector View
 /// toggle -- matches the Sensors console's own extra_view (sensors.dm).
 #define PERSONAL_TRAVEL_EXTRA_VIEW 4

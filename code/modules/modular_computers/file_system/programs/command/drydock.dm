@@ -1,18 +1,20 @@
 /*
- * Shuttle Drydock
- * Lets a player buy/stash/retrieve/remove their own (or their faction's)
- * drydock ships from any modular computer near an active docking beacon.
- * Retrieve materializes a real Aurora ship near the beacon's overmap
- * sector -- the player flies it in themselves using its own navigation
- * console. Stash only becomes available once it's genuinely docked at a
- * registered beacon. No admin verb needed -- see
- * SSpersistence.drydockStash()/drydockRetrieve()/drydockBuy()
- * (persistence_shuttles.dm) for the actual ledger/materialization engine
- * this program calls into.
+ * Ship Drydock
+ * Lets a player buy/stash/retrieve/remove/scuttle their own (or their
+ * faction's) drydock ships from any modular computer. Retrieve and stash are
+ * sector-relative: a faction-owned ship anchors to its own faction's
+ * faction_beacon (claims a whole Z, resolved fresh from the computer's own Z
+ * whenever needed -- at most one can exist per Z, so no selection state is
+ * needed); a personally-owned ship uses whatever sector the computer is
+ * currently in, no beacon required at all -- see the file header in
+ * persistence_shuttles.dm for the full rationale. No admin verb needed --
+ * see SSpersistence.drydockStash()/drydockRetrieve()/drydockBuy()/
+ * drydockScuttle() (persistence_shuttles.dm) for the actual ledger/
+ * materialization engine this program calls into.
  */
 /datum/computer_file/program/drydock
 	filename = "drydock"
-	filedesc = "Shuttle Drydock"
+	filedesc = "Ship Drydock"
 	program_icon_state = "generic"
 	program_key_icon_state = "blue_key"
 	extended_desc = "Buy, stash, retrieve, or remove your drydock ships."
@@ -22,49 +24,27 @@
 	tgui_id = "ShuttleDrydock"
 	ui_auto_update = TRUE
 
-	/// landmark_tag of the beacon this program instance is currently pointed at.
-	var/selected_beacon_tag
 	/// Per-ckey Enter Ship cooldown, same shape/spam-guard as the physical
 	/// drydock_boarding pad's own last_boarded_by_ckey -- kept separate so
 	/// the program and any physical pad don't share a single cooldown.
 	var/list/last_boarded_by_ckey = list()
 
-/datum/computer_file/program/drydock/proc/_nearby_beacons()
-	. = list()
+/// The faction beacon claiming the computer's own Z, if any -- at most one
+/// can exist per Z, so no separate identifier/selection state is needed.
+/datum/computer_file/program/drydock/proc/_nearby_faction_beacon()
 	var/turf/T = get_turf(computer)
 	if(!T)
-		return
-	for(var/obj/structure/machinery/docking_beacon/B in world)
-		if(!B.beacon_active)
-			continue
-		if(GET_Z(B) != T.z)
-			continue
-		. += B
-
-/datum/computer_file/program/drydock/proc/_selected_beacon()
-	var/list/beacons = _nearby_beacons()
-	if(!length(beacons))
 		return null
-	if(selected_beacon_tag)
-		for(var/obj/structure/machinery/docking_beacon/B in beacons)
-			if(B.landmark_tag == selected_beacon_tag)
-				return B
-	selected_beacon_tag = beacons[1].landmark_tag
-	return beacons[1]
+	return GLOB.faction_beacon_by_z["[T.z]"]
 
 /datum/computer_file/program/drydock/ui_data(mob/user)
 	var/list/data = initial_data()
 
-	var/list/beacons = _nearby_beacons()
-	data["beacons"] = list()
-	for(var/obj/structure/machinery/docking_beacon/B in beacons)
-		data["beacons"] += list(list(
-			"tag" = B.landmark_tag,
-			"label" = B.dock_label || B.landmark_tag,
-			"faction_restricted" = B.faction_restricted
-		))
-	var/obj/structure/machinery/docking_beacon/selected = _selected_beacon()
-	data["selected_beacon"] = selected ? selected.landmark_tag : null
+	var/obj/structure/machinery/faction_beacon/nearby_faction_beacon = _nearby_faction_beacon()
+	data["faction_beacon"] = nearby_faction_beacon ? list(
+		"faction_uid" = nearby_faction_beacon.faction_uid,
+		"faction_name" = get_faction_name(nearby_faction_beacon.faction_uid)
+	) : null
 
 	var/obj/item/card/id/ID = user.GetIdCard()
 	var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
@@ -72,24 +52,47 @@
 
 	data["personal_shuttles"] = list()
 	data["faction_shuttles"] = list()
+	var/list/my_shuttle_ids = list()
 	if(SSpersistence.databaseCheckConnection("drydock ui_data"))
 		var/datum/db_query/q = SSdbcore.NewQuery(
-			"SELECT shuttle_id, template_id, owner_ckey, faction_uid, stashed FROM ss13_drydock_ships WHERE owner_ckey = :ckey OR faction_uid = :net",
+			"SELECT shuttle_id, template_id, owner_ckey, faction_uid, stashed, custom_name, custom_class FROM ss13_drydock_ships WHERE owner_ckey = :ckey OR faction_uid = :net",
 			list("ckey" = user.ckey, "net" = own_faction)
 		)
 		q.Execute()
 		if(SSpersistence.databaseCheckQueryResult(q, "drydock ui_data select"))
 			while(q.NextRow())
+				var/sid = text2num(q.item[1])
+				var/datum/drydock_ship/live = GLOB.drydock_ships[sid]
 				var/list/row = list(
-					"shuttle_id" = text2num(q.item[1]), "template_id" = q.item[2],
+					"shuttle_id" = sid, "template_id" = q.item[2],
 					"owner_ckey" = q.item[3], "faction_uid" = q.item[4],
-					"stashed" = text2num(q.item[5])
+					"stashed" = text2num(q.item[5]),
+					"custom_name" = q.item[6], "custom_class" = q.item[7],
+					"ready" = live ? live.ready : TRUE
 				)
+				my_shuttle_ids += sid
 				if(row["owner_ckey"] == user.ckey)
 					data["personal_shuttles"] += list(row)
 				else
 					data["faction_shuttles"] += list(row)
 		qdel(q)
+
+	// Crew lists for every ship this user has a claim to -- one query
+	// covering all of them, keyed by shuttle_id for the TGUI to look up.
+	data["crew_by_ship"] = list()
+	if(length(my_shuttle_ids) && SSpersistence.databaseCheckConnection("drydock ui_data crew"))
+		var/datum/db_query/crewq = SSdbcore.NewQuery(
+			"SELECT shuttle_id, ckey, label FROM ss13_ship_crew WHERE shuttle_id IN ([my_shuttle_ids.Join(",")])",
+			list()
+		)
+		crewq.Execute()
+		if(SSpersistence.databaseCheckQueryResult(crewq, "drydock ui_data crew select"))
+			while(crewq.NextRow())
+				var/sid_key = "[crewq.item[1]]"
+				if(!(sid_key in data["crew_by_ship"]))
+					data["crew_by_ship"][sid_key] = list()
+				data["crew_by_ship"][sid_key] += list(list("ckey" = crewq.item[2], "label" = crewq.item[3]))
+		qdel(crewq)
 
 	data["is_admin"] = check_rights(R_ADMIN, 0, user)
 	data["can_buy_faction"] = own_faction && can_configure_faction_shackle(user, own_faction, 1)
@@ -114,30 +117,26 @@
 	var/mob/user = usr
 
 	switch(action)
-		if("select_beacon")
-			var/tag = params["tag"]
-			for(var/obj/structure/machinery/docking_beacon/B in _nearby_beacons())
-				if(B.landmark_tag == tag)
-					selected_beacon_tag = tag
-					log_drydock("drydock ui_act: [key_name(user)] selected beacon '[tag]'.")
-					break
-			return TRUE
-
 		if("retrieve")
-			var/obj/structure/machinery/docking_beacon/beacon = _selected_beacon()
 			var/shuttle_id = text2num(params["shuttle_id"])
-			if(!beacon)
-				to_chat(user, SPAN_WARNING("No docking beacon in range."))
-				log_drydock_warning("drydock ui_act: [key_name(user)] tried to retrieve shuttle_id=[shuttle_id] but no beacon is in range.")
-				return TRUE
-			log_drydock("drydock ui_act: [key_name(user)] requested retrieve of shuttle_id=[shuttle_id] near beacon '[beacon.landmark_tag]'.")
-			SSpersistence.drydockRetrieve(shuttle_id, beacon, user)
+			var/obj/structure/machinery/faction_beacon/anchor = _nearby_faction_beacon()
+			var/turf/from_turf = get_turf(computer)
+			log_drydock("drydock ui_act: [key_name(user)] requested retrieve of shuttle_id=[shuttle_id].")
+			SSpersistence.drydockRetrieve(shuttle_id, anchor, from_turf, user)
 			return TRUE
 
 		if("stash")
 			var/shuttle_id = text2num(params["shuttle_id"])
 			log_drydock("drydock ui_act: [key_name(user)] requested stash of shuttle_id=[shuttle_id].")
 			SSpersistence.drydockStash(shuttle_id, user)
+			return TRUE
+
+		if("scuttle")
+			var/shuttle_id = text2num(params["shuttle_id"])
+			if(tgui_alert(user, "Permanently scuttle this ship? This costs 25000cr and cannot be undone.", "Scuttle Ship", list("Scuttle", "Cancel")) != "Scuttle")
+				return TRUE
+			log_drydock("drydock ui_act: [key_name(user)] requested scuttle of shuttle_id=[shuttle_id].")
+			SSpersistence.drydockScuttle(shuttle_id, user)
 			return TRUE
 
 		if("board")
@@ -175,11 +174,48 @@
 			var/datum/db_query/dq = SSdbcore.NewQuery("DELETE FROM ss13_drydock_ships WHERE shuttle_id = :id", list("id" = shuttle_id))
 			dq.Execute()
 			if(SSpersistence.databaseCheckQueryResult(dq, "drydock sell delete"))
+				// Purge the ship's saved interior too -- a sold ship's scope
+				// must never resurrect onto some future hull that happens to
+				// reuse the same shuttle_id (extremely unlikely with
+				// AUTO_INCREMENT, but the purge is cheap and closes the hole
+				// outright).
+				SSpersistence.purgeShipScopeRows("ship:d:[shuttle_id]")
+				var/datum/db_query/bdq = SSdbcore.NewQuery("DELETE FROM ss13_drydock_ships_backup WHERE shuttle_id = :id", list("id" = shuttle_id))
+				bdq.Execute()
+				SSpersistence.databaseCheckQueryResult(bdq, "drydock sell backup delete")
+				qdel(bdq)
+				var/datum/db_query/crdq = SSdbcore.NewQuery("DELETE FROM ss13_ship_crew WHERE shuttle_id = :id", list("id" = shuttle_id))
+				crdq.Execute()
+				SSpersistence.databaseCheckQueryResult(crdq, "drydock sell crew delete")
+				qdel(crdq)
 				to_chat(user, SPAN_GOOD("Ship removed."))
 				log_drydock("drydock ui_act: [key_name(user)] permanently deleted shuttle_id=[shuttle_id] from the drydock DB.")
 			else
 				log_drydock_error("drydock ui_act: sell DB delete failed for shuttle_id=[shuttle_id].")
 			qdel(dq)
+			return TRUE
+
+		if("rename_ship")
+			var/shuttle_id = text2num(params["shuttle_id"])
+			var/new_name = tgui_input_text(user, "New display name for this ship (blank to reset to default):", "Rename Ship", "", max_length = 64)
+			if(isnull(new_name))
+				return TRUE
+			var/new_class = tgui_input_text(user, "New class designation (blank to reset to default):", "Rename Ship", "", max_length = 32)
+			SSpersistence.drydockRename(shuttle_id, new_name, new_class || "", user)
+			return TRUE
+
+		if("add_crew")
+			var/shuttle_id = text2num(params["shuttle_id"])
+			var/target_ckey = tgui_input_text(user, "Ckey to add to this ship's crew:", "Add Crew", "", max_length = 32)
+			if(!target_ckey)
+				return TRUE
+			var/label = tgui_input_text(user, "Optional label (e.g. their character name):", "Add Crew", "", max_length = 64)
+			SSpersistence.drydockAddCrew(shuttle_id, target_ckey, label || "", user)
+			return TRUE
+
+		if("remove_crew")
+			var/shuttle_id = text2num(params["shuttle_id"])
+			SSpersistence.drydockRemoveCrew(shuttle_id, params["ckey"], user)
 			return TRUE
 
 		if("buy_template")

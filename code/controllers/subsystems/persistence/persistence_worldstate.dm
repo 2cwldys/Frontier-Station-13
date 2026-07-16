@@ -294,7 +294,117 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	databaseCheckQueryResult(delete_stale, "worldstateFinalize delete stale")
 	qdel(delete_stale)
 
+	// The sweep above also re-saved every deployed ship Z's machines under
+	// their ship scopes (persistence_ship_interiors.dm) -- run the same
+	// destroyed-object cutoff per scope so ship rows don't accumulate.
+	for(var/ship_z in GLOB.persistence_ship_z)
+		var/datum/db_query/ship_stale = SSdbcore.NewQuery(
+			"DELETE FROM ss13_worldstate_objects WHERE saved_at < :cutoff AND map_path = :map_path",
+			list("cutoff" = cutoff, "map_path" = GLOB.persistence_ship_z[ship_z])
+		)
+		ship_stale.Execute()
+		databaseCheckQueryResult(ship_stale, "worldstateFinalize ship scope delete stale")
+		qdel(ship_stale)
+
 	log_subsystem_persistence_info("Worldstate: Saved state for [saved] machines.")
+
+/**
+ * Per-Z machinery save for a deployed ship Z -- same save/cutoff contract as
+ * worldstateFinalize(), restricted to one z. Caller must still have the z
+ * registered in GLOB.persistence_ship_z so rows key under the ship scope.
+ */
+/datum/controller/subsystem/persistence/proc/worldstateFinalizeZ(z, scope)
+	if(!databaseCheckConnection("worldstateFinalizeZ"))
+		return
+
+	var/datum/db_query/clock = SSdbcore.NewQuery("SELECT NOW(6)")
+	clock.Execute()
+	var/cutoff
+	if(databaseCheckQueryResult(clock, "worldstateFinalizeZ clock") && clock.NextRow())
+		cutoff = clock.item[1]
+	qdel(clock)
+	if(!cutoff)
+		return
+
+	var/saved = 0
+	for(var/obj/structure/S in world)
+		if(S.z != z) continue
+		if(persistence_area_excluded(S)) continue
+		saved += worldstateSaveOneMachine(S)
+	for(var/obj/item/radio/intercom/IC in world)
+		if(IC.z != z) continue
+		if(persistence_area_excluded(IC)) continue
+		saved += worldstateSaveOneMachine(IC)
+	for(var/obj/item/modular_computer/MC in world)
+		if(MC.z != z) continue
+		if(persistence_area_excluded(MC)) continue
+		saved += worldstateSaveOneMachine(MC)
+
+	var/datum/db_query/delete_stale = SSdbcore.NewQuery(
+		"DELETE FROM ss13_worldstate_objects WHERE saved_at < :cutoff AND map_path = :map_path",
+		list("cutoff" = cutoff, "map_path" = scope)
+	)
+	delete_stale.Execute()
+	databaseCheckQueryResult(delete_stale, "worldstateFinalizeZ delete stale")
+	qdel(delete_stale)
+	log_subsystem_persistence_info("Worldstate: Saved [saved] ship machines for z=[z] ([scope]).")
+
+/**
+ * Apply saved ship-scoped machinery rows to a freshly loaded ship Z. Queries
+ * fresh (rows were just remapped to this z by remapShipRows()) rather than
+ * touching the boot cache, and matches machines by (type, x, y) on the z.
+ */
+/datum/controller/subsystem/persistence/proc/worldstateApplyZ(z, scope)
+	if(!databaseCheckConnection("worldstateApplyZ"))
+		return
+	var/datum/db_query/query = SSdbcore.NewQuery(
+		"SELECT type, x, y, content FROM ss13_worldstate_objects WHERE map_path = :map_path AND z = :z",
+		list("map_path" = scope, "z" = z)
+	)
+	query.Execute()
+	if(!databaseCheckQueryResult(query, "worldstateApplyZ"))
+		qdel(query)
+		return
+	var/list/rows_by_key = list()
+	while(query.NextRow())
+		CHECK_TICK
+		rows_by_key["[query.item[1]]|[query.item[2]]|[query.item[3]]"] = query.item[4]
+	qdel(query)
+	if(!length(rows_by_key))
+		return
+
+	var/applied = 0
+	for(var/obj/structure/S in world)
+		if(S.z != z) continue
+		applied += _worldstateApplyRowTo(S, rows_by_key)
+	for(var/obj/item/radio/intercom/IC in world)
+		if(IC.z != z) continue
+		applied += _worldstateApplyRowTo(IC, rows_by_key)
+	for(var/obj/item/modular_computer/MC in world)
+		if(MC.z != z) continue
+		applied += _worldstateApplyRowTo(MC, rows_by_key)
+	log_subsystem_persistence_info("Worldstate: Applied [applied] ship machine states to z=[z] ([scope]).")
+
+/// Match one machine against a (type|x|y)-keyed row set and apply its saved
+/// content. Returns 1 if applied, 0 otherwise.
+/datum/controller/subsystem/persistence/proc/_worldstateApplyRowTo(atom/movable/S, list/rows_by_key)
+	PRIVATE_PROC(TRUE)
+	try
+		var/turf/T = get_turf(S)
+		if(!T)
+			return 0
+		var/json = rows_by_key["[S.type]|[T.x]|[T.y]"]
+		if(!json)
+			return 0
+		var/list/content = json_decode(json)
+		if(!islist(content))
+			return 0
+		content -= "__worldstate_site"
+		S.worldstate_apply_content(content)
+		return 1
+	catch(var/exception/e)
+		log_subsystem_persistence_error("Worldstate: Failed to apply ship content to [S] at [get_turf(S)]: [e]")
+		return 0
 
 /**
  * Serialize one machine and INSERT/UPDATE its row in the database.
@@ -323,7 +433,9 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 			 VALUES (:map_path, :type, :x, :y, :z, :content, NOW()) \
 			 ON DUPLICATE KEY UPDATE content=VALUES(content), saved_at=NOW()",
 			list(
-				"map_path" = SSatlas.current_map.path,
+				// Deployed ship Zs key under their ship scope instead of the
+				// map path -- see persistence_ship_interiors.dm.
+				"map_path" = persistence_scope_for_z(T.z),
 				"type"    = "[S.type]",
 				"x"       = T.x,
 				"y"       = T.y,

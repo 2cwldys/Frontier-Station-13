@@ -28,6 +28,7 @@ export type HelmData = {
   ship_speed_y: number;
   ETAnext: number;
   locations: Location[];
+  nearby_contacts: Contact[];
 };
 
 type Location = {
@@ -35,6 +36,12 @@ type Location = {
   x: number;
   y: number;
   reference: string;
+};
+
+type Contact = {
+  name: string;
+  x: number;
+  y: number;
 };
 
 type ManualControlProps = {
@@ -395,6 +402,41 @@ const NavSection = (act, data) => (
   </Section>
 );
 
+const ContactsSection = (act, data) => (
+  <Section title="Nearby Contacts">
+    <Table>
+      {data.nearby_contacts?.length ? (
+        <>
+          <Table.Row header>
+            <Table.Cell>Name</Table.Cell>
+            <Table.Cell>Coordinates</Table.Cell>
+            <Table.Cell>Actions</Table.Cell>
+          </Table.Row>
+          {data.nearby_contacts.map((contact) => (
+            <Table.Row key={`${contact.name}-${contact.x}-${contact.y}`}>
+              <Table.Cell>{contact.name}</Table.Cell>
+              <Table.Cell>
+                {contact.x} : {contact.y}
+              </Table.Cell>
+              <Table.Cell>
+                <Button
+                  icon="crosshairs"
+                  content="Set Destination"
+                  onClick={() =>
+                    act('xy', { x: contact.x, y: contact.y })
+                  }
+                />
+              </Table.Cell>
+            </Table.Row>
+          ))}
+        </>
+      ) : (
+        <Box color="label">No contacts in range.</Box>
+      )}
+    </Table>
+  </Section>
+);
+
 const PosSection = (act, data) => (
   <Section title="Saved Positions">
     <Table>
@@ -465,6 +507,7 @@ export const Helm = (props) => {
           </Table.Row>
         </Table>
         {NavSection(act, data)}
+        {ContactsSection(act, data)}
         {PosSection(act, data)}
       </NtosWindow.Content>
     </NtosWindow>
