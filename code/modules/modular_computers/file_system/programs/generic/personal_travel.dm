@@ -304,6 +304,7 @@
 /// to 100 tiles. We supply our own portal/spark/sound effects at both ends.
 /datum/computer_file/program/personal_travel/proc/_execute_travel(mob/user, turf/dest)
 	var/turf/origin = get_turf(user)
+	var/atom/movable/pulled = user.pulling
 	if(origin)
 		new /obj/effect/portal/decorative(origin, null, null, 5 SECONDS, 0)
 		spark(origin, 3, GLOB.alldirs)
@@ -311,6 +312,8 @@
 	new /obj/effect/portal/decorative(dest, null, null, 5 SECONDS, 0)
 	spark(dest, 3, GLOB.alldirs)
 	user.forceMove(dest)
+	if(pulled && !QDELETED(pulled))
+		pulled.forceMove(dest)
 	playsound(dest, 'sound/effects/phasein.ogg', 30, 1)
 	to_chat(user, SPAN_GOOD("You leap through a bluespace rift."))
 	next_travel_time = world.time + PERSONAL_TRAVEL_COOLDOWN

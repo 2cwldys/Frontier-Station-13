@@ -48,6 +48,13 @@ export const TravelPad = (props) => {
                         ? 'Travel'
                         : `Recalibrating (${data.cooldown}s)`}
                     </Button>
+                    <Button
+                      ml={1}
+                      disabled={!data.can_travel}
+                      onClick={() => act('send_cargo', { target: pad.ref })}
+                    >
+                      Send Cargo
+                    </Button>
                   </Table.Cell>
                 </Table.Row>
               ))}

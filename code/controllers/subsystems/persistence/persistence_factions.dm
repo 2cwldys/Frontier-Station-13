@@ -27,9 +27,12 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 
 /datum/controller/subsystem/persistence/proc/factionInitialize()
 	PRIVATE_PROC(TRUE)
-	GLOB.persistence_faction_cache         = list()
-	GLOB.persistence_faction_jobs_cache    = list()
-	GLOB.persistence_faction_members_cache = list()
+	if(!islist(GLOB.persistence_faction_cache))
+		GLOB.persistence_faction_cache = list()
+	if(!islist(GLOB.persistence_faction_jobs_cache))
+		GLOB.persistence_faction_jobs_cache = list()
+	if(!islist(GLOB.persistence_faction_members_cache))
+		GLOB.persistence_faction_members_cache = list()
 
 	if(!databaseCheckConnection("factionInitialize"))
 		return
@@ -37,26 +40,32 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	// Load faction info + balances
 	try
 		var/datum/db_query/q = SSdbcore.NewQuery(
-			{"SELECT f.uid, f.name, f.abbreviation, COALESCE(a.balance, 0), COALESCE(a.cards_epoch, 0), f.founder_ckey, COALESCE(a.master_card_lost, 0), f.color
+			{"SELECT f.uid, f.name, f.abbreviation, COALESCE(a.balance, 0), COALESCE(a.cards_epoch, 0), f.founder_ckey, COALESCE(a.master_card_lost, 0), f.color, COALESCE(f.auto_payroll, 1)
 			FROM ss13_factions f
 			LEFT JOIN ss13_faction_accounts a ON a.faction_uid = f.uid"},
 			list()
 		)
 		q.Execute()
 		if(databaseCheckQueryResult(q, "factionInitialize factions"))
+			var/list/loaded = list()
 			while(q.NextRow())
 				// Normalize keys on load -- legacy rows may carry raw display-name uids
-				GLOB.persistence_faction_cache[normalize_faction_uid(q.item[1])] = list(
+				loaded[normalize_faction_uid(q.item[1])] = list(
 					"name"             = q.item[2],
 					"abbreviation"     = q.item[3],
 					"balance"          = text2num(q.item[4]) || 0,
 					"cards_epoch"      = text2num(q.item[5]) || 0,
 					"founder_ckey"     = q.item[6],
 					"master_card_lost" = !!text2num(q.item[7]),
-					"color"            = q.item[8]
+					"color"            = q.item[8],
+					"auto_payroll"     = !!text2num(q.item[9])
 				)
+			GLOB.persistence_faction_cache = loaded // only replace on confirmed success
+		else
+			message_admins("Faction load query failed -- factions may be running on stale/empty data. Check DB schema (db_update?).")
 		qdel(q)
 	catch(var/exception/faction_info_e)
+		message_admins("Faction load threw an exception: [faction_info_e] -- factions may be running on stale/empty data.")
 		log_subsystem_persistence_error("Factions: failed to load faction info: [faction_info_e]")
 
 	// Load faction jobs
@@ -67,19 +76,32 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 		)
 		jq.Execute()
 		if(databaseCheckQueryResult(jq, "factionInitialize jobs"))
+			var/list/loaded_jobs = list()
 			while(jq.NextRow())
 				var/fuid = normalize_faction_uid(jq.item[2])
-				if(!(fuid in GLOB.persistence_faction_jobs_cache))
-					GLOB.persistence_faction_jobs_cache[fuid] = list()
-				GLOB.persistence_faction_jobs_cache[fuid] += list(list(
+				if(!(fuid in loaded_jobs))
+					loaded_jobs[fuid] = list()
+				var/list/job_access = list()
+				if(jq.item[4])
+					try
+						var/decoded = json_decode(jq.item[4])
+						if(islist(decoded))
+							job_access = decoded
+					catch(var/exception/access_decode_e)
+						log_subsystem_persistence_error("Factions: bad access_json for job '[jq.item[3]]' in faction '[fuid]' (id [jq.item[1]]): [access_decode_e] -- treating as no access.")
+				loaded_jobs[fuid] += list(list(
 					"id"       = text2num(jq.item[1]),
 					"title"    = jq.item[3],
-					"access"   = jq.item[4] ? json_decode(jq.item[4]) : list(),
+					"access"   = job_access,
 					"pay_rate" = text2num(jq.item[5]) || 500,
 					"rank"     = text2num(jq.item[6]) || 0
 				))
+			GLOB.persistence_faction_jobs_cache = loaded_jobs // only replace on confirmed success
+		else
+			message_admins("Faction jobs load query failed -- faction jobs may be running on stale/empty data. Check DB schema (db_update?).")
 		qdel(jq)
 	catch(var/exception/faction_jobs_e)
+		message_admins("Faction jobs load threw an exception: [faction_jobs_e] -- faction jobs may be running on stale/empty data.")
 		log_subsystem_persistence_error("Factions: failed to load faction jobs: [faction_jobs_e]")
 
 	// Load faction members (include account_number for payroll; column may not exist yet on old DBs)
@@ -90,16 +112,21 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 		)
 		mq.Execute()
 		if(databaseCheckQueryResult(mq, "factionInitialize members"))
+			var/list/loaded_members = list()
 			while(mq.NextRow())
 				var/mkey = "[mq.item[1]]|[normalize_faction_uid(mq.item[2])]"
-				GLOB.persistence_faction_members_cache[mkey] = list(
+				loaded_members[mkey] = list(
 					"real_name"      = mq.item[3],
 					"job_title"      = mq.item[4],
 					"rank"           = text2num(mq.item[5]) || 0,
 					"account_number" = text2num(mq.item[6]) || 0
 				)
+			GLOB.persistence_faction_members_cache = loaded_members // only replace on confirmed success
+		else
+			message_admins("Faction members load query failed -- faction members may be running on stale/empty data. Check DB schema (db_update?).")
 		qdel(mq)
 	catch(var/exception/faction_members_e)
+		message_admins("Faction members load threw an exception: [faction_members_e] -- faction members may be running on stale/empty data.")
 		log_subsystem_persistence_error("Factions: failed to load faction members: [faction_members_e]")
 
 	log_subsystem_persistence_info("Factions: Loaded [length(GLOB.persistence_faction_cache)] factions, [length(GLOB.persistence_faction_members_cache)] members.")
@@ -125,10 +152,11 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 		databaseCheckQueryResult(q, "factionFinalize upsert [uid]")
 		qdel(q)
 
-		// Auto-payroll: check if interval has elapsed (default 3600 seconds = 1 real hour)
-		var/interval = data["payroll_interval"] || 3600
-		var/last_pay = data["last_payroll_at"] || 0
-		if(world.time - last_pay >= interval * 10)  // world.time in deciseconds
+		// Auto-payroll: runs unconditionally on every autosave cycle (every 30
+		// minutes, persistence.dm) for any faction with automatic payroll
+		// enabled -- no interval/timestamp reconciliation needed since the
+		// subsystem itself already guarantees the cadence.
+		if(data["auto_payroll"])
 			factionPayroll(uid)
 
 	log_subsystem_persistence_info("Factions: Saved [length(GLOB.persistence_faction_cache)] faction accounts.")
@@ -530,6 +558,29 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 			C.color = new_color
 			C.update_icon()
 			C.update_clothing_icon()
+	return TRUE
+
+/// Whether a faction's payroll runs automatically every autosave cycle
+/// (factionFinalize()) or only via the manual "Pay Members Now" action.
+/// Defaults to TRUE (automatic) if the faction can't be found for any reason.
+/proc/get_faction_auto_payroll(uid)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return TRUE
+	return !!GLOB.persistence_faction_cache[uid]["auto_payroll"]
+
+/proc/set_faction_auto_payroll(uid, enabled)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return FALSE
+	GLOB.persistence_faction_cache[uid]["auto_payroll"] = enabled
+	if(GLOB.config.sql_enabled && SSdbcore.Connect())
+		var/datum/db_query/q = SSdbcore.NewQuery(
+			"UPDATE ss13_factions SET auto_payroll = :val WHERE uid = :uid",
+			list("uid" = uid, "val" = enabled ? 1 : 0)
+		)
+		q.Execute()
+		qdel(q)
 	return TRUE
 
 /// A faction charge card is valid only if it was printed under the faction's

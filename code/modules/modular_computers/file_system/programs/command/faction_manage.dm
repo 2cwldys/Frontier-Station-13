@@ -121,6 +121,7 @@
 		var/list/fp_cache = GLOB.persistence_faction_cache[net]
 		var/last_pay_tick = fp_cache ? (fp_cache["last_payroll_at"] || 0) : 0
 		data["last_payroll"] = last_pay_tick > 0 ? max(0, world.time - last_pay_tick) : 0
+		data["auto_payroll"] = get_faction_auto_payroll(net)
 
 		// Transaction history (last 20)
 		var/list/tx_out = list()
@@ -188,6 +189,7 @@
 		data["jobs"]           = list()
 		data["known_factions"] = list()
 		data["last_payroll"]   = 0
+		data["auto_payroll"]   = TRUE
 		data["members"]        = list()
 		data["cards_epoch"]    = 0
 		data["id_purges"]      = list()
@@ -622,6 +624,14 @@
 			if(op_rank < 2) return
 			SSpersistence.factionPayroll(net)
 			to_chat(user, SPAN_GOOD("Payroll triggered for [get_faction_name(net)]."))
+			. = TRUE
+
+		// ---- Payroll Mode (Automatic/Manual) ---------------------------------
+		if("toggle_auto_payroll")
+			if(op_rank < 2) return
+			var/new_state = !get_faction_auto_payroll(net)
+			set_faction_auto_payroll(net, new_state)
+			to_chat(user, SPAN_GOOD("Payroll mode set to [new_state ? "Automatic" : "Manual"] for [get_faction_name(net)]."))
 			. = TRUE
 
 		// ---- Set Faction Color -----------------------------------------------

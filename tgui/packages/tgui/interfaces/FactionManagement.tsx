@@ -62,6 +62,7 @@ type FactionData = {
   op_rank: number; // -2 = not linked, -1 = non-member, 0+ = rank, 99 = admin
   balance: number | null;
   last_payroll: number;
+  auto_payroll: BooleanLike;
   jobs: FactionJob[];
   known_factions: KnownFaction[];
   transactions: FactionTransaction[];
@@ -175,6 +176,7 @@ export const FactionManagement = (props) => {
     op_rank,
     balance,
     last_payroll,
+    auto_payroll,
     jobs,
     known_factions,
     members,
@@ -257,6 +259,18 @@ export const FactionManagement = (props) => {
               {last_payroll > 0
                 ? `${Math.floor(last_payroll / 600)} min ago`
                 : 'Not yet this session'}
+            </LabeledList.Item>
+            <LabeledList.Item label="Payroll Mode">
+              {auto_payroll ? 'Automatic (every autosave)' : 'Manual only'}
+              {canManage && (
+                <Button
+                  ml={1}
+                  icon="toggle-on"
+                  onClick={() => act('toggle_auto_payroll')}
+                >
+                  Switch to {auto_payroll ? 'Manual' : 'Automatic'}
+                </Button>
+              )}
             </LabeledList.Item>
             <LabeledList.Item label="Faction Color">
               <Box

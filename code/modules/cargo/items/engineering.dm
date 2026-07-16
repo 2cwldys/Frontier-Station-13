@@ -962,6 +962,24 @@
 	groupable = TRUE
 	spawn_amount = 1
 
+/singleton/cargo_item/smesconstructioncrate
+	category = "engineering"
+	name = "SMES construction crate"
+	supplier = "Hub"
+	description = "Everything needed to build a superconducting magnetic energy storage (SMES) unit from scratch: steel for the frame, cable, a circuit board, and a magnetic coil."
+	price = 1200
+	items = list(
+		/obj/item/stack/material/steel/full,
+		/obj/item/stack/cable_coil,
+		/obj/item/stack/cable_coil,
+		/obj/item/circuitboard/smes,
+		/obj/item/smes_coil
+	)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
 /singleton/cargo_item/telecommunications_crate
 	category = "engineering"
 	name = "Telecommunications Crate"
@@ -970,10 +988,16 @@
 	price = 3500
 	items = list(
 		/obj/item/circuitboard/telecomms/receiver,
+		/obj/item/circuitboard/telecomms/hub,
 		/obj/item/circuitboard/telecomms/bus,
 		/obj/item/circuitboard/telecomms/processor,
+		/obj/item/circuitboard/telecomms/server,
 		/obj/item/circuitboard/telecomms/broadcaster,
 		/obj/item/stack/cable_coil,
+		/obj/item/stock_parts/manipulator,
+		/obj/item/stock_parts/manipulator,
+		/obj/item/stock_parts/manipulator,
+		/obj/item/stock_parts/manipulator,
 		/obj/item/stock_parts/manipulator,
 		/obj/item/stock_parts/manipulator,
 		/obj/item/stock_parts/manipulator,
@@ -987,6 +1011,9 @@
 		/obj/item/stock_parts/micro_laser/high,
 		/obj/item/stock_parts/micro_laser/high,
 		/obj/item/stock_parts/micro_laser/high,
+		/obj/item/stock_parts/subspace/filter,
+		/obj/item/stock_parts/subspace/filter,
+		/obj/item/stock_parts/subspace/filter,
 		/obj/item/stock_parts/subspace/filter,
 		/obj/item/stock_parts/subspace/filter,
 		/obj/item/stock_parts/subspace/filter,

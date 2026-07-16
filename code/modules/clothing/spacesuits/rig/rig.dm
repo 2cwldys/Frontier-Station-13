@@ -937,7 +937,9 @@
 					return FALSE
 			use_obj.forceMove(wearer)
 			if(src.color)
-				use_obj.color = src.color
+				var/obj/item/clothing/tagged_check = use_obj
+				if(!istype(tagged_check) || !tagged_check.faction_tag_uid)
+					use_obj.color = src.color
 			if(!wearer.equip_to_slot_if_possible(use_obj, equip_to, 0, 1))
 				use_obj.forceMove(src)
 				if(check_slot)

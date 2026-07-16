@@ -101,6 +101,9 @@
 			if(isliving(user))
 				_travel(user, params["target"])
 			. = TRUE
+		if("send_cargo")
+			_send_cargo(user, params["target"])
+			. = TRUE
 
 /// Every OTHER travel pad sharing this pad's link_code -- empty list if
 /// unlinked (no code set) or no matches. Flat world-search, same shape as
@@ -176,8 +179,68 @@
 	spark(destination, 3, GLOB.alldirs)
 
 	last_used_by_ckey[L.ckey] = world.time
-	persistence_telepad_deliver(list(L), destination)
+	var/list/payload = list(L)
+	if(L.pulling && !QDELETED(L.pulling))
+		payload += L.pulling
+	persistence_telepad_deliver(payload, destination)
 	to_chat(L, SPAN_GOOD("You step through the pad."))
+	return TRUE
+
+/// Standalone cargo transfer -- moves whatever's sitting on THIS pad's own
+/// tile (a crate, dropped items) to a linked pad without requiring anyone to
+/// travel themselves. Living mobs are deliberately excluded here -- a
+/// bystander shouldn't get scooped up by someone else sending cargo; mobs
+/// only travel via _travel() above (and now bring along whatever they're
+/// personally pulling, same as Personal Travel).
+/obj/structure/machinery/telepad_cargo/travel/proc/_send_cargo(mob/user, target_ref)
+	if(!link_code)
+		to_chat(user, SPAN_WARNING("This pad has no access code set."))
+		return FALSE
+
+	var/list/candidates = _linked_pads()
+	if(!length(candidates))
+		to_chat(user, SPAN_WARNING("No other pad shares this access code."))
+		return FALSE
+
+	var/obj/structure/machinery/telepad_cargo/travel/target
+	if(target_ref)
+		target = locate(target_ref) in candidates
+		if(!target)
+			to_chat(user, SPAN_WARNING("That pad is no longer available."))
+			return FALSE
+	else if(length(candidates) == 1)
+		target = candidates[1]
+	else
+		to_chat(user, SPAN_WARNING("Select a destination pad first."))
+		return FALSE
+
+	var/turf/destination = get_turf(target)
+	if(!destination || destination.density)
+		to_chat(user, SPAN_WARNING("The destination pad is obstructed."))
+		return FALSE
+
+	var/list/payload = list()
+	for(var/atom/movable/AM in get_turf(src))
+		if(AM == src || QDELETED(AM) || AM.anchored || isliving(AM))
+			continue
+		payload += AM
+	if(!length(payload))
+		to_chat(user, SPAN_WARNING("There's nothing on the pad to send."))
+		return FALSE
+
+	if(last_used_by_ckey[user.ckey] && (world.time - last_used_by_ckey[user.ckey] < 30))
+		to_chat(user, SPAN_WARNING("The pad is still recalibrating -- wait a moment."))
+		return FALSE
+
+	var/turf/origin = get_turf(src)
+	new /obj/effect/portal/decorative(origin, null, null, 5 SECONDS, 0)
+	spark(origin, 3, GLOB.alldirs)
+	new /obj/effect/portal/decorative(destination, null, null, 5 SECONDS, 0)
+	spark(destination, 3, GLOB.alldirs)
+
+	last_used_by_ckey[user.ckey] = world.time
+	persistence_telepad_deliver(payload, destination)
+	to_chat(user, SPAN_GOOD("The pad hums and sends its contents through to the linked pad."))
 	return TRUE
 
 // Persistence -- both paths, matching the cryopod template
