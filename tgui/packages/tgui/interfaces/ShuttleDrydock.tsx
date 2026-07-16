@@ -9,6 +9,7 @@ type ShuttleRow = {
   shuttle_id: number;
   template_id: string;
   owner_ckey: string | null;
+  owner_char_name: string | null;
   faction_uid: string | null;
   stashed: BooleanLike;
   custom_name: string | null;
@@ -16,7 +17,7 @@ type ShuttleRow = {
   ready: BooleanLike;
 };
 
-type CrewEntry = { ckey: string; label: string | null };
+type CrewEntry = { ckey: string; char_name: string; label: string | null };
 
 type Template = {
   template_id: string;
@@ -188,8 +189,12 @@ export const ShuttleDrydock = (props) => {
                         </LabeledList.Item>
                       )}
                       {crew.map((c) => (
-                        <LabeledList.Item key={c.ckey} label={c.label || c.ckey}>
+                        <LabeledList.Item
+                          key={`${c.ckey}|${c.char_name}`}
+                          label={c.char_name}
+                        >
                           {c.ckey}
+                          {c.label ? ` (${c.label})` : ''}
                           <Button
                             ml={1}
                             color="bad"
@@ -197,6 +202,7 @@ export const ShuttleDrydock = (props) => {
                               act('remove_crew', {
                                 shuttle_id: row.shuttle_id,
                                 ckey: c.ckey,
+                                char_name: c.char_name,
                               })
                             }
                           >

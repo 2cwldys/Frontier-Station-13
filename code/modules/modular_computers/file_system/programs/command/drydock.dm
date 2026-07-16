@@ -54,9 +54,13 @@
 	data["faction_shuttles"] = list()
 	var/list/my_shuttle_ids = list()
 	if(SSpersistence.databaseCheckConnection("drydock ui_data"))
+		// Personal ownership is scoped to THIS character (ckey + real_name),
+		// not the whole account -- see owned_by() (persistence_shuttles.dm) --
+		// so a player's other characters don't see a ship one character
+		// bought. Faction ships are unaffected by this.
 		var/datum/db_query/q = SSdbcore.NewQuery(
-			"SELECT shuttle_id, template_id, owner_ckey, faction_uid, stashed, custom_name, custom_class FROM ss13_drydock_ships WHERE owner_ckey = :ckey OR faction_uid = :net",
-			list("ckey" = user.ckey, "net" = own_faction)
+			"SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed, custom_name, custom_class FROM ss13_drydock_ships WHERE (owner_ckey = :ckey AND owner_char_name = :char_name) OR faction_uid = :net",
+			list("ckey" = user.ckey, "char_name" = user.real_name, "net" = own_faction)
 		)
 		q.Execute()
 		if(SSpersistence.databaseCheckQueryResult(q, "drydock ui_data select"))
@@ -65,13 +69,13 @@
 				var/datum/drydock_ship/live = GLOB.drydock_ships[sid]
 				var/list/row = list(
 					"shuttle_id" = sid, "template_id" = q.item[2],
-					"owner_ckey" = q.item[3], "faction_uid" = q.item[4],
-					"stashed" = text2num(q.item[5]),
-					"custom_name" = q.item[6], "custom_class" = q.item[7],
+					"owner_ckey" = q.item[3], "owner_char_name" = q.item[4], "faction_uid" = q.item[5],
+					"stashed" = text2num(q.item[6]),
+					"custom_name" = q.item[7], "custom_class" = q.item[8],
 					"ready" = live ? live.ready : TRUE
 				)
 				my_shuttle_ids += sid
-				if(row["owner_ckey"] == user.ckey)
+				if(row["owner_ckey"] == user.ckey && row["owner_char_name"] == user.real_name)
 					data["personal_shuttles"] += list(row)
 				else
 					data["faction_shuttles"] += list(row)
@@ -82,7 +86,7 @@
 	data["crew_by_ship"] = list()
 	if(length(my_shuttle_ids) && SSpersistence.databaseCheckConnection("drydock ui_data crew"))
 		var/datum/db_query/crewq = SSdbcore.NewQuery(
-			"SELECT shuttle_id, ckey, label FROM ss13_ship_crew WHERE shuttle_id IN ([my_shuttle_ids.Join(",")])",
+			"SELECT shuttle_id, ckey, char_name, label FROM ss13_ship_crew WHERE shuttle_id IN ([my_shuttle_ids.Join(",")])",
 			list()
 		)
 		crewq.Execute()
@@ -91,7 +95,7 @@
 				var/sid_key = "[crewq.item[1]]"
 				if(!(sid_key in data["crew_by_ship"]))
 					data["crew_by_ship"][sid_key] = list()
-				data["crew_by_ship"][sid_key] += list(list("ckey" = crewq.item[2], "label" = crewq.item[3]))
+				data["crew_by_ship"][sid_key] += list(list("ckey" = crewq.item[2], "char_name" = crewq.item[3], "label" = crewq.item[4]))
 		qdel(crewq)
 
 	data["is_admin"] = check_rights(R_ADMIN, 0, user)
@@ -209,13 +213,19 @@
 			var/target_ckey = tgui_input_text(user, "Ckey to add to this ship's crew:", "Add Crew", "", max_length = 32)
 			if(!target_ckey)
 				return TRUE
-			var/label = tgui_input_text(user, "Optional label (e.g. their character name):", "Add Crew", "", max_length = 64)
-			SSpersistence.drydockAddCrew(shuttle_id, target_ckey, label || "", user)
+			// Crew access is scoped to one specific CHARACTER, not the whole
+			// account -- see owned_by()/drydockAddCrew() (persistence_shuttles.dm)
+			// -- so this needs the exact character name, not just a ckey.
+			var/target_char_name = tgui_input_text(user, "Exact character name for '[target_ckey]' to grant boarding access to:", "Add Crew", "", max_length = 64)
+			if(!target_char_name)
+				return TRUE
+			var/label = tgui_input_text(user, "Optional label (e.g. their role):", "Add Crew", "", max_length = 64)
+			SSpersistence.drydockAddCrew(shuttle_id, target_ckey, target_char_name, label || "", user)
 			return TRUE
 
 		if("remove_crew")
 			var/shuttle_id = text2num(params["shuttle_id"])
-			SSpersistence.drydockRemoveCrew(shuttle_id, params["ckey"], user)
+			SSpersistence.drydockRemoveCrew(shuttle_id, params["ckey"], params["char_name"], user)
 			return TRUE
 
 		if("buy_template")

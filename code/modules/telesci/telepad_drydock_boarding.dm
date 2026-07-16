@@ -101,7 +101,7 @@
 		if(pad_network)
 			if(DS.faction_uid != pad_network)
 				continue
-		else if(!((DS.owner_ckey && DS.owner_ckey == L.ckey) || (DS.faction_uid && DS.faction_uid == own_faction) || (L.ckey in DS.crew_ckeys)))
+		else if(!(DS.owned_by(L) || (DS.faction_uid && DS.faction_uid == own_faction) || ("[L.ckey]|[L.real_name]" in DS.crew_ckeys)))
 			continue
 		// Still mid-load (deferred atmos settle, persistence_ship_interiors.dm)
 		// -- not offered as a candidate at all yet, distinct from "no ships."

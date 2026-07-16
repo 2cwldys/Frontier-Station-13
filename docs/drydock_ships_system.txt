@@ -46,14 +46,24 @@ server restart.
 Every ship is owned in exactly one of two ways, decided at purchase
 time and unchangeable afterward without admin intervention:
 
-  * PERSONAL -- tied to one player's ckey. Only that player (or an
-    admin) can retrieve, stash, rename, sell, or scuttle it.
-    Retrieve is sector-relative: it materializes directly into
-    whatever sector your own modular computer currently is, no
-    beacon required at all. Stash requires being within 1 tile of
-    ANY faction's beacon (not necessarily your own) whose sector is
-    currently medsec or better, AND that neither you nor the ship
-    itself have been in combat in the last 10 minutes.
+  * PERSONAL -- tied to one specific CHARACTER, not the account: both
+    the buyer's ckey AND their exact character name (real_name) at
+    the moment of purchase are recorded, the same (ckey, character
+    name) pairing this codebase already uses to key per-character
+    persistence elsewhere (e.g. saved mob positions). This matters
+    because one player account can have several distinct characters
+    -- without this, any character logged into under that account
+    would inherit full ownership of a ship bought by a completely
+    different character. Only that exact character (or an admin) can
+    retrieve, stash, rename, sell, or scuttle it; logging in as a
+    different character under the same ckey sees it as owned by
+    someone else entirely. Retrieve is sector-relative: it
+    materializes directly into whatever sector your own modular
+    computer currently is, no beacon required at all. Stash requires
+    being within 1 tile of ANY faction's beacon (not necessarily your
+    own) whose sector is currently medsec or better, AND that neither
+    you nor the ship itself have been in combat in the last 10
+    minutes.
 
   * FACTION -- tied to a faction UID. Any player who can configure
     that faction's shackles (an existing permission check used
@@ -66,10 +76,11 @@ Scuttling (permanently destroying a ship for a fee) works identically
 for both ownership kinds, from anywhere -- see section 15A.
 
 On top of ownership, any ship (personal or faction) can have a CREW
-LIST -- a plain list of ckeys who are allowed to BOARD the ship, but
-who cannot retrieve, stash, rename, sell, or manage the crew list
-themselves. This is how you let a friend fly with you without making
-them a co-owner. See section 8.
+LIST -- a plain list of specific CHARACTERS (ckey + exact character
+name, same reasoning as personal ownership above) who are allowed to
+BOARD the ship, but who cannot retrieve, stash, rename, sell, or
+manage the crew list themselves. This is how you let a friend fly
+with you without making them a co-owner. See section 8.
 
 --------------------------------------------------------------------
 3. THE LEDGER -- WHERE A SHIP'S IDENTITY LIVES
@@ -81,6 +92,9 @@ Every ship, whether deployed or stashed, is one row in the
     shuttle_id       -- the ship's permanent, unique ID (never reused)
     template_id      -- which hull it is (see section 12)
     owner_ckey       -- set for personal ships, else null
+    owner_char_name  -- the exact owning CHARACTER's name, paired with
+                        owner_ckey -- both must match for a player to
+                        count as the owner (see section 2)
     faction_uid      -- set for faction ships, else null
     stashed          -- 0 if currently deployed, 1 if stashed
     z, overmap_x/y   -- only meaningful while deployed
@@ -98,8 +112,9 @@ A companion table, `ss13_drydock_ships_backup`, gets a belt-and-
 braces copy written every time a ship retrieves, for admin recovery
 if something goes wrong (see the "Restore Ship Backup" admin verb).
 
-`ss13_ship_crew` holds the crew list (shuttle_id, ckey, label). See
-section 8.
+`ss13_ship_crew` holds the crew list (shuttle_id, ckey, char_name,
+label) -- ckey and char_name together identify one specific character,
+same as owner_ckey/owner_char_name above. See section 8.
 
 --------------------------------------------------------------------
 4. WHERE A SHIP ACTUALLY LIVES -- Z-LEVELS AND THE REUSE POOL
@@ -284,16 +299,20 @@ can and can't do.
 8. CREW LISTS
 --------------------------------------------------------------------
 
-Adding a ckey to a ship's crew list (Crew tab, or the AddCrew backend
-proc) lets that player BOARD the ship -- through the boarding pad,
+Adding a ckey AND an exact character name to a ship's crew list (Crew
+tab prompts for both separately, or the AddCrew backend proc) lets
+that specific CHARACTER board the ship -- through the boarding pad,
 through the program's "Enter Ship" button, whichever -- exactly as if
-they owned it or belonged to the owning faction. It grants nothing
-else: a crew member cannot retrieve, stash, rename, sell, or edit the
-crew list themselves. Removing them revokes boarding immediately.
+they owned it or belonged to the owning faction. Being crew is scoped
+to that one character, same as ownership (section 2): a different
+character under the same ckey is not crew. It grants nothing else: a
+crew member cannot retrieve, stash, rename, sell, or edit the crew
+list themselves. Removing them revokes boarding immediately.
 
-Only the owner (personal ckey match), a faction member with shackle-
-configuration rights, or an admin can add or remove crew -- the same
-permission shape used for retrieve/stash/sell throughout this system.
+Only the owner (personal ckey+character match), a faction member with
+shackle-configuration rights, or an admin can add or remove crew --
+the same permission shape used for retrieve/stash/sell throughout
+this system.
 
 --------------------------------------------------------------------
 9. ENTERING A SHIP -- EVERY WAY IN
@@ -301,26 +320,37 @@ permission shape used for retrieve/stash/sell throughout this system.
 
 A deployed ship sits on its own dedicated Z-level with no walkable
 connection to the rest of the universe by default -- retrieving a
-ship places its MARKER near a beacon, it does not physically connect
+ship places its MARKER in a sector, it does not physically connect
 its interior to anything. There are three ways aboard:
 
   A) THE "ENTER SHIP" BUTTON (Drydock program, Drydock tab)
-     Available to anyone standing at a modular computer. Looks at
-     every ship you have a claim to (owned, faction, or listed as
-     crew) that's currently deployed. If there's exactly one, you're
-     delivered straight to its navigation console. If there's more
-     than one, you get a picker listing each by hull name and ID.
-     Delivery is via the same teleport mechanism the boarding pad
-     uses (a "recalibration" pad-network telepad, not a walk) -- you
-     arrive standing at the ship's own console. A 30-second per-
-     player cooldown applies, separate from the physical pad's own
+     Available to anyone standing at a modular computer (a console or
+     laptop specifically -- the Drydock program's hardware requirements
+     structurally exclude PDAs/tablets, so this button, and the whole
+     program, simply never appears on one). Looks at every ship you
+     have a claim to (owned, faction, or listed as crew) that is
+     currently deployed, finished initializing (section 15B), AND in
+     the same or an adjacent overmap sector as you right now -- having
+     a claim to a ship only grants VISIBILITY to board it, you still
+     have to actually be near it. If there's exactly one qualifying
+     ship, you're delivered straight to its navigation console after a
+     15-second interruptible spool-up (getting hit, or otherwise
+     entering combat, cancels it -- you can't flee a fight by boarding
+     instantly). If there's more than one, you get a picker listing
+     each by hull name and ID before the spool-up begins. A 30-second
+     per-player cooldown applies, separate from the physical pad's own
      cooldown. Refused if you're buckled, dead, or have no eligible
-     ship deployed.
+     ship nearby and deployed.
 
   B) THE PHYSICAL "DRYDOCK BOARDING PAD"
-     A placeable machine (`telepad_cargo/drydock_boarding`) that does
-     exactly the same thing as the Enter Ship button, triggered by
-     clicking/using the pad directly instead of opening a program.
+     A placeable, purchasable machine (`telepad_cargo/drydock_boarding`,
+     also available from the cargo order console/computer) that does
+     exactly the same thing as the Enter Ship button -- same proximity
+     requirement, same 15-second interruptible spool-up -- triggered by
+     clicking/using the pad directly instead of opening a program. It
+     arrives from cargo UNANCHORED and does nothing until wrenched down
+     (same convention as any other player-placed anchor machine);
+     clicking it while unanchored just tells you to secure it first.
      Untagged, it's open to anyone's owned/faction/crew-listed ships,
      same as the program. Tag it with a Faction Tagger and it
      restricts to ONLY that faction's own deployed ships -- personal
@@ -332,10 +362,11 @@ its interior to anything. There are three ways aboard:
      10), a genuinely walkable two-way portal pair opens between the
      ship's own console tile and wherever it docked. Anyone standing
      at either end can simply walk through -- no telepad, no program,
-     no ownership check at all. This is the only boarding method
-     that's a real physical connection rather than a teleport, and
-     it's the only one that lets you carry cargo or a pulled/grabbed
-     mob through with you.
+     no ownership check, no proximity requirement, and no boarding
+     delay at all (you're already standing right there). This is the
+     only boarding method that's a real physical connection rather
+     than a teleport, and it's the only one that lets you carry cargo
+     or a pulled/grabbed mob through with you.
 
 --------------------------------------------------------------------
 10. FLYING AND DOCKING A SHIP
@@ -346,9 +377,12 @@ console, the same type every other flyable ship in this codebase
 uses) -- for the 5 hulls that were already fully flyable in their
 original away-site form, it was already mapped in; for the other 43,
 it's the one auto-furnished into the bridge room on first retrieve
-(section 13). Use it to fly the ship to any registered landmark --
-another ship, a station's own docking beacon landmark, wherever. This
-is completely standard existing shuttle behavior, nothing new.
+(section 13). Use it to fly the ship to any other registered
+navigation landmark -- another ship, an exoplanet landing site,
+wherever. This is completely standard existing shuttle behavior,
+nothing new, and entirely optional now that retrieve/stash no longer
+depend on it (section 2) -- flying and docking is purely for whatever
+in-character reason a crew wants to actually go somewhere.
 
 The moment the ship's console reports it has landed at a target, its
 overmap marker moves there and halts (this alone is what "docked"
@@ -485,14 +519,68 @@ station, no special version needed.
 
 There is no "exit pad" -- getting off uses a mob verb, available from
 anywhere aboard, under the IC verb category: "Disembark Drydock Ship".
-It only works if the ship is genuinely docked at a beacon's landmark
-right now (you can't step off mid-flight, for the same reason you
-can't stash mid-flight) -- it delivers you to the beacon's own tile
-via the same teleport mechanism boarding uses. If the docking
+It only works if the ship is genuinely landed/docked somewhere right
+now (you can't step off mid-flight) -- it delivers you to wherever it
+landed via the same teleport mechanism boarding uses. If the docking
 umbilical (section 10) is open, you can also just walk through it
 instead -- that's a real physical connection, not a teleport, and
 it's the only exit method that lets you carry something through with
-you.
+you. Note that disembarking is completely separate from STASH, which
+no longer requires being landed anywhere at all (section 2) -- flying
+somewhere and physically stepping off is now purely optional.
+
+--------------------------------------------------------------------
+15A. SCUTTLING A SHIP -- PERMANENT REMOVAL FROM ANYWHERE
+--------------------------------------------------------------------
+
+Scuttle (the red button next to Remove on the Drydock tab) permanently
+destroys a ship for a 25000cr fee, charged to the acting player's
+personal bank account. Unlike Remove/Sell, it works on a ship in ANY
+state -- deployed or stashed, docked or lost in deep space -- because
+its entire purpose is rescuing a ship you can no longer physically
+reach or stash normally (the one gap that previously required an
+admin's "Force Stash Ship" verb, which only recalls a ship, never
+deletes it).
+
+What it does, in order:
+  1. Confirms with a dialog ("this cannot be undone").
+  2. If the ship is currently deployed, refuses if anyone (or an
+     occupied neural lace) is still aboard -- same unconditional check
+     stash uses, never bypassed.
+  3. Charges the 25000cr fee from the acting player's linked bank
+     account, refusing if they don't have one or can't afford it.
+  4. If deployed: tears down the marker and its Z-level exactly like a
+     normal stash's teardown (returning the Z to the reuse pool), with
+     no proximity/docked requirement at all.
+  5. Permanently deletes the ledger row, its backup row, its crew
+     list, and every scrap of its saved interior across all eight
+     scoped persistence tables. There is no recovery after this step,
+     not even for an admin.
+  6. Logs to admins unconditionally, with a jump link to the ship's
+     last position if it was deployed, or to the scuttling player if
+     it was already stashed.
+
+--------------------------------------------------------------------
+15B. STILL INITIALIZING -- WHY YOU CAN'T BOARD IMMEDIATELY
+--------------------------------------------------------------------
+
+Loading a hull's map and re-applying everything ever saved for it
+(section 5) takes a little time -- most of it is instant, but the
+final step (re-applying saved atmosphere) is deliberately deferred
+about 15 seconds so ZAS has time to rebuild the interior's zones
+first. Until that finishes, a freshly-retrieved ship is marked
+"Initializing..." on the Drydock tab and cannot be boarded by ANY
+method (the program, the pad, or a picker that would otherwise offer
+it) -- attempting to gets a clear "still initializing" message instead
+of silently failing or leaving you confused about why nothing
+happened. Stash is also disabled while initializing, for the same
+reason -- you shouldn't tear down something mid-load.
+
+Once the atmosphere settle finishes, the owning player (if currently
+connected) gets a chat message confirming the ship is ready, and the
+Drydock tab's status flips to "Deployed". Faction ships don't have a
+single "owner" to notify, so only the Drydock tab's status change
+tells you it's ready in that case.
 
 --------------------------------------------------------------------
 16. ZONE SECURITY DEFAULTS
@@ -523,68 +611,118 @@ if you only want to check one thing.
       "Buy as faction ship" and buy a second hull. Confirm it shows
       up under "Faction: <name>" on the Drydock tab instead of
       "Personal".
-  3.  RETRIEVE AT A DOCKING BEACON -- Stand near an active
-      docking_beacon, confirm it shows up on Beacon Status, select
-      it, retrieve your personal ship. Confirm the overmap marker
-      appears near that beacon's sector.
-  4.  RETRIEVE AT A FACTION BEACON -- Stand on a Z-level claimed by
-      your faction's own faction_beacon, select the "Faction Beacon"
-      entry on Beacon Status, retrieve your FACTION ship. Confirm a
-      PERSONAL ship refuses this same anchor with a clear message.
-  5.  BOARD VIA THE PROGRAM -- Use "Enter Ship" from the Drydock tab.
-      Confirm you land at the ship's own console. If you have more
-      than one ship deployed, confirm the picker appears and routes
-      correctly.
-  6.  BOARD VIA THE PAD -- Place/click a drydock boarding pad, confirm
-      the same delivery behavior. Tag it to a faction with a Faction
-      Tagger and confirm it now only offers that faction's ships.
-  7.  FLY AND DOCK -- Use the ship's own console to fly it to a
+  3.  RETRIEVE PERSONALLY, ANYWHERE -- With no beacon of any kind
+      nearby, retrieve your personal ship. Confirm it materializes
+      into whatever sector you're currently in, marked
+      "Initializing..." at first.
+  4.  RETRIEVE AT A FACTION BEACON -- Stand near your faction's own
+      faction_beacon, retrieve your FACTION ship -- confirm the
+      Retrieve button is disabled/refused without it. Confirm a
+      PERSONAL ship never needed this at all (step 3).
+  5.  READY GATE -- Immediately after retrieving, try to board the
+      still-"Initializing..." ship (both via the program and, if
+      placed, the pad) and confirm a clear "still initializing"
+      refusal rather than silence or a crash. Confirm Stash is also
+      disabled on it. Wait ~15 seconds, confirm you get a chat message
+      that it's ready, the tab flips to "Deployed", and boarding now
+      works.
+  6.  BOARD VIA THE PROGRAM -- Use "Enter Ship" from the Drydock tab.
+      Confirm the 15-second spool-up plays out, then you land at the
+      ship's own console. If you have more than one ship deployed,
+      confirm the picker appears (before the spool-up) and routes
+      correctly. Interrupt a spool-up by taking a hit mid-channel and
+      confirm it aborts.
+  7.  BOARD VIA THE PAD -- Order a drydock boarding pad from cargo,
+      confirm it arrives UNANCHORED and refuses to function until
+      wrenched down. Once anchored, confirm the same delivery
+      behavior (spool-up included) as the program. Tag it to a
+      faction with a Faction Tagger and confirm it now only offers
+      that faction's ships.
+  8.  BOARDING PROXIMITY -- Own a deployed ship, then move to a
+      distant, non-adjacent sector and confirm boarding it (both pad
+      and program) is refused as "not deployed nearby" even though you
+      still own it -- move back within an adjacent sector and confirm
+      it becomes available again.
+  9.  FLY AND DOCK -- Use the ship's own console to fly it to a
       landmark and land. Confirm the docking umbilical portals appear
       at the console tile and the landmark tile the instant it lands,
       and vanish the instant it takes off again. Walk an item-
       carrying or mob-pulling character through each direction and
-      confirm everything arrives together.
-  8.  DISEMBARK -- While docked, use "Disembark Drydock Ship" and
-      confirm you land back at the beacon. Confirm it refuses while
-      still in flight.
-  9.  INTERIOR PERSISTENCE ROUND-TRIP -- While aboard, drop an item,
+      confirm everything arrives together. Confirm this is now purely
+      optional -- you can stash without ever having flown anywhere.
+  10. DISEMBARK -- While docked, use "Disembark Drydock Ship" and
+      confirm you land back where it's docked. Confirm it refuses
+      while still in flight.
+  11. STASH GATES -- Try to stash a personal ship far from any secured
+      beacon (refused), near a low/null-sec beacon (refused), near ANY
+      faction's med/high-sec beacon regardless of whose it is
+      (succeeds), immediately after taking a hit or firing on another
+      ship (refused for ~10 minutes), and with a mob or occupied
+      neural lace still aboard (refused, unconditionally). Confirm a
+      faction ship's stash is completely unchanged (still just needs
+      its own faction's beacon).
+  12. INTERIOR PERSISTENCE ROUND-TRIP -- While aboard, drop an item,
       build or break something, load a locker, vent/dye the
-      atmosphere with a canister. Stash the ship, retrieve it again
-      (same beacon or a different one), and confirm everything is
-      back exactly as left, with atmosphere settling within about 15
-      seconds.
-  10. SAME-HULL-TWICE -- Buy a second copy of a hull you already have
+      atmosphere with a canister. Stash the ship, retrieve it again,
+      and confirm everything is back exactly as left, with atmosphere
+      settling within about 15 seconds.
+  13. SAME-HULL-TWICE -- Buy a second copy of a hull you already have
       deployed, and confirm retrieving it while the first is still
       out is refused with the "already deployed" message; confirm it
       retrieves fine once the first is stashed.
-  11. CREW LIST -- On the Crew tab, add a ckey that owns neither the
-      ship nor its faction. Confirm they can now board (both via pad
-      and via Enter Ship) but cannot retrieve, stash, sell, or open
-      the Crew tab's management controls for that ship. Remove them
-      and confirm boarding is refused immediately after.
-  12. RENAME -- Use Rename on a deployed ship, confirm the new name/
+  14. CHARACTER-SCOPED OWNERSHIP -- Buy a personal ship as one
+      character, then log in as a DIFFERENT character under the same
+      ckey. Confirm the second character sees NO trace of that ship
+      (not in Personal, can't retrieve/stash/rename/sell/scuttle it,
+      can't board it even standing right next to it) -- ownership
+      belongs to the character, not the account.
+  15. CREW LIST -- On the Crew tab, add a ckey AND exact character name
+      that owns neither the ship nor its faction. Confirm that
+      specific character can now board (both via pad and via Enter
+      Ship, proximity permitting) but cannot retrieve, stash, sell, or
+      open the Crew tab's management controls for that ship. Confirm
+      a DIFFERENT character under that same ckey is NOT treated as
+      crew. Remove them and confirm boarding is refused immediately
+      after.
+  16. RENAME -- Use Rename on a deployed ship, confirm the new name/
       class shows immediately on its overmap marker and in Sensors.
       Reset both to blank and confirm it falls back to the hull's own
       default name.
-  13. SHIPBOARD BLUEPRINTS -- Aboard a converted (43-bucket) hull on
+  17. SHIPBOARD BLUEPRINTS -- Aboard a converted (43-bucket) hull on
       its FIRST-EVER retrieve, confirm a console and a blueprints item
       appear somewhere in its bridge room. Use the blueprints to
       rename or restructure a room. Stash and retrieve again, confirm
       both the console and your area edit survived, and that nothing
       gets re-furnished a second time.
-  14. SELL -- Stash a ship, then Remove it from the Drydock tab.
+  18. SELL -- Stash a ship, then Remove it from the Drydock tab.
       Confirm the confirmation dialog, and afterward that it's gone
       from every list and cannot be recovered short of admin
       intervention.
-  15. Z-LEVEL REUSE -- Stash a ship, then retrieve a DIFFERENT hull
+  19. SCUTTLE -- Scuttle a ship both while deployed (with nobody
+      aboard) and while stashed. Confirm the fee is charged, the
+      confirmation dialog fires, an admin log appears with a working
+      jump link in both cases, and the ship is gone from every list
+      afterward with no recovery option. Confirm it refuses with a
+      mob (or occupied neural lace) still aboard, and confirms
+      insufficient-funds correctly.
+  20. ADMIN LOGS -- Retrieve and stash a ship as a normal player and
+      confirm both actions produce an admin log entry with a working
+      jump link to the ship's position (or the player, if already
+      stashed).
+  21. ORPHAN RECOVERY -- As an admin, force-delete a deployed ship's
+      overmap marker directly (VV), bypassing Stash/Scuttle entirely.
+      Confirm the ledger flips back to stashed and the ship is
+      retrievable again afterward -- not scuttled, not left as a
+      dangling Z-level.
+  22. Z-LEVEL REUSE -- Stash a ship, then retrieve a DIFFERENT hull
       and confirm (via admin tools/VV on a border turf) that it lands
       on the same Z-level number the first one just vacated, with no
       leftover turfs/areas/objects from the previous occupant.
-  16. RESTART WHILE DEPLOYED -- With a ship deployed and nobody
+  23. RESTART WHILE DEPLOYED -- With a ship deployed and nobody
       aboard, force a save/restart cycle (or hard-kill and reboot) and
       confirm on the next boot the ship shows as stashed with its
       last-saved interior intact, rather than being lost.
-  17. ADMIN ZONE SECURITY -- Use "Set Z-Level Security Zone" on a
+  24. ADMIN ZONE SECURITY -- Use "Set Z-Level Security Zone" on a
       deployed ship's Z-level and confirm the override sticks until
       the ship is stashed and a new one retrieves onto that number.
 
@@ -618,3 +756,13 @@ if you only want to check one thing.
     from the away-site library are not available as hulls at all (see
     section 12) -- supporting real multi-Z player ships would be a
     separate, much larger project.
+  * Character-scoped ownership (section 2) was added after ships were
+    already purchasable -- any ship or crew entry that existed before
+    that change has a blank owning-character name in the database, so
+    it won't match any character until an admin resets it (dev
+    environment, no real ownership data existed worth migrating).
+  * The 10-minute combat lockout (stash) and 25000cr scuttle fee are
+    both fixed constants for now, not admin-configurable or
+    per-faction-tunable.
+  * The 15-second boarding spool-up and interior atmosphere settle are
+    both fixed delays, likewise not currently configurable.

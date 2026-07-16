@@ -48,13 +48,21 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 	var/shuttle_id
 	var/template_id
 	var/owner_ckey
+	/// Paired with owner_ckey -- ownership belongs to a CHARACTER (real_name),
+	/// not the account, so a player's other characters under the same ckey
+	/// don't inherit access to a ship one of their characters bought. Mirrors
+	/// the existing (ckey, char_name) composite-identity convention
+	/// ss13_mob_position already uses (persistence_mobs.dm). Null/unused for
+	/// faction ownership -- faction_uid is never a character-identity concept.
+	var/owner_char_name
 	var/faction_uid
 	var/stashed = TRUE
 	/// FALSE from the moment drydockRetrieve() starts materializing a ship
 	/// until its interior's deferred atmos settle finishes (~15s later,
-	/// _drydockInteriorSettled(), below) -- boarding refuses while FALSE
-	/// (_drydock_board_core(), telepad_drydock_boarding.dm) so nobody boards
-	/// a ship that's still mid-load. Always TRUE while stashed.
+	/// _shipInteriorApplyFinish(), persistence_ship_interiors.dm) -- boarding
+	/// refuses while FALSE (_drydock_board_core(),
+	/// telepad_drydock_boarding.dm) so nobody boards a ship that's still
+	/// mid-load. Always TRUE while stashed.
 	var/ready = TRUE
 	/// Only meaningful while stashed == FALSE -- null whenever stashed.
 	var/z
@@ -66,11 +74,21 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 	/// currently deployed (drydockRename()).
 	var/custom_name
 	var/custom_class
-	/// Ckeys granted boarding access by the owner/an officer without being
-	/// given ownership, faction membership, or any retrieve/stash/sell
-	/// rights -- see drydockAddCrew()/drydockRemoveCrew() below and the
+	/// Characters (not accounts) granted boarding access by the owner/an
+	/// officer without being given ownership, faction membership, or any
+	/// retrieve/stash/sell rights -- entries are "ckey|char_name" composite
+	/// keys (same shape as GLOB.persistence_position_cache,
+	/// persistence_mobs.dm) so being crew doesn't leak to a player's other
+	/// characters. See drydockAddCrew()/drydockRemoveCrew() below and the
 	/// crew-list OR clause in _drydock_board_core() (telepad_drydock_boarding.dm).
 	var/list/crew_ckeys = list()
+
+/// TRUE if user is personally the owning CHARACTER (not just the owning
+/// account) -- both owner_ckey AND owner_char_name must match. Used
+/// throughout instead of a bare ckey check so a player's other characters
+/// under the same ckey don't inherit access to a ship one character bought.
+/datum/drydock_ship/proc/owned_by(mob/user)
+	return owner_ckey && user && owner_ckey == user.ckey && owner_char_name == user.real_name
 
 /// Verbose debug logging for the drydock/shuttle system -- writes to the
 /// dedicated persistence subsystem log file (gated behind the
@@ -197,7 +215,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 		return
 
 	var/datum/db_query/q = SSdbcore.NewQuery(
-		"SELECT shuttle_id, template_id, owner_ckey, faction_uid, stashed, z, overmap_x, overmap_y, custom_name, custom_class FROM ss13_drydock_ships",
+		"SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed, z, overmap_x, overmap_y, custom_name, custom_class FROM ss13_drydock_ships",
 		list()
 	)
 	q.Execute()
@@ -208,13 +226,14 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 		DS.shuttle_id  = text2num(q.item[1])
 		DS.template_id = q.item[2]
 		DS.owner_ckey  = q.item[3]
-		DS.faction_uid = q.item[4]
-		DS.stashed     = !!text2num(q.item[5])
-		DS.z           = text2num(q.item[6])
-		DS.overmap_x   = text2num(q.item[7])
-		DS.overmap_y   = text2num(q.item[8])
-		DS.custom_name = q.item[9]
-		DS.custom_class = q.item[10]
+		DS.owner_char_name = q.item[4]
+		DS.faction_uid = q.item[5]
+		DS.stashed     = !!text2num(q.item[6])
+		DS.z           = text2num(q.item[7])
+		DS.overmap_x   = text2num(q.item[8])
+		DS.overmap_y   = text2num(q.item[9])
+		DS.custom_name = q.item[10]
+		DS.custom_class = q.item[11]
 
 		if(!DS.stashed)
 			log_drydock("drydockShipLedgerRestore: shuttle_id=[DS.shuttle_id] ('[DS.template_id]') was still stashed=0 at boot -- graceful shutdown's auto-stash sweep didn't run (crash/hard kill). Forcing back to stashed; interior recovers from the last autosave.")
@@ -232,13 +251,13 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 	// than per-row inside the loop above, so a crew row can never race
 	// ahead of its owning ship's datum being created.
 	var/crew_loaded = 0
-	var/datum/db_query/cq = SSdbcore.NewQuery("SELECT shuttle_id, ckey FROM ss13_ship_crew", list())
+	var/datum/db_query/cq = SSdbcore.NewQuery("SELECT shuttle_id, ckey, char_name FROM ss13_ship_crew", list())
 	cq.Execute()
 	if(SSpersistence.databaseCheckQueryResult(cq, "drydockShipLedgerRestore crew"))
 		while(cq.NextRow())
 			var/datum/drydock_ship/DS = GLOB.drydock_ships[text2num(cq.item[1])]
 			if(DS)
-				DS.crew_ckeys |= cq.item[2]
+				DS.crew_ckeys |= "[cq.item[2]]|[cq.item[3]]"
 				crew_loaded++
 	qdel(cq)
 
@@ -248,25 +267,26 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 // CREW  boarding access without ownership/faction membership
 // ============================================================
 
-/// Grants target_ckey boarding access to shuttle_id without ownership,
-/// faction membership, or any retrieve/stash/sell rights. Same permission
-/// shape as retrieve/stash: admin, the owner, or an officer of the owning
-/// faction.
-/datum/controller/subsystem/persistence/proc/drydockAddCrew(shuttle_id, target_ckey, label, mob/user)
+/// Grants target_ckey's target_char_name CHARACTER boarding access to
+/// shuttle_id without ownership, faction membership, or any retrieve/stash/
+/// sell rights -- scoped to one specific character, not the whole account,
+/// same reasoning as owned_by() above. Same permission shape as
+/// retrieve/stash: admin, the owner, or an officer of the owning faction.
+/datum/controller/subsystem/persistence/proc/drydockAddCrew(shuttle_id, target_ckey, target_char_name, label, mob/user)
 	var/acting = user ? key_name(user) : "SYSTEM"
 	var/datum/drydock_ship/DS = GLOB.drydock_ships[shuttle_id]
 	if(!DS)
 		log_drydock_warning("drydockAddCrew: refused -- unknown shuttle_id=[shuttle_id] (acting=[acting]).")
 		return FALSE
-	if(!(check_rights(R_ADMIN, 0, user) || (DS.owner_ckey && user && DS.owner_ckey == user.ckey) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
+	if(!(check_rights(R_ADMIN, 0, user) || DS.owned_by(user) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
 		if(user)
 			to_chat(user, SPAN_WARNING("You don't have permission to manage this ship's crew."))
 		log_drydock_warning("drydockAddCrew: refused -- [acting] lacks permission for shuttle_id=[shuttle_id].")
 		return FALSE
 	target_ckey = ckey(target_ckey)
-	if(!target_ckey)
+	if(!target_ckey || !target_char_name)
 		if(user)
-			to_chat(user, SPAN_WARNING("Invalid ckey."))
+			to_chat(user, SPAN_WARNING("A ckey and a character name are both required."))
 		return FALSE
 
 	if(!databaseCheckConnection("drydockAddCrew"))
@@ -274,10 +294,10 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 			to_chat(user, SPAN_WARNING("Database connection failed."))
 		return FALSE
 	var/datum/db_query/q = SSdbcore.NewQuery(
-		{"INSERT INTO ss13_ship_crew (shuttle_id, ckey, label, added_by, added_at)
-		VALUES (:id, :ckey, :label, :by, NOW())
+		{"INSERT INTO ss13_ship_crew (shuttle_id, ckey, char_name, label, added_by, added_at)
+		VALUES (:id, :ckey, :char_name, :label, :by, NOW())
 		ON DUPLICATE KEY UPDATE label = VALUES(label)"},
-		list("id" = shuttle_id, "ckey" = target_ckey, "label" = (label != "" ? label : null), "by" = acting)
+		list("id" = shuttle_id, "ckey" = target_ckey, "char_name" = target_char_name, "label" = (label != "" ? label : null), "by" = acting)
 	)
 	q.Execute()
 	if(!databaseCheckQueryResult(q, "drydockAddCrew insert"))
@@ -287,19 +307,19 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 		return FALSE
 	qdel(q)
 
-	DS.crew_ckeys |= target_ckey
+	DS.crew_ckeys |= "[target_ckey]|[target_char_name]"
 	if(user)
-		to_chat(user, SPAN_GOOD("Added '[target_ckey]' to the crew list."))
-	log_drydock("drydockAddCrew: [acting] added '[target_ckey]' to shuttle_id=[shuttle_id]'s crew.")
+		to_chat(user, SPAN_GOOD("Added '[target_char_name]' ([target_ckey]) to the crew list."))
+	log_drydock("drydockAddCrew: [acting] added '[target_char_name]' ([target_ckey]) to shuttle_id=[shuttle_id]'s crew.")
 	return TRUE
 
-/datum/controller/subsystem/persistence/proc/drydockRemoveCrew(shuttle_id, target_ckey, mob/user)
+/datum/controller/subsystem/persistence/proc/drydockRemoveCrew(shuttle_id, target_ckey, target_char_name, mob/user)
 	var/acting = user ? key_name(user) : "SYSTEM"
 	var/datum/drydock_ship/DS = GLOB.drydock_ships[shuttle_id]
 	if(!DS)
 		log_drydock_warning("drydockRemoveCrew: refused -- unknown shuttle_id=[shuttle_id] (acting=[acting]).")
 		return FALSE
-	if(!(check_rights(R_ADMIN, 0, user) || (DS.owner_ckey && user && DS.owner_ckey == user.ckey) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
+	if(!(check_rights(R_ADMIN, 0, user) || DS.owned_by(user) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
 		if(user)
 			to_chat(user, SPAN_WARNING("You don't have permission to manage this ship's crew."))
 		log_drydock_warning("drydockRemoveCrew: refused -- [acting] lacks permission for shuttle_id=[shuttle_id].")
@@ -311,17 +331,17 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 			to_chat(user, SPAN_WARNING("Database connection failed."))
 		return FALSE
 	var/datum/db_query/q = SSdbcore.NewQuery(
-		"DELETE FROM ss13_ship_crew WHERE shuttle_id = :id AND ckey = :ckey",
-		list("id" = shuttle_id, "ckey" = target_ckey)
+		"DELETE FROM ss13_ship_crew WHERE shuttle_id = :id AND ckey = :ckey AND char_name = :char_name",
+		list("id" = shuttle_id, "ckey" = target_ckey, "char_name" = target_char_name)
 	)
 	q.Execute()
 	databaseCheckQueryResult(q, "drydockRemoveCrew delete")
 	qdel(q)
 
-	DS.crew_ckeys -= target_ckey
+	DS.crew_ckeys -= "[target_ckey]|[target_char_name]"
 	if(user)
-		to_chat(user, SPAN_GOOD("Removed '[target_ckey]' from the crew list."))
-	log_drydock("drydockRemoveCrew: [acting] removed '[target_ckey]' from shuttle_id=[shuttle_id]'s crew.")
+		to_chat(user, SPAN_GOOD("Removed '[target_char_name]' ([target_ckey]) from the crew list."))
+	log_drydock("drydockRemoveCrew: [acting] removed '[target_char_name]' ([target_ckey]) from shuttle_id=[shuttle_id]'s crew.")
 	return TRUE
 
 // ============================================================
@@ -340,7 +360,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 	if(!DS)
 		log_drydock_warning("drydockRename: refused -- unknown shuttle_id=[shuttle_id] (acting=[acting]).")
 		return FALSE
-	if(!(check_rights(R_ADMIN, 0, user) || (DS.owner_ckey && user && DS.owner_ckey == user.ckey) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
+	if(!(check_rights(R_ADMIN, 0, user) || DS.owned_by(user) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
 		if(user)
 			to_chat(user, SPAN_WARNING("You don't have permission to rename this ship."))
 		log_drydock_warning("drydockRename: refused -- [acting] lacks permission for shuttle_id=[shuttle_id].")
@@ -389,6 +409,11 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 		log_drydock_warning("drydockBuy: refused -- missing template_id or both owner_ckey/faction_uid (acting=[acting]).")
 		return FALSE
 
+	// A personal purchase belongs to the buying CHARACTER, not just their
+	// account -- see owned_by() -- so a player's other characters don't
+	// inherit access to a ship this one just bought.
+	var/owner_char_name = (owner_ckey && user) ? user.real_name : null
+
 	var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[template_id]
 	if(!template)
 		if(user)
@@ -429,8 +454,8 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 		return FALSE
 
 	var/datum/db_query/q = SSdbcore.NewQuery(
-		"INSERT INTO ss13_drydock_ships (template_id, owner_ckey, faction_uid, stashed) VALUES (:tid, :ckey, :faction, 1)",
-		list("tid" = template_id, "ckey" = owner_ckey, "faction" = faction_uid)
+		"INSERT INTO ss13_drydock_ships (template_id, owner_ckey, owner_char_name, faction_uid, stashed) VALUES (:tid, :ckey, :char_name, :faction, 1)",
+		list("tid" = template_id, "ckey" = owner_ckey, "char_name" = owner_char_name, "faction" = faction_uid)
 	)
 	q.Execute()
 	if(!databaseCheckQueryResult(q, "drydockBuy insert"))
@@ -446,13 +471,14 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 	DS.shuttle_id  = new_id
 	DS.template_id = template_id
 	DS.owner_ckey  = owner_ckey
+	DS.owner_char_name = owner_char_name
 	DS.faction_uid = faction_uid
 	DS.stashed     = TRUE
 	GLOB.drydock_ships[new_id] = DS
 
 	if(user)
 		to_chat(user, SPAN_GOOD("Purchased '[template.name]' -- retrieve it from the Drydock program."))
-	log_drydock("drydockBuy: [acting] bought '[template_id]' (owner=[owner_ckey || "none"], faction=[faction_uid || "none"], shuttle_id=[new_id]).")
+	log_drydock("drydockBuy: [acting] bought '[template_id]' (owner=[owner_ckey ? "[owner_ckey] (\"[owner_char_name]\")" : "none"], faction=[faction_uid || "none"], shuttle_id=[new_id]).")
 	return TRUE
 
 // ============================================================
@@ -481,7 +507,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 			to_chat(user, SPAN_WARNING("That ship is already deployed."))
 		log_drydock_warning("drydockRetrieve: refused -- shuttle_id=[shuttle_id] ('[DS.template_id]') already deployed (acting=[acting]).")
 		return FALSE
-	if(!(check_rights(R_ADMIN, 0, user) || (DS.owner_ckey && user && DS.owner_ckey == user.ckey) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
+	if(!(check_rights(R_ADMIN, 0, user) || DS.owned_by(user) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
 		if(user)
 			to_chat(user, SPAN_WARNING("You don't have permission to retrieve this ship."))
 		log_drydock_warning("drydockRetrieve: refused -- [acting] lacks permission for shuttle_id=[shuttle_id] (owner=[DS.owner_ckey || "none"], faction=[DS.faction_uid || "none"]).")
@@ -539,9 +565,9 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 		log_drydock_error("drydockRetrieve: database connection failed backing up shuttle_id=[shuttle_id] (acting=[acting]).")
 		return FALSE
 	var/datum/db_query/bq = SSdbcore.NewQuery(
-		{"INSERT INTO ss13_drydock_ships_backup (shuttle_id, template_id, owner_ckey, faction_uid, purchased_at)
-		SELECT shuttle_id, template_id, owner_ckey, faction_uid, purchased_at FROM ss13_drydock_ships WHERE shuttle_id = :id
-		ON DUPLICATE KEY UPDATE template_id=VALUES(template_id), owner_ckey=VALUES(owner_ckey), faction_uid=VALUES(faction_uid), purchased_at=VALUES(purchased_at), backed_up_at=NOW()"},
+		{"INSERT INTO ss13_drydock_ships_backup (shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, purchased_at)
+		SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, purchased_at FROM ss13_drydock_ships WHERE shuttle_id = :id
+		ON DUPLICATE KEY UPDATE template_id=VALUES(template_id), owner_ckey=VALUES(owner_ckey), owner_char_name=VALUES(owner_char_name), faction_uid=VALUES(faction_uid), purchased_at=VALUES(purchased_at), backed_up_at=NOW()"},
 		list("id" = shuttle_id)
 	)
 	bq.Execute()
@@ -772,7 +798,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 			to_chat(user, SPAN_WARNING("That ship is already stashed."))
 		log_drydock_warning("drydockStash: refused -- shuttle_id=[shuttle_id] already stashed (acting=[acting]).")
 		return FALSE
-	if(!force && !(check_rights(R_ADMIN, 0, user) || (DS.owner_ckey && user && DS.owner_ckey == user.ckey) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
+	if(!force && !(check_rights(R_ADMIN, 0, user) || DS.owned_by(user) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
 		if(user)
 			to_chat(user, SPAN_WARNING("You don't have permission to stash this ship."))
 		log_drydock_warning("drydockStash: refused -- [acting] lacks permission for shuttle_id=[shuttle_id] (owner=[DS.owner_ckey || "none"], faction=[DS.faction_uid || "none"]).")
@@ -893,7 +919,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 	if(!DS)
 		log_drydock_warning("drydockScuttle: refused -- unknown shuttle_id=[shuttle_id] (acting=[acting]).")
 		return FALSE
-	if(!(check_rights(R_ADMIN, 0, user) || (DS.owner_ckey && user && DS.owner_ckey == user.ckey) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
+	if(!(check_rights(R_ADMIN, 0, user) || DS.owned_by(user) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
 		if(user)
 			to_chat(user, SPAN_WARNING("You don't have permission to scuttle this ship."))
 		log_drydock_warning("drydockScuttle: refused -- [acting] lacks permission for shuttle_id=[shuttle_id].")
@@ -1038,13 +1064,13 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 	var/list/options = list()
 
 	var/datum/db_query/sq = SSdbcore.NewQuery(
-		"SELECT shuttle_id, template_id, owner_ckey, faction_uid, backed_up_at FROM ss13_drydock_ships_backup",
+		"SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, backed_up_at FROM ss13_drydock_ships_backup",
 		list()
 	)
 	sq.Execute()
 	if(SSpersistence.databaseCheckQueryResult(sq, "restore_ship_backup shuttle select"))
 		while(sq.NextRow())
-			options["[sq.item[2]] #[sq.item[1]] ([sq.item[4] ? "faction [sq.item[4]]" : "owner [sq.item[3]]"], backed up [sq.item[5]])"] = text2num(sq.item[1])
+			options["[sq.item[2]] #[sq.item[1]] ([sq.item[5] ? "faction [sq.item[5]]" : "owner [sq.item[3]] (\"[sq.item[4]]\")"], backed up [sq.item[6]])"] = text2num(sq.item[1])
 	qdel(sq)
 
 	if(!length(options))
@@ -1064,7 +1090,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 		return
 
 	var/datum/db_query/bq = SSdbcore.NewQuery(
-		"SELECT template_id, owner_ckey, faction_uid, purchased_at FROM ss13_drydock_ships_backup WHERE shuttle_id = :id",
+		"SELECT template_id, owner_ckey, owner_char_name, faction_uid, purchased_at FROM ss13_drydock_ships_backup WHERE shuttle_id = :id",
 		list("id" = shuttle_id)
 	)
 	bq.Execute()
@@ -1074,13 +1100,14 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 		return
 	var/template_id = bq.item[1]
 	var/owner_ckey = bq.item[2]
-	var/faction_uid = bq.item[3]
-	var/purchased_at = bq.item[4]
+	var/owner_char_name = bq.item[3]
+	var/faction_uid = bq.item[4]
+	var/purchased_at = bq.item[5]
 	qdel(bq)
 
 	var/datum/db_query/iq = SSdbcore.NewQuery(
-		"INSERT INTO ss13_drydock_ships (shuttle_id, template_id, owner_ckey, faction_uid, stashed, stashed_at, purchased_at) VALUES (:id, :tid, :ckey, :faction, 1, NOW(), :purchased) ON DUPLICATE KEY UPDATE stashed=1, stashed_at=NOW()",
-		list("id" = shuttle_id, "tid" = template_id, "ckey" = owner_ckey, "faction" = faction_uid, "purchased" = purchased_at)
+		"INSERT INTO ss13_drydock_ships (shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed, stashed_at, purchased_at) VALUES (:id, :tid, :ckey, :char_name, :faction, 1, NOW(), :purchased) ON DUPLICATE KEY UPDATE stashed=1, stashed_at=NOW()",
+		list("id" = shuttle_id, "tid" = template_id, "ckey" = owner_ckey, "char_name" = owner_char_name, "faction" = faction_uid, "purchased" = purchased_at)
 	)
 	iq.Execute()
 	if(!SSpersistence.databaseCheckQueryResult(iq, "restore_ship_backup shuttle insert"))
@@ -1099,6 +1126,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 		DS.shuttle_id  = shuttle_id
 		DS.template_id = template_id
 		DS.owner_ckey  = owner_ckey
+		DS.owner_char_name = owner_char_name
 		DS.faction_uid = faction_uid
 		DS.stashed     = TRUE
 		GLOB.drydock_ships[shuttle_id] = DS
