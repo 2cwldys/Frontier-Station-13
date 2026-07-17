@@ -354,7 +354,6 @@
 #include "code\controllers\subsystems\cargo.dm"
 #include "code\controllers\subsystems\chat.dm"
 #include "code\controllers\subsystems\chemistry.dm"
-#include "code\controllers\subsystems\cleanup.dm"
 #include "code\controllers\subsystems\cult.dm"
 #include "code\controllers\subsystems\dbcore.dm"
 #include "code\controllers\subsystems\dcs.dm"

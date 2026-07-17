@@ -29,6 +29,11 @@
 	light_power_on = 1
 
 /obj/structure/machinery/computer/ship/engines/ui_interact(mob/user, datum/tgui/ui)
+	// `connected` is only ever set at Initialize() or a manual "sync" click and
+	// goes stale across stash/unstash/retrieval/redelivery -- resync fresh
+	// from GLOB.map_sectors before trusting it (see ship.dm's sync_linked()/
+	// look() for the same reasoning).
+	sync_linked()
 	if(!connected)
 		balloon_alert(user, "no connection!")
 		return

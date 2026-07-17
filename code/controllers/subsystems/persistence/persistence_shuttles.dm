@@ -485,7 +485,11 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 // RETRIEVE  materialize: fresh Z, marker placed near the docking beacon
 // ============================================================
 
-#define DRYDOCK_SHIP_PLACEMENT_RADIUS 3
+// Must stay <= the boarding proximity threshold (get_dist(...) <= 1,
+// telepad_drydock_boarding.dm) -- a ship placed further from its target
+// sector than boarding tolerates would be unboardable from the very spot
+// it was just retrieved from.
+#define DRYDOCK_SHIP_PLACEMENT_RADIUS 1
 
 /// A faction-owned ship retrieves only near its OWN faction's faction_beacon
 /// (anchor, required, faction_uid must match). A personally-owned ship
@@ -532,7 +536,11 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 			log_drydock_warning("drydockRetrieve: refused -- faction beacon belongs to [anchor.faction_uid], not [DS.faction_uid] (acting=[acting]).")
 			return FALSE
 		target_sector = GLOB.map_sectors["[GET_Z(anchor)]"]
-		placement_radius = anchor.security_radius
+		// Capped, not passed through raw -- security_radius is a multi-purpose
+		// value (zone-security coverage, Personal Travel leap eligibility) that
+		// can legitimately exceed the boarding proximity threshold; only the
+		// PLACEMENT distance used here needs to stay within it.
+		placement_radius = min(anchor.security_radius, DRYDOCK_SHIP_PLACEMENT_RADIUS)
 	else
 		if(!from_turf)
 			if(user)
@@ -615,9 +623,17 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 		// (shuttle.dm), which is exactly what the same-template-deployed
 		// guard above exists to prevent until this runs. Already-linked
 		// shuttle_computers/consoles hold direct object references, not name
-		// lookups, so renaming afterward doesn't disturb them -- only the
-		// SSshuttle.shuttles registry key and marker.shuttle (both looked up
-		// by name on every subsequent access) need to move together.
+		// lookups, so renaming afterward doesn't disturb THEM -- but
+		// shuttle_control/explore's OWN destination-picker UI (shuttle.dm)
+		// does its own SEPARATE name-based lookup via its shuttle_tag var
+		// (SSshuttle.shuttles[shuttle_tag]), independent of the shuttle
+		// datum's shuttle_computers list. drydockAutoFurnish() sets that
+		// correctly for a console it spawns fresh, but a MAPPED-IN console
+		// (any Bucket-A hull, or one restored from a prior stash) never gets
+		// touched -- so its shuttle_tag still points at the pre-rename name
+		// once this runs, and its destination/fuel display silently comes up
+		// empty. Keep every already-linked shuttle_control console's tag in
+		// lockstep with the rename, not just newly-furnished ones.
 		var/old_shuttle_name = shuttle_datum.name
 		var/new_shuttle_name = "[old_shuttle_name] #[shuttle_id]"
 		if(old_shuttle_name != new_shuttle_name && SSshuttle.shuttles[old_shuttle_name] == shuttle_datum)
@@ -625,6 +641,8 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 			shuttle_datum.name = new_shuttle_name
 			SSshuttle.shuttles[new_shuttle_name] = shuttle_datum
 			marker.shuttle = new_shuttle_name
+			for(var/obj/structure/machinery/computer/shuttle_control/console in shuttle_datum.shuttle_computers)
+				console.shuttle_tag = new_shuttle_name
 
 	// Player-facing identity (separate from the internal registry name
 	// above): custom_name/custom_class override the template's own

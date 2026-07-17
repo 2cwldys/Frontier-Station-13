@@ -47,6 +47,11 @@
 
 /obj/structure/machinery/computer/ship/helm/attackby(obj/item/attacking_item, mob/user, params)
 	if(istype(attacking_item, /obj/item/clothing/head/helmet/pilot))
+		// `connected` is only ever set at Initialize() or a manual "sync" click
+		// and goes stale across stash/unstash/retrieval/redelivery -- resync
+		// fresh from GLOB.map_sectors before trusting it (see ship.dm's
+		// sync_linked()/look() for the same reasoning).
+		sync_linked()
 		if(!connected)
 			to_chat(user, SPAN_WARNING("\The [src] isn't linked to any vessels!"))
 			return
@@ -117,6 +122,9 @@
 		return 1
 
 /obj/structure/machinery/computer/ship/helm/ui_interact(mob/user, datum/tgui/ui)
+	// See attackby()'s sync_linked() call above -- same staleness risk applies
+	// here, and this is the primary entry point players hit.
+	sync_linked()
 	if(!connected)
 		balloon_alert(user, "no connection!")
 		return
@@ -379,6 +387,11 @@
 	ui_interact(user)
 
 /obj/structure/machinery/computer/ship/navigation/ui_interact(mob/user, datum/tgui/ui)
+	// `connected` is only ever set at Initialize() or a manual "sync" click and
+	// goes stale across stash/unstash/retrieval/redelivery -- resync fresh
+	// from GLOB.map_sectors before trusting it (see ship.dm's sync_linked()/
+	// look() for the same reasoning).
+	sync_linked()
 	if(!connected)
 		balloon_alert(user, "no connection!")
 		return
