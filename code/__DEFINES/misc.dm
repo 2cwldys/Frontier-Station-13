@@ -239,9 +239,31 @@
 /// Channel time before a drydock boarding action (pad or program) actually
 /// delivers -- so a fight can't be fled from by instantly teleporting aboard.
 #define DRYDOCK_BOARDING_SPOOLUP 15 SECONDS
+/// Same idea as DRYDOCK_BOARDING_SPOOLUP, but for the "choose landing spot"
+/// disembark option specifically -- own constant since the plain instant
+/// disembark-to-dock path stays undelayed.
+#define DRYDOCK_DISEMBARK_SPOOLUP 15 SECONDS
 /// Extra overmap zoom-out applied on top of world.view for the Sector View
 /// toggle -- matches the Sensors console's own extra_view (sensors.dm).
 #define PERSONAL_TRAVEL_EXTRA_VIEW 4
+/// Same idea, but for the drydock turf-pick eye view (telepad_drydock_boarding.dm)
+/// -- wider than the sector view since a walkable interior needs more visible
+/// area than one overmap icon.
+#define DRYDOCK_PICK_EXTRA_VIEW 10
+/// How long a player has to click a valid turf before the eye-view picker
+/// times out and cancels.
+#define DRYDOCK_PICK_TIMEOUT 60 SECONDS
+/// Turf-pick access modes -- see _drydock_pick_access_mode() (telepad_drydock_boarding.dm).
+#define DRYDOCK_PICK_MODE_OPEN 1
+#define DRYDOCK_PICK_MODE_EXTERIOR_ONLY 2
+/// Turf-pick anchor states -- see /obj/effect/drydock_pick_anchor (telepad_drydock_boarding.dm).
+#define DRYDOCK_PICK_STATE_WAITING 0
+#define DRYDOCK_PICK_STATE_CONFIRMED 1
+#define DRYDOCK_PICK_STATE_CANCELLED 2
+/// How long a boarding invitation's Accept/Deny popup waits for the invited
+/// player to respond before it's treated as a timeout (see
+/// _drydock_invite_board_core(), telepad_drydock_boarding.dm).
+#define DRYDOCK_INVITE_TIMEOUT 30 SECONDS
 
 /// Personal-account cost to self-register a new faction via
 /// faction_manage.dm's "start_founding" action. Deducted (and becomes the

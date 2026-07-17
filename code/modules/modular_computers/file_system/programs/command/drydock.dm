@@ -18,7 +18,12 @@
 	program_icon_state = "generic"
 	program_key_icon_state = "blue_key"
 	extended_desc = "Buy, stash, retrieve, or remove your drydock ships."
-	usage_flags = PROGRAM_CONSOLE | PROGRAM_LAPTOP
+	// Widened to include PROGRAM_TABLET so a PDA can run this program at all
+	// -- but only Enter Ship is actually usable from a handheld; every other
+	// action explicitly refuses on a non-console/laptop device in ui_act()
+	// below, since the structural exclusion this used to provide for free
+	// (a PDA simply couldn't open the program) is gone now that it can.
+	usage_flags = PROGRAM_CONSOLE | PROGRAM_LAPTOP | PROGRAM_TABLET
 	requires_ntnet = FALSE
 	size = 4
 	tgui_id = "ShuttleDrydock"
@@ -120,6 +125,14 @@
 		return TRUE
 	var/mob/user = usr
 
+	// PDAs can now open this program at all (usage_flags above), but only
+	// to board or invite someone aboard -- every ownership-changing action
+	// still requires a real console/laptop, which usage_flags alone no
+	// longer guarantees for free.
+	if(action != "board" && action != "invite_board" && istype(computer, /obj/item/modular_computer/handheld))
+		to_chat(user, SPAN_WARNING("This requires a full console or laptop, not a handheld device."))
+		return TRUE
+
 	switch(action)
 		if("retrieve")
 			var/shuttle_id = text2num(params["shuttle_id"])
@@ -146,6 +159,11 @@
 		if("board")
 			log_drydock("drydock ui_act: [key_name(user)] requested Enter Ship.")
 			_drydock_board_core(user, null, last_boarded_by_ckey)
+			return TRUE
+
+		if("invite_board")
+			log_drydock("drydock ui_act: [key_name(user)] requested Invite to Board.")
+			_drydock_invite_board_core(user, last_boarded_by_ckey)
 			return TRUE
 
 		if("sell")

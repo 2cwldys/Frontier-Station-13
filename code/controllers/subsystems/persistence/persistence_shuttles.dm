@@ -221,6 +221,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 	q.Execute()
 	var/restored = 0
 	var/reset_stale = 0
+	var/list/stale_ids = list()
 	while(q.NextRow())
 		var/datum/drydock_ship/DS = new()
 		DS.shuttle_id  = text2num(q.item[1])
@@ -242,10 +243,30 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 			DS.overmap_x = null
 			DS.overmap_y = null
 			reset_stale++
+			stale_ids += DS.shuttle_id
 
 		GLOB.drydock_ships["[DS.shuttle_id]"] = DS
 		restored++
 	qdel(q)
+
+	// Persist the stashed/z correction back to the DB -- without this, the
+	// in-memory recovery above never reaches ss13_drydock_ships, so the
+	// Drydock program's ui_data() (a separate, direct SELECT) keeps showing
+	// "Deployed" forever, drydockStash() refuses with "already stashed"
+	// (checking the now-corrected in-memory datum), and every future boot
+	// re-logs the same "recovering from unclean shutdown" message for a
+	// ship already recovered last time. One batched pass after the loop
+	// (not nested inside q's own NextRow() iteration), mirroring the crew
+	// pass below.
+	if(length(stale_ids))
+		var/datum/db_query/rq = SSdbcore.NewQuery(
+			"UPDATE ss13_drydock_ships SET stashed=1, z=NULL, overmap_x=NULL, overmap_y=NULL, stashed_at=NOW() WHERE shuttle_id IN ([stale_ids.Join(",")])",
+			list()
+		)
+		rq.Execute()
+		if(!SSpersistence.databaseCheckQueryResult(rq, "drydockShipLedgerRestore stale recovery"))
+			log_drydock_error("drydockShipLedgerRestore: failed to persist stashed-recovery for shuttle_id(s) [stale_ids.Join(", ")] -- in-memory state corrected but DB still shows stashed=0.")
+		qdel(rq)
 
 	// Crew lists load in one pass after every ledger datum exists, rather
 	// than per-row inside the loop above, so a crew row can never race
@@ -401,6 +422,25 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 // BUY  pure purchase transaction, no world footprint
 // ============================================================
 
+/// Lowest shuttle_id not currently present in ss13_drydock_ships -- queried
+/// fresh from the DB (not GLOB.drydock_ships, which the "sell" ui_act
+/// action never removes an entry from, per its own comment about relying on
+/// AUTO_INCREMENT) so a scuttled or sold ship's slot is genuinely reusable.
+/datum/controller/subsystem/persistence/proc/_drydockNextFreeShuttleId()
+	if(!databaseCheckConnection("_drydockNextFreeShuttleId"))
+		return 1
+	var/datum/db_query/q = SSdbcore.NewQuery("SELECT shuttle_id FROM ss13_drydock_ships ORDER BY shuttle_id ASC", list())
+	q.Execute()
+	var/candidate = 1
+	if(databaseCheckQueryResult(q, "_drydockNextFreeShuttleId select"))
+		while(q.NextRow())
+			var/existing = text2num(q.item[1])
+			if(existing != candidate)
+				break
+			candidate++
+	qdel(q)
+	return candidate
+
 /datum/controller/subsystem/persistence/proc/drydockBuy(template_id, owner_ckey, faction_uid, mob/user)
 	var/acting = user ? key_name(user) : "SYSTEM"
 	log_drydock("drydockBuy: [acting] attempting to buy template '[template_id]' (owner=[owner_ckey || "none"], faction=[faction_uid || "none"]).")
@@ -453,19 +493,35 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 		log_drydock_error("drydockBuy: database connection failed for '[template_id]' (acting=[acting]) -- funds may already be deducted, needs admin attention.")
 		return FALSE
 
-	var/datum/db_query/q = SSdbcore.NewQuery(
-		"INSERT INTO ss13_drydock_ships (template_id, owner_ckey, owner_char_name, faction_uid, stashed) VALUES (:tid, :ckey, :char_name, :faction, 1)",
-		list("tid" = template_id, "ckey" = owner_ckey, "char_name" = owner_char_name, "faction" = faction_uid)
-	)
-	q.Execute()
-	if(!databaseCheckQueryResult(q, "drydockBuy insert"))
+	// shuttle_id is no longer AUTO_INCREMENT (V099__drydock_shuttle_id_reuse.sql)
+	// -- a scuttled or sold ship's slot is meant to be reused, and both
+	// removal paths already fully purge everything keyed by shuttle_id
+	// first, so reuse is safe. Two near-simultaneous purchases could compute
+	// the same "next free" id before either INSERT commits (BYOND's
+	// cooperative multitasking lets ui_act() calls interleave across a
+	// yielding DB call), so retry once against a fresh gap-scan on a
+	// duplicate-key failure rather than treating it as a hard DB error.
+	var/new_id
+	var/attempts_left = 2
+	while(attempts_left > 0)
+		attempts_left--
+		new_id = _drydockNextFreeShuttleId()
+		var/datum/db_query/q = SSdbcore.NewQuery(
+			"INSERT INTO ss13_drydock_ships (shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed) VALUES (:id, :tid, :ckey, :char_name, :faction, 1)",
+			list("id" = new_id, "tid" = template_id, "ckey" = owner_ckey, "char_name" = owner_char_name, "faction" = faction_uid)
+		)
+		q.Execute()
+		var/succeeded = databaseCheckQueryResult(q, "drydockBuy insert")
 		qdel(q)
-		if(user)
-			to_chat(user, SPAN_WARNING("Database error -- purchase not completed. Contact an admin if funds were deducted."))
-		log_drydock_error("drydockBuy: DB insert failed for '[template_id]' (acting=[acting]).")
-		return FALSE
-	var/new_id = text2num(q.last_insert_id)
-	qdel(q)
+		if(succeeded)
+			break
+		if(attempts_left <= 0)
+			if(user)
+				to_chat(user, SPAN_WARNING("Database error -- purchase not completed. Contact an admin if funds were deducted."))
+			log_drydock_error("drydockBuy: DB insert failed for '[template_id]' (acting=[acting]) after retry (last tried shuttle_id=[new_id]).")
+			new_id = null
+			return FALSE
+		log_drydock_warning("drydockBuy: insert collided on shuttle_id=[new_id] for '[template_id]' (acting=[acting]), retrying with a fresh slot.")
 
 	var/datum/drydock_ship/DS = new()
 	DS.shuttle_id  = new_id

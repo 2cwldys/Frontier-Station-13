@@ -47,7 +47,20 @@ export const AlertModal = (props) => {
     115 +
     (message.length > 30 ? Math.ceil(message.length / 4) : 0) +
     (message.length && large_buttons ? 5 : 0);
-  const windowWidth = 325 + (buttons.length > 2 ? 55 : 0);
+  // Buttons live in a wrapping flex row (ButtonDisplay below) -- a fixed
+  // width that ignores label length lets long buttons wrap to a second row
+  // with no extra height reserved for it, rendering that row off the
+  // visible window. Widen using the same per-button unit buttonWidth
+  // (below) already uses, so the window can always fit every button on one
+  // line.
+  const buttonUnits = buttons.reduce(
+    (total, button) => total + Math.max(button.length, 7),
+    0,
+  );
+  const windowWidth = Math.max(
+    325 + (buttons.length > 2 ? 55 : 0),
+    100 + buttonUnits * 9 + buttons.length * 20,
+  );
   const onKey = (direction: number) => {
     if (selected === 0 && direction === KEY_DECREMENT) {
       setSelected(buttons.length - 1);

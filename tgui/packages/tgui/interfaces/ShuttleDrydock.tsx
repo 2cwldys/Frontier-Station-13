@@ -121,6 +121,14 @@ export const ShuttleDrydock = (props) => {
                   ? 'Enter Ship'
                   : `Enter Ship (${data.board_cooldown}s)`}
               </Button>
+              <Button
+                fluid
+                icon="user-plus"
+                disabled={!data.can_board}
+                onClick={() => act('invite_board')}
+              >
+                Invite to Board
+              </Button>
               <Box color="label" mt={1}>
                 {data.faction_beacon
                   ? `Faction beacon in range: ${data.faction_beacon.faction_name}`

@@ -66,28 +66,227 @@
 	var/turf/T = get_turf(L)
 	return T ? GLOB.map_sectors["[T.z]"] : null
 
-/// Core boarding delivery, shared by the physical drydock_boarding pad and
-/// the Drydock program's "Enter Ship" action -- only the trigger differs,
-/// candidate/destination logic is identical either way. pad_network null
+/*
+ * Turf-Pick Eye View (additive -- does not replace the instant delivery
+ * paths above/below)
+ *
+ * An optional alternative to instant delivery for both boarding and
+ * disembarking: opens a temporary remote view of a real physical Z (not the
+ * abstract overmap grid) and lets the player click any valid turf to choose
+ * exactly where they arrive, instead of the single fixed destination.
+ * Reuses the same reset_view()/sight-flag/expanded-view trick the ship
+ * computer's own sector camera view (look()/unlook(), computers/ship.dm)
+ * and Personal Travel's Sector View (personal_travel.dm) already use --
+ * just aimed at a real turf instead of an overmap object, and click-to-
+ * target instead of click-to-prime.
+ *
+ * Access control (the anti-cheese rule): a target Z the picking mob doesn't
+ * have legitimate access to -- another player's deployed ship they're not
+ * owner/faction/crew of, or an away site/station currently claimed by an
+ * active faction beacon -- only accepts open-space/exterior turfs, never
+ * real floor/interior tiles. You can't portal straight through someone's
+ * walls and security; you have to land outside and walk in. Your own
+ * ship's interior, and any unclaimed site, has no such restriction.
+ */
+/obj/effect/drydock_pick_anchor
+	name = ""
+	invisibility = INVISIBILITY_ABSTRACT
+	anchored = TRUE
+	density = FALSE
+	mouse_opacity = MOUSE_OPACITY_TRANSPARENT
+	var/mob/living/user
+	var/target_z
+	var/turf/picked_turf
+	var/state = DRYDOCK_PICK_STATE_WAITING
+
+/// Opens the remote view for L onto target_z, anchored at this object's own
+/// turf. Mirrors ship.dm's look() almost exactly, applied directly to one
+/// stored mob instead of a shared viewers list (this anchor only ever
+/// serves the one mob that requested it).
+/obj/effect/drydock_pick_anchor/proc/begin(mob/living/L, target_z)
+	src.user = L
+	src.target_z = target_z
+	L.set_machine(src)
+	L.reset_view(src)
+	if(L.client)
+		L.client.saved_dynamic_view = L.client.view
+		L.client.view = expanded_client_view(DRYDOCK_PICK_EXTRA_VIEW)
+		if(L.client.skybox)
+			L.client.screen -= L.client.skybox
+		L.reload_fullscreen()
+		L.clear_fullscreen("gameui_border", FALSE)
+	RegisterSignal(L, COMSIG_MOB_LOGOUT, PROC_REF(_on_cancel_signal))
+	RegisterSignal(L, COMSIG_MOVABLE_MOVED, PROC_REF(_on_cancel_signal))
+	RegisterSignal(L, COMSIG_MOB_CLICKON, PROC_REF(_on_click))
+	ADD_TRAIT(L, TRAIT_COMPUTER_VIEW, REF(src))
+
+/// COMSIG_MOB_CLICKON handler while picking is active: validates the
+/// clicked turf and either confirms it or rejects with a reason, staying
+/// WAITING either way until a valid pick lands. Always consumes the click
+/// so browsing the remote view never triggers normal movement/attack.
+/obj/effect/drydock_pick_anchor/proc/_on_click(mob/source, atom/A, params)
+	SIGNAL_HANDLER
+	if(state != DRYDOCK_PICK_STATE_WAITING)
+		return
+	if(istype(A, /atom/movable/screen))
+		return
+	var/turf/T = get_turf(A)
+	if(!T || T.z != target_z)
+		to_chat(source, SPAN_WARNING("That's outside the area you're viewing."))
+		return COMSIG_MOB_CANCEL_CLICKON
+	if(T.density)
+		to_chat(source, SPAN_WARNING("That spot is obstructed."))
+		return COMSIG_MOB_CANCEL_CLICKON
+	if(!_drydock_pick_turf_valid(T, source, target_z))
+		to_chat(source, SPAN_WARNING("You don't have clearance to land there -- try open space instead."))
+		return COMSIG_MOB_CANCEL_CLICKON
+	picked_turf = T
+	state = DRYDOCK_PICK_STATE_CONFIRMED
+	return COMSIG_MOB_CANCEL_CLICKON
+
+/// Shared handler for both COMSIG_MOB_LOGOUT and COMSIG_MOVABLE_MOVED --
+/// mirrors ship.dm's own unlook() being registered for both signals
+/// identically. A real move or a disconnect both silently cancel an
+/// in-progress pick, same as the ship computer's own camera view does.
+/obj/effect/drydock_pick_anchor/proc/_on_cancel_signal()
+	SIGNAL_HANDLER
+	if(state == DRYDOCK_PICK_STATE_WAITING)
+		state = DRYDOCK_PICK_STATE_CANCELLED
+
+/// Single teardown path for every exit (confirmed pick, timeout, cancel,
+/// disconnect, or a forced qdel) -- mirrors ship.dm's unlook() applied
+/// directly to the stored user.
+/obj/effect/drydock_pick_anchor/Destroy()
+	if(user)
+		UnregisterSignal(user, list(COMSIG_MOB_LOGOUT, COMSIG_MOVABLE_MOVED, COMSIG_MOB_CLICKON))
+		REMOVE_TRAIT(user, TRAIT_COMPUTER_VIEW, REF(src))
+		if(!QDELETED(user))
+			user.reset_view()
+			var/client/c = user.client
+			if(c)
+				c.pixel_x = 0
+				c.pixel_y = 0
+				if(c.saved_dynamic_view)
+					c.view = c.saved_dynamic_view
+					c.saved_dynamic_view = null
+				else
+					c.refit_dynamic_view()
+				c.update_skybox(TRUE)
+				if(c.mob)
+					c.mob.reload_fullscreen()
+					c.mob.apply_gameui_border()
+			if(user.machine == src)
+				user.unset_machine()
+		user = null
+	. = ..()
+
+/// FALSE (not -1) while not this anchor's own active session -- same
+/// reasoning as ship.dm/personal_travel.dm's own check_eye() overrides: a
+/// stale `machine` ref pointing here after teardown must not force-cancel
+/// some OTHER session's view every tick (handle_vision(), life.dm).
+/obj/effect/drydock_pick_anchor/check_eye(mob/living/L)
+	if(L == user && state == DRYDOCK_PICK_STATE_WAITING)
+		return SEE_THRU|SEE_TURFS|SEE_OBJS|SEE_MOBS
+	return FALSE
+
+/// Blocking picker -- spawns the anchor, polls until a valid pick, a
+/// cancellation, or a timeout, then tears the anchor down and returns the
+/// chosen turf (or null, having already reported why). extra_checks is
+/// invoked every poll tick so a caller can abort early with its own
+/// reason (e.g. the target ship got stashed while the mob was still
+/// browsing) -- same shape as do_after_detailed()'s own extra_checks.
+/proc/_drydock_pick_destination_turf(mob/living/L, target_z, turf/anchor_turf, datum/callback/extra_checks, timeout = DRYDOCK_PICK_TIMEOUT)
+	if(!anchor_turf)
+		return null
+	var/obj/effect/drydock_pick_anchor/anchor = new(anchor_turf)
+	anchor.begin(L, target_z)
+	to_chat(L, SPAN_NOTICE("Click a turf to choose your landing point."))
+	var/end_time = world.time + timeout
+	var/abort_reason
+	while(anchor.state == DRYDOCK_PICK_STATE_WAITING)
+		if(world.time >= end_time)
+			abort_reason = "You took too long to choose."
+			break
+		if(QDELETED(L) || !L.client)
+			break
+		if(L.stat == DEAD)
+			abort_reason = "You can't pick a landing point while dead."
+			break
+		if(L.buckled_to)
+			abort_reason = "You can't pick a landing point while buckled."
+			break
+		if(extra_checks && !extra_checks.Invoke())
+			break
+		stoplag(1)
+	var/turf/result
+	if(anchor.state == DRYDOCK_PICK_STATE_CONFIRMED)
+		result = anchor.picked_turf
+	else if(abort_reason)
+		to_chat(L, SPAN_WARNING(abort_reason))
+	qdel(anchor)
+	return result
+
+/// The shared four-case access rule -- see the file header above.
+/proc/_drydock_pick_access_mode(mob/living/L, target_z)
+	for(var/sid in GLOB.drydock_ships)
+		var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
+		if(!DS || DS.stashed || DS.z != target_z)
+			continue
+		var/obj/item/card/id/ID = L.GetIdCard()
+		var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+		if(DS.owned_by(L) || (DS.faction_uid && DS.faction_uid == own_faction) || ("[L.ckey]|[L.real_name]" in DS.crew_ckeys))
+			return DRYDOCK_PICK_MODE_OPEN
+		return DRYDOCK_PICK_MODE_EXTERIOR_ONLY
+	return GLOB.faction_beacon_by_z["[target_z]"] ? DRYDOCK_PICK_MODE_EXTERIOR_ONLY : DRYDOCK_PICK_MODE_OPEN
+
+/// "Exterior" turfs -- true vacuum, or (since solid-ground away
+/// sites/exoplanets have no vacuum turfs at all) open exoplanet surface, as
+/// opposed to a real mapped indoor floor tile.
+/proc/_drydock_is_exterior_turf(turf/T)
+	return istype(T, /turf/space) || istype(T, /turf/simulated/floor/exoplanet)
+
+/// Combines the density + access-mode checks -- re-evaluated live on every
+/// click and again in the post-channel recheck (never cached), so a beacon
+/// claimed/lifted mid-pick is honored immediately.
+/proc/_drydock_pick_turf_valid(turf/T, mob/living/L, target_z)
+	if(!istype(T) || T.density)
+		return FALSE
+	if(_drydock_pick_access_mode(L, target_z) == DRYDOCK_PICK_MODE_EXTERIOR_ONLY && !_drydock_is_exterior_turf(T))
+		return FALSE
+	return TRUE
+
+/// Delivery with full portal VFX (spark + portal sprite + sound at BOTH
+/// ends) -- a direct adaptation of personal_travel.dm's _execute_travel().
+/// Used only by the new "choose landing spot" pick flows; the existing
+/// instant-delivery paths keep calling persistence_telepad_deliver() (which
+/// only sparks the destination, no portal object, no origin effect)
+/// exactly as before.
+/proc/_drydock_deliver_with_portal(mob/living/L, turf/destination)
+	var/turf/origin = get_turf(L)
+	var/atom/movable/pulled = L.pulling
+	if(origin)
+		new /obj/effect/portal/decorative(origin, null, null, 5 SECONDS, 0)
+		spark(origin, 3, GLOB.alldirs)
+		playsound(origin, 'sound/effects/phasein.ogg', 30, 1)
+	new /obj/effect/portal/decorative(destination, null, null, 5 SECONDS, 0)
+	spark(destination, 3, GLOB.alldirs)
+	L.forceMove(destination)
+	if(pulled && !QDELETED(pulled))
+		pulled.forceMove(destination)
+	playsound(destination, 'sound/effects/phasein.ogg', 30, 1)
+
+/// Resolves which ship L has boarding rights to nearby -- ownership/crew/
+/// faction check, DS.ready, and same/adjacent overmap sector proximity,
+/// with a picker if more than one candidate matches. Split out from the
+/// delivery tail (_drydock_board_deliver(), below) so invite-to-board
+/// (_drydock_invite_board_core()) can resolve rights against the INVITER
+/// while delivering a different mob (the invited target). pad_network null
 /// means public (personal ownership, any faction the mob belongs to, or
 /// being listed on a ship's own crew list -- drydockAddCrew(),
 /// persistence_shuttles.dm); a normalized faction uid restricts candidates
-/// to that faction's ships only. cooldown is a per-ckey world.time list
-/// owned by the caller (a pad or a program instance), so different trigger
-/// points don't share a single cooldown.
-/proc/_drydock_board_core(mob/living/L, pad_network, list/cooldown)
-	if(!istype(L))
-		return FALSE
-	if(L.buckled_to)
-		to_chat(L, SPAN_WARNING("You can't board while buckled."))
-		return FALSE
-	if(L.stat == DEAD)
-		to_chat(L, SPAN_WARNING("You can't board while dead."))
-		return FALSE
-	if(cooldown[L.ckey] && (world.time - cooldown[L.ckey] < 30))
-		to_chat(L, SPAN_WARNING("Still recalibrating -- wait a moment."))
-		return FALSE
-
+/// to that faction's ships only. Reports any refusal reason to L directly;
+/// returns null on refusal.
+/proc/_drydock_board_resolve_ship(mob/living/L, pad_network)
 	var/obj/effect/overmap/visitable/mob_sector = _drydock_boarder_sector(L)
 
 	var/list/candidates = list()
@@ -120,31 +319,67 @@
 			to_chat(L, SPAN_WARNING("Your ship is still initializing -- try again in a moment."))
 		else
 			to_chat(L, SPAN_WARNING(pad_network ? "[get_faction_name(pad_network)] has no drydock ships currently deployed nearby." : "You have no drydock ships currently deployed nearby."))
-		return FALSE
+		return null
 
-	var/datum/drydock_ship/target
 	if(length(candidates) == 1)
-		target = candidates[1]
-	else
-		var/list/choices = list()
-		for(var/datum/drydock_ship/DS in candidates)
-			choices["[DS.template_id] #[DS.shuttle_id]"] = DS
-		var/pick = tgui_input_list(L, "Board which ship?", "Drydock Boarding", choices)
-		if(!pick)
-			return FALSE
-		target = choices[pick]
-		// Re-validate after the async picker -- world state may have moved on.
-		if(QDELETED(L) || L.stat == DEAD || L.buckled_to)
-			return FALSE
+		return candidates[1]
+
+	var/list/choices = list()
+	for(var/datum/drydock_ship/DS in candidates)
+		choices["[DS.template_id] #[DS.shuttle_id]"] = DS
+	var/pick = tgui_input_list(L, "Board which ship?", "Drydock Boarding", choices)
+	if(!pick)
+		return null
+	// Re-validate after the async picker -- world state may have moved on.
+	if(QDELETED(L) || L.stat == DEAD || L.buckled_to)
+		return null
+	return choices[pick]
+
+/// Delivers L aboard target_ship -- buckled/dead/combat/cooldown guards,
+/// console-turf-or-picked-spot choice, 15s interruptible spool-up, full
+/// re-validation, then delivery. Shared tail for self-board (L asked and is
+/// delivered, via _drydock_board_core() below) and invite-to-board (the
+/// inviter asked via _drydock_board_resolve_ship(), but L here is the
+/// invited target actually being delivered). cooldown is a per-ckey
+/// world.time list owned by the caller, keyed to whichever mob is actually
+/// delivered.
+/proc/_drydock_board_deliver(mob/living/L, datum/drydock_ship/target, list/cooldown)
+	if(!istype(L) || !istype(target))
+		return FALSE
+	if(L.buckled_to)
+		to_chat(L, SPAN_WARNING("You can't board while buckled."))
+		return FALSE
+	if(L.stat == DEAD)
+		to_chat(L, SPAN_WARNING("You can't board while dead."))
+		return FALSE
+	if(L.in_recent_combat())
+		to_chat(L, SPAN_WARNING("You're still in combat -- try again in [round((L.last_combat_time + PERSONAL_TRAVEL_COMBAT_LOCKOUT - world.time) / 10)] seconds."))
+		return FALSE
+	if(cooldown[L.ckey] && (world.time - cooldown[L.ckey] < 30))
+		to_chat(L, SPAN_WARNING("Still recalibrating -- wait a moment."))
+		return FALSE
 
 	var/turf/destination = _drydock_console_turf(target.z)
 	if(!destination)
 		to_chat(L, SPAN_WARNING("Could not locate that ship's navigation console."))
-		log_drydock_error("_drydock_board_core: no shuttle_control console found on z=[target.z] for shuttle_id=[target.shuttle_id].")
+		log_drydock_error("_drydock_board_deliver: no shuttle_control console found on z=[target.z] for shuttle_id=[target.shuttle_id].")
 		return FALSE
 	if(destination.density)
 		to_chat(L, SPAN_WARNING("The boarding point is obstructed."))
 		return FALSE
+
+	// Additive choice -- "Land at Console" is today's exact instant-delivery
+	// path, byte-for-byte unchanged; "Choose Landing Spot" opens the turf-
+	// pick eye view (telepad_drydock_boarding.dm's picker block, above),
+	// anchored at the same console turf, instead of forcing it as the
+	// destination.
+	var/use_picker = (tgui_alert(L, "Board how?", "Enter Ship", list("Land at Console", "Choose Landing Spot")) == "Choose Landing Spot")
+	if(QDELETED(L) || L.stat == DEAD || L.buckled_to)
+		return FALSE
+	if(use_picker)
+		destination = _drydock_pick_destination_turf(L, target.z, destination)
+		if(!destination)
+			return FALSE
 
 	cooldown[L.ckey] = world.time
 	to_chat(L, SPAN_NOTICE("You begin boarding the ship..."))
@@ -172,15 +407,138 @@
 	if(!istype(recheck_mob_sector) || !istype(recheck_ship_sector) || get_dist(recheck_mob_sector, recheck_ship_sector) > 1)
 		to_chat(L, SPAN_WARNING("You're no longer close enough to board."))
 		return FALSE
-	var/turf/final_destination = _drydock_console_turf(target.z)
-	if(!final_destination || final_destination.density)
+	// Picked-spot flow re-validates the SPECIFIC chosen turf (it may have
+	// become dense/inaccessible during the spool-up); the console flow
+	// re-fetches the console fresh, exactly as before.
+	var/turf/final_destination = use_picker ? destination : _drydock_console_turf(target.z)
+	if(!final_destination || final_destination.density || (use_picker && !_drydock_pick_turf_valid(final_destination, L, target.z)))
 		to_chat(L, SPAN_WARNING("The boarding point is no longer available."))
 		return FALSE
 
-	persistence_telepad_deliver(list(L), final_destination)
+	if(use_picker)
+		_drydock_deliver_with_portal(L, final_destination)
+	else
+		persistence_telepad_deliver(list(L), final_destination)
 	to_chat(L, SPAN_GOOD("You board the ship."))
-	log_drydock("_drydock_board_core: [key_name(L)] boarded shuttle_id=[target.shuttle_id].")
+	log_drydock("_drydock_board_deliver: [key_name(L)] boarded shuttle_id=[target.shuttle_id].")
 	return TRUE
+
+/// Core boarding entry point, shared by the physical drydock_boarding pad
+/// and the Drydock program's "Enter Ship" action -- only the trigger
+/// differs, candidate/destination logic is identical either way. Fails
+/// fast on buckled/dead/combat/cooldown before bothering to resolve
+/// candidates (matching this proc's original, single-piece behavior);
+/// _drydock_board_deliver() re-checks the same guards on its own so it
+/// stays correct when called standalone for a mob nobody's pre-checked
+/// (invite-to-board's target). cooldown is a per-ckey world.time list
+/// owned by the caller (a pad or a program instance), so different trigger
+/// points don't share a single cooldown.
+/proc/_drydock_board_core(mob/living/L, pad_network, list/cooldown)
+	if(!istype(L))
+		return FALSE
+	if(L.buckled_to)
+		to_chat(L, SPAN_WARNING("You can't board while buckled."))
+		return FALSE
+	if(L.stat == DEAD)
+		to_chat(L, SPAN_WARNING("You can't board while dead."))
+		return FALSE
+	if(L.in_recent_combat())
+		to_chat(L, SPAN_WARNING("You're still in combat -- try again in [round((L.last_combat_time + PERSONAL_TRAVEL_COMBAT_LOCKOUT - world.time) / 10)] seconds."))
+		return FALSE
+	if(cooldown[L.ckey] && (world.time - cooldown[L.ckey] < 30))
+		to_chat(L, SPAN_WARNING("Still recalibrating -- wait a moment."))
+		return FALSE
+
+	var/datum/drydock_ship/target = _drydock_board_resolve_ship(L, pad_network)
+	if(!target)
+		return FALSE
+	return _drydock_board_deliver(L, target, cooldown)
+
+/// Portal+spark visual cue at T only -- no forceMove, this just marks where
+/// an invitation is being extended. A lighter cousin of
+/// _drydock_deliver_with_portal() (which does the same VFX plus the actual
+/// move).
+/proc/_drydock_invite_vfx(turf/T)
+	if(!T)
+		return
+	new /obj/effect/portal/decorative(T, null, null, 5 SECONDS, 0)
+	spark(T, 3, GLOB.alldirs)
+	playsound(T, 'sound/effects/phasein.ogg', 30, 1)
+
+/// Lets an existing crew member invite a specific nearby player aboard,
+/// instead of that player self-boarding -- same underlying rights/proximity
+/// rule as self-board (_drydock_board_resolve_ship(), resolved against the
+/// INVITER), but delivery (_drydock_board_deliver(), same 15s spool-up and
+/// combat checks) applies to the TARGET once they accept. Two distinct
+/// proximity rules apply, both required: the inviter must be within 1 tile
+/// of the target (physical -- this is a PDA-mediated invite, not a click-to-
+/// target interaction, so the inviter isn't necessarily standing at their
+/// own console), and the target's own overmap sector must be within 1 of
+/// the ship's (mirrors the existing sector-proximity rule everywhere else
+/// in this system). cooldown is the same per-ckey world.time list the
+/// caller already owns for self-board, keyed to whichever mob ends up
+/// delivered -- so an invited target's own cooldown is tracked the same way
+/// a self-boarder's would be.
+/proc/_drydock_invite_board_core(mob/living/inviter, list/cooldown)
+	if(!istype(inviter))
+		return FALSE
+	var/datum/drydock_ship/target_ship = _drydock_board_resolve_ship(inviter, null)
+	if(!target_ship)
+		return FALSE
+
+	var/list/nearby = list()
+	for(var/mob/living/candidate in view(1, inviter))
+		if(candidate == inviter || candidate.stat == DEAD)
+			continue
+		if(get_dist(inviter, candidate) <= 1)
+			nearby += candidate
+	if(!length(nearby))
+		to_chat(inviter, SPAN_WARNING("There's no one nearby to invite aboard."))
+		return FALSE
+
+	var/mob/living/target
+	if(length(nearby) == 1)
+		target = nearby[1]
+	else
+		var/list/choices = list()
+		for(var/mob/living/candidate in nearby)
+			choices["[candidate.name]"] = candidate
+		var/pick = tgui_input_list(inviter, "Invite who aboard?", "Boarding Invitation", choices)
+		if(!pick)
+			return FALSE
+		target = choices[pick]
+		if(QDELETED(inviter) || QDELETED(target) || target.stat == DEAD || get_dist(inviter, target) > 1)
+			return FALSE
+
+	var/obj/effect/overmap/visitable/target_sector = _drydock_boarder_sector(target)
+	var/obj/effect/overmap/visitable/ship_sector = GLOB.map_sectors["[target_ship.z]"]
+	if(!istype(target_sector) || !istype(ship_sector) || get_dist(target_sector, ship_sector) > 1)
+		to_chat(inviter, SPAN_WARNING("[target] is too far from the ship to invite aboard."))
+		return FALSE
+
+	var/ship_display_name = target_ship.custom_name || target_ship.template_id
+	var/turf/target_turf = get_turf(target)
+	_drydock_invite_vfx(target_turf)
+	var/response = tgui_alert(target, "[inviter] wants to bring you aboard [ship_display_name]. Board?", "Boarding Invitation", list("Accept", "Deny"), DRYDOCK_INVITE_TIMEOUT)
+
+	if(QDELETED(inviter) || QDELETED(target))
+		return FALSE
+	if(response != "Accept")
+		to_chat(inviter, SPAN_WARNING(response == "Deny" ? "[target] declined." : "[target] didn't respond in time."))
+		return FALSE
+	if(target.stat == DEAD || get_dist(inviter, target) > 1)
+		to_chat(inviter, SPAN_WARNING("[target] is no longer in range to board."))
+		return FALSE
+
+	var/datum/drydock_ship/recheck_ship = GLOB.drydock_ships["[target_ship.shuttle_id]"]
+	if(!recheck_ship || recheck_ship != target_ship || recheck_ship.stashed || !recheck_ship.ready)
+		to_chat(inviter, SPAN_WARNING("The ship is no longer available to board."))
+		return FALSE
+
+	to_chat(inviter, SPAN_NOTICE("[target] accepted -- boarding..."))
+	var/boarded = _drydock_board_deliver(target, target_ship, cooldown)
+	to_chat(inviter, boarded ? SPAN_GOOD("[target] boarded the ship.") : SPAN_WARNING("[target]'s boarding attempt failed."))
+	return boarded
 
 /// Wrapper for the physical drydock boarding pad -- reads the pad's own
 /// Faction Tagger network and per-pad cooldown, delegates to the shared
@@ -212,36 +570,138 @@
 			return get_turf(console)
 	return null
 
-/// Step off a currently-deployed, docked drydock ship -- available from
-/// anywhere aboard (no ship-side object needed, matching how boarding
-/// needs none either), refused if the ship isn't genuinely docked at a
-/// beacon (you can't step off mid-flight).
+/// Finds the deployed, non-stashed drydock ship whose interior L is
+/// currently standing on, or null if L isn't aboard one -- shared by the
+/// core disembark proc and the Drydock program's ui_data() "am I aboard a
+/// ship" check (can_disembark), so both agree on exactly the same
+/// condition.
+/proc/_drydock_ship_at(z)
+	for(var/sid in GLOB.drydock_ships)
+		var/datum/drydock_ship/candidate = GLOB.drydock_ships[sid]
+		if(candidate && !candidate.stashed && candidate.z == z)
+			return candidate
+	return null
+
+/// Core disembark delivery, shared by the mob verb below and the Drydock
+/// program's "Exit Ship" action -- only the trigger differs. Step off a
+/// currently-deployed drydock ship -- available from anywhere aboard (no
+/// ship-side object needed, matching how boarding needs none either). Two
+/// kinds of destination: wherever the ship is genuinely docked (today's
+/// original behavior, instant), or any away-site/station sector within 1
+/// tile of the ship's own overmap position (lets crew portal to a nearby
+/// site without needing to actually dock there first). If more than one
+/// candidate exists, or the docked one is chosen, an additive choice offers
+/// the turf-pick eye view alongside the original instant delivery.
+/proc/_drydock_disembark_core(mob/living/L)
+	if(!istype(L))
+		return FALSE
+	if(L.buckled_to)
+		to_chat(L, SPAN_WARNING("You can't disembark while buckled."))
+		return FALSE
+	if(L.stat == DEAD)
+		to_chat(L, SPAN_WARNING("You can't disembark while dead."))
+		return FALSE
+	if(L.in_recent_combat())
+		to_chat(L, SPAN_WARNING("You're still in combat -- try again in [round((L.last_combat_time + PERSONAL_TRAVEL_COMBAT_LOCKOUT - world.time) / 10)] seconds."))
+		return FALSE
+
+	var/here_z = GET_Z(L)
+	var/datum/drydock_ship/DS = _drydock_ship_at(here_z)
+	if(!DS)
+		to_chat(L, SPAN_WARNING("You're not aboard a deployed drydock ship."))
+		return FALSE
+
+	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
+	var/datum/shuttle/shuttle_datum = istype(marker) ? SSshuttle.shuttles[marker.shuttle] : null
+
+	var/list/candidate_turfs = list()
+	if(shuttle_datum && marker.status == SHIP_STATUS_LANDED)
+		var/turf/dock_turf = get_turf(shuttle_datum.current_location)
+		if(dock_turf)
+			candidate_turfs["Docked location"] = dock_turf
+	if(istype(marker))
+		var/list/seen_sectors = list()
+		for(var/z_key in GLOB.map_sectors)
+			var/obj/effect/overmap/visitable/sector/nearby = GLOB.map_sectors[z_key]
+			if(!istype(nearby) || istype(nearby, /obj/effect/overmap/visitable/sector/temporary) || (nearby in seen_sectors))
+				continue
+			seen_sectors += nearby
+			if(get_dist(marker, nearby) > 1)
+				continue
+			var/turf/site_turf = get_turf(nearby)
+			if(site_turf)
+				candidate_turfs["[nearby.name]"] = site_turf
+
+	if(!length(candidate_turfs))
+		to_chat(L, SPAN_WARNING("The ship must be docked, or near an away site, before you can disembark."))
+		return FALSE
+
+	var/turf/anchor_turf
+	if(length(candidate_turfs) == 1)
+		anchor_turf = candidate_turfs[candidate_turfs[1]]
+	else
+		var/pick = tgui_input_list(L, "Disembark to where?", "Disembark", candidate_turfs)
+		if(!pick)
+			return FALSE
+		anchor_turf = candidate_turfs[pick]
+		if(QDELETED(L) || L.stat == DEAD || L.buckled_to)
+			return FALSE
+
+	var/target_z = GET_Z(anchor_turf)
+	var/is_dock_target = (shuttle_datum && marker.status == SHIP_STATUS_LANDED && target_z == GET_Z(shuttle_datum.current_location))
+
+	// Only the actual dock target has an "instant" option -- a nearby
+	// away-site pick never had a fixed landmark turf to begin with, so it
+	// always goes straight to the eye view.
+	var/use_picker = TRUE
+	if(is_dock_target)
+		use_picker = (tgui_alert(L, "Disembark how?", "Disembark", list("Land at Dock", "Choose Landing Spot")) == "Choose Landing Spot")
+		if(QDELETED(L) || L.stat == DEAD || L.buckled_to)
+			return FALSE
+
+	if(!use_picker)
+		var/turf/destination = get_turf(shuttle_datum.current_location)
+		if(!destination || destination.density)
+			to_chat(L, SPAN_WARNING("The disembark point is obstructed."))
+			return FALSE
+		persistence_telepad_deliver(list(L), destination)
+		to_chat(L, SPAN_GOOD("You disembark the ship."))
+		log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id] at its docked beacon.")
+		return TRUE
+
+	var/turf/destination = _drydock_pick_destination_turf(L, target_z, anchor_turf)
+	if(!destination)
+		return FALSE
+	if(!do_after(L, DRYDOCK_DISEMBARK_SPOOLUP, L))
+		to_chat(L, SPAN_WARNING("Disembarking interrupted."))
+		return FALSE
+	if(L.in_recent_combat())
+		to_chat(L, SPAN_WARNING("Combat detected -- disembarking aborted."))
+		return FALSE
+	if(QDELETED(L) || L.stat == DEAD || L.buckled_to)
+		return FALSE
+	if(destination.density || !_drydock_pick_turf_valid(destination, L, target_z))
+		to_chat(L, SPAN_WARNING("The landing point is no longer available."))
+		return FALSE
+	// A pick onto the actual dock target can lose its precondition (the
+	// ship taking off mid-pick/channel) -- a nearby-away-site pick never had
+	// one to lose.
+	if(is_dock_target)
+		var/datum/drydock_ship/recheck_ds = GLOB.drydock_ships["[DS.shuttle_id]"]
+		var/obj/effect/overmap/visitable/ship/landable/recheck_marker = istype(recheck_ds) ? GLOB.map_sectors["[recheck_ds.z]"] : null
+		var/datum/shuttle/recheck_shuttle = istype(recheck_marker) ? SSshuttle.shuttles[recheck_marker.shuttle] : null
+		if(!recheck_ds || recheck_ds.stashed || !recheck_shuttle || recheck_marker.status != SHIP_STATUS_LANDED)
+			to_chat(L, SPAN_WARNING("The ship is no longer docked there."))
+			return FALSE
+
+	_drydock_deliver_with_portal(L, destination)
+	to_chat(L, SPAN_GOOD("You disembark the ship."))
+	log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id] choosing a landing spot.")
+	return TRUE
+
 /mob/living/verb/disembark_drydock_ship()
 	set name = "Disembark Drydock Ship"
 	set category = "IC"
 	set desc = "Step off a docked drydock ship, back onto its beacon."
 
-	var/here_z = GET_Z(src)
-	var/datum/drydock_ship/DS
-	for(var/sid in GLOB.drydock_ships)
-		var/datum/drydock_ship/candidate = GLOB.drydock_ships[sid]
-		if(candidate && !candidate.stashed && candidate.z == here_z)
-			DS = candidate
-			break
-	if(!DS)
-		to_chat(src, SPAN_WARNING("You're not aboard a deployed drydock ship."))
-		return
-
-	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
-	var/datum/shuttle/shuttle_datum = istype(marker) ? SSshuttle.shuttles[marker.shuttle] : null
-	if(!shuttle_datum || marker.status != SHIP_STATUS_LANDED)
-		to_chat(src, SPAN_WARNING("The ship must be docked before you can disembark."))
-		return
-	var/turf/destination = get_turf(shuttle_datum.current_location)
-	if(!destination || destination.density)
-		to_chat(src, SPAN_WARNING("The disembark point is obstructed."))
-		return
-
-	persistence_telepad_deliver(list(src), destination)
-	to_chat(src, SPAN_GOOD("You disembark the ship."))
-	log_drydock("disembark_drydock_ship: [key_name(src)] disembarked shuttle_id=[DS.shuttle_id] at its docked beacon.")
+	_drydock_disembark_core(src)
