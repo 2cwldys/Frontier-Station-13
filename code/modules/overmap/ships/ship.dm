@@ -57,7 +57,10 @@
 	/// in_recent_combat() below. Drives the drydock stash combat lockout
 	/// (drydockStash(), persistence_shuttles.dm), mirroring the mob-side
 	/// in_recent_combat()/last_combat_time pattern (living_defines.dm).
-	var/last_combat_time = 0
+	/// Defaults far in the past (not 0) so in_recent_combat()'s
+	/// world.time - last_combat_time math can't false-positive during the
+	/// first SHIP_COMBAT_LOCKOUT of server uptime.
+	var/last_combat_time = -SHIP_COMBAT_LOCKOUT
 
 	var/list/engines = list()
 	var/engines_state = 0 // Global on/off toggle for all engines.
