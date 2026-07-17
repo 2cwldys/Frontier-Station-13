@@ -237,12 +237,23 @@
 		if(DS.owned_by(L) || (DS.faction_uid && DS.faction_uid == own_faction) || ("[L.ckey]|[L.real_name]" in DS.crew_ckeys))
 			return DRYDOCK_PICK_MODE_OPEN
 		return DRYDOCK_PICK_MODE_EXTERIOR_ONLY
+	// Explicit .powered check rather than trusting GLOB.faction_beacon_by_z
+	// presence alone -- a beacon comment states an unpowered beacon can
+	// never hold a Z claim, but this verifies it directly instead of
+	// relying on that invariant silently.
+	var/obj/structure/machinery/faction_beacon/B = GLOB.faction_beacon_by_z["[target_z]"]
+	if(istype(B) && B.powered)
+		return DRYDOCK_PICK_MODE_EXTERIOR_ONLY
 	// piracy_beacon never claims territory or touches zone security the way
 	// a faction beacon does (piracy_beacon.dm) -- it's tracked in its own
 	// flat GLOB.piracy_beacons list, not GLOB.faction_beacon_by_z, so it
 	// needs its own explicit check here or a pirate-held Z is wrongly
-	// treated as open.
-	return (GLOB.faction_beacon_by_z["[target_z]"] || piracy_beacon_present_on_z(target_z)) ? DRYDOCK_PICK_MODE_EXTERIOR_ONLY : DRYDOCK_PICK_MODE_OPEN
+	// treated as open. piracy_beacon_active_on_z() (not _present_on_z())
+	// already requires .powered (via is_operational()), so an unpowered
+	// pirate beacon correctly leaves the Z open.
+	if(piracy_beacon_active_on_z(target_z))
+		return DRYDOCK_PICK_MODE_EXTERIOR_ONLY
+	return DRYDOCK_PICK_MODE_OPEN
 
 /// "Exterior" turfs -- true vacuum, or (since solid-ground away
 /// sites/exoplanets have no vacuum turfs at all) open exoplanet surface, as
@@ -523,7 +534,7 @@
 		to_chat(inviter, SPAN_WARNING("[target] is too far from the ship to invite aboard."))
 		return FALSE
 
-	var/ship_display_name = target_ship.custom_name || target_ship.template_id
+	var/ship_display_name = target_ship.display_name()
 	var/turf/target_turf = get_turf(target)
 	_drydock_invite_vfx(target_turf)
 	var/response = tgui_alert(target, "[inviter] wants to bring you aboard [ship_display_name]. Board?", "Boarding Invitation", list("Accept", "Deny"), DRYDOCK_INVITE_TIMEOUT)
@@ -594,9 +605,10 @@
 /// currently-deployed drydock ship -- available from anywhere aboard (no
 /// ship-side object needed, matching how boarding needs none either). Two
 /// kinds of destination: wherever the ship is genuinely docked (today's
-/// original behavior, instant), or any away-site/station sector within 1
-/// tile of the ship's own overmap position (lets crew portal to a nearby
-/// site without needing to actually dock there first). If more than one
+/// original behavior, instant), or any away-site/station sector within
+/// DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX tiles of the ship's own overmap
+/// position (lets crew portal to a nearby site without needing to actually
+/// dock there first). If more than one
 /// candidate exists, or the docked one is chosen, an additive choice offers
 /// the turf-pick eye view alongside the original instant delivery.
 /proc/_drydock_disembark_core(mob/living/L)
@@ -633,7 +645,7 @@
 			if(!istype(nearby) || istype(nearby, /obj/effect/overmap/visitable/sector/temporary) || (nearby in seen_sectors))
 				continue
 			seen_sectors += nearby
-			if(get_dist(marker, nearby) > 1)
+			if(get_dist(marker, nearby) > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
 				continue
 			var/turf/site_turf = get_turf(nearby)
 			if(site_turf)
@@ -656,29 +668,49 @@
 
 	var/target_z = GET_Z(anchor_turf)
 	var/is_dock_target = (shuttle_datum && marker.status == SHIP_STATUS_LANDED && target_z == GET_Z(shuttle_datum.current_location))
+	var/is_hub_target = (zone_security_get(target_z) == ZONE_HIGHSEC)
 
-	// Only the actual dock target has an "instant" option -- a nearby
-	// away-site pick never had a fixed landmark turf to begin with, so it
-	// always goes straight to the eye view.
+	var/turf/destination
 	var/use_picker = TRUE
-	if(is_dock_target)
+
+	if(is_hub_target)
+		// Highsec (the Hub) is never eye-view-pickable, even exterior-only --
+		// "people should enter the hub, just not anywhere." Route straight to
+		// the Hub's own dedicated travel telepad instead, the same fixed
+		// arrival point Personal Travel's "Return to Hub" already uses. Still
+		// goes through the same spool-up/combat-recheck/portal tail below --
+		// only the eye-view CLICKING step is skipped, not the safety window.
+		use_picker = FALSE
+		for(var/obj/structure/machinery/telepad_cargo/travel/hub/H in world)
+			if(QDELETED(H))
+				continue
+			destination = get_turf(H)
+			break
+		if(!destination)
+			to_chat(L, SPAN_WARNING("No Hub travel pad could be found."))
+			return FALSE
+	else if(is_dock_target)
+		// Only the actual dock target has an "instant" option -- a nearby
+		// away-site pick never had a fixed landmark turf to begin with, so it
+		// always goes straight to the eye view.
 		use_picker = (tgui_alert(L, "Disembark how?", "Disembark", list("Land at Dock", "Choose Landing Spot")) == "Choose Landing Spot")
 		if(QDELETED(L) || L.stat == DEAD || L.buckled_to)
 			return FALSE
+		if(!use_picker)
+			destination = get_turf(shuttle_datum.current_location)
+			if(!destination || destination.density)
+				to_chat(L, SPAN_WARNING("The disembark point is obstructed."))
+				return FALSE
+			persistence_telepad_deliver(list(L), destination)
+			to_chat(L, SPAN_GOOD("You disembark the ship."))
+			log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id] at its docked beacon.")
+			return TRUE
 
-	if(!use_picker)
-		var/turf/destination = get_turf(shuttle_datum.current_location)
-		if(!destination || destination.density)
-			to_chat(L, SPAN_WARNING("The disembark point is obstructed."))
+	if(use_picker)
+		destination = _drydock_pick_destination_turf(L, target_z, anchor_turf)
+		if(!destination)
 			return FALSE
-		persistence_telepad_deliver(list(L), destination)
-		to_chat(L, SPAN_GOOD("You disembark the ship."))
-		log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id] at its docked beacon.")
-		return TRUE
 
-	var/turf/destination = _drydock_pick_destination_turf(L, target_z, anchor_turf)
-	if(!destination)
-		return FALSE
 	if(!do_after(L, DRYDOCK_DISEMBARK_SPOOLUP, L))
 		to_chat(L, SPAN_WARNING("Disembarking interrupted."))
 		return FALSE
@@ -687,12 +719,16 @@
 		return FALSE
 	if(QDELETED(L) || L.stat == DEAD || L.buckled_to)
 		return FALSE
-	if(destination.density || !_drydock_pick_turf_valid(destination, L, target_z))
+	// _drydock_pick_turf_valid() (the exterior-only access check) only
+	// applies to an actual player-clicked turf -- the Hub telepad is a
+	// sanctioned fixed point, exempt from that check, but still needs the
+	// basic obstruction check.
+	if(destination.density || (use_picker && !_drydock_pick_turf_valid(destination, L, target_z)))
 		to_chat(L, SPAN_WARNING("The landing point is no longer available."))
 		return FALSE
 	// A pick onto the actual dock target can lose its precondition (the
-	// ship taking off mid-pick/channel) -- a nearby-away-site pick never had
-	// one to lose.
+	// ship taking off mid-pick/channel) -- a nearby-away-site pick, or a
+	// hub-route delivery, never had one to lose.
 	if(is_dock_target)
 		var/datum/drydock_ship/recheck_ds = GLOB.drydock_ships["[DS.shuttle_id]"]
 		var/obj/effect/overmap/visitable/ship/landable/recheck_marker = istype(recheck_ds) ? GLOB.map_sectors["[recheck_ds.z]"] : null
@@ -703,7 +739,7 @@
 
 	_drydock_deliver_with_portal(L, destination)
 	to_chat(L, SPAN_GOOD("You disembark the ship."))
-	log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id] choosing a landing spot.")
+	log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id][is_hub_target ? " via the Hub telepad" : " choosing a landing spot"].")
 	return TRUE
 
 /mob/living/verb/disembark_drydock_ship()

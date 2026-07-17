@@ -15,6 +15,7 @@ type ShuttleRow = {
   custom_name: string | null;
   custom_class: string | null;
   ready: BooleanLike;
+  display_name: string;
 };
 
 type CrewEntry = { ckey: string; char_name: string; label: string | null };
@@ -36,6 +37,7 @@ type DrydockData = {
   templates: Template[];
   can_board: BooleanLike;
   board_cooldown: number;
+  can_disembark: BooleanLike;
 };
 
 export const ShuttleDrydock = (props) => {
@@ -50,10 +52,7 @@ export const ShuttleDrydock = (props) => {
     const retrieveBlocked = row.faction_uid && !data.faction_beacon;
     const notReady = !row.stashed && !row.ready;
     return (
-      <LabeledList.Item
-        key={row.shuttle_id}
-        label={row.custom_name || row.template_id}
-      >
+      <LabeledList.Item key={row.shuttle_id} label={row.display_name}>
         #{row.shuttle_id}
         {row.custom_class ? ` (${row.custom_class})` : ''} --{' '}
         {row.stashed ? 'Stashed' : notReady ? 'Initializing...' : 'Deployed'}
@@ -128,6 +127,14 @@ export const ShuttleDrydock = (props) => {
                 onClick={() => act('invite_board')}
               >
                 Invite to Board
+              </Button>
+              <Button
+                fluid
+                icon="right-from-bracket"
+                disabled={!data.can_disembark}
+                onClick={() => act('disembark')}
+              >
+                Exit Ship
               </Button>
               <Box color="label" mt={1}>
                 {data.faction_beacon

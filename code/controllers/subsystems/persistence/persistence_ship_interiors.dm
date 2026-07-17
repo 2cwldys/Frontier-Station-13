@@ -208,7 +208,7 @@ GLOBAL_LIST_EMPTY(reusable_z_pool)
 	if(DS.owner_ckey)
 		var/client/C = GLOB.directory[DS.owner_ckey]
 		if(C?.mob)
-			to_chat(C.mob, SPAN_GOOD("Your ship '[DS.custom_name || DS.template_id]' has finished initializing and is ready to board."))
+			to_chat(C.mob, SPAN_GOOD("Your ship '[DS.display_name()]' has finished initializing and is ready to board."))
 
 /**
  * Keeps each deployed ship's ledger overmap_x/y current with its live

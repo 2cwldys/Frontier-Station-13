@@ -77,7 +77,8 @@
 					"owner_ckey" = q.item[3], "owner_char_name" = q.item[4], "faction_uid" = q.item[5],
 					"stashed" = text2num(q.item[6]),
 					"custom_name" = q.item[7], "custom_class" = q.item[8],
-					"ready" = live ? live.ready : TRUE
+					"ready" = live ? live.ready : TRUE,
+					"display_name" = live ? live.display_name() : (q.item[7] || q.item[2])
 				)
 				my_shuttle_ids += sid
 				if(row["owner_ckey"] == user.ckey && row["owner_char_name"] == user.real_name)
@@ -109,6 +110,7 @@
 	var/board_ready_at = last_boarded_by_ckey[user.ckey] ? (last_boarded_by_ckey[user.ckey] + 30) : 0
 	data["can_board"] = world.time >= board_ready_at
 	data["board_cooldown"] = max(0, round((board_ready_at - world.time) / 10))
+	data["can_disembark"] = !!_drydock_ship_at(GET_Z(user))
 
 	data["templates"] = list()
 	for(var/tid in SSmapping.drydock_ship_templates)
@@ -126,10 +128,10 @@
 	var/mob/user = usr
 
 	// PDAs can now open this program at all (usage_flags above), but only
-	// to board or invite someone aboard -- every ownership-changing action
-	// still requires a real console/laptop, which usage_flags alone no
-	// longer guarantees for free.
-	if(action != "board" && action != "invite_board" && istype(computer, /obj/item/modular_computer/handheld))
+	// to board, invite someone aboard, or exit a ship -- every ownership-
+	// changing action still requires a real console/laptop, which
+	// usage_flags alone no longer guarantees for free.
+	if(action != "board" && action != "invite_board" && action != "disembark" && istype(computer, /obj/item/modular_computer/handheld))
 		to_chat(user, SPAN_WARNING("This requires a full console or laptop, not a handheld device."))
 		return TRUE
 
@@ -164,6 +166,11 @@
 		if("invite_board")
 			log_drydock("drydock ui_act: [key_name(user)] requested Invite to Board.")
 			_drydock_invite_board_core(user, last_boarded_by_ckey)
+			return TRUE
+
+		if("disembark")
+			log_drydock("drydock ui_act: [key_name(user)] requested Exit Ship.")
+			_drydock_disembark_core(user)
 			return TRUE
 
 		if("sell")

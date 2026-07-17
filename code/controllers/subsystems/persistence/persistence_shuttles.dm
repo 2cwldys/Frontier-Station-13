@@ -11,13 +11,14 @@
  * (faction_uid).
  *
  * Retrieve/Stash are sector-relative rather than anchored to any physical
- * navigation destination. A personal ship retrieves directly into whatever
- * sector its owner's current computer is in, and stashes near any faction's
- * med-sec-or-better faction_beacon (not necessarily their own -- see
- * drydockStash()); a faction-owned ship retrieves/stashes only near its OWN
- * faction's faction_beacon (which claims a whole Z) -- see
- * shipPlaceOvermapMarker() and the ownership-branching in drydockRetrieve()/
- * drydockStash(). Both directions also refuse during a recent-combat lockout
+ * navigation destination. A personal ship retrieves/stashes into whatever
+ * sector its owner's current computer is in, provided any faction's
+ * med-sec-or-better faction_beacon is nearby (not necessarily their own --
+ * see _drydock_secured_beacon_nearby(), shared by both); a faction-owned
+ * ship retrieves/stashes only near its OWN faction's faction_beacon (which
+ * claims a whole Z) -- see shipPlaceOvermapMarker() and the
+ * ownership-branching in drydockRetrieve()/drydockStash(). Both directions
+ * also refuse during a recent-combat lockout
  * (in_recent_combat() on the user or the ship itself, see ship.dm) for stash,
  * and boarding itself now takes a 15-second interruptible spool-up
  * (_drydock_board_core(), telepad_drydock_boarding.dm) so a fight can't be
@@ -43,6 +44,12 @@
 
 /// shuttle_id -> /datum/drydock_ship, for every purchased drydock ship (owned, stashed or deployed).
 GLOBAL_LIST_EMPTY(drydock_ships)
+
+/// Admin-tunable, DB-persisted (ss13_drydock_config) cap on how many ships
+/// can be deployed at once server-wide -- 0 = no limit. Loaded at boot by
+/// _drydockLoadShipCap(), updated live by the "Set Drydock Ship Cap" admin
+/// verb (set_drydock_ship_cap(), below).
+GLOBAL_VAR_INIT(drydock_max_deployed_ships, 0)
 
 /datum/drydock_ship
 	var/shuttle_id
@@ -89,6 +96,39 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 /// under the same ckey don't inherit access to a ship one character bought.
 /datum/drydock_ship/proc/owned_by(mob/user)
 	return owner_ckey && user && owner_ckey == user.ckey && owner_char_name == user.real_name
+
+/// Shown everywhere a ship's own name appears (overmap marker, admin logs,
+/// chat messages, the Drydock program's own list) -- custom_name if set,
+/// else the template's own default name, with " (FactionName)" appended for
+/// a faction-owned ship. Never appended for a personally-owned ship.
+/datum/drydock_ship/proc/display_name()
+	var/base = custom_name
+	if(!base)
+		var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[template_id]
+		base = template ? initial(template.name) : template_id
+	if(faction_uid)
+		return "[base] ([get_faction_name(faction_uid)])"
+	return base
+
+/// TRUE if a beacon satisfying the ownership rule sits at or adjacent to
+/// (get_dist <= 1) sector: for a faction_uid, that faction's own beacon
+/// specifically; for null (personal), any active med-sec-or-better beacon
+/// regardless of whose it is. Shared by drydockRetrieve()'s personal-ship
+/// path and drydockStash(), so "secured territory" means the same thing in
+/// both places.
+/proc/_drydock_secured_beacon_nearby(obj/effect/overmap/visitable/sector, faction_uid)
+	if(!istype(sector))
+		return FALSE
+	for(var/bz in GLOB.faction_beacon_by_z)
+		var/obj/structure/machinery/faction_beacon/B = GLOB.faction_beacon_by_z[bz]
+		if(!B)
+			continue
+		if(faction_uid ? (B.faction_uid != faction_uid) : (zone_security_get(GET_Z(B)) < ZONE_MEDSEC))
+			continue
+		var/obj/effect/overmap/visitable/beacon_sector = GLOB.map_sectors["[GET_Z(B)]"]
+		if(istype(beacon_sector) && get_dist(sector, beacon_sector) <= 1)
+			return TRUE
+	return FALSE
 
 /// Verbose debug logging for the drydock/shuttle system -- writes to the
 /// dedicated persistence subsystem log file (gated behind the
@@ -284,6 +324,23 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 
 	log_drydock("drydockShipLedgerRestore: [restored] drydock ship(s) restored[reset_stale ? ", [reset_stale] recovered from an unclean shutdown" : ""], [crew_loaded] crew entr[crew_loaded == 1 ? "y" : "ies"] loaded.")
 
+	_drydockLoadShipCap()
+
+/// Loads the admin-tunable deployed-ship cap from its singleton DB row into
+/// GLOB.drydock_max_deployed_ships (0 = no limit). Called once at boot
+/// alongside drydockShipLedgerRestore(); set_drydock_ship_cap() (admin verb,
+/// below) updates both the GLOB and the DB row live afterward.
+/proc/_drydockLoadShipCap()
+	GLOB.drydock_max_deployed_ships = 0
+	if(!GLOB.config.sql_enabled || !SSdbcore.Connect())
+		return
+	var/datum/db_query/q = SSdbcore.NewQuery("SELECT max_deployed_ships FROM ss13_drydock_config WHERE id = 1", list())
+	q.Execute()
+	if(SSpersistence.databaseCheckQueryResult(q, "_drydockLoadShipCap") && q.NextRow())
+		GLOB.drydock_max_deployed_ships = text2num(q.item[1])
+	qdel(q)
+	log_drydock("_drydockLoadShipCap: deployed-ship cap loaded as [GLOB.drydock_max_deployed_ships] (0 = no limit).")
+
 // ============================================================
 // CREW  boarding access without ownership/faction membership
 // ============================================================
@@ -409,8 +466,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 	if(!DS.stashed)
 		var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
 		if(istype(marker))
-			var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
-			marker.name = DS.custom_name || (template ? initial(template.name) : marker.name)
+			marker.name = DS.display_name()
 			marker.class = DS.custom_class
 
 	if(user)
@@ -544,8 +600,13 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 /// A faction-owned ship retrieves only near its OWN faction's faction_beacon
 /// (anchor, required, faction_uid must match). A personally-owned ship
 /// ignores anchor entirely and retrieves directly into whatever sector
-/// from_turf (the retrieving computer's own position) is currently in -- no
-/// beacon of any kind required. See the file header for the full rationale.
+/// from_turf (the retrieving computer's own position) is currently in --
+/// still requires SOME active med-sec-or-better faction beacon nearby
+/// (any faction's, not necessarily the retriever's own), matching the same
+/// rule drydockStash() already enforced for personal ships
+/// (_drydock_secured_beacon_nearby()) -- can't retrieve in raw unclaimed
+/// space just because a modular computer is present. See the file header
+/// for the full rationale.
 /datum/controller/subsystem/persistence/proc/drydockRetrieve(shuttle_id, obj/structure/machinery/faction_beacon/anchor, turf/from_turf, mob/user)
 	var/acting = user ? key_name(user) : "SYSTEM"
 	log_drydock("drydockRetrieve: [acting] attempting to retrieve shuttle_id=[shuttle_id].")
@@ -571,6 +632,17 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 			to_chat(user, SPAN_WARNING("A ship of this class is already deployed somewhere -- stash it first."))
 		log_drydock_warning("drydockRetrieve: refused -- template '[DS.template_id]' already has a deployed instance (acting=[acting]).")
 		return FALSE
+	if(GLOB.drydock_max_deployed_ships > 0)
+		var/currently_deployed = 0
+		for(var/sid in GLOB.drydock_ships)
+			var/datum/drydock_ship/other = GLOB.drydock_ships[sid]
+			if(other && !other.stashed)
+				currently_deployed++
+		if(currently_deployed >= GLOB.drydock_max_deployed_ships)
+			if(user)
+				to_chat(user, SPAN_WARNING("Too many ships are currently in play -- try again later. Consider using the Personal Travel program instead."))
+			log_drydock_warning("drydockRetrieve: refused -- deployed ship cap ([GLOB.drydock_max_deployed_ships]) reached (acting=[acting]).")
+			return FALSE
 
 	var/obj/effect/overmap/visitable/target_sector
 	var/placement_radius
@@ -602,6 +674,11 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 			if(user)
 				to_chat(user, SPAN_WARNING("You must be within a mapped sector to retrieve a ship."))
 			log_drydock_warning("drydockRetrieve: refused -- from_turf z=[from_turf.z] has no overmap sector for personal shuttle_id=[shuttle_id] (acting=[acting]).")
+			return FALSE
+		if(!_drydock_secured_beacon_nearby(target_sector, null))
+			if(user)
+				to_chat(user, SPAN_WARNING("You must be near a secured (med-sec or better) faction beacon to retrieve a ship."))
+			log_drydock_warning("drydockRetrieve: refused -- shuttle_id=[shuttle_id] not near a secured beacon (acting=[acting]).")
 			return FALSE
 		placement_radius = DRYDOCK_SHIP_PLACEMENT_RADIUS
 	if(!istype(target_sector))
@@ -697,7 +774,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 	// Player-facing identity (separate from the internal registry name
 	// above): custom_name/custom_class override the template's own
 	// defaults, kept clean of the "#shuttle_id" uniqueness suffix.
-	marker.name = DS.custom_name || initial(template.name)
+	marker.name = DS.display_name()
 	if(DS.custom_class)
 		marker.class = DS.custom_class
 
@@ -739,7 +816,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 
 	if(user)
 		to_chat(user, SPAN_GOOD("Ship retrieved -- fly it in using its own navigation console. It's still initializing; you'll be notified once it's ready to board."))
-		message_admins("[key_name(user)] retrieved drydock ship '[DS.custom_name || template.name]' (#[shuttle_id]) at ([marker.x],[marker.y],[new_z]). [ADMIN_JMP(marker)]")
+		message_admins("[key_name(user)] retrieved drydock ship '[DS.display_name()]' (#[shuttle_id]) at ([marker.x],[marker.y],[new_z]). [ADMIN_JMP(marker)]")
 	log_drydock("drydockRetrieve: shuttle_id=[shuttle_id] deployed at z=[DS.z], overmap ([DS.overmap_x],[DS.overmap_y]) (acting=[acting]).")
 	return TRUE
 
@@ -895,19 +972,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 		// necessarily one it owns), provided that beacon's own sector is
 		// currently med-sec or better -- a faction ship still requires its
 		// OWN faction's beacon specifically, same as retrieve.
-		var/near_valid_beacon = FALSE
-		if(istype(check_marker))
-			for(var/bz in GLOB.faction_beacon_by_z)
-				var/obj/structure/machinery/faction_beacon/B = GLOB.faction_beacon_by_z[bz]
-				if(!B)
-					continue
-				if(DS.faction_uid ? (B.faction_uid != DS.faction_uid) : (zone_security_get(GET_Z(B)) < ZONE_MEDSEC))
-					continue
-				var/obj/effect/overmap/visitable/beacon_sector = GLOB.map_sectors["[GET_Z(B)]"]
-				if(istype(beacon_sector) && get_dist(check_marker, beacon_sector) <= 1)
-					near_valid_beacon = TRUE
-					break
-		if(!near_valid_beacon)
+		if(!_drydock_secured_beacon_nearby(check_marker, DS.faction_uid))
 			if(user)
 				to_chat(user, SPAN_WARNING(DS.faction_uid ? "This ship must be within 1 tile of your faction's own beacon to be stashed." : "You must be near a secured (med-sec or better) faction beacon to stash."))
 			log_drydock_warning("drydockStash: refused -- shuttle_id=[shuttle_id] not near a valid beacon (acting=[acting]).")
@@ -957,7 +1022,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 
 	if(user)
 		to_chat(user, SPAN_GOOD("Ship stashed."))
-		message_admins("[key_name(user)] stashed drydock ship '[DS.custom_name || DS.template_id]' (#[shuttle_id]). [stash_jmp]")
+		message_admins("[key_name(user)] stashed drydock ship '[DS.display_name()]' (#[shuttle_id]). [stash_jmp]")
 	log_drydock("drydockStash: shuttle_id=[shuttle_id] fully stashed and torn down (acting=[acting]).")
 	return TRUE
 
@@ -1041,7 +1106,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 
 	var/obj/effect/overmap/visitable/marker = was_deployed ? GLOB.map_sectors["[DS.z]"] : null
 	var/atom/jmp_target = (was_deployed && marker) ? marker : user
-	var/display_name = DS.custom_name || DS.template_id
+	var/ship_display_name = DS.display_name()
 	var/deployed_z = DS.z
 
 	// Ledger row (and its GLOB.drydock_ships entry) is fully gone BEFORE the
@@ -1069,7 +1134,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 	if(was_deployed)
 		SSpersistence._drydockMarkerTeardown(deployed_z)
 
-	message_admins("[key_name(user)] SCUTTLED their ship '[display_name]' (#[shuttle_id]) for [DRYDOCK_SCUTTLE_FEE]cr. [ADMIN_JMP(jmp_target)]")
+	message_admins("[key_name(user)] SCUTTLED their ship '[ship_display_name]' (#[shuttle_id]) for [DRYDOCK_SCUTTLE_FEE]cr. [ADMIN_JMP(jmp_target)]")
 	to_chat(user, SPAN_GOOD("Ship scuttled -- gone for good."))
 	log_drydock("drydockScuttle: [acting] permanently scuttled shuttle_id=[shuttle_id] ('[DS.template_id]') for [DRYDOCK_SCUTTLE_FEE]cr, was_deployed=[was_deployed].")
 	return TRUE
@@ -1220,3 +1285,37 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 	to_chat(user, SPAN_GOOD("Drydock ship #[shuttle_id] ('[template_id]') restored from backup -- stashed, retrievable from the Drydock program."))
 	log_admin("[key_name(user)] restored drydock ship #[shuttle_id] from backup.")
 	log_drydock("restore_ship_backup: [key_name(user)] restored shuttle_id=[shuttle_id] from backup.")
+
+/// Live-edits the server-wide deployed-ship cap (GLOB.drydock_max_deployed_ships,
+/// see _drydockLoadShipCap()) and persists it to its singleton DB row --
+/// takes effect immediately, survives a restart. 0 = no limit.
+/datum/admins/proc/set_drydock_ship_cap()
+	set name = "Set Drydock Ship Cap"
+	set category = "Persistence"
+	if(!check_rights(R_ADMIN))
+		return
+
+	var/new_cap = tgui_input_number(usr, "Max ships deployed at once (0 = no limit):", "Set Drydock Ship Cap", GLOB.drydock_max_deployed_ships, 9999, 0)
+	if(isnull(new_cap))
+		return
+
+	if(!SSpersistence.databaseCheckConnection("set_drydock_ship_cap"))
+		to_chat(usr, SPAN_WARNING("Database connection failed -- cap not saved."))
+		return
+
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"INSERT INTO ss13_drydock_config (id, max_deployed_ships) VALUES (1, :cap) ON DUPLICATE KEY UPDATE max_deployed_ships = :cap",
+		list("cap" = new_cap)
+	)
+	q.Execute()
+	if(!SSpersistence.databaseCheckQueryResult(q, "set_drydock_ship_cap update"))
+		to_chat(usr, SPAN_WARNING("Database error -- cap not saved."))
+		qdel(q)
+		return
+	qdel(q)
+
+	GLOB.drydock_max_deployed_ships = new_cap
+	to_chat(usr, SPAN_GOOD("Deployed-ship cap set to [new_cap ? new_cap : "no limit"]."))
+	log_admin("[key_name(usr)] set the drydock deployed-ship cap to [new_cap].")
+	message_admins("[key_name(usr)] set the drydock deployed-ship cap to [new_cap ? new_cap : "no limit"].")
+	log_drydock("set_drydock_ship_cap: [key_name(usr)] set cap to [new_cap].")
