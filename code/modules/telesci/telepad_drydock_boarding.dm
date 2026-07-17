@@ -158,7 +158,7 @@
 	// Full re-validation -- the spool-up gives plenty of time for the ship
 	// to be stashed, its marker destroyed, or the mob to have moved out of
 	// range or into a bad state.
-	var/datum/drydock_ship/recheck = GLOB.drydock_ships[target.shuttle_id]
+	var/datum/drydock_ship/recheck = GLOB.drydock_ships["[target.shuttle_id]"]
 	if(!recheck || recheck != target || recheck.stashed)
 		to_chat(L, SPAN_WARNING("The ship is no longer available to board."))
 		return FALSE

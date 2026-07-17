@@ -243,7 +243,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 			DS.overmap_y = null
 			reset_stale++
 
-		GLOB.drydock_ships[DS.shuttle_id] = DS
+		GLOB.drydock_ships["[DS.shuttle_id]"] = DS
 		restored++
 	qdel(q)
 
@@ -255,7 +255,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 	cq.Execute()
 	if(SSpersistence.databaseCheckQueryResult(cq, "drydockShipLedgerRestore crew"))
 		while(cq.NextRow())
-			var/datum/drydock_ship/DS = GLOB.drydock_ships[text2num(cq.item[1])]
+			var/datum/drydock_ship/DS = GLOB.drydock_ships[cq.item[1]]
 			if(DS)
 				DS.crew_ckeys |= "[cq.item[2]]|[cq.item[3]]"
 				crew_loaded++
@@ -274,7 +274,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 /// retrieve/stash: admin, the owner, or an officer of the owning faction.
 /datum/controller/subsystem/persistence/proc/drydockAddCrew(shuttle_id, target_ckey, target_char_name, label, mob/user)
 	var/acting = user ? key_name(user) : "SYSTEM"
-	var/datum/drydock_ship/DS = GLOB.drydock_ships[shuttle_id]
+	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
 	if(!DS)
 		log_drydock_warning("drydockAddCrew: refused -- unknown shuttle_id=[shuttle_id] (acting=[acting]).")
 		return FALSE
@@ -315,7 +315,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 
 /datum/controller/subsystem/persistence/proc/drydockRemoveCrew(shuttle_id, target_ckey, target_char_name, mob/user)
 	var/acting = user ? key_name(user) : "SYSTEM"
-	var/datum/drydock_ship/DS = GLOB.drydock_ships[shuttle_id]
+	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
 	if(!DS)
 		log_drydock_warning("drydockRemoveCrew: refused -- unknown shuttle_id=[shuttle_id] (acting=[acting]).")
 		return FALSE
@@ -356,7 +356,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 /// retrieve.
 /datum/controller/subsystem/persistence/proc/drydockRename(shuttle_id, new_name, new_class, mob/user)
 	var/acting = user ? key_name(user) : "SYSTEM"
-	var/datum/drydock_ship/DS = GLOB.drydock_ships[shuttle_id]
+	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
 	if(!DS)
 		log_drydock_warning("drydockRename: refused -- unknown shuttle_id=[shuttle_id] (acting=[acting]).")
 		return FALSE
@@ -474,7 +474,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 	DS.owner_char_name = owner_char_name
 	DS.faction_uid = faction_uid
 	DS.stashed     = TRUE
-	GLOB.drydock_ships[new_id] = DS
+	GLOB.drydock_ships["[new_id]"] = DS
 
 	if(user)
 		to_chat(user, SPAN_GOOD("Purchased '[template.name]' -- retrieve it from the Drydock program."))
@@ -496,7 +496,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 	var/acting = user ? key_name(user) : "SYSTEM"
 	log_drydock("drydockRetrieve: [acting] attempting to retrieve shuttle_id=[shuttle_id].")
 
-	var/datum/drydock_ship/DS = GLOB.drydock_ships[shuttle_id]
+	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
 	if(!DS)
 		if(user)
 			to_chat(user, SPAN_WARNING("No such drydock ship."))
@@ -789,7 +789,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 	var/acting = user ? key_name(user) : "SYSTEM[force ? "(force)" : ""]"
 	log_drydock("drydockStash: [acting] attempting to stash shuttle_id=[shuttle_id].")
 
-	var/datum/drydock_ship/DS = GLOB.drydock_ships[shuttle_id]
+	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
 	if(!DS)
 		log_drydock_warning("drydockStash: refused -- unknown shuttle_id=[shuttle_id] (acting=[acting]).")
 		return FALSE
@@ -915,7 +915,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 	var/acting = user ? key_name(user) : "SYSTEM"
 	log_drydock("drydockScuttle: [acting] attempting to scuttle shuttle_id=[shuttle_id].")
 
-	var/datum/drydock_ship/DS = GLOB.drydock_ships[shuttle_id]
+	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
 	if(!DS)
 		log_drydock_warning("drydockScuttle: refused -- unknown shuttle_id=[shuttle_id] (acting=[acting]).")
 		return FALSE
@@ -1084,7 +1084,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 	_restore_drydock_shuttle_from_backup(options[pick], usr)
 
 /datum/admins/proc/_restore_drydock_shuttle_from_backup(shuttle_id, mob/user)
-	var/datum/drydock_ship/existing = GLOB.drydock_ships[shuttle_id]
+	var/datum/drydock_ship/existing = GLOB.drydock_ships["[shuttle_id]"]
 	if(existing && !existing.stashed)
 		to_chat(user, SPAN_WARNING("Drydock ship #[shuttle_id] is already live -- nothing to restore."))
 		return
@@ -1129,7 +1129,7 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 		DS.owner_char_name = owner_char_name
 		DS.faction_uid = faction_uid
 		DS.stashed     = TRUE
-		GLOB.drydock_ships[shuttle_id] = DS
+		GLOB.drydock_ships["[shuttle_id]"] = DS
 
 	to_chat(user, SPAN_GOOD("Drydock ship #[shuttle_id] ('[template_id]') restored from backup -- stashed, retrievable from the Drydock program."))
 	log_admin("[key_name(user)] restored drydock ship #[shuttle_id] from backup.")

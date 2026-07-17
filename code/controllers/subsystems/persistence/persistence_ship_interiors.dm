@@ -200,7 +200,7 @@ GLOBAL_LIST_EMPTY(reusable_z_pool)
 	if(copytext(scope, 1, 8) != "ship:d:")
 		return
 	var/shuttle_id = text2num(copytext(scope, 8))
-	var/datum/drydock_ship/DS = GLOB.drydock_ships[shuttle_id]
+	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
 	if(!DS || DS.stashed || DS.z != z)
 		return
 	DS.ready = TRUE

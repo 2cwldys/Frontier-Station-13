@@ -66,7 +66,7 @@
 		if(SSpersistence.databaseCheckQueryResult(q, "drydock ui_data select"))
 			while(q.NextRow())
 				var/sid = text2num(q.item[1])
-				var/datum/drydock_ship/live = GLOB.drydock_ships[sid]
+				var/datum/drydock_ship/live = GLOB.drydock_ships["[sid]"]
 				var/list/row = list(
 					"shuttle_id" = sid, "template_id" = q.item[2],
 					"owner_ckey" = q.item[3], "owner_char_name" = q.item[4], "faction_uid" = q.item[5],
