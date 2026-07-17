@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/ranger_corvette
 	name = "Ranger Gunboat"
 	class = "FPBS"
+	shuttle = "Ranger Gunboat (Drydock)"
 	desc = "The Xansan-class is not, in fact, a distinct design in of itself. It is instead Xanu Prime's variant of the Lagos-class gunboat, a Solarian light attack ship design. The Rangers make use of the craft to this day, in spite of their advanced age."
 	icon_state = "xansan"
 	moving_state = "xansan_moving"

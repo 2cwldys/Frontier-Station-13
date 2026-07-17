@@ -17,6 +17,7 @@
 	name = "Tarwa Conglomerate Ship"
 	desc = "An Azkrazal-class cargo freighter. Scans indicate it is heavily damaged, and that there appears to be some form of organic growth on the exterior hull."
 	class = "ICV"
+	shuttle = "Tarwa Conglomerate Ship (Drydock)"
 	icon_state = "tramp"
 	moving_state = "tramp_moving"
 	colors = list("#c2c1ac", "#1b7325")

@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/freebooter_ship
 	name = "Freebooter Ship"
 	class = "ICV"
+	shuttle = "Freebooter Ship (Drydock)"
 	desc = "One of the most common sights in the Orion Spur, even outside of human space, is the Hephaestus-produced Ox-class freighter. Designed to haul significant amounts of cargo on well-charted routes between civilized systems."
 	icon_state = "tramp"
 	moving_state = "tramp_moving"

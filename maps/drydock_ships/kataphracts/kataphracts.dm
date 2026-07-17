@@ -19,6 +19,7 @@
 	name = "kataphract chapter ship"
 	desc = "A large corvette manufactured by a Hephaestus sponsored Hegemonic Guild. This is a heavily armoured Kataphract Chapter ship of the venerable 'Voidbreaker' class, a relative of the more common 'Foundation' class used by their counterparts in the Hegemony Navy."
 	class = "IHKV"
+	shuttle = "Kataphract Chapter Ship (Drydock)"
 	icon_state = "voidbreaker"
 	moving_state = "voidbreaker_moving"
 	colors = list("#e38222", "#f0ba3e")

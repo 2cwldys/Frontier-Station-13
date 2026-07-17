@@ -18,6 +18,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/xanu_frigate
 	name = "Xanu Spacefleet Frigate"
 	class = "AXSV"
+	shuttle = "Xanu Spacefleet Frigate (Drydock)"
 	desc = "The Rapier-class Frigate is a formidable warship in widespread use by the All-Xanu Spacefleet throughout its expeditionary fleets. Originating as a robust upgrade package to the venerable Estoc class, the Rapier upgrade program has spared no expense, with thick hull plating, redundant power, life support, and engines."
 	icon_state = "xanu_frigate"
 	moving_state = "xanu_frigate_moving"

@@ -19,6 +19,7 @@
 	name = "Private Yacht"
 	desc = "A private pleasure yacht. The design appears to be from the Idris Incorporated 'Starfarer' line."
 	class = "IPV"
+	shuttle = "Private Yacht (Drydock)"
 	icon_state = "generic"
 	moving_state = "generic_moving"
 	colors = list("#c3c7eb", "#a0a8ec")

@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/splf_raider
 	name = "SPLF Auxiliary Vessel"
 	class = "SPLFV"
+	shuttle = "SPLF Auxiliary Vessel (Drydock)"
 	desc = "The Laksamana-class hauling vessel is a relatively unusual sighting in the wider spur, native almost exclusively to the shipyards of Hang Tuah's Rest and the surrounding space. This one appears to have been substantially modified, boasting a heavily armed gunnery pod slotted into its starboard cargo pod port."
 	icon_state = "freighter"
 	moving_state = "freighter_moving"

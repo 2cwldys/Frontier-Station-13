@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/ee_spy_ship
 	name = "Einstein Engines Research Ship"
 	class = "EERV"
+	shuttle = "Einstein Engines Research Ship (Drydock)"
 	desc = "A research ship belonging to Einstein Engines, the Stellar Corporate Conglomerate's main competitor."
 	icon_state = "light_cruiser"
 	moving_state = "light_cruiser_moving"

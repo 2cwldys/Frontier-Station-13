@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/sfa_patrol_ship
 	name = "SFA Corvette"
 	class = "SFAV"
+	shuttle = "SFA Corvette (Drydock)"
 	desc = "A small ship that appears to be, at its core, a Montevideo-class corvette, a Solarian anti-piracy and patrol corvette designed with ample automation and streamlined equipment which allows for it to be manned by a small crew. This one, however, seems to have been host to a myriad of haphazard and radical modifications, and is scarcely identifiable as the original craft."
 	icon_state = "corvette"
 	moving_state = "corvette_moving"

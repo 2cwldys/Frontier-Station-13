@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/adhomian_circus
 	name = "Adhomian Traveling Circus"
 	class = "ACV"
+	shuttle = "Adhomian Traveling Circus (Drydock)"
 	desc = "The N'hanzafu class is a bulky Adhomian freighter designed with a large crew and cargo in mind. This one is painted in bright colors."
 	icon_state = "generic"
 	moving_state = "generic_moving"

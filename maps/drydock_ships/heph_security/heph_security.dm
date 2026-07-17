@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/heph_security
 	name = "Hephaestus Security Vessel"
 	class = "HCV"
+	shuttle = "Hephaestus Security Vessel (Drydock)"
 	desc = "The Eumenides-class security transport is a Hephaestus design, largely used by the corporation's own asset protection forces. Designed for rapid response and usually outfited with high-grade equipment, these vessels are rarely seen far from major Hephaestus investments."
 	icon_state = "cetus"
 	moving_state = "cetus_moving"

@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/gadpathur_patrol
 	name = "Gadpathurian Patrol Corvette"
 	class = "GNV"
+	shuttle = "Gadpathurian Patrol Corvette (Drydock)"
 	desc = "The Gadpathurian Skanda-class patrol corvette is very much designed with function over form in mind. These vessels are built by Gadpathur's industrial cadres, to serve as patrol and reconnaissance craft for Gadpathur's navy."
 	icon_state = "tramp"
 	moving_state = "tramp_moving"

@@ -541,12 +541,6 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 // RETRIEVE  materialize: fresh Z, marker placed near the docking beacon
 // ============================================================
 
-// Must stay <= the boarding proximity threshold (get_dist(...) <= 1,
-// telepad_drydock_boarding.dm) -- a ship placed further from its target
-// sector than boarding tolerates would be unboardable from the very spot
-// it was just retrieved from.
-#define DRYDOCK_SHIP_PLACEMENT_RADIUS 1
-
 /// A faction-owned ship retrieves only near its OWN faction's faction_beacon
 /// (anchor, required, faction_uid must match). A personally-owned ship
 /// ignores anchor entirely and retrieves directly into whatever sector
@@ -831,24 +825,42 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 	var/map_low = OVERMAP_EDGE
 	var/map_high = SSatlas.current_map.overmap_size - OVERMAP_EDGE
 
-	var/turf/home
-	var/tries = 10
-	while(tries > 0)
-		tries--
-		var/turf/candidate = CircularRandomTurfAround(anchor_sector, radius, map_low, map_low, map_high, map_high)
-		if(candidate && !(locate(/obj/effect/overmap/visitable) in candidate))
-			home = candidate
-			break
+	// Tier 1: within the normal radius, avoiding both other ship markers and
+	// active overmap hazards (meteor/dust/carp/electric/gravity_anomaly/ion,
+	// event.dm) -- forceMove() below fires Entered() unconditionally, and
+	// landing directly on a live hazard tile starts its wave event targeting
+	// this ship's own freshly-loaded Z (real explosions shortly after
+	// retrieve). Tier 2: if hazards happen to blanket every tile at the
+	// normal radius, widen to DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX -- boarding's
+	// own sector-proximity checks tolerate up to that same distance
+	// (telepad_drydock_boarding.dm), so the ship stays reachable from
+	// wherever it was retrieved. Only if both tiers fail does this fall back
+	// to today's absolute last resort (share a tile, no exclusions at all).
+	var/turf/home = _shipPlacementFindClearTurf(anchor_sector, radius, map_low, map_high)
+	if(!home && radius < DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
+		log_drydock_warning("shipPlaceOvermapMarker: no hazard-free tile within radius [radius] of anchor sector, widening to [DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX].")
+		home = _shipPlacementFindClearTurf(anchor_sector, DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX, map_low, map_high)
 	if(!home)
 		home = CircularRandomTurfAround(anchor_sector, radius, map_low, map_low, map_high, map_high)
-		log_drydock_warning("shipPlaceOvermapMarker: no free tile within radius [radius] of anchor sector after retries, sharing a tile.")
+		log_drydock_warning("shipPlaceOvermapMarker: no clear tile found even at widened radius, accepting a shared/hazard tile as last resort.")
 
 	if(home)
 		marker.start_x = home.x
 		marker.start_y = home.y
 		marker.forceMove(home)
 		log_drydock("shipPlaceOvermapMarker: placed marker at ([home.x],[home.y]), radius=[radius] of anchor sector.")
-#undef DRYDOCK_SHIP_PLACEMENT_RADIUS
+
+/// Up to 10 random tries within radius of anchor_sector for a turf holding
+/// neither another ship marker nor an active overmap hazard. Returns null if
+/// none found -- see shipPlaceOvermapMarker()'s two-tier caller above.
+/datum/controller/subsystem/persistence/proc/_shipPlacementFindClearTurf(obj/effect/overmap/visitable/anchor_sector, radius, map_low, map_high)
+	var/tries = 10
+	while(tries > 0)
+		tries--
+		var/turf/candidate = CircularRandomTurfAround(anchor_sector, radius, map_low, map_low, map_high, map_high)
+		if(candidate && !(locate(/obj/effect/overmap/visitable) in candidate) && !(locate(/obj/effect/overmap/event) in candidate))
+			return candidate
+	return null
 
 // ============================================================
 // STASH  wipe content, remove the marker, ledger row only

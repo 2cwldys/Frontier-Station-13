@@ -17,6 +17,7 @@
 	name = "Database Freighter"
 	desc = "Made from adapted designs of the first freighter Tajara ever worked upon, Database freighters are PRA vessels made specially for gathering information on star systems and what passes through them."
 	class = "PRAMV"
+	shuttle = "Database Freighter (Drydock)"
 	icon_state = "tramp"
 	moving_state = "tramp_moving"
 	colors = list("#8C8A81")

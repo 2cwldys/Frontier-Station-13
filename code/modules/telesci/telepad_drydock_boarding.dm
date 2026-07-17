@@ -237,7 +237,12 @@
 		if(DS.owned_by(L) || (DS.faction_uid && DS.faction_uid == own_faction) || ("[L.ckey]|[L.real_name]" in DS.crew_ckeys))
 			return DRYDOCK_PICK_MODE_OPEN
 		return DRYDOCK_PICK_MODE_EXTERIOR_ONLY
-	return GLOB.faction_beacon_by_z["[target_z]"] ? DRYDOCK_PICK_MODE_EXTERIOR_ONLY : DRYDOCK_PICK_MODE_OPEN
+	// piracy_beacon never claims territory or touches zone security the way
+	// a faction beacon does (piracy_beacon.dm) -- it's tracked in its own
+	// flat GLOB.piracy_beacons list, not GLOB.faction_beacon_by_z, so it
+	// needs its own explicit check here or a pirate-held Z is wrongly
+	// treated as open.
+	return (GLOB.faction_beacon_by_z["[target_z]"] || piracy_beacon_present_on_z(target_z)) ? DRYDOCK_PICK_MODE_EXTERIOR_ONLY : DRYDOCK_PICK_MODE_OPEN
 
 /// "Exterior" turfs -- true vacuum, or (since solid-ground away
 /// sites/exoplanets have no vacuum turfs at all) open exoplanet surface, as
@@ -308,9 +313,11 @@
 			found_not_ready = TRUE
 			continue
 		// Ownership/faction/crew only grants VISIBILITY to board -- the ship
-		// still has to actually be nearby (same or an adjacent sector).
+		// still has to actually be nearby (same or an adjacent sector, or up
+		// to DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX if it got hazard-overflow-
+		// placed -- shipPlaceOvermapMarker(), persistence_shuttles.dm).
 		var/obj/effect/overmap/visitable/ship_sector = GLOB.map_sectors["[DS.z]"]
-		if(!istype(mob_sector) || !istype(ship_sector) || get_dist(mob_sector, ship_sector) > 1)
+		if(!istype(mob_sector) || !istype(ship_sector) || get_dist(mob_sector, ship_sector) > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
 			continue
 		candidates += DS
 
@@ -404,7 +411,7 @@
 		return FALSE
 	var/obj/effect/overmap/visitable/recheck_mob_sector = _drydock_boarder_sector(L)
 	var/obj/effect/overmap/visitable/recheck_ship_sector = GLOB.map_sectors["[target.z]"]
-	if(!istype(recheck_mob_sector) || !istype(recheck_ship_sector) || get_dist(recheck_mob_sector, recheck_ship_sector) > 1)
+	if(!istype(recheck_mob_sector) || !istype(recheck_ship_sector) || get_dist(recheck_mob_sector, recheck_ship_sector) > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
 		to_chat(L, SPAN_WARNING("You're no longer close enough to board."))
 		return FALSE
 	// Picked-spot flow re-validates the SPECIFIC chosen turf (it may have
@@ -512,7 +519,7 @@
 
 	var/obj/effect/overmap/visitable/target_sector = _drydock_boarder_sector(target)
 	var/obj/effect/overmap/visitable/ship_sector = GLOB.map_sectors["[target_ship.z]"]
-	if(!istype(target_sector) || !istype(ship_sector) || get_dist(target_sector, ship_sector) > 1)
+	if(!istype(target_sector) || !istype(ship_sector) || get_dist(target_sector, ship_sector) > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
 		to_chat(inviter, SPAN_WARNING("[target] is too far from the ship to invite aboard."))
 		return FALSE
 

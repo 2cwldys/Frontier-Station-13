@@ -19,6 +19,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/militia_ship
 	name = "Militia Ship"
 	class = "IPV"
+	shuttle = "Militia Ship (Drydock)"
 	desc = "An unarmed and extremely prolific design of large, self-sufficient shuttle, prized for its modularity. Found all throughout the spur, the Yak-class shuttle can be configured to conceivably serve in any role, though it is only rarely armed with ship-to-ship weapons. Manufactured by Hephaestus."
 	icon_state = "generic"
 	moving_state = "generic_moving"

@@ -236,6 +236,18 @@
 /// refuses -- own constant rather than reusing PERSONAL_TRAVEL_COMBAT_LOCKOUT
 /// so the two can be tuned independently.
 #define SHIP_COMBAT_LOCKOUT 10 MINUTES
+/// Normal radius (in overmap tiles) a retrieved ship is placed within of its
+/// target sector -- must stay <= the boarding proximity threshold
+/// (telepad_drydock_boarding.dm) or a ship placed further away than boarding
+/// tolerates would be unboardable from the very spot it was just retrieved
+/// from. See shipPlaceOvermapMarker() (persistence_shuttles.dm).
+#define DRYDOCK_SHIP_PLACEMENT_RADIUS 1
+/// Widened placement radius shipPlaceOvermapMarker() falls back to only if
+/// every tile at DRYDOCK_SHIP_PLACEMENT_RADIUS is hazard-occupied -- every
+/// sector-to-sector boarding-proximity check (not the invite flow's separate
+/// physical inviter-to-target tile check) tolerates up to this same distance
+/// so a ship placed here stays reachable from where it was retrieved.
+#define DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX (DRYDOCK_SHIP_PLACEMENT_RADIUS * 2)
 /// Channel time before a drydock boarding action (pad or program) actually
 /// delivers -- so a fight can't be fled from by instantly teleporting aboard.
 #define DRYDOCK_BOARDING_SPOOLUP 15 SECONDS

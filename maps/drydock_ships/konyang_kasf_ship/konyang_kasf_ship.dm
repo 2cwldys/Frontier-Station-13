@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/kasf_corvette
 	name = "KASF Corvette"
 	class = "KASFV"
+	shuttle = "KASF Corvette (Drydock)"
 	desc = "An older design of patrol corvette that saw its fair share of service in its golden days among the Xanu fleets, the Sai-class corvette would be considered obsolete by modern standards were it not retrofitted with newer weaponry, sensors, and other ship systems."
 	icon_state = "xansan"
 	moving_state = "xansan_moving"

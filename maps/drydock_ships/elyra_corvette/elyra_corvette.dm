@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/elyran_corvette
 	name = "Elyran Corvette"
 	class = "ENV"
+	shuttle = "Elyran Corvette (Drydock)"
 	desc = "One of the first vessels from Elyra's recent military modernization efforts to enter active service, the Sahin-class has taken great strides in improved quality and survivability from previous designs and is on track to become the backbone of the Elyran Republic's border control efforts."
 	icon_state = "corvette"
 	moving_state = "corvette_moving"

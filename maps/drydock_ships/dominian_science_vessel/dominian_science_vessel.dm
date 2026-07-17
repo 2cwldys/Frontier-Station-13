@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/dominian_science_vessel
 	name = "Dominian Science Vessel"
 	class = "HVS"
+	shuttle = "Dominian Science Vessel (Drydock)"
 	desc = "Based on the Lammergeier-class corvette, this vessel has been repurposed by House Volvalaad for long range survey and scientific tasks. Due to its repurposement, the vessel features an enlarged hangar and shuttle, as well as scientific labs and a smaller defensive armament."
 	icon_state = "lammergeier"
 	moving_state = "lammergeier_moving"

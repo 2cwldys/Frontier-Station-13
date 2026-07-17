@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/cyclops_mining
 	name = "Cyclops Mining Vessel"
 	class = "HCV"
+	shuttle = "Cyclops Mining Vessel (Drydock)"
 	desc = "This bulky vessel is designed and operated by Hephaestus Industries. From asteroid cracking to planetary operations, this ship can do it all."
 	icon_state = "tramp"
 	moving_state = "tramp_moving"

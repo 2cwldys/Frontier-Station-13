@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/tirakqi_smuggler
 	name = "Ti'Rakqi Smuggler"
 	class = "ISV"
+	shuttle = "Ti'Rakqi Smuggler (Drydock)"
 	desc = "Featuring a respectable cargo bay, light frame, and large thruster nacelles, the Xroquv-class is one of the fastest federation freighters of this size. This one in particular appears to be refitted with expanded thruster nacelles and minor structural modifications."
 	icon_state = "tirakqi"
 	moving_state = "tirakqi_moving"

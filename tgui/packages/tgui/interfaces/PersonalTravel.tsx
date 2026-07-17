@@ -3,13 +3,6 @@ import type { BooleanLike } from 'tgui-core/react';
 import { useBackend } from '../backend';
 import { NtosWindow } from '../layouts';
 
-type LeapDestination = {
-  ref: string;
-  name: string;
-  is_away_site: BooleanLike;
-  distance: number;
-};
-
 type BeaconDestination = {
   ref: string;
   name: string;
@@ -31,7 +24,6 @@ type PersonalTravelData = {
   combat_seconds_left: number;
   cooldown_seconds_left: number;
   has_hardsuit: BooleanLike;
-  leap_destinations: LeapDestination[];
   beacon_destinations: BeaconDestination[];
 };
 
@@ -46,7 +38,6 @@ export const PersonalTravel = (props) => {
     combat_seconds_left,
     cooldown_seconds_left,
     has_hardsuit,
-    leap_destinations,
     beacon_destinations,
   } = data;
 
@@ -107,43 +98,17 @@ export const PersonalTravel = (props) => {
                 icon="bolt"
                 color="good"
                 disabled={actionsDisabled || !has_hardsuit}
-                onClick={() => act('leap', { sector_ref: primed.ref })}
+                onClick={() => act('leap')}
               >
                 Leap
               </Button>
             </Box>
           )}
-          {leap_destinations.length === 0 && (
+          {!primed && (
             <Box italic color="label">
-              No away sites or sectors within range.
+              No destination primed -- open Sector View and click a target to
+              prime one.
             </Box>
-          )}
-          {leap_destinations.length > 0 && (
-            <Table>
-              <Table.Row header>
-                <Table.Cell>Destination</Table.Cell>
-                <Table.Cell>Distance</Table.Cell>
-                <Table.Cell />
-              </Table.Row>
-              {leap_destinations.map((dest) => (
-                <Table.Row key={dest.ref} className="candystripe">
-                  <Table.Cell bold>
-                    {dest.name}
-                  </Table.Cell>
-                  <Table.Cell color="label">{dest.distance}</Table.Cell>
-                  <Table.Cell>
-                    <Button
-                      icon="bolt"
-                      color="good"
-                      disabled={actionsDisabled || !has_hardsuit}
-                      onClick={() => act('leap', { sector_ref: dest.ref })}
-                    >
-                      Leap
-                    </Button>
-                  </Table.Cell>
-                </Table.Row>
-              ))}
-            </Table>
           )}
         </Section>
 

@@ -19,6 +19,7 @@
 	name = "Konyang Wreck"
 	desc = "An Orion Express Packhorse-class freighter."
 	class = "OEV"
+	shuttle = "Konyang Wreck (Drydock)"
 	icon_state = "freighter_large"
 	moving_state = "freighter_large_moving"
 	colors = list("#c3c7eb", "#a0a8ec")

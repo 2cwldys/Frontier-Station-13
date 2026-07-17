@@ -19,6 +19,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/tajaran_smuggler
 	name = "Adhomian Freighter"
 	class = "ACV"
+	shuttle = "Adhomian Freighter (Drydock)"
 	desc = "Built with reliability in mind, the Zhsram Freighter is one of the most common Adhomian designs. This vessel is cheap and has a sizeable cargo storage. It is frequently used by Tajaran traders and smugglers."
 	icon_state = "tramp"
 	moving_state = "tramp_moving"

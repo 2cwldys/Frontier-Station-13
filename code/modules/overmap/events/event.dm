@@ -1,3 +1,26 @@
+/// TRUE if T is within an active, powered, medsec+ faction beacon's own
+/// security_radius (mirrors _pick_free_overmap_tile()'s secured-zone check,
+/// persistence_factions.dm), or holds a marker whose own Z has any piracy
+/// beacon present (piracy_beacon_present_on_z(), piracy_beacon.dm -- a
+/// piracy beacon never claims a radius the way a faction beacon does, so
+/// only its own exact tile matters). Used to keep overmap hazards
+/// (create_events()/handle_move() below) out of claimed territory entirely,
+/// both at initial spawn and while drifting -- explosions shouldn't be able
+/// to start at a site someone's already secured.
+/proc/_overmap_tile_hazard_excluded(turf/T)
+	if(!T)
+		return TRUE
+	var/obj/effect/overmap/visitable/marker = locate(/obj/effect/overmap/visitable) in T
+	if(istype(marker) && length(marker.map_z) && piracy_beacon_present_on_z(marker.map_z[1]))
+		return TRUE
+	for(var/obj/structure/machinery/faction_beacon/B in world)
+		if(!B.active || !B.powered || B.security_radius <= 0 || B.guaranteed_security_tier < ZONE_MEDSEC)
+			continue
+		var/obj/effect/overmap/visitable/beacon_sector = GLOB.map_sectors["[GET_Z(B)]"]
+		if(istype(beacon_sector) && get_dist(T, beacon_sector) <= B.security_radius)
+			return TRUE
+	return FALSE
+
 /var/singleton/overmap_event_handler/overmap_event_handler = new()
 
 /singleton/overmap_event_handler
@@ -13,6 +36,13 @@
 	// Acquire the list of not-yet utilized overmap turfs on this Z-level
 	var/list/candidate_turfs = block(locate(OVERMAP_EDGE, OVERMAP_EDGE, z_level),locate(overmap_size - OVERMAP_EDGE, overmap_size - OVERMAP_EDGE,z_level))
 	candidate_turfs = where(candidate_turfs, /proc/can_not_locate, /obj/effect/overmap/visitable)
+	// Never seed a hazard directly into claimed (faction-secured or piracy-
+	// beacon) territory -- see _overmap_tile_hazard_excluded() above.
+	var/list/claimed_turfs = list()
+	for(var/turf/T in candidate_turfs)
+		if(_overmap_tile_hazard_excluded(T))
+			claimed_turfs += T
+	candidate_turfs -= claimed_turfs
 
 	// Guaranteed extra spawns (e.g. a map's extra asteroid fields) go first,
 	// entirely separate from the random pool below -- never shifts the mix/
@@ -257,7 +287,16 @@
 		move_counter = 0
 
 /obj/effect/overmap/event/proc/handle_move()
-	Move(get_step(src, moving_dir))
+	var/turf/target = get_step(src, moving_dir)
+	// Never drift into claimed territory -- change direction and wait for
+	// the next move cycle instead of stepping in (_overmap_tile_hazard_excluded()
+	// above). Doesn't evict a hazard already inside newly-claimed space,
+	// only blocks new encroachment, same as create_events()'s own spawn
+	// exclusion only blocks new placement.
+	if(_overmap_tile_hazard_excluded(target))
+		moving_dir = pick(GLOB.alldirs)
+		return
+	Move(target)
 	if(prob(dir_change_chance))
 		moving_dir = turn(moving_dir, pick(45, -45))
 

@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/fishing_trawler
 	name = "Fishing League Trawler"
 	class = "IHGV"
+	shuttle = "Fishing League Trawler (Drydock)"
 	desc = "The Azkrazal-class freighter is a common civilian design from the Izweski Hegemony's shipbuilding guilds, augmented with sharpened pylons designed to harvest carp shoals."
 	icon_state = "tramp"
 	moving_state = "tramp_moving"

@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/tramp_freighter
 	name = "Independent Freighter"
 	class = "ICV"
+	shuttle = "Independent Freighter (Drydock)"
 	desc = "A favourite of small-scale independent businesses, the Farthing-class is one of few popular commercial designs of hauling vessel not manufactured by any particular megacorporation. Tolerances are cut throughout the ship to achieve its legendary cost efficiency."
 	icon_state = "tramp"
 	moving_state = "tramp_moving"

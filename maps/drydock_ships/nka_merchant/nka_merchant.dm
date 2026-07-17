@@ -17,6 +17,7 @@
 	name = "Her Majesty's Mercantile Flotilla Ship"
 	desc = "The Hma'trra class is a modified version of the corporate freighter sold by the SCC to the New Kingdom. It is simple model adapted to the long journey between Adhomai and Tau Ceti."
 	class = "NKAMV"
+	shuttle = "Her Majesty's Mercantile Flotilla Ship (Drydock)"
 	icon_state = "hmatrra"
 	moving_state = "hmatrra_moving"
 	colors = list("#3e9af0", "#2b5cff")

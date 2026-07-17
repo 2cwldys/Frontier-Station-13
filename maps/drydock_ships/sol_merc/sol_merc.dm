@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/fsf_patrol_ship
 	name = "FSF Corvette"
 	class = "FSFV"
+	shuttle = "FSF Corvette (Drydock)"
 	desc = "A small corvette manufactured for the Solarian Navy by Einstein Engines, the Montevideo-class is an anti-piracy vessel through and through - with a shuttle bay that takes up a third of the ship and only a single weapon hardpoint located in one arm of the ship, the Montevideo is designed for long-term, self-sufficient operations in inhabited space against small-time pirate vessels."
 	icon_state = "corvette"
 	moving_state = "corvette_moving"

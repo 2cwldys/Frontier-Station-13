@@ -18,6 +18,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/tcfl_peacekeeper_ship
 	name = "TCFL Corvette"
 	class = "BLV"
+	shuttle = "TCFL Corvette (Drydock)"
 	desc = "Serving as the very foundation of the SCC's (and more specifically, NanoTrasen's) fleet of asset protection vessels, the Cetus-class is versatile and durable, but also clumsy and somewhat underpowered in regards to its engine and propulsion."
 	icon_state = "cetus"
 	moving_state = "cetus_moving"

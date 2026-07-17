@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/ipc_refugee_ship
 	name = "IPC Refugee Ship"
 	class = "ICV"
+	shuttle = "IPC Refugee Ship (Drydock)"
 	desc = "The Akers-class freighter is an ancient design, dating back nearly two hundred years. It was considered a reliable freighter for its time, but is completely obsolete by modern standards, making it a rare sight outside of ship graveyards."
 	icon_state = "freighter"
 	moving_state = "freighter_moving"

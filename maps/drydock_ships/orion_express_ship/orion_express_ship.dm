@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/orion_express_ship
 	name = "Orion Express Mobile Station"
 	class = "OEV"
+	shuttle = "Orion Express Mobile Station (Drydock)"
 	desc = "The Traveler-class mobile station is a relatively old design, but nonetheless venerable and one of the building blocks of interstellar commerce. Offers food, supplies, and fuel to anyone who may need it."
 	icon = 'icons/obj/overmap/overmap_stationary.dmi'
 	icon_state = "waystation"

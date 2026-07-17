@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/dominian_unathi
 	name = "Kazhkz Privateer Ship"
 	class = "ICV"
+	shuttle = "Kazhkz Privateer Ship (Drydock)"
 	desc = "A Dragoon-class corvette - the predecessor to the Empire of Dominia's modern Lammergier-class. Though these once served a similar role in the early days of the Imperial Fleet, they have since been entirely decomissioned in favor of the Lammergier. This one's IFF marks it as a civilian vessel, of no specific affiliation."
 	icon_state = "dragoon"
 	moving_state = "dragoon_moving"

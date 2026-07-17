@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/iac_rescue_ship
 	name = "IAC Rescue Ship"
 	class = "IAV"
+	shuttle = "IAC Rescue Ship (Drydock)"
 	desc = "The Sanctuary-class rescue ship is a fast response medical vessel, based in large part off of the Asclepius-class medical transport, a widespread clinic ship, designed to operate mainly between planets rather than in open space. Most Sanctuary-class hulls are heavily refitted to accomodate for the new conditions in the Wildlands."
 	icon_state = "sanctuary"
 	moving_state = "sanctuary_moving"

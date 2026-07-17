@@ -155,29 +155,6 @@
 		else
 			primed_ref = null
 
-	data["leap_destinations"] = list()
-	if(my_sector)
-		var/list/seen = list()
-		for(var/key in GLOB.map_sectors)
-			var/obj/effect/overmap/visitable/candidate = GLOB.map_sectors[key]
-			if(!istype(candidate, /obj/effect/overmap/visitable/sector))
-				continue
-			if(istype(candidate, /obj/effect/overmap/visitable/sector/temporary))
-				continue
-			if(candidate == my_sector)
-				continue
-			if(candidate in seen)
-				continue
-			seen += candidate
-			var/dist = get_dist(my_sector, candidate)
-			if(dist > PERSONAL_TRAVEL_LEAP_RANGE)
-				continue
-			data["leap_destinations"] += list(list(
-				"ref" = "\ref[candidate]",
-				"name" = candidate.name,
-				"is_away_site" = length(candidate.map_z) ? is_away_level(candidate.map_z[1]) : FALSE,
-				"distance" = dist
-			))
 
 	data["beacon_destinations"] = list()
 	var/obj/item/card/id/ID = user.GetIdCard()
@@ -231,12 +208,17 @@
 		return TRUE
 
 	var/turf/destination
-	var/require_hardsuit = FALSE
+	var/target_z // leap only -- kept for the post-spool-up revalidation below
 
 	switch(action)
 		if("leap")
-			require_hardsuit = TRUE
-			var/obj/effect/overmap/visitable/target_sector = locate(params["sector_ref"])
+			// Checked before the (potentially ~60s) eye-view pick opens --
+			// no point making a player sit through an interactive turf
+			// choice only to refuse them afterward for lacking a hardsuit.
+			if(!_has_hardsuit(user))
+				to_chat(user, SPAN_WARNING("You need a hardsuit on to leap into open space."))
+				return TRUE
+			var/obj/effect/overmap/visitable/target_sector = locate(primed_ref)
 			var/obj/effect/overmap/visitable/my_sector = _current_sector(user)
 			if(!istype(target_sector) || !my_sector || get_dist(my_sector, target_sector) > PERSONAL_TRAVEL_LEAP_RANGE)
 				to_chat(user, SPAN_WARNING("That destination is no longer in range."))
@@ -244,9 +226,19 @@
 			if(!length(target_sector.map_z))
 				to_chat(user, SPAN_WARNING("That destination is no longer valid."))
 				return TRUE
-			destination = personal_travel_find_space_landing(target_sector.map_z[1])
-			if(!destination)
+			target_z = target_sector.map_z[1]
+			var/turf/anchor = personal_travel_find_space_landing(target_z)
+			if(!anchor)
 				to_chat(user, SPAN_WARNING("No safe landing point could be found there."))
+				return TRUE
+			// Eye-view turf-pick (telepad_drydock_boarding.dm) replaces the
+			// old random pick outright -- same anti-cheese rule already
+			// established there (exterior-only if the Z is faction/pirate
+			// beacon claimed, via _drydock_pick_access_mode()). A failed/
+			// timed-out/cancelled pick aborts the whole leap -- no cooldown
+			// consumed, no travel -- matching how drydock boarding treats it.
+			destination = _drydock_pick_destination_turf(user, target_z, anchor)
+			if(!destination)
 				return TRUE
 		if("return_beacon")
 			var/obj/structure/machinery/faction_beacon/B = locate(params["beacon_ref"])
@@ -267,10 +259,6 @@
 	if(!destination)
 		return TRUE
 
-	if(require_hardsuit && !_has_hardsuit(user))
-		to_chat(user, SPAN_WARNING("You need a hardsuit on to leap into open space."))
-		return TRUE
-
 	to_chat(user, SPAN_NOTICE("\The [computer] begins calibrating a bluespace jump..."))
 	var/turf/spool_turf = get_turf(user)
 	var/seq = ++spool_seq
@@ -285,6 +273,22 @@
 		spool_seq++ // invalidate the pending spark pulses above
 		to_chat(user, SPAN_WARNING("Combat detected -- jump aborted."))
 		return TRUE
+
+	if(action == "leap")
+		// The pick + spool-up window can span up to ~75s total -- re-verify
+		// both that the destination Z is still reachable and that the
+		// specific picked turf is still valid (beacon claim state or
+		// density may have changed since), mirroring drydock boarding's own
+		// post-spool-up recheck (_drydock_board_deliver(),
+		// telepad_drydock_boarding.dm).
+		var/obj/effect/overmap/visitable/recheck_sector = GLOB.map_sectors["[target_z]"]
+		var/obj/effect/overmap/visitable/recheck_my_sector = _current_sector(user)
+		if(!istype(recheck_sector) || !istype(recheck_my_sector) || get_dist(recheck_my_sector, recheck_sector) > PERSONAL_TRAVEL_LEAP_RANGE)
+			to_chat(user, SPAN_WARNING("You're no longer close enough to leap there."))
+			return TRUE
+		if(destination.density || !_drydock_pick_turf_valid(destination, user, target_z))
+			to_chat(user, SPAN_WARNING("The landing point is no longer available."))
+			return TRUE
 
 	_execute_travel(user, destination)
 	return TRUE

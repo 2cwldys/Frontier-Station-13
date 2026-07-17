@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/sadar_scout
 	name = "Unified Sadar Fleet Scout"
 	class = "ICV"
+	shuttle = "Unified Sadar Fleet Scout (Drydock)"
 	desc = "The Boreas-class is a small and ancient class of expeditionary vessels dating back a couple hundreds years to when it was commissioned by the Solarian Department of Colonization for Colony Fleet SFE-528-RFS - better known now as the Scarab Fleet. Like most scarab ships, this one has been heavily modified with much of necessary equipment retrofitted and superfluous components stripped away."
 	icon_state = "freighter"
 	moving_state = "freighter_moving"

@@ -16,6 +16,7 @@
 	name = "Merchants' Guild Freighter"
 	desc = "The Azkrazal-class freighter is a common civilian design from the Izweski Hegemony's shipbuilding guilds, designed in collaberation with Hephaestus Industries. They are mostly found in the possession of Unathi guilds, as well as the occasional smuggler or pirate fleet."
 	class = "IHGV"
+	shuttle = "Merchants' Guild Freighter (Drydock)"
 	icon_state = "tramp"
 	moving_state = "tramp_moving"
 	colors = list("5a189a")

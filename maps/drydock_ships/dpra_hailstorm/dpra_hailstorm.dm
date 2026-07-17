@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/hailstorm_ship
 	name = "Hailstorm Ship"
 	class = "DPRAMV"
+	shuttle = "Hailstorm Ship (Drydock)"
 	desc = "A skipjack armed with multiple weapons designed for patrolling and brief engagements. When used for patrols, the Hailstorm is loaded with supplies to last weeks on its own; its crew is specifically trained to be as frugal as possible while aboard."
 	icon_state = "hailstorm"
 	moving_state = "hailstorm_moving"

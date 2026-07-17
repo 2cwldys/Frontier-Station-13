@@ -18,6 +18,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/sol_frigate
 	name = "Solarian Navy Frigate"
 	class = "SAMV"
+	shuttle = "Solarian Navy Frigate (Drydock)"
 	desc = "A long-range frigate currently seeing extensive service in the Solarian Navy, the Curiassier-Class Frigate was a inexpensive pre-civil war design that was only intended to perform common anti-piracy tasks and to provide escort for ships of minor importance to the Navy."
 	icon_state = "xanu_frigate"
 	moving_state = "xanu_frigate_moving"

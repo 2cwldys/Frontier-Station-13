@@ -16,6 +16,7 @@
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/yacht_civ
 	name = "Civilian Yacht"
 	class = "ICV"
+	shuttle = "Civilian Yacht (Drydock)"
 	desc = "Diamond-class Yacht, commonly seen in more affluent systems and usually used for short-range flights between civilised planets, moons, and other nearby sectors, shuttling the rich between work, home, and recreation. Designed by Einstein Engines and produced by Hephaestus Industries."
 	icon_state = "canary"
 	moving_state = "canary_moving"

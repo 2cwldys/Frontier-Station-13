@@ -17,6 +17,7 @@
 	name = "Hiskyn's Revanchists Ship"
 	desc = "An Obrirava-class tanker, commonly used for transport of Helium-3 and other valuable gases by the Empire of Dominia. This one appears to have been heavily modified, with most of its fuel tanks seemingly removed and replaced based on initial scans."
 	class = "ICV"
+	shuttle = "Hiskyn's Revanchists Ship (Drydock)"
 	icon_state = "freighter"
 	moving_state = "freighter_moving"
 	colors = list("#9c0101")

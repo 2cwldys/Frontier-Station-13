@@ -17,6 +17,7 @@
 	name = "Voidtamer Trade Ship"
 	desc = "A trade ship of the Voidtamer Conflux. While far from being built for combat, the vessel is outfitted for self-defense against space fauna and potentially hostile ships. The vessel is loaded for trade, looking for various ports and ships to trade at."
 	class = "VCV"
+	shuttle = "Voidtamer Trade Ship (Drydock)"
 	icon_state = "asteroid_cluster"
 	moving_state = "asteroid_cluster_moving"
 	colors = list("#9900FF")
