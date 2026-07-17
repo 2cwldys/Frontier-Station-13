@@ -51,6 +51,18 @@ GLOBAL_LIST_EMPTY(drydock_ships)
 /// verb (set_drydock_ship_cap(), below).
 GLOBAL_VAR_INIT(drydock_max_deployed_ships, 0)
 
+/// TRUE while a retrieve or stash's heavy apply/teardown pipeline is
+/// actively running -- see drydockRetrieve()/drydockStash()'s thin
+/// queue-gate wrappers below. Serializes these server-wide so concurrent
+/// heavy Z-loads from different players don't stack their tick cost on top
+/// of each other.
+GLOBAL_VAR_INIT(drydock_op_active, FALSE)
+
+/// Pending retrieve/stash requests that arrived while drydock_op_active was
+/// TRUE, each an assoc list of the args needed to re-invoke the matching
+/// public proc. Drained one at a time by _drydockProcessNextQueued().
+GLOBAL_LIST_EMPTY(drydock_op_queue)
+
 /datum/drydock_ship
 	var/shuttle_id
 	var/template_id
@@ -594,6 +606,33 @@ GLOBAL_VAR_INIT(drydock_max_deployed_ships, 0)
 	return TRUE
 
 // ============================================================
+// QUEUE  shared serialization for drydockRetrieve()/drydockStash()
+// ============================================================
+
+/// Pops the next queued retrieve/stash request (if any) and re-invokes the
+/// matching public proc for it -- which re-runs every permission/proximity/
+/// ownership check fresh, so a stale request (the player moved away,
+/// disconnected, or no longer owns the ship) just fails its own normal
+/// checks naturally. Deferred via addtimer(0) rather than called directly
+/// so a long queue drains as a chain of separate, shallow calls instead of
+/// growing one deep recursive stack.
+/datum/controller/subsystem/persistence/proc/_drydockProcessNextQueued()
+	if(!length(GLOB.drydock_op_queue))
+		return
+	var/list/req = GLOB.drydock_op_queue[1]
+	GLOB.drydock_op_queue.Cut(1, 2)
+	addtimer(CALLBACK(src, PROC_REF(_drydockRunQueuedRequest), req), 0)
+
+/datum/controller/subsystem/persistence/proc/_drydockRunQueuedRequest(list/req)
+	var/mob/user = req["user"]
+	if(user)
+		to_chat(user, SPAN_GOOD("Your [req["op"]] is now processing..."))
+	if(req["op"] == "retrieve")
+		drydockRetrieve(req["shuttle_id"], req["anchor"], req["from_turf"], user)
+	else
+		drydockStash(req["shuttle_id"], user)
+
+// ============================================================
 // RETRIEVE  materialize: fresh Z, marker placed near the docking beacon
 // ============================================================
 
@@ -607,7 +646,27 @@ GLOBAL_VAR_INIT(drydock_max_deployed_ships, 0)
 /// (_drydock_secured_beacon_nearby()) -- can't retrieve in raw unclaimed
 /// space just because a modular computer is present. See the file header
 /// for the full rationale.
+///
+/// Public entry point -- a thin queue-gate in front of _drydockRetrieveRun()
+/// (below), which does the actual work. Serializes with drydockStash()
+/// server-wide via GLOB.drydock_op_active/drydock_op_queue so concurrent
+/// heavy Z-loads from different players don't stack lag on top of each
+/// other; a request arriving while another is active gets queued and
+/// processed once its turn comes, rather than running immediately.
 /datum/controller/subsystem/persistence/proc/drydockRetrieve(shuttle_id, obj/structure/machinery/faction_beacon/anchor, turf/from_turf, mob/user)
+	if(GLOB.drydock_op_active)
+		GLOB.drydock_op_queue += list(list("op" = "retrieve", "shuttle_id" = shuttle_id, "anchor" = anchor, "from_turf" = from_turf, "user" = user))
+		if(user)
+			to_chat(user, SPAN_WARNING("Too much drydock activity right now -- queued (position [length(GLOB.drydock_op_queue)]). You'll be notified when it starts."))
+		log_drydock("drydockRetrieve: [user ? key_name(user) : "SYSTEM"] queued retrieve of shuttle_id=[shuttle_id] (position [length(GLOB.drydock_op_queue)]).")
+		return FALSE
+	GLOB.drydock_op_active = TRUE
+	. = _drydockRetrieveRun(shuttle_id, anchor, from_turf, user)
+	GLOB.drydock_op_active = FALSE
+	_drydockProcessNextQueued()
+	return .
+
+/datum/controller/subsystem/persistence/proc/_drydockRetrieveRun(shuttle_id, obj/structure/machinery/faction_beacon/anchor, turf/from_turf, mob/user)
 	var/acting = user ? key_name(user) : "SYSTEM"
 	log_drydock("drydockRetrieve: [acting] attempting to retrieve shuttle_id=[shuttle_id].")
 
@@ -710,6 +769,22 @@ GLOBAL_VAR_INIT(drydock_max_deployed_ships, 0)
 		log_drydock_error("drydockRetrieve: backup write failed for shuttle_id=[shuttle_id] -- proceeding anyway.")
 	qdel(bq)
 
+	// Flip stashed FALSE now, before the (internally-yielding) apply
+	// pipeline below runs, so a second retrieve for this same shuttle_id
+	// arriving mid-load is refused by the "already deployed" check at the
+	// top instead of racing a duplicate Z-load. Mirrors drydockStash()'s
+	// stashed=TRUE-before-teardown ordering (see there) for the same
+	// reason -- reverted below on the two failure paths that can still
+	// occur before the load actually succeeds.
+	DS.stashed = FALSE
+
+	// Feedback up front, not just at the end -- shipInteriorApply() below
+	// can take several real seconds on a heavy hull (its sub-procs yield
+	// via CHECK_TICK), so without this the player sees nothing at all until
+	// the "still initializing" notice appears once that wait is already over.
+	if(user)
+		to_chat(user, SPAN_NOTICE("Retrieving ship -- this may take a moment, please be patient."))
+
 	// Reuse a torn-down Z from the shared pool if one's available; otherwise
 	// allocate fresh. Either way, suspend ZAS during the load or the newly
 	// loaded hull gets vented (same recipe as generate_away_site()).
@@ -727,6 +802,7 @@ GLOBAL_VAR_INIT(drydock_max_deployed_ships, 0)
 		new_z = z_before + 1
 	SSair.can_fire = TRUE
 	if(!bounds)
+		DS.stashed = TRUE // revert -- retrieve never actually happened
 		if(pool_z)
 			SSpersistence.poolReusableZ(pool_z) // hand it back, this attempt never claimed it
 		if(user)
@@ -737,6 +813,7 @@ GLOBAL_VAR_INIT(drydock_max_deployed_ships, 0)
 
 	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[new_z]"]
 	if(!istype(marker))
+		DS.stashed = TRUE // revert -- retrieve never actually happened
 		log_drydock_error("drydockRetrieve: no overmap marker found at loaded z=[new_z] for shuttle_id=[shuttle_id].")
 		return FALSE
 	shipPlaceOvermapMarker(marker, target_sector, placement_radius)
@@ -797,7 +874,7 @@ GLOBAL_VAR_INIT(drydock_max_deployed_ships, 0)
 	SSpersistence.shipInteriorApply(new_z, scope)
 	SSpersistence.drydockAutoFurnish(new_z, template, marker)
 
-	DS.stashed   = FALSE
+	// DS.stashed already flipped FALSE above, before the apply pipeline ran.
 	DS.z         = new_z
 	DS.overmap_x = marker.x
 	DS.overmap_y = marker.y
@@ -948,7 +1025,30 @@ GLOBAL_VAR_INIT(drydock_max_deployed_ships, 0)
 /// an abandoned ship home on demand the way the old turf-pad system could
 /// relocate a hull, so an emergency stash just tears it down wherever it
 /// is, same as corvetteStash()'s own force path.
+///
+/// Public entry point -- a thin queue-gate in front of _drydockStashRun()
+/// (below), which does the actual work. Serializes with drydockRetrieve()
+/// server-wide via GLOB.drydock_op_active/drydock_op_queue (see there for
+/// why). force=TRUE (the shutdown sweep, drydockAutoStashAll(), and the
+/// admin Force Stash verb) bypasses the queue entirely and runs immediately
+/// -- those callers need a real synchronous result now, not "queued for
+/// whenever the current op finishes."
 /datum/controller/subsystem/persistence/proc/drydockStash(shuttle_id, mob/user, force = FALSE)
+	if(force)
+		return _drydockStashRun(shuttle_id, user, force)
+	if(GLOB.drydock_op_active)
+		GLOB.drydock_op_queue += list(list("op" = "stash", "shuttle_id" = shuttle_id, "user" = user))
+		if(user)
+			to_chat(user, SPAN_WARNING("Too much drydock activity right now -- queued (position [length(GLOB.drydock_op_queue)]). You'll be notified when it starts."))
+		log_drydock("drydockStash: [user ? key_name(user) : "SYSTEM"] queued stash of shuttle_id=[shuttle_id] (position [length(GLOB.drydock_op_queue)]).")
+		return FALSE
+	GLOB.drydock_op_active = TRUE
+	. = _drydockStashRun(shuttle_id, user, force)
+	GLOB.drydock_op_active = FALSE
+	_drydockProcessNextQueued()
+	return .
+
+/datum/controller/subsystem/persistence/proc/_drydockStashRun(shuttle_id, mob/user, force = FALSE)
 	var/acting = user ? key_name(user) : "SYSTEM[force ? "(force)" : ""]"
 	log_drydock("drydockStash: [acting] attempting to stash shuttle_id=[shuttle_id].")
 

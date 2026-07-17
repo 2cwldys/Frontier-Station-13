@@ -237,6 +237,11 @@
 		if(DS.owned_by(L) || (DS.faction_uid && DS.faction_uid == own_faction) || ("[L.ckey]|[L.real_name]" in DS.crew_ckeys))
 			return DRYDOCK_PICK_MODE_OPEN
 		return DRYDOCK_PICK_MODE_EXTERIOR_ONLY
+	// Any other ship-type marker (non-drydock -- NPC/faction ships, the
+	// Horizon, etc.) has no ownership concept to open up -- always exterior.
+	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[target_z]"]
+	if(istype(marker, /obj/effect/overmap/visitable/ship))
+		return DRYDOCK_PICK_MODE_EXTERIOR_ONLY
 	// Explicit .powered check rather than trusting GLOB.faction_beacon_by_z
 	// presence alone -- a beacon comment states an unpowered beacon can
 	// never hold a Z claim, but this verifies it directly instead of
@@ -641,8 +646,12 @@
 	if(istype(marker))
 		var/list/seen_sectors = list()
 		for(var/z_key in GLOB.map_sectors)
-			var/obj/effect/overmap/visitable/sector/nearby = GLOB.map_sectors[z_key]
-			if(!istype(nearby) || istype(nearby, /obj/effect/overmap/visitable/sector/temporary) || (nearby in seen_sectors))
+			var/obj/effect/overmap/visitable/nearby = GLOB.map_sectors[z_key]
+			if(nearby == marker || (nearby in seen_sectors))
+				continue
+			if(!istype(nearby, /obj/effect/overmap/visitable/sector) && !istype(nearby, /obj/effect/overmap/visitable/ship))
+				continue
+			if(istype(nearby, /obj/effect/overmap/visitable/sector/temporary))
 				continue
 			seen_sectors += nearby
 			if(get_dist(marker, nearby) > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)

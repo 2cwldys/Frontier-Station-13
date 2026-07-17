@@ -455,7 +455,7 @@
 		return
 	if(!istype(A, /obj/effect/overmap))
 		return
-	if(!istype(A, /obj/effect/overmap/visitable/sector) || istype(A, /obj/effect/overmap/visitable/sector/temporary))
+	if((!istype(A, /obj/effect/overmap/visitable/sector) && !istype(A, /obj/effect/overmap/visitable/ship)) || istype(A, /obj/effect/overmap/visitable/sector/temporary))
 		to_chat(source, SPAN_WARNING("\The [A] cannot be primed as a leap destination."))
 		return COMSIG_MOB_CANCEL_CLICKON
 	var/obj/effect/overmap/visitable/target = A
