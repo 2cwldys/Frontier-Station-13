@@ -967,6 +967,10 @@
 /obj/structure/boulder,
 /turf/simulated/floor/exoplanet/asteroid/ash/rocky,
 /area/mine)
+"zzz" = (
+/obj/structure/boulder,
+/turf/simulated/floor/exoplanet/asteroid/ash/rocky/cursed_deposit,
+/area/mine)
 "fDg" = (
 /obj/structure/machinery/atmospherics/unary/vent_pump/on{
 	dir = 4
@@ -32252,7 +32256,7 @@ qbe
 qbe
 qbe
 udM
-fzz
+zzz
 ksj
 ksj
 ksj

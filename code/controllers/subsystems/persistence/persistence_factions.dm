@@ -1599,7 +1599,109 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	// happens to trigger a full repaint (zone_security_update_overmap()
 	// is only ever called at boot or on an explicit zone change).
 	zone_security_update_overmap()
+
+	if(site.auto_despawn_when_depleted)
+		_register_auto_despawn_asteroid(site_z, site.id)
+
 	return site_z
+
+// ============================================================
+// ASTEROID AUTO-DESPAWN  mined-out sites tear down and respawn elsewhere
+// ============================================================
+
+#define ASTEROID_DEPLETION_CHECK_INTERVAL 2 MINUTES
+#define ASTEROID_RESPAWN_DELAY 10 MINUTES
+
+/// z -> template_id, for every currently-loaded away site whose template
+/// has auto_despawn_when_depleted set. Populated by
+/// _register_auto_despawn_asteroid(), drained as each site despawns.
+GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
+
+/// TRUE if this z has no ore left, checking BOTH forms mineable asteroid
+/// content actually takes here -- confirmed by direct inspection of the
+/// three flagged templates' own .dmm content, since assuming one mechanic
+/// covered all of them would have been wrong:
+/// - Wall veins (/turf/simulated/mineral and subtypes, e.g. cursed.dmm's
+///   and overgrown_mining_station.dmm's own deposits) -- GetDrilled()
+///   (mine_turfs.dm) converts a mined vein to its mined_turf, which is NOT
+///   a /turf/simulated/mineral subtype, so it drops out of this scan the
+///   moment it's mined -- a plain existence check is enough.
+/// - Floor resources (/turf/simulated/floor/exoplanet/asteroid and
+///   subtypes, e.g. phoron_deposit's own dedicated turf subtype, which
+///   sets has_resources/resources[ORE_PHORON] in its own Initialize()) --
+///   drained by the automated mining drill (drill.dm). Manual pickaxe
+///   digging (gets_dug(), mine_turfs.dm) never decrements resources, but a
+///   fully dug tile eventually turns to /turf/space on its own (mine_turfs.dm's
+///   dug counter), dropping out of this scan naturally either way.
+/proc/_away_site_asteroid_depleted(z)
+	for(var/turf/simulated/mineral/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+		return FALSE // an unmined wall vein still exists
+	for(var/turf/simulated/floor/exoplanet/asteroid/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+		if(T.has_resources && length(T.resources))
+			return FALSE
+	return TRUE
+
+/// Stricter than zlevel_has_players() -- excludes a dead body with a
+/// lingering client/ckey, since this feature only cares whether anyone
+/// LIVING is still here. The neural lace half is identical to
+/// zlevel_has_players()'s own -- a lace's mere presence still blocks
+/// despawn regardless of aliveness, since it represents someone's saved
+/// consciousness, not a corpse.
+/proc/_zlevel_has_living_or_lace(z)
+	for(var/mob/M in GLOB.mob_list)
+		if(M.z == z && M.stat != DEAD && (M.client || M.ckey))
+			return TRUE
+	for(var/obj/item/organ/internal/neural_lace/L in world)
+		if(!length(L.registered_ckey))
+			continue
+		var/turf/T = get_turf(L)
+		if(T && T.z == z)
+			return TRUE
+	return FALSE
+
+/// Registers z for periodic depletion/despawn checking -- called once
+/// right after a flagged template successfully loads (both the RNG-pool
+/// boot loader, build_away_sites() in map.dm, and this file's own
+/// _spawn_away_site_for_template(), which covers mission auto-gen, admin
+/// manual gen, and this feature's own respawns). Deliberately never called
+/// from build_pinned_away_sites() -- an admin-pinned instance stays
+/// permanent regardless of depletion, same as it's already excluded from
+/// the RNG budget entirely.
+/proc/_register_auto_despawn_asteroid(z, template_id)
+	GLOB.auto_despawn_asteroid_zs[z] = template_id
+	addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_check_asteroid_depletion_and_despawn), z), ASTEROID_DEPLETION_CHECK_INTERVAL)
+
+/// Modeled on _try_cleanup_mission_sector() (persistence_missions.dm) --
+/// recheck on an interval, reschedule via addtimer() if not yet safe to
+/// tear down, act once every condition (depleted, no one living/laced
+/// still here, not inside claimed territory) is finally met.
+/proc/_check_asteroid_depletion_and_despawn(z)
+	var/template_id = GLOB.auto_despawn_asteroid_zs[z]
+	if(!template_id)
+		return // already handled/cancelled (e.g. an admin manually removed it)
+
+	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[z]"]
+	var/not_ready = !_away_site_asteroid_depleted(z) || _zlevel_has_living_or_lace(z) || (istype(marker) && _overmap_tile_hazard_excluded(get_turf(marker)))
+	if(not_ready)
+		addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_check_asteroid_depletion_and_despawn), z), ASTEROID_DEPLETION_CHECK_INTERVAL)
+		return
+
+	GLOB.auto_despawn_asteroid_zs -= z
+	_despawn_away_site_z(z)
+	addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_respawn_asteroid_site), template_id), ASTEROID_RESPAWN_DELAY)
+
+/// One-shot delayed respawn after a mined-out site tears itself down --
+/// reuses the same _spawn_away_site_for_template() call the "Generate Away
+/// Site" admin verb and mission auto-gen already use, letting it pick a
+/// fresh random overmap tile the normal way.
+/proc/_respawn_asteroid_site(template_id)
+	var/datum/map_template/ruin/away_site/template = SSmapping.away_sites_templates[template_id]
+	if(!template)
+		return
+	if(!_spawn_away_site_for_template(template, null))
+		// No free overmap tile right now -- try again after the same
+		// cooldown rather than losing this site permanently.
+		addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_respawn_asteroid_site), template_id), ASTEROID_RESPAWN_DELAY)
 
 /// Inject an away-site template at a chosen overmap tile at runtime -- the
 /// same kind of z-level that normally only spawns randomly at boot, placed

@@ -360,9 +360,14 @@
 	log_admin("Finished selecting away sites ([english_list(selected)]) for [totalbudget - (points + shippoints)] cost of [totalbudget] budget.")
 
 	for(var/datum/map_template/template in selected)
+		var/z_before = world.maxz
 		var/bounds = template.load_new_z()
 		if(bounds)
 			log_admin("Loaded away site [template]!")
+			if(istype(template, /datum/map_template/ruin/away_site))
+				var/datum/map_template/ruin/away_site/site = template
+				if(site.auto_despawn_when_depleted)
+					_register_auto_despawn_asteroid(z_before + 1, site.id)
 		else
 			log_admin("Failed loading away site [template]!")
 
