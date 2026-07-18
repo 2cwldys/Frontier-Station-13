@@ -11,7 +11,8 @@
 	mappath = "maps/drydock_ships/konyang_ipc_refugee/ipc_refugee_ship.dmm"
 	price = 0
 	bridge_area_type = /area/ship/ipc_refugee/bridge
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/ipc_refugee_ship)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/ipc_refugee_ship, /datum/shuttle/autodock/overmap/ipc_refugee_shuttle)
+	sub_shuttle_tags = list("Decrepit Cargo Tug")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/ipc_refugee_ship
 	name = "IPC Refugee Ship"

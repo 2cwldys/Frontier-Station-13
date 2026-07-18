@@ -11,7 +11,8 @@
 	mappath = "maps/drydock_ships/freebooter_ship/freebooter_ship_.dmm"
 	price = 0
 	bridge_area_type = /area/ship/freebooter_ship/bridge
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/freebooter_ship)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/freebooter_ship, /datum/shuttle/autodock/overmap/freebooter_shuttle)
+	sub_shuttle_tags = list("Freebooter Shuttle")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/freebooter_ship
 	name = "Freebooter Ship"

@@ -10,7 +10,8 @@
 	mappath = "maps/drydock_ships/hegemony_corvette/hegemony_corvette.dmm"
 	price = 0
 	bridge_area_type = /area/hegemony_ship/bridge
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/hegemony_corvette)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/hegemony_corvette, /datum/shuttle/autodock/overmap/hegemony_shuttle)
+	sub_shuttle_tags = list("Hegemony Shuttle")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/hegemony_corvette
 	name = "Hegemony Corvette"

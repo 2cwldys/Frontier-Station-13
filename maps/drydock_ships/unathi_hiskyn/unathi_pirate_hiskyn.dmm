@@ -4426,7 +4426,8 @@
 /area/hiskyn_ship/trophy)
 "kHO" = (
 /obj/structure/machinery/computer/shuttle_control/explore/terminal{
-	dir = 4
+	dir = 4;
+	shuttle_tag = "Hiskyn's Revanchist Shuttle"
 	},
 /obj/structure/lattice/catwalk/indoor,
 /obj/item/radio/intercom/hailing{

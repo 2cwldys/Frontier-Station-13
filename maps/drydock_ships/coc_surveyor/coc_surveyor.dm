@@ -14,7 +14,8 @@
 	mappath = "maps/drydock_ships/coc_surveyor/coc_surveyor.dmm"
 	price = 0
 	bridge_area_type = /area/coc_survey_ship/bridge
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/coc_surveyor)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/coc_surveyor, /datum/shuttle/autodock/overmap/coc_survey_shuttle)
+	sub_shuttle_tags = list("COC Survey Shuttle")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/coc_surveyor
 	name = "COC Survey Ship"

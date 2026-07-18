@@ -6,7 +6,7 @@
 	suffix = "phoron_deposit.dmm"
 
 	sectors = list(SECTOR_TAU_CETI, SECTOR_ROMANOVICH, SECTOR_VALLEY_HALE, SECTOR_TABITI)
-	spawn_weight = 1
+	spawn_weight = 5
 	spawn_cost = 2
 	id = "deposit"
 	unit_test_groups = list(3)

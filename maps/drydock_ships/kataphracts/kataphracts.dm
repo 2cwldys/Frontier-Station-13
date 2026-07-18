@@ -13,7 +13,8 @@
 	mappath = "maps/drydock_ships/kataphracts/kataphract_ship.dmm"
 	price = 0
 	bridge_area_type = /area/kataphract_chapter/bridge
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/kataphract_ship)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/kataphract_ship, /datum/shuttle/autodock/overmap/kataphract_transport)
+	sub_shuttle_tags = list("Kataphract Transport")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/kataphract_ship
 	name = "kataphract chapter ship"

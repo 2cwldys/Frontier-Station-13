@@ -72,13 +72,15 @@
 			while(q.NextRow())
 				var/sid = text2num(q.item[1])
 				var/datum/drydock_ship/live = GLOB.drydock_ships["[sid]"]
+				var/datum/map_template/drydock_ship/row_template = SSmapping.drydock_ship_templates[q.item[2]]
 				var/list/row = list(
 					"shuttle_id" = sid, "template_id" = q.item[2],
 					"owner_ckey" = q.item[3], "owner_char_name" = q.item[4], "faction_uid" = q.item[5],
 					"stashed" = text2num(q.item[6]),
 					"custom_name" = q.item[7], "custom_class" = q.item[8],
 					"ready" = live ? live.ready : TRUE,
-					"display_name" = live ? live.display_name() : (q.item[7] || q.item[2])
+					"display_name" = live ? live.display_name() : (q.item[7] || q.item[2]),
+					"sub_shuttle_tags" = (row_template && length(row_template.sub_shuttle_tags)) ? row_template.sub_shuttle_tags : list()
 				)
 				my_shuttle_ids += sid
 				if(row["owner_ckey"] == user.ckey && row["owner_char_name"] == user.real_name)
@@ -231,6 +233,21 @@
 				return TRUE
 			var/new_class = tgui_input_text(user, "New class designation (blank to reset to default):", "Rename Ship", "", max_length = 32)
 			SSpersistence.drydockRename(shuttle_id, new_name, new_class || "", user)
+			return TRUE
+
+		if("rename_subship")
+			var/shuttle_id = text2num(params["shuttle_id"])
+			var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
+			var/datum/map_template/drydock_ship/template = DS ? SSmapping.drydock_ship_templates[DS.template_id] : null
+			if(!template || !length(template.sub_shuttle_tags))
+				return TRUE
+			var/tag = (template.sub_shuttle_tags.len == 1) ? template.sub_shuttle_tags[1] : tgui_input_list(user, "Rename which sub-ship?", "Rename Sub-ship", template.sub_shuttle_tags)
+			if(!tag)
+				return TRUE
+			var/new_name = tgui_input_text(user, "New display name for '[tag]':", "Rename Sub-ship", tag, max_length = 64)
+			if(!new_name)
+				return TRUE
+			SSpersistence.drydockRenameSubship(shuttle_id, tag, new_name, user)
 			return TRUE
 
 		if("add_crew")

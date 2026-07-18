@@ -278,6 +278,7 @@ SUBSYSTEM_DEF(persistence)
 	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("8/8")] Saving floor items..."))
 	SSpersistence.floorItemsFinalize()
 	SSpersistence.botsFinalize()
+	SSpersistence.subshipSnapshotSaveAllDeployed()
 
 	SSpersistence.save_in_progress = FALSE
 	log_and_message_admins("forced a mid-round persistence save", usr)
@@ -429,6 +430,16 @@ SUBSYSTEM_DEF(persistence)
 		shipLedgerPositionSync()
 	catch(var/exception/pos_sync_e)
 		log_subsystem_persistence_panic("Unhandled exception during ship position sync: [pos_sync_e]")
+
+	// Sub-ship snapshots (persistence_shuttles.dm) are a separate, smaller
+	// persistence tier from the Finalize sweeps above -- they don't ride
+	// along for free, so they need their own periodic save here too, or an
+	// ungraceful crash would replenish a sub-ship from whenever it was last
+	// explicitly stashed instead of where it actually was.
+	try
+		subshipSnapshotSaveAllDeployed()
+	catch(var/exception/subship_snapshot_e)
+		log_subsystem_persistence_panic("Unhandled exception during sub-ship snapshot save: [subship_snapshot_e]")
 
 	try
 		shuttleStateFinalize()

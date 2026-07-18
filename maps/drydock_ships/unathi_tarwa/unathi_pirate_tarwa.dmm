@@ -1377,7 +1377,7 @@
 /turf/simulated/floor/diona,
 /area/tarwa_ship/bridge)
 "my" = (
-/obj/structure/machinery/computer/shuttle_control/explore/terminal/freighter_shuttle{
+/obj/structure/machinery/computer/shuttle_control/explore/tarwa_shuttle{
 	dir = 8
 	},
 /obj/effect/floor_decal/industrial/hatch/grey,

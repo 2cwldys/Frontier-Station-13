@@ -643,6 +643,10 @@
 		var/turf/dock_turf = get_turf(shuttle_datum.current_location)
 		if(dock_turf)
 			candidate_turfs["Docked location"] = dock_turf
+	else
+		var/turf/here_turf = personal_travel_find_space_landing(DS.z)
+		if(here_turf)
+			candidate_turfs["Current position"] = here_turf
 	if(istype(marker))
 		var/list/seen_sectors = list()
 		for(var/z_key in GLOB.map_sectors)
@@ -656,7 +660,9 @@
 			seen_sectors += nearby
 			if(get_dist(marker, nearby) > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
 				continue
-			var/turf/site_turf = get_turf(nearby)
+			if(!length(nearby.map_z))
+				continue
+			var/turf/site_turf = personal_travel_find_space_landing(nearby.map_z[1])
 			if(site_turf)
 				candidate_turfs["[nearby.name]"] = site_turf
 

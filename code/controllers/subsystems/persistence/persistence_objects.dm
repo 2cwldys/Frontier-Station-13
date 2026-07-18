@@ -135,6 +135,7 @@
 		if(!T || T.z != z)
 			continue
 		if(isitem(track) && !isturf(track.loc))
+			objectsDeregisterTrack(track)
 			continue
 		if (track.persistent_objects_track_id == 0)
 			objectsDatabaseAddEntry(track)
@@ -319,9 +320,12 @@
 		for(var/list/item_data in content["items"])
 			if(islist(item_data))
 				deserializePersistentItem(item_data, src)
-	// Restore open/closed state
+	// Restore open/closed state -- set vars directly, NOT via open()/close()
+	// which call dump_contents() and eject the items we just restored inside.
 	if(!isnull(content["opened"]))
-		if(content["opened"] && !opened)
-			open(TRUE)
-		else if(!content["opened"] && opened)
-			close(TRUE)
+		opened = content["opened"] ? TRUE : FALSE
+		if(!opened)
+			density = TRUE
+		else if(!dense_when_open)
+			density = FALSE
+		update_icon()

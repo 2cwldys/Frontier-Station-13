@@ -486,6 +486,177 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	log_drydock("drydockRename: [acting] renamed shuttle_id=[shuttle_id] to name='[DS.custom_name]', class='[DS.custom_class]'.")
 	return TRUE
 
+/// Renames a sub-ship mapped into this hull's own hangar (see
+/// /datum/map_template/drydock_ship/sub_shuttle_tags, drydock_ship.dm) --
+/// bound entirely to the parent ship, so this just updates the persisted
+/// display name (ss13_drydock_subship_names) and the live shuttle datum's
+/// own .name, not a separate ledger entry. shuttle_tag identifies which
+/// sub-ship for hulls carrying more than one (Xanu Frigate, Taj Smuggler).
+/datum/controller/subsystem/persistence/proc/drydockRenameSubship(shuttle_id, shuttle_tag, new_name, mob/user)
+	var/acting = user ? key_name(user) : "SYSTEM"
+	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
+	if(!DS)
+		log_drydock_warning("drydockRenameSubship: refused -- unknown shuttle_id=[shuttle_id] (acting=[acting]).")
+		return FALSE
+	if(!(check_rights(R_ADMIN, 0, user) || DS.owned_by(user) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
+		if(user)
+			to_chat(user, SPAN_WARNING("You don't have permission to rename this ship's sub-ship."))
+		log_drydock_warning("drydockRenameSubship: refused -- [acting] lacks permission for shuttle_id=[shuttle_id].")
+		return FALSE
+	var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
+	if(!template || !(shuttle_tag in template.sub_shuttle_tags))
+		log_drydock_warning("drydockRenameSubship: refused -- shuttle_tag='[shuttle_tag]' not a valid sub-ship for shuttle_id=[shuttle_id].")
+		return FALSE
+
+	if(!databaseCheckConnection("drydockRenameSubship"))
+		if(user)
+			to_chat(user, SPAN_WARNING("Database connection failed."))
+		return FALSE
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"INSERT INTO ss13_drydock_subship_names (shuttle_id, shuttle_tag, custom_name) VALUES (:id, :tag, :name) ON DUPLICATE KEY UPDATE custom_name = VALUES(custom_name)",
+		list("id" = shuttle_id, "tag" = shuttle_tag, "name" = new_name)
+	)
+	q.Execute()
+	if(!databaseCheckQueryResult(q, "drydockRenameSubship update"))
+		qdel(q)
+		if(user)
+			to_chat(user, SPAN_WARNING("Database error -- rename not saved."))
+		return FALSE
+	qdel(q)
+
+	var/datum/shuttle/sub = SSshuttle.shuttles[shuttle_tag]
+	if(istype(sub))
+		sub.name = new_name
+
+	if(user)
+		to_chat(user, SPAN_GOOD("Sub-ship renamed."))
+	log_drydock("drydockRenameSubship: [acting] renamed shuttle_id=[shuttle_id]'s sub-ship '[shuttle_tag]' to '[new_name]'.")
+	return TRUE
+
+/// Applies each persisted sub-ship custom name (ss13_drydock_subship_names)
+/// to its live shuttle datum -- called once per retrieve, alongside the
+/// missing-sub-ship detection (see _drydockRetrieveRun()) since both need
+/// the same per-tag SSshuttle.shuttles lookup.
+/datum/controller/subsystem/persistence/proc/_drydockApplySubshipNames(shuttle_id, datum/map_template/drydock_ship/template)
+	if(!template || !length(template.sub_shuttle_tags))
+		return
+	if(!databaseCheckConnection("_drydockApplySubshipNames"))
+		return
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"SELECT shuttle_tag, custom_name FROM ss13_drydock_subship_names WHERE shuttle_id = :id",
+		list("id" = shuttle_id)
+	)
+	q.Execute()
+	if(databaseCheckQueryResult(q, "_drydockApplySubshipNames select"))
+		while(q.NextRow())
+			var/datum/shuttle/sub = SSshuttle.shuttles[q.item[1]]
+			if(istype(sub))
+				sub.name = q.item[2]
+	qdel(q)
+
+/**
+ * Self-contained "turf saving" for a sub-ship mapped into a drydock hull's
+ * own hangar bay -- separate from, and independent of, the whole-Z
+ * ship-scale persistence (turfsFinalizeZ()/objectsFinalizeZ() etc, scoped
+ * to "ship:d:<shuttle_id>"). Narrower in scope too: turf type + any loose
+ * items sitting on it, not full structure/machinery tracking -- covers
+ * "is the compartment intact, is my stuff still in it," not a second copy
+ * of the generic object-persistence system.
+ *
+ * subshipSnapshotSave() captures every turf in the sub-ship's own
+ * shuttle_area (absolute x/y, turf type, loose /obj/items via the same
+ * serializePersistentItem() used for closet contents elsewhere) into one
+ * JSON row per (shuttle_id, shuttle_tag). subshipSnapshotApply() re-applies
+ * that snapshot on the next retrieve -- unconditionally, the same
+ * philosophy as the parent ship's own persistence always re-applying its
+ * last save -- which is what makes this double as "replenish if missing":
+ * if the compartment was damaged or its contents scattered in a previous
+ * session, re-applying the last good snapshot restores it. A sub-ship
+ * that's never been saved before (first-ever retrieve) simply has no row
+ * yet, so apply() no-ops and the freshly map-loaded template copy stands
+ * as-is, exactly like a pristine ship interior today.
+ */
+/datum/controller/subsystem/persistence/proc/subshipSnapshotSave(shuttle_id, shuttle_tag)
+	var/datum/shuttle/sub = SSshuttle.shuttles[shuttle_tag]
+	if(!istype(sub))
+		return
+	var/list/turf_rows = list()
+	for(var/area/A in sub.shuttle_area)
+		for(var/turf/T in get_area_turfs(A))
+			var/list/items = list()
+			for(var/obj/item/I in T)
+				var/list/item_data = serializePersistentItem(I)
+				if(item_data)
+					items += list(item_data)
+			turf_rows += list(list("x" = T.x, "y" = T.y, "type" = "[T.type]", "items" = items))
+	if(!databaseCheckConnection("subshipSnapshotSave"))
+		return
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"INSERT INTO ss13_drydock_subship_snapshot (shuttle_id, shuttle_tag, turf_data) VALUES (:id, :tag, :data) ON DUPLICATE KEY UPDATE turf_data = VALUES(turf_data)",
+		list("id" = shuttle_id, "tag" = shuttle_tag, "data" = json_encode(turf_rows))
+	)
+	q.Execute()
+	databaseCheckQueryResult(q, "subshipSnapshotSave update")
+	qdel(q)
+
+/// Periodic safety net for sub-ship snapshots, mirroring why
+/// shipLedgerPositionSync() exists for the parent ship's own ledger --
+/// without this, subshipSnapshotSave() only ever runs at explicit stash,
+/// so an ungraceful crash (no drydockAutoStashAll() sweep) would replenish
+/// a sub-ship from wherever it was at the LAST real stash, not where it
+/// actually was -- stale in exactly the way the parent ship's own interior
+/// isn't, since forceSaveAll() already covers that via the ordinary
+/// world-wide turfs/objects/etc. sweeps. Called from forceSaveAll()
+/// (persistence.dm, the periodic autosave) and from the "Force Persistence
+/// Save" admin verb (persistence.dm's force_persistence_save() -- a
+/// separate, hand-duplicated call sequence that doesn't route through
+/// forceSaveAll() itself), so every save trigger keeps every deployed
+/// ship's sub-ship(s) no more than one save cycle stale.
+/datum/controller/subsystem/persistence/proc/subshipSnapshotSaveAllDeployed()
+	for(var/sid in GLOB.drydock_ships)
+		var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
+		if(!DS || DS.stashed)
+			continue
+		var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
+		if(!template || !length(template.sub_shuttle_tags))
+			continue
+		for(var/sub_tag in template.sub_shuttle_tags)
+			subshipSnapshotSave(DS.shuttle_id, sub_tag)
+
+/// Re-applies a sub-ship's last snapshot (if any) onto its freshly-loaded
+/// area, on the given (current) z -- turf coordinates are stored relative
+/// to nothing but the hull's own fixed layout (x/y only, no z), since the
+/// same hull can reuse a different pooled z on every deployment.
+/datum/controller/subsystem/persistence/proc/subshipSnapshotApply(shuttle_id, shuttle_tag, z)
+	if(!databaseCheckConnection("subshipSnapshotApply"))
+		return
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"SELECT turf_data FROM ss13_drydock_subship_snapshot WHERE shuttle_id = :id AND shuttle_tag = :tag",
+		list("id" = shuttle_id, "tag" = shuttle_tag)
+	)
+	q.Execute()
+	var/turf_data
+	if(databaseCheckQueryResult(q, "subshipSnapshotApply select") && q.NextRow())
+		turf_data = q.item[1]
+	qdel(q)
+	if(!turf_data)
+		return
+	var/list/turf_rows = json_decode(turf_data)
+	if(!islist(turf_rows))
+		return
+	for(var/list/row in turf_rows)
+		var/turf/T = locate(row["x"], row["y"], z)
+		if(!T)
+			continue
+		var/turf_type = text2path(row["type"])
+		if(turf_type && ispath(turf_type, /turf))
+			T = T.ChangeTurf(turf_type)
+		for(var/obj/item/existing in T)
+			qdel(existing)
+		if(islist(row["items"]))
+			for(var/list/item_data in row["items"])
+				deserializePersistentItem(item_data, T)
+
 // ============================================================
 // BUY  pure purchase transaction, no world footprint
 // ============================================================
@@ -874,6 +1045,31 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	SSpersistence.shipInteriorApply(new_z, scope)
 	SSpersistence.drydockAutoFurnish(new_z, template, marker)
 
+	// Replenish each sub-ship from its own last snapshot (subshipSnapshotSave(),
+	// called from stash) -- unconditional, same philosophy as the parent
+	// ship's own persistence always re-applying its last save. This is what
+	// makes "missing/damaged sub-ship" self-healing: if its compartment was
+	// destroyed or emptied in a previous session, re-applying the last good
+	// snapshot restores it. A never-before-saved sub-ship (first retrieve
+	// ever) has no row yet, so this no-ops and the template's own copy
+	// stands as-is.
+	if(length(template.sub_shuttle_tags))
+		for(var/sub_tag in template.sub_shuttle_tags)
+			SSpersistence.subshipSnapshotApply(shuttle_id, sub_tag, new_z)
+	SSpersistence._drydockApplySubshipNames(shuttle_id, template)
+
+	// Missing-sub-ship detection -- checked LAST, after the replenish pass
+	// above -- log and alert rather than attempt anything further. Should
+	// only ever fire for a genuinely first-ever-broken template (no prior
+	// snapshot to replenish from, and the registered shuttle datum itself
+	// still isn't valid), not a normal case.
+	if(length(template.sub_shuttle_tags))
+		for(var/sub_tag in template.sub_shuttle_tags)
+			var/datum/shuttle/sub = SSshuttle.shuttles[sub_tag]
+			if(!istype(sub) || !length(sub.shuttle_area))
+				log_drydock_warning("drydockRetrieve: sub-ship '[sub_tag]' missing or invalid for shuttle_id=[shuttle_id] template='[DS.template_id]' -- may need manual recovery.")
+				message_admins("[SPAN_WARNING("Drydock sub-ship missing:")] '[sub_tag]' not found aboard [DS.display_name()] (#[shuttle_id]) after retrieve. [ADMIN_JMP(marker)]")
+
 	// DS.stashed already flipped FALSE above, before the apply pipeline ran.
 	DS.z         = new_z
 	DS.overmap_x = marker.x
@@ -1089,9 +1285,33 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		log_drydock_warning("drydockStash: refused -- players still present on z=[DS.z] for shuttle_id=[shuttle_id] (acting=[acting]).")
 		return FALSE
 
+	// A hangar sub-ship (drydock_ship.dm's sub_shuttle_tags) always travels
+	// with its parent -- no independent stash/retrieve of its own -- so it
+	// must be docked home before the parent can be torn down, or its
+	// undocked position (and whatever's aboard it) would just vanish along
+	// with the rest of the interior.
+	if(!force)
+		var/datum/map_template/drydock_ship/guard_template = SSmapping.drydock_ship_templates[DS.template_id]
+		if(guard_template && length(guard_template.sub_shuttle_tags))
+			for(var/sub_tag in guard_template.sub_shuttle_tags)
+				var/datum/shuttle/autodock/sub = SSshuttle.shuttles[sub_tag]
+				if(istype(sub) && (!istype(sub.current_location) || sub.current_location.landmark_tag != sub.logging_home_tag))
+					if(user)
+						to_chat(user, SPAN_WARNING("Make sure '[sub_tag]' is docked at home before stashing."))
+					log_drydock_warning("drydockStash: refused -- sub-ship '[sub_tag]' not docked at home for shuttle_id=[shuttle_id] (acting=[acting]).")
+					return FALSE
+
+	if(user)
+		to_chat(user, SPAN_NOTICE("Stashing ship -- this may take a moment, please be patient."))
+
 	var/scope = "ship:d:[shuttle_id]"
 	var/stash_z = DS.z
 	SSpersistence.shipInteriorSave(stash_z, scope)
+
+	var/datum/map_template/drydock_ship/save_template = SSmapping.drydock_ship_templates[DS.template_id]
+	if(save_template && length(save_template.sub_shuttle_tags))
+		for(var/sub_tag in save_template.sub_shuttle_tags)
+			SSpersistence.subshipSnapshotSave(shuttle_id, sub_tag)
 
 	// Ledger flips to stashed BEFORE the marker is torn down -- the qdel
 	// below fires drydock_ship/Destroy()'s defensive orphan-recovery check

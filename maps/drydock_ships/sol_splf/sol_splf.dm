@@ -11,7 +11,8 @@
 	mappath = "maps/drydock_ships/sol_splf/splf_raider.dmm"
 	price = 0
 	bridge_area_type = /area/splf_raider/bridge
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/splf_raider)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/splf_raider, /datum/shuttle/autodock/overmap/splf_shuttle)
+	sub_shuttle_tags = list("SPLF Shuttle")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/splf_raider
 	name = "SPLF Auxiliary Vessel"

@@ -6,7 +6,7 @@
 	suffix = "overgrown_mining_station.dmm"
 
 	sectors = list(ALL_TAU_CETI_SECTORS)
-	spawn_weight = 1
+	spawn_weight = 3
 	spawn_cost = 2
 	id = "overgrown_mining_station"
 

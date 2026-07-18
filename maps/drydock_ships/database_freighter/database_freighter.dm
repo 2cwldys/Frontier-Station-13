@@ -11,7 +11,8 @@
 	mappath = "maps/drydock_ships/database_freighter/database_freighter.dmm"
 	price = 0
 	bridge_area_type = /area/database_freighter/bridge
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/database_freighter)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/database_freighter, /datum/shuttle/autodock/overmap/database_freighter_shuttle)
+	sub_shuttle_tags = list("Database Freighter Shuttle")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/database_freighter
 	name = "Database Freighter"

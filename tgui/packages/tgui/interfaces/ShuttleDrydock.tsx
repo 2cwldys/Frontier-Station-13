@@ -16,6 +16,7 @@ type ShuttleRow = {
   custom_class: string | null;
   ready: BooleanLike;
   display_name: string;
+  sub_shuttle_tags: string[];
 };
 
 type CrewEntry = { ckey: string; char_name: string; label: string | null };
@@ -75,6 +76,16 @@ export const ShuttleDrydock = (props) => {
         >
           Rename
         </Button>
+        {row.sub_shuttle_tags.length > 0 && (
+          <Button
+            icon="pen"
+            onClick={() =>
+              act('rename_subship', { shuttle_id: row.shuttle_id })
+            }
+          >
+            Rename Sub-ship
+          </Button>
+        )}
         <Button
           color="bad"
           disabled={!row.stashed}

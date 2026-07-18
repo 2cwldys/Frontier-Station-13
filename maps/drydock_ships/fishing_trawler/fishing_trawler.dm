@@ -11,7 +11,8 @@
 	mappath = "maps/drydock_ships/fishing_trawler/fishing_league_trawler.dmm"
 	price = 0
 	bridge_area_type = /area/ship/fishing_trawler/bridge
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/fishing_trawler)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/fishing_trawler, /datum/shuttle/autodock/overmap/fishing_trawler)
+	sub_shuttle_tags = list("Fishing League Shuttle")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/fishing_trawler
 	name = "Fishing League Trawler"

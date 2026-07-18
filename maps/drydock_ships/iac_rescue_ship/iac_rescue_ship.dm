@@ -11,7 +11,8 @@
 	mappath = "maps/drydock_ships/iac_rescue_ship/iac_rescue_ship.dmm"
 	price = 0
 	bridge_area_type = /area/ship/iac_rescue_ship/bridge
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/iac_rescue_ship)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/iac_rescue_ship, /datum/shuttle/autodock/overmap/iac_shuttle)
+	sub_shuttle_tags = list("IAC Ambulance Shuttle")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/iac_rescue_ship
 	name = "IAC Rescue Ship"

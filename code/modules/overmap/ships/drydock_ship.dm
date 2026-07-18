@@ -24,6 +24,13 @@
 	/// placeholder, and any hull converted from an already-landable away-site
 	/// craft) -- drydockAutoFurnish() no-ops when this is unset.
 	var/bridge_area_type
+	/// shuttle_tag(s) of any smaller craft mapped into this hull's own hangar
+	/// bay, carried in `shuttles_to_initialise` alongside the hull's own
+	/// shuttle -- bound entirely to this ship (no independent ledger/sale),
+	/// always travels with it. Empty for hulls with no such sub-ship. Drives
+	/// the rename UI, the stash-time docked guard, and missing-sub-ship
+	/// detection (persistence_shuttles.dm).
+	var/list/sub_shuttle_tags
 
 /**
  * Docking creates a real, physical problem this class alone needs to solve:

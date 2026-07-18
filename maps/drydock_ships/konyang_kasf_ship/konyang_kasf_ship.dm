@@ -11,7 +11,8 @@
 	mappath = "maps/drydock_ships/konyang_kasf_ship/kasf_ship.dmm"
 	price = 0
 	bridge_area_type = /area/ship/kasf_corvette/cic
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/kasf_corvette)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/kasf_corvette, /datum/shuttle/autodock/overmap/kasf_shuttle)
+	sub_shuttle_tags = list("KASF Shuttle")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/kasf_corvette
 	name = "KASF Corvette"

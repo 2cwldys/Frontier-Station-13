@@ -427,7 +427,7 @@
 	// view() (not range) -- the same opacity-respecting scan ship sensors
 	// use (contact_sensors.dm), so hazard clouds block this too.
 	for(var/obj/effect/overmap/O in view(PERSONAL_TRAVEL_LEAP_RANGE, T))
-		if(O == my_sector || !O.requires_contact)
+		if(!O.requires_contact)
 			continue
 		var/image/marker = image(null, O)
 		marker.appearance = O.appearance
@@ -460,6 +460,9 @@
 		return COMSIG_MOB_CANCEL_CLICKON
 	var/obj/effect/overmap/visitable/target = A
 	var/obj/effect/overmap/visitable/my_sector = _current_sector(source)
+	if(target == my_sector)
+		to_chat(source, SPAN_WARNING("You're already here."))
+		return COMSIG_MOB_CANCEL_CLICKON
 	if(!my_sector || get_dist(my_sector, target) > PERSONAL_TRAVEL_LEAP_RANGE || !length(target.map_z))
 		to_chat(source, SPAN_WARNING("\The [target] is out of leap range."))
 		return COMSIG_MOB_CANCEL_CLICKON

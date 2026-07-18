@@ -11,7 +11,8 @@
 	mappath = "maps/drydock_ships/coc_ranger/coc_ship.dmm"
 	price = 0
 	bridge_area_type = /area/ship/ranger_corvette/bridge
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/ranger_corvette)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/ranger_corvette, /datum/shuttle/autodock/overmap/ranger_shuttle)
+	sub_shuttle_tags = list("Ranger Shuttle")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/ranger_corvette
 	name = "Ranger Gunboat"

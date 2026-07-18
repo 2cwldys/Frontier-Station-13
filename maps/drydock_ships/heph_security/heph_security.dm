@@ -11,7 +11,8 @@
 	mappath = "maps/drydock_ships/heph_security/heph_security.dmm"
 	price = 0
 	bridge_area_type = /area/heph_security_ship/bridge
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/heph_security)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/heph_security, /datum/shuttle/autodock/overmap/hephsec_shuttle)
+	sub_shuttle_tags = list("Hephaestus Security Shuttle")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/heph_security
 	name = "Hephaestus Security Vessel"

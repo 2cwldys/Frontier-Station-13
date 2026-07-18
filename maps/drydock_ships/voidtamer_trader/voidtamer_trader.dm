@@ -11,7 +11,8 @@
 	mappath = "maps/drydock_ships/voidtamer_trader/voidtamer_trader.dmm"
 	price = 0
 	bridge_area_type = /area/voidtamer/trader/bridge
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/voidtamer_trader)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/voidtamer_trader, /datum/shuttle/autodock/overmap/voidtamer_trade_ship_shuttle)
+	sub_shuttle_tags = list("Voidtamer Shuttle")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/voidtamer_trader
 	name = "Voidtamer Trade Ship"

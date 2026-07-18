@@ -13,7 +13,8 @@
 	mappath = "maps/drydock_ships/biesel_tcfl_patrol/tcfl_peacekeeper_ship.dmm"
 	price = 0
 	bridge_area_type = /area/ship/tcfl_peacekeeper_ship
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/tcfl_peacekeeper_ship)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/tcfl_peacekeeper_ship, /datum/shuttle/autodock/overmap/tcfl_shuttle)
+	sub_shuttle_tags = list("TCFL Shuttle")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/tcfl_peacekeeper_ship
 	name = "TCFL Corvette"

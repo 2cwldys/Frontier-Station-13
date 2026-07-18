@@ -11,7 +11,8 @@
 	mappath = "maps/drydock_ships/heph_cyclops/cyclops.dmm"
 	price = 0
 	bridge_area_type = /area/hephmining_ship/cyclops/cyclops_bridge
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/cyclops_mining)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/cyclops_mining, /datum/shuttle/autodock/overmap/cyclops_shuttle)
+	sub_shuttle_tags = list("Cyclops Shuttle")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/cyclops_mining
 	name = "Cyclops Mining Vessel"

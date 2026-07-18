@@ -11,7 +11,8 @@
 	mappath = "maps/drydock_ships/tajara_circus/adhomian_circus.dmm"
 	price = 0
 	bridge_area_type = /area/adhomian_circus/bridge
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/adhomian_circus)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/adhomian_circus, /datum/shuttle/autodock/overmap/adhomian_circus_shuttle)
+	sub_shuttle_tags = list("Adhomian Circus Shuttle")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/adhomian_circus
 	name = "Adhomian Traveling Circus"

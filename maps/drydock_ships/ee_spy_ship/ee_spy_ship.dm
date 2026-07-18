@@ -11,7 +11,8 @@
 	mappath = "maps/drydock_ships/ee_spy_ship/ee_spy_ship.dmm"
 	price = 0
 	bridge_area_type = /area/ship/ee_spy_ship
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/ee_spy_ship)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/ee_spy_ship, /datum/shuttle/autodock/overmap/ee_shuttle)
+	sub_shuttle_tags = list("Einstein Engines Shuttle")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/ee_spy_ship
 	name = "Einstein Engines Research Ship"

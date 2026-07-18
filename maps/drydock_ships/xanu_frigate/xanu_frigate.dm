@@ -13,7 +13,8 @@
 	mappath = "maps/drydock_ships/xanu_frigate/xanu_frigate.dmm"
 	price = 0
 	bridge_area_type = /area/ship/xanu_frigate/cic
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/xanu_frigate)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/xanu_frigate, /datum/shuttle/autodock/overmap/xanu_fighter, /datum/shuttle/autodock/overmap/xanu_boarder)
+	sub_shuttle_tags = list("Xanu Fighter", "Xanu Boarder")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/xanu_frigate
 	name = "Xanu Spacefleet Frigate"

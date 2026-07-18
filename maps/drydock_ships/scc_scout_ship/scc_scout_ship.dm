@@ -11,7 +11,8 @@
 	mappath = "maps/drydock_ships/scc_scout_ship/scc_scout_ship.dmm"
 	price = 0
 	bridge_area_type = /area/ship/scc_scout_ship/bridge
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/scc_scout_ship)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/scc_scout_ship, /datum/shuttle/autodock/overmap/scc_scout_shuttle)
+	sub_shuttle_tags = list("SCC Scout Shuttle")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/scc_scout_ship
 	name = "SCC Scout Ship"

@@ -11,7 +11,8 @@
 	mappath = "maps/drydock_ships/gadpathur_patrol/gadpathur_patrol.dmm"
 	price = 0
 	bridge_area_type = /area/ship/gadpathur_patrol/cic
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/gadpathur_patrol)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/gadpathur_patrol, /datum/shuttle/autodock/overmap/gadpathur_shuttle)
+	sub_shuttle_tags = list("Gadpathurian Corvette Shuttle")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/gadpathur_patrol
 	name = "Gadpathurian Patrol Corvette"

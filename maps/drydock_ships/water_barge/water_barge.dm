@@ -10,7 +10,8 @@
 	mappath = "maps/drydock_ships/water_barge/water_barge.dmm"
 	price = 0
 	bridge_area_type = /area/water_barge/helm
-	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/water_barge)
+	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/water_barge, /datum/shuttle/autodock/overmap/water_barge_shuttle)
+	sub_shuttle_tags = list("Water Barge Shuttle")
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/water_barge
 	name = "Water Barge"
