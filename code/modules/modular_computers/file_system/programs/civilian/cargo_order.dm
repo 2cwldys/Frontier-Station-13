@@ -39,6 +39,35 @@
 	data["faction_name"]    = co_net ? get_faction_name(co_net) : null
 	data["faction_balance"] = co_net ? get_faction_account_balance(co_net) : null
 
+	// Personal balance -- mutually exclusive with faction mode, mirrors
+	// Cargo Exports' own display (cargo_exports.dm). Orders placed from a
+	// personally-tagged console are paid from this account at submission.
+	var/is_personal = computer && computer.personal_ckey
+	data["is_personal"]         = is_personal
+	data["personal_owner_name"] = is_personal ? computer.personal_char_name : null
+	if(is_personal)
+		var/obj/item/card/id/viewer_id = user.GetIdCard()
+		var/datum/money_account/viewer_acc = viewer_id?.associated_account_number ? SSeconomy.get_account(viewer_id.associated_account_number) : null
+		data["personal_balance"] = viewer_acc ? viewer_acc.money : null
+		// Reference-only, same as Cargo Exports -- the operator's own faction
+		// balance if they belong to one, even though this console won't bill it.
+		var/viewer_uid = (viewer_id && viewer_id.employer_faction) ? normalize_faction_uid(viewer_id.employer_faction) : null
+		data["operator_faction_name"]    = viewer_uid ? get_faction_name(viewer_uid) : null
+		data["operator_faction_balance"] = viewer_uid ? get_faction_account_balance(viewer_uid) : null
+
+	// Crew balance -- mutually exclusive with faction/personal mode. Orders
+	// placed from a crew-tagged console bill the SHIP OWNER's account (not
+	// the operator's own), resolved via _drydock_ship_at() on this console's
+	// current Z rather than a stored identity -- see deliver_crew_order()
+	// (cargo.dm).
+	var/is_crew = computer && computer.crew_tagged
+	data["is_crew"] = is_crew
+	if(is_crew)
+		var/datum/drydock_ship/crew_ship = _drydock_ship_at(GET_Z(computer))
+		data["crew_ship_name"] = crew_ship ? crew_ship.display_name() : null
+		var/datum/money_account/crew_acc = (crew_ship && crew_ship.owner_account_number) ? SSeconomy.get_account(crew_ship.owner_account_number) : null
+		data["crew_balance"] = crew_acc ? crew_acc.money : null
+
 	// Delivery telepad choice -- only surfaced when the faction has more than
 	// one delivery-enabled cargo pad (see persistence_find_cargo_telepads()).
 	// A single (or no) match behaves exactly as before -- no selector shown.
@@ -154,11 +183,76 @@
 				status_message = "Unable to submit order. No reason supplied."
 				return TRUE
 
+			// Personal orders are paid NOW, while the ordering character's own
+			// ID card is physically in hand -- there's no reliable way to
+			// resolve an arbitrary (ckey, char_name)'s bank account later at
+			// delivery time the way a faction account always can be (a
+			// faction always exists in GLOB.persistence_faction_cache; an
+			// offline character's account does not). Refuse the whole
+			// submission if payment fails -- never enters the approval queue.
+			if(computer && computer.personal_ckey)
+				if(!I.associated_account_number)
+					status_message = "Unable to submit order. No linked bank account on your ID."
+					return TRUE
+				var/transfer_error = SSeconomy.transfer_money(I.associated_account_number, SScargo.supply_account.account_number, "Cargo order", "Cargo Order Console", co.get_value(0))
+				if(transfer_error)
+					status_message = "Unable to submit order. [transfer_error]"
+					return TRUE
+
+			// Crew orders bill the SHIP OWNER's account, not whoever's
+			// physically holding this ID card -- deferred to delivery time
+			// (deliver_crew_order(), cargo.dm), since owner_account_number is
+			// a stable identifier that resolves even while the owner is
+			// offline. Only the ship reference itself needs to be captured
+			// now, while this console still knows what Z it's on.
+			var/datum/drydock_ship/crew_ship
+			if(computer && computer.crew_tagged)
+				crew_ship = _drydock_ship_at(GET_Z(computer))
+				if(!crew_ship)
+					status_message = "Unable to submit order. This console isn't aboard a deployed drydock ship."
+					return TRUE
+				if(!crew_ship.owner_account_number)
+					status_message = "Unable to submit order. This ship has no linked owner account on file."
+					return TRUE
+
 			co.set_submitted(GetNameAndAssignmentFromId(I), usr.character_id, reason)
 			// Faction instancing: the submitting console's network owns the
 			// order from birth. Null for unshackled (station) consoles.
 			co.delivery_network = (computer && computer.persistent_network) ? normalize_faction_uid(computer.persistent_network) : null
-			status_message = "Order submitted successfully. Order ID: [co.order_id] Tracking code: [co.get_tracking_code()]"
+
+			if(computer && computer.personal_ckey)
+				// Personal orders are synchronous and self-contained -- no
+				// cargo officer needed (they're already paid, and the console
+				// is personally locked to begin with, so there's nobody else
+				// who could have submitted it). Approve and attempt delivery
+				// in this same call instead of waiting in the shared queue --
+				// order_network_matches() (cargo.dm) also hides it from every
+				// console's queue entirely, so this is the only chance for
+				// synchronous feedback; a delivery that can't resolve a
+				// telepad right now still gets picked up by the ordinary
+				// automatic per-tick retry.
+				co.personal_ckey = computer.personal_ckey
+				co.personal_char_name = computer.personal_char_name
+				co.set_paid(computer.personal_char_name, 0, "Personal")
+				co.set_approved(computer.personal_char_name, usr.character_id)
+				if(SScargo.deliver_personal_order(co))
+					status_message = "Order submitted, paid, and delivered instantly. Order ID: [co.order_id] Tracking code: [co.get_tracking_code()]"
+				else
+					status_message = "Order submitted and paid. No delivery-enabled personal telepad found right now -- it will deliver automatically once one is available. Order ID: [co.order_id] Tracking code: [co.get_tracking_code()]"
+			else if(computer && computer.crew_tagged)
+				// Same synchronous/self-contained reasoning as personal mode
+				// above (only this ship's crew can even reach this console),
+				// but payment itself is deferred into deliver_crew_order() --
+				// see its own docstring for why crew mode can safely bill at
+				// delivery time instead of pre-paying like personal mode must.
+				co.crew_shuttle_id = crew_ship.shuttle_id
+				co.set_approved(GetNameAndAssignmentFromId(I), usr.character_id)
+				if(SScargo.deliver_crew_order(co))
+					status_message = "Order submitted and delivered instantly, billed to [crew_ship.display_name()]'s account. Order ID: [co.order_id] Tracking code: [co.get_tracking_code()]"
+				else
+					status_message = "Order submitted. No delivery-enabled crew telepad found right now -- it will deliver (and bill the ship's account) automatically once one is available. Order ID: [co.order_id] Tracking code: [co.get_tracking_code()]"
+			else
+				status_message = "Order submitted successfully. Order ID: [co.order_id] Tracking code: [co.get_tracking_code()]"
 
 			co = null
 			return TRUE

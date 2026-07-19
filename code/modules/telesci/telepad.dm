@@ -70,6 +70,21 @@
 	var/persistent_spawn   = FALSE
 	/// TRUE when a player has claimed this pad for their faction; only officers+ can release.
 	var/faction_shackled   = FALSE
+	/// ckey of the character this pad is personally tagged to, or null.
+	/// Mutually exclusive with persistent_network/faction_shackled -- routes
+	/// that character's own personal cargo orders here (persistence_cargo_exports.dm/
+	/// cargo.dm) instead of a faction's.
+	var/personal_ckey = null
+	/// Paired with personal_ckey -- see modular_computer's own var of the same name.
+	var/personal_char_name = null
+	/// TRUE if this pad is tagged to its drydock ship's crew (owner +
+	/// crew_ckeys) rather than one specific person or a faction -- routes a
+	/// crew-tagged order (same ship) here instead of a personal or faction
+	/// one. Mutually exclusive with persistent_network/faction_shackled and
+	/// personal_ckey. Billing always goes to the ship OWNER's account
+	/// regardless of which crew member placed the order (cargo_order.dm/
+	/// cargo_exports.dm).
+	var/crew_tagged = FALSE
 	/// Hard guarantee flag: cargo delivery selectors refuse any pad with this
 	/// FALSE (security telepads) -- supplies can never land on non-cargo pads.
 	var/accepts_cargo      = TRUE
@@ -100,6 +115,9 @@
 	content["persistent_network"] = persistent_network
 	content["persistent_spawn"]   = persistent_spawn
 	content["faction_shackled"]   = faction_shackled
+	content["personal_ckey"]      = personal_ckey
+	content["personal_char_name"] = personal_char_name
+	content["crew_tagged"]        = crew_tagged
 	return content
 
 /obj/structure/machinery/telepad_cargo/persistent_objects_apply_content(content, x, y, z)
@@ -112,6 +130,12 @@
 		persistent_spawn = !!content["persistent_spawn"]
 	if(!isnull(content["faction_shackled"]))
 		faction_shackled = !!content["faction_shackled"]
+	if(!isnull(content["crew_tagged"]))
+		crew_tagged = !!content["crew_tagged"]
+	if(!isnull(content["personal_ckey"]))
+		personal_ckey = content["personal_ckey"]
+	if(!isnull(content["personal_char_name"]))
+		personal_char_name = content["personal_char_name"]
 
 // Player-facing faction linking for cargo/security telepads is configured
 // via the faction tagger tool now (code/game/objects/items/devices/faction_tagger.dm

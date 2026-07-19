@@ -74,6 +74,12 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	/// ss13_mob_position already uses (persistence_mobs.dm). Null/unused for
 	/// faction ownership -- faction_uid is never a character-identity concept.
 	var/owner_char_name
+	/// Captured once, at purchase (drydockBuy()), from the buyer's ID card --
+	/// null for faction ships. Lets Crew-tagged equipment (persistence_faction_tagger.dm)
+	/// bill the owner directly even when they're offline, since there's no
+	/// reliable way to resolve an arbitrary (ckey, char_name)'s bank account
+	/// otherwise. A stable account number, unlike a live mob/ID reference.
+	var/owner_account_number
 	var/faction_uid
 	/// TRUE once the Hub has repossessed this ship (see drydockRepossess(),
 	/// below) -- faction_uid is forced to "hub" and owner_ckey/owner_char_name
@@ -275,7 +281,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return
 
 	var/datum/db_query/q = SSdbcore.NewQuery(
-		"SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed, z, overmap_x, overmap_y, custom_name, custom_class, repossessed, prev_owner_ckey, prev_owner_char_name, prev_faction_uid FROM ss13_drydock_ships",
+		"SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed, z, overmap_x, overmap_y, custom_name, custom_class, repossessed, prev_owner_ckey, prev_owner_char_name, prev_faction_uid, owner_account_number FROM ss13_drydock_ships",
 		list()
 	)
 	q.Execute()
@@ -299,6 +305,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		DS.prev_owner_ckey = q.item[13]
 		DS.prev_owner_char_name = q.item[14]
 		DS.prev_faction_uid = q.item[15]
+		DS.owner_account_number = text2num(q.item[16])
 
 		if(!DS.stashed)
 			log_drydock("drydockShipLedgerRestore: shuttle_id=[DS.shuttle_id] ('[DS.template_id]') was still stashed=0 at boot -- graceful shutdown's auto-stash sweep didn't run (crash/hard kill). Forcing back to stashed; interior recovers from the last autosave.")
@@ -792,6 +799,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		log_drydock_warning("drydockBuy: refused -- unknown template_id '[template_id]' (acting=[acting]).")
 		return FALSE
 
+	var/owner_account_number
 	if(faction_uid)
 		if(!can_configure_faction_shackle(user, faction_uid, 1))
 			if(user)
@@ -803,20 +811,27 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 				to_chat(user, SPAN_WARNING("Faction account has insufficient funds."))
 			log_drydock_warning("drydockBuy: refused -- faction [faction_uid] has insufficient funds ([template.price] cr) (acting=[acting]).")
 			return FALSE
-	else if(template.price > 0)
+	else
+		// Captured regardless of price (even a free ship) -- Crew-tagged
+		// equipment (persistence_faction_tagger.dm) bills this account
+		// directly later, even when the owner is offline, so it needs to be
+		// on file from the moment the ship exists, not just when a fee was
+		// actually charged.
 		var/obj/item/card/id/ID = user?.GetIdCard()
 		if(!ID || !ID.associated_account_number)
 			if(user)
 				to_chat(user, SPAN_WARNING("No linked bank account."))
 			log_drydock_warning("drydockBuy: refused -- [acting] has no linked bank account.")
 			return FALSE
-		var/datum/money_account/acc = SSeconomy.get_account(ID.associated_account_number)
-		if(!acc || acc.money < template.price)
-			if(user)
-				to_chat(user, SPAN_WARNING("Insufficient funds."))
-			log_drydock_warning("drydockBuy: refused -- [acting] has insufficient personal funds ([template.price] cr).")
-			return FALSE
-		acc.adjust_money(-template.price)
+		owner_account_number = ID.associated_account_number
+		if(template.price > 0)
+			var/datum/money_account/acc = SSeconomy.get_account(owner_account_number)
+			if(!acc || acc.money < template.price)
+				if(user)
+					to_chat(user, SPAN_WARNING("Insufficient funds."))
+				log_drydock_warning("drydockBuy: refused -- [acting] has insufficient personal funds ([template.price] cr).")
+				return FALSE
+			acc.adjust_money(-template.price)
 
 	if(!databaseCheckConnection("drydockBuy"))
 		if(user)
@@ -838,8 +853,8 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		attempts_left--
 		new_id = _drydockNextFreeShuttleId()
 		var/datum/db_query/q = SSdbcore.NewQuery(
-			"INSERT INTO ss13_drydock_ships (shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed) VALUES (:id, :tid, :ckey, :char_name, :faction, 1)",
-			list("id" = new_id, "tid" = template_id, "ckey" = owner_ckey, "char_name" = owner_char_name, "faction" = faction_uid)
+			"INSERT INTO ss13_drydock_ships (shuttle_id, template_id, owner_ckey, owner_char_name, owner_account_number, faction_uid, stashed) VALUES (:id, :tid, :ckey, :char_name, :account, :faction, 1)",
+			list("id" = new_id, "tid" = template_id, "ckey" = owner_ckey, "char_name" = owner_char_name, "account" = owner_account_number, "faction" = faction_uid)
 		)
 		q.Execute()
 		var/succeeded = databaseCheckQueryResult(q, "drydockBuy insert")
@@ -859,6 +874,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	DS.template_id = template_id
 	DS.owner_ckey  = owner_ckey
 	DS.owner_char_name = owner_char_name
+	DS.owner_account_number = owner_account_number
 	DS.faction_uid = faction_uid
 	DS.stashed     = TRUE
 	GLOB.drydock_ships["[new_id]"] = DS
@@ -1164,6 +1180,18 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	DS.ready = FALSE
 	SSpersistence.shipInteriorApply(new_z, scope)
 	SSpersistence.drydockAutoFurnish(new_z, template, marker)
+
+	// Auto-claim any still-unassigned equipment on this ship's Z, same as a
+	// station beacon claiming its Zs (faction_beacon.dm) -- a faction-owned
+	// ship gets its equipment networked to its faction; a personally-owned
+	// ship gets its equipment tagged to its own crew instead, so an owner
+	// doesn't have to manually tag every console by hand. Runs once per
+	// retrieve, not periodically -- a manual re-tag via the faction tagger
+	// afterward always sticks (both sweeps skip anything already assigned).
+	if(DS.faction_uid)
+		_sweep_unassigned_objects_for_faction(list("[new_z]"), DS.faction_uid)
+	else
+		_sweep_unassigned_crew(list("[new_z]"))
 
 	// Replenish each sub-ship from its own last snapshot (subshipSnapshotSave(),
 	// called from stash) -- unconditional, same philosophy as the parent

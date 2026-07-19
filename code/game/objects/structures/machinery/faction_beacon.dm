@@ -18,8 +18,8 @@
  */
 
 /// How often an active, powered beacon re-sweeps for newly-placed
-/// unassigned objects (process(), _sweep_unassigned_objects()) -- catches
-/// anything placed after the beacon already went active, which the
+/// unassigned objects (process(), _sweep_unassigned_objects_for_faction()) --
+/// catches anything placed after the beacon already went active, which the
 /// one-time _apply_network() sweep can never see on its own.
 #define FACTION_BEACON_SWEEP_INTERVAL 30 SECONDS
 
@@ -82,9 +82,9 @@
 	var/looping_sound_type = /datum/looping_sound/faction_beacon
 	VAR_PRIVATE/datum/looping_sound/beacon_looping_sound
 	/// world.time of the next periodic unassigned-object re-sweep -- see
-	/// process()/_sweep_unassigned_objects(). Catches objects placed AFTER
-	/// the beacon already went active, which the one-time _apply_network()
-	/// sweep can never see on its own.
+	/// process()/_sweep_unassigned_objects_for_faction(). Catches objects
+	/// placed AFTER the beacon already went active, which the one-time
+	/// _apply_network() sweep can never see on its own.
 	var/next_sweep_time = 0
 	/// Physical credit reserve that keeps this beacon running -- drains
 	/// slowly while powered (see process()), auto-powers the beacon off at
@@ -150,7 +150,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		spark_system.queue()
 	if(world.time >= next_sweep_time)
 		next_sweep_time = world.time + FACTION_BEACON_SWEEP_INTERVAL
-		_sweep_unassigned_objects(_station_zs())
+		_sweep_unassigned_objects_for_faction(_station_zs(), faction_uid)
 		_apply_security_radius_grant()
 		_evict_hazards_in_range()
 		zone_security_update_overmap()
@@ -429,7 +429,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	catch(var/exception/tell_e)
 		log_subsystem_persistence_error("Faction beacon: online tell failed: [tell_e]")
 
-	_sweep_unassigned_objects(station_zs)
+	_sweep_unassigned_objects_for_faction(station_zs, faction_uid)
 
 	// A beacon claiming a station should make sure every Z it spans is
 	// actually in the persistence save list -- otherwise part of the station
@@ -505,77 +505,82 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 			qdel(E)
 
 /// Claims every UNASSIGNED (persistent_network/req_access_faction/etc.
-/// still empty) compatible object across the given Zs for this beacon's
-/// faction -- called once by _apply_network() when the beacon powers on,
-/// and periodically by process() (FACTION_BEACON_SWEEP_INTERVAL) so an
+/// still empty) compatible object across the given Zs for the given
+/// faction -- called once by a beacon's _apply_network() when it powers on,
+/// periodically by its process() (FACTION_BEACON_SWEEP_INTERVAL) so an
 /// object placed AFTER the beacon already went active gets picked up too,
-/// without needing a full power-cycle to re-trigger _apply_network().
-/// Never touches anything already assigned, whether to "public", a
-/// different faction, or even this same faction -- a manual override (via
-/// the tagger, properly authorized) always sticks permanently.
-/obj/structure/machinery/faction_beacon/proc/_sweep_unassigned_objects(list/station_zs)
+/// and (since this was pulled out of the beacon into a standalone global
+/// proc) also by a faction-owned drydock ship on retrieve -- see
+/// _drydockRetrieveRun(), persistence_shuttles.dm -- so a faction ship's
+/// equipment gets the same one-time auto-claim a station beacon gives its
+/// own Zs, just scoped to the ship's Z instead. Never touches anything
+/// already assigned, whether to "public", a different faction, this same
+/// faction, or (the five crew-tag-compatible types) this Z's ship crew --
+/// a manual override (via the tagger, properly authorized) always sticks
+/// permanently.
+/proc/_sweep_unassigned_objects_for_faction(list/zs, faction_uid)
 	var/configured = 0
 
 	try
 		for(var/obj/structure/machinery/cryopod/pod in world)
 			if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore))
 				continue
-			if(!(GET_Z(pod) in station_zs))
+			if(!(GET_Z(pod) in zs))
 				continue
-			if(pod.persistent_network)
+			if(pod.persistent_network || pod.crew_tagged)
 				continue
 			pod.persistent_network = faction_uid
 			pod.persistent_spawn   = TRUE
 			configured++
 	catch(var/exception/cryo_e)
-		log_subsystem_persistence_error("Faction beacon: cryopod sweep failed: [cryo_e]")
+		log_subsystem_persistence_error("Faction sweep: cryopod sweep failed: [cryo_e]")
 
 	try
 		for(var/obj/structure/machinery/telepad_cargo/pad in world)
-			if(!(GET_Z(pad) in station_zs))
+			if(!(GET_Z(pad) in zs))
 				continue
-			if(pad.persistent_network)
+			if(pad.persistent_network || pad.crew_tagged)
 				continue
 			pad.persistent_network = faction_uid
 			pad.persistent_spawn   = TRUE
 			pad.faction_shackled   = TRUE
 			configured++
 	catch(var/exception/pad_e)
-		log_subsystem_persistence_error("Faction beacon: telepad sweep failed: [pad_e]")
+		log_subsystem_persistence_error("Faction sweep: telepad sweep failed: [pad_e]")
 
 	// Configure modular computers directly (machine-level persistent_network).
 	// Skips handheld PDAs/wristbound computers entirely -- those are personal
 	// devices a crew member carries, not station/faction infrastructure.
 	try
 		for(var/obj/item/modular_computer/MC in world)
-			if(!(GET_Z(MC) in station_zs))
+			if(!(GET_Z(MC) in zs))
 				continue
 			if(istype(MC, /obj/item/modular_computer/handheld))
 				continue
-			if(MC.persistent_network)
+			if(MC.persistent_network || MC.crew_tagged)
 				continue
 			MC.persistent_network = faction_uid
 			MC.faction_shackled   = TRUE
 			configured++
 	catch(var/exception/mc_e)
-		log_subsystem_persistence_error("Faction beacon: modular computer sweep failed: [mc_e]")
+		log_subsystem_persistence_error("Faction sweep: modular computer sweep failed: [mc_e]")
 
 	try
 		for(var/obj/structure/machinery/telecomms/T in world)
-			if(!(GET_Z(T) in station_zs))
+			if(!(GET_Z(T) in zs))
 				continue
 			if(T.persistent_network)
 				continue
 			T.persistent_network = faction_uid
 			configured++
 	catch(var/exception/tc_e)
-		log_subsystem_persistence_error("Faction beacon: telecomms sweep failed: [tc_e]")
+		log_subsystem_persistence_error("Faction sweep: telecomms sweep failed: [tc_e]")
 
 	try
 		for(var/obj/structure/machinery/door/airlock/AL in world)
-			if(!(GET_Z(AL) in station_zs))
+			if(!(GET_Z(AL) in zs))
 				continue
-			if(AL.req_access_faction)
+			if(AL.req_access_faction || AL.crew_tagged)
 				continue
 			AL.req_access_faction = faction_uid
 			// Clear whatever specific access codes the door had left over
@@ -587,21 +592,21 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 			AL.req_one_access = null
 			configured++
 	catch(var/exception/al_e)
-		log_subsystem_persistence_error("Faction beacon: airlock sweep failed: [al_e]")
+		log_subsystem_persistence_error("Faction sweep: airlock sweep failed: [al_e]")
 
 	// Autodocs already have their own persistent_network mechanism
 	// (gates medical-system access by faction) but were never actually
 	// added to this sweep before -- separate gap from the multi-deck one.
 	try
 		for(var/obj/structure/machinery/autodoc/AD in world)
-			if(!(GET_Z(AD) in station_zs))
+			if(!(GET_Z(AD) in zs))
 				continue
-			if(AD.persistent_network)
+			if(AD.persistent_network || AD.crew_tagged)
 				continue
 			AD.persistent_network = faction_uid
 			configured++
 	catch(var/exception/ad_e)
-		log_subsystem_persistence_error("Faction beacon: autodoc sweep failed: [ad_e]")
+		log_subsystem_persistence_error("Faction sweep: autodoc sweep failed: [ad_e]")
 
 	try
 		for(var/area/A in GLOB.areas)
@@ -611,7 +616,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 				continue
 			var/on_z = FALSE
 			for(var/turf/AT in A.contents)
-				if(GET_Z(AT) in station_zs)
+				if(GET_Z(AT) in zs)
 					on_z = TRUE
 					break
 			if(!on_z)
@@ -619,24 +624,109 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 			A.persistent_network = faction_uid
 			configured++
 	catch(var/exception/area_e)
-		log_subsystem_persistence_error("Faction beacon: area sweep failed: [area_e]")
+		log_subsystem_persistence_error("Faction sweep: area sweep failed: [area_e]")
 
 	try
 		for(var/obj/structure/machinery/porta_turret/PT in world)
-			if(!(GET_Z(PT) in station_zs))
+			if(!(GET_Z(PT) in zs))
 				continue
 			if(PT.persistent_network)
 				continue
 			PT.persistent_network = faction_uid
 			configured++
 	catch(var/exception/turret_e)
-		log_subsystem_persistence_error("Faction beacon: turret sweep failed: [turret_e]")
+		log_subsystem_persistence_error("Faction sweep: turret sweep failed: [turret_e]")
 
 	if(configured)
-		log_game("Faction beacon at ([x],[y],[z]): networked [configured] object(s)/area(s) to faction '[faction_uid]' across z-level(s) [english_list(station_zs)].")
+		log_game("Faction sweep: networked [configured] object(s)/area(s) to faction '[faction_uid]' across z-level(s) [english_list(zs)].")
 	return configured
 
-/// Reverses _sweep_unassigned_objects() (and any manual Faction Tagger claim
+/// Crew-mode counterpart to _sweep_unassigned_objects_for_faction() -- claims
+/// every still-UNASSIGNED (no faction, no personal tag, not already crew-
+/// tagged) compatible object across the given Zs for its ship's crew instead
+/// of a faction, so a personally-owned drydock ship's owner doesn't have to
+/// manually tag every single console by hand on retrieve. Called once by
+/// _drydockRetrieveRun() (persistence_shuttles.dm) for a personally-owned
+/// ship, mirroring the faction sweep's own one-time _apply_network() call
+/// for a faction-owned one. Never touches anything already assigned --
+/// same "manual override always sticks" guarantee as the faction sweep.
+/proc/_sweep_unassigned_crew(list/zs)
+	var/configured = 0
+
+	try
+		for(var/obj/structure/machinery/cryopod/pod in world)
+			if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore))
+				continue
+			if(!(GET_Z(pod) in zs))
+				continue
+			if(pod.persistent_network || pod.personal_ckey || pod.crew_tagged)
+				continue
+			pod.crew_tagged = TRUE
+			configured++
+	catch(var/exception/cryo_e)
+		log_subsystem_persistence_error("Crew sweep: cryopod sweep failed: [cryo_e]")
+
+	try
+		for(var/obj/structure/machinery/telepad_cargo/pad in world)
+			if(!(GET_Z(pad) in zs))
+				continue
+			if(pad.persistent_network || pad.personal_ckey || pad.crew_tagged)
+				continue
+			pad.crew_tagged      = TRUE
+			pad.persistent_spawn = TRUE // still "accepts deliveries", just keyed to the ship's crew now
+			configured++
+	catch(var/exception/pad_e)
+		log_subsystem_persistence_error("Crew sweep: telepad sweep failed: [pad_e]")
+
+	// Skips handheld PDAs/wristbound computers entirely -- those are personal
+	// devices a crew member carries, not ship infrastructure, same exemption
+	// the faction sweep applies.
+	try
+		for(var/obj/item/modular_computer/MC in world)
+			if(!(GET_Z(MC) in zs))
+				continue
+			if(istype(MC, /obj/item/modular_computer/handheld))
+				continue
+			if(MC.persistent_network || MC.personal_ckey || MC.crew_tagged)
+				continue
+			MC.crew_tagged = TRUE
+			configured++
+	catch(var/exception/mc_e)
+		log_subsystem_persistence_error("Crew sweep: modular computer sweep failed: [mc_e]")
+
+	try
+		for(var/obj/structure/machinery/door/airlock/AL in world)
+			if(!(GET_Z(AL) in zs))
+				continue
+			if(AL.req_access_faction || AL.crew_tagged)
+				continue
+			AL.crew_tagged = TRUE
+			// Clear whatever specific access codes the door had left over
+			// from mapping -- same reasoning as the faction sweep's own
+			// clear: a crew-tagged door shouldn't stay locked to unrelated
+			// map-authored access codes.
+			AL.req_access = null
+			AL.req_one_access = null
+			configured++
+	catch(var/exception/al_e)
+		log_subsystem_persistence_error("Crew sweep: airlock sweep failed: [al_e]")
+
+	try
+		for(var/obj/structure/machinery/autodoc/AD in world)
+			if(!(GET_Z(AD) in zs))
+				continue
+			if(AD.persistent_network || AD.personal_ckey || AD.crew_tagged)
+				continue
+			AD.crew_tagged = TRUE
+			configured++
+	catch(var/exception/ad_e)
+		log_subsystem_persistence_error("Crew sweep: autodoc sweep failed: [ad_e]")
+
+	if(configured)
+		log_game("Crew sweep: crew-tagged [configured] object(s) across z-level(s) [english_list(zs)].")
+	return configured
+
+/// Reverses _sweep_unassigned_objects_for_faction() (and any manual Faction Tagger claim
 /// that happens to match): clears persistent_network/faction_shackled/
 /// req_access_faction back to unassigned on every compatible object/area
 /// across this beacon's station currently networked to ITS faction --

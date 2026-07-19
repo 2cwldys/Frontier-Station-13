@@ -1,4 +1,15 @@
 /obj/item/modular_computer/ui_interact(mob/user, datum/tgui/ui)
+	// Blanket personal lock -- a personally-tagged device is unusable by
+	// anyone but its owner (or an admin), full stop. No program is reachable
+	// without this UI opening, so gating here supersedes every per-program
+	// ACCESS_* check for a locked device (personal_tagger_set(),
+	// persistence_faction_tagger.dm).
+	if(personal_ckey && !check_rights(R_ADMIN, 0, user) && (user.ckey != personal_ckey || user.real_name != personal_char_name))
+		to_chat(user, SPAN_WARNING("\The [src] flashes: \"ACCESS DENIED -- personally locked.\""))
+		return
+	if(crew_tagged && !check_rights(R_ADMIN, 0, user) && !_drydock_crew_check(user, GET_Z(src)))
+		to_chat(user, SPAN_WARNING("\The [src] flashes: \"ACCESS DENIED -- crew only.\""))
+		return
 	ui = SStgui.try_update_ui(user, src, ui)
 	if(ui && (!screen_on || !enabled || !computer_use_power()))
 		ui.close()

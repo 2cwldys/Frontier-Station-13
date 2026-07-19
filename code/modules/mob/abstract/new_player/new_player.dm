@@ -528,7 +528,7 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 				var/obj/structure/machinery/cryopod/spawn_pod = persistence_find_saved_cryopod(ckey_lower, H.real_name)
 				if(!spawn_pod)
 					var/rejoiner_faction = GLOB.config.sql_enabled ? persistence_get_player_faction(ckey_lower) : null
-					spawn_pod = persistence_find_available_cryopod(rejoiner_faction)
+					spawn_pod = persistence_find_available_cryopod(rejoiner_faction, ckey_lower, H.real_name)
 				// If they were stored inside a pod, detach them from it cleanly
 				// before waking (they may be re-inserted into spawn_pod below).
 				if(istype(H.loc, /obj/structure/machinery/cryopod))
@@ -850,7 +850,7 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 	var/obj/structure/machinery/cryopod/spawn_pod = persistence_find_saved_cryopod(ckey_lower, character.real_name)
 	if(!spawn_pod)
 		var/spawner_faction = GLOB.config.sql_enabled ? persistence_get_player_faction(ckey_lower) : null
-		spawn_pod = persistence_find_available_cryopod(spawner_faction)
+		spawn_pod = persistence_find_available_cryopod(spawner_faction, ckey_lower, character.real_name)
 	if(!spawn_pod)
 		for(var/obj/structure/machinery/cryopod/pod in world)
 			if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore)) continue

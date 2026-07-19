@@ -23,7 +23,17 @@
 	COOLDOWN_DECLARE(autodoc_warning_cd)
 	/// Faction UID this autodoc is restricted to, or "" for unrestricted. Set via the faction tagger.
 	var/persistent_network = ""
-	worldstate_vars = list("persistent_network")
+	/// ckey of the character this autodoc is personally restricted to, or null.
+	/// Mutually exclusive with persistent_network -- see patient_acceptable() below.
+	var/personal_ckey = null
+	/// Paired with personal_ckey -- see modular_computer's own var of the same name.
+	var/personal_char_name = null
+	/// TRUE if this autodoc is restricted to its drydock ship's crew (owner +
+	/// crew_ckeys) rather than one specific person or a faction -- see
+	/// patient_acceptable() below. Mutually exclusive with
+	/// persistent_network/personal_ckey.
+	var/crew_tagged = FALSE
+	worldstate_vars = list("persistent_network", "personal_ckey", "personal_char_name", "crew_tagged")
 
 /obj/structure/machinery/autodoc/Destroy()
 	QDEL_NULL(autodoc_looping_sound)
@@ -83,6 +93,38 @@
 					visible_message(SPAN_WARNING("\The [src] buzzes an error -- [authorizer == H ? "[H] is" : "[authorizer] is"] not authorized for [get_faction_name(persistent_network)]'s medical systems."))
 					COOLDOWN_START(src, autodoc_warning_cd, 3 SECONDS)
 				return FALSE
+	if(personal_ckey)
+		// Unlike the faction case above (which only checks whoever is doing
+		// the dragging, since any authorized operator may bring any patient
+		// to their faction's medbay), a personal autodoc is about the OWNER
+		// specifically -- so either side of the drag counts: the owner may
+		// bring anyone else in for treatment, and anyone may bring the owner
+		// in. Only refused when NEITHER the dragger nor the patient is the
+		// owner (two unrelated strangers trying to use someone else's
+		// personally-locked autodoc).
+		var/mob/living/authorizer = H.pulledby || H
+		var/owner_is_dragger = (authorizer.ckey == personal_ckey && authorizer.real_name == personal_char_name)
+		var/owner_is_patient = (H.ckey == personal_ckey && H.real_name == personal_char_name)
+		if(!check_rights(R_ADMIN, 0, authorizer) && !owner_is_dragger && !owner_is_patient)
+			if(COOLDOWN_FINISHED(src, autodoc_warning_cd))
+				playsound(src, 'sound/machines/buzz-sigh.ogg', 50, TRUE)
+				visible_message(SPAN_WARNING("\The [src] buzzes an error -- [authorizer == H ? "[H] is" : "[authorizer] is"] not authorized for this autodoc's personally-locked medical systems."))
+				COOLDOWN_START(src, autodoc_warning_cd, 3 SECONDS)
+			return FALSE
+	if(crew_tagged)
+		// Same either-side-of-the-drag logic as the personal case above, but
+		// checking ship crew membership (_drydock_crew_check_identity()) for
+		// both the authorizer and the patient instead of one stored identity.
+		var/mob/living/authorizer = H.pulledby || H
+		var/z = GET_Z(src)
+		var/crew_is_dragger = _drydock_crew_check_identity(authorizer.ckey, authorizer.real_name, z)
+		var/crew_is_patient = _drydock_crew_check_identity(H.ckey, H.real_name, z)
+		if(!check_rights(R_ADMIN, 0, authorizer) && !crew_is_dragger && !crew_is_patient)
+			if(COOLDOWN_FINISHED(src, autodoc_warning_cd))
+				playsound(src, 'sound/machines/buzz-sigh.ogg', 50, TRUE)
+				visible_message(SPAN_WARNING("\The [src] buzzes an error -- [authorizer == H ? "[H] is" : "[authorizer] is"] not authorized for this autodoc's crew-locked medical systems."))
+				COOLDOWN_START(src, autodoc_warning_cd, 3 SECONDS)
+			return FALSE
 	if(H.wear_suit)
 		if(COOLDOWN_FINISHED(src, autodoc_warning_cd))
 			playsound(src, 'sound/machines/buzz-sigh.ogg', 50, TRUE)

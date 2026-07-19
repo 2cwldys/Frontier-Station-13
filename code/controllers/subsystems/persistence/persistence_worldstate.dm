@@ -467,14 +467,14 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 // ------- Machinery -------
 
 /obj/structure/machinery/telepad_cargo
-	worldstate_vars = list("persistent_network", "persistent_spawn", "faction_shackled")
+	worldstate_vars = list("persistent_network", "persistent_spawn", "faction_shackled", "personal_ckey", "personal_char_name", "crew_tagged")
 
 // Full override instead of worldstate_vars -- also saves/restores downloaded
 // software via the shared helpers in modular_computer/faction.dm, so a
 // stationary shackled computer keeps its installed programs across restarts
 // the same way a dynamically-tracked one does via persistent_objects_*_content().
 /obj/item/modular_computer/worldstate_get_content()
-	var/list/content = list("persistent_network" = persistent_network, "faction_shackled" = faction_shackled)
+	var/list/content = list("persistent_network" = persistent_network, "faction_shackled" = faction_shackled, "personal_ckey" = personal_ckey, "personal_char_name" = personal_char_name, "crew_tagged" = crew_tagged)
 	var/list/programs = modcomp_save_programs()
 	if(length(programs))
 		content["programs"] = json_encode(programs)
@@ -485,11 +485,17 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		persistent_network = normalize_faction_uid(content["persistent_network"]) || ""
 	if(!isnull(content["faction_shackled"]))
 		faction_shackled = content["faction_shackled"]
+	if(!isnull(content["personal_ckey"]))
+		personal_ckey = content["personal_ckey"]
+	if(!isnull(content["personal_char_name"]))
+		personal_char_name = content["personal_char_name"]
+	if(!isnull(content["crew_tagged"]))
+		crew_tagged = content["crew_tagged"]
 	if(content["programs"])
 		modcomp_restore_programs(json_decode(content["programs"]))
 
 /obj/structure/machinery/door/airlock
-	worldstate_vars = list("name", "welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access", "id_tag", "frequency")
+	worldstate_vars = list("name", "welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access", "id_tag", "frequency", "crew_tagged")
 
 /obj/structure/machinery/door/airlock/worldstate_get_content()
 	var/list/content = ..()
@@ -842,9 +848,9 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 // ------- Cryopod (null guard for unconfigured pods) -------
 
 /obj/structure/machinery/cryopod/worldstate_get_content()
-	if(!persistent_network)
+	if(!persistent_network && !personal_ckey && !crew_tagged)
 		return null
-	return list("persistent_network" = persistent_network, "persistent_spawn" = persistent_spawn)
+	return list("persistent_network" = persistent_network, "persistent_spawn" = persistent_spawn, "personal_ckey" = personal_ckey, "personal_char_name" = personal_char_name, "crew_tagged" = crew_tagged)
 
 /obj/structure/machinery/cryopod/worldstate_apply_content(list/content)
 	// Only apply non-empty network strings  don't let a stale empty DB value wipe the "public" default
@@ -852,6 +858,12 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		persistent_network = normalize_faction_uid(content["persistent_network"])
 	if(!isnull(content["persistent_spawn"]))
 		persistent_spawn = content["persistent_spawn"]
+	if(!isnull(content["personal_ckey"]))
+		personal_ckey = content["personal_ckey"]
+	if(!isnull(content["crew_tagged"]))
+		crew_tagged = content["crew_tagged"]
+	if(!isnull(content["personal_char_name"]))
+		personal_char_name = content["personal_char_name"]
 
 // ------- Conveyor switch (needs update() not update_icon()) -------
 

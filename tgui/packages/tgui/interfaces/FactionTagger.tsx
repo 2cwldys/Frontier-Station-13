@@ -38,6 +38,12 @@ type FactionTaggerData = {
   turret_lethal: BooleanLike;
   turret_target_mode: string;
   is_public_turret: BooleanLike;
+  personal_owner_name: string | null;
+  is_own_personal_tag: BooleanLike;
+  can_personal_tag: BooleanLike;
+  is_crew_tagged: BooleanLike;
+  can_crew_tag: BooleanLike;
+  can_manage_crew: BooleanLike;
 };
 
 const TURRET_MODES: { mode: string; label: string }[] = [
@@ -70,6 +76,12 @@ export const FactionTagger = (props) => {
     turret_lethal,
     turret_target_mode,
     is_public_turret,
+    personal_owner_name,
+    is_own_personal_tag,
+    can_personal_tag,
+    is_crew_tagged,
+    can_crew_tag,
+    can_manage_crew,
   } = data;
   const [selected, setSelected] = useState(current_uid || own_uid || '');
 
@@ -87,12 +99,20 @@ export const FactionTagger = (props) => {
   }
 
   return (
-    <Window width={380} height={300} title="Faction Tagger">
-      <Window.Content>
+    <Window width={380} height={360} title="Faction Tagger">
+      <Window.Content scrollable>
         <Section title={target_name}>
           <Box mb={1}>
             Current network:{' '}
-            {current_uid ? (
+            {personal_owner_name ? (
+              <Box inline bold color="average">
+                Personal ({personal_owner_name})
+              </Box>
+            ) : is_crew_tagged ? (
+              <Box inline bold color="average">
+                Crew
+              </Box>
+            ) : current_uid ? (
               <Box inline bold color="good">
                 {current_name}
               </Box>
@@ -129,13 +149,55 @@ export const FactionTagger = (props) => {
             <Button
               icon="times"
               color="bad"
-              disabled={!current_uid}
+              disabled={!current_uid && !personal_owner_name && !is_crew_tagged}
               onClick={() => act('release')}
             >
               Release
             </Button>
           </Box>
         </Section>
+        {can_crew_tag && (
+          <Section title="Crew Use">
+            <Button
+              icon="users"
+              color="good"
+              disabled={!can_manage_crew}
+              tooltip="Tag this device to this ship's crew (the owner, plus anyone added via the drydock program's Crew tab). Only the ship's owner (or a faction officer, for faction ships) can set this."
+              onClick={() => act('set_crew')}
+            >
+              Tag to Ship Crew
+            </Button>
+          </Section>
+        )}
+        {can_personal_tag && (
+          <Section title="Personal Use">
+            {personal_owner_name && !is_own_personal_tag && !is_admin && (
+              <NoticeBox>
+                Personally tagged to {personal_owner_name}. Only they or an
+                admin can change this.
+              </NoticeBox>
+            )}
+            <Button
+              icon="user"
+              color="good"
+              disabled={!!personal_owner_name && !is_own_personal_tag}
+              tooltip="Tag this device to yourself. An untagged device can always be personally tagged; a faction-tagged one needs officer access in that faction."
+              onClick={() => act('set_personal')}
+            >
+              Tag to Me
+            </Button>
+            {is_admin && personal_owner_name && !is_own_personal_tag && (
+              <Button
+                icon="user-shield"
+                color="bad"
+                tooltip="Force-tag this device to yourself, bypassing the existing personal tag."
+                onClick={() => act('override_personal')}
+              >
+                Override Tag
+              </Button>
+            )}
+          </Section>
+        )}
         {is_admin && is_cryopod && (
           <Section title="Admin: Public Spawn">
             <Button

@@ -5,6 +5,12 @@
 	power_channel = AREA_USAGE_ENVIRON
 	/// If set, access is resolved via faction member records for this faction UID rather than the flat access list.
 	var/req_access_faction = ""
+	/// If TRUE, this door only opens for the drydock ship crew (owner + crew_ckeys)
+	/// of whichever ship currently occupies this Z -- resolved dynamically via
+	/// _drydock_crew_check() (telepad_drydock_boarding.dm), not a stored
+	/// identity. Mutually exclusive with req_access_faction -- see
+	/// crew_tagger_set() (persistence_faction_tagger.dm).
+	var/crew_tagged = FALSE
 
 	explosion_resistance = 10
 	autoclose = TRUE
@@ -2179,6 +2185,8 @@ About the new airlock wires panel:
 	lock(1)
 
 /obj/structure/machinery/door/airlock/allowed(mob/M)
+	if(crew_tagged)
+		return check_rights(R_ADMIN, 0, M) || _drydock_crew_check(M, GET_Z(src))
 	if(req_access_faction == "public")
 		return TRUE // admin-declared fully open -- bypasses normal req_access/req_one_access too, not just the faction gate
 	if(req_access_faction)

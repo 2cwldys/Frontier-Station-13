@@ -6,6 +6,15 @@
  * in code/controllers/subsystems/persistence/persistence_faction_tagger.dm)
  * through one consistent TGUI window, instead of each type's own scattered
  * right-click verbs.
+ *
+ * Four of those types (modular computers/PDAs, cryopods, autodocs, cargo
+ * telepads) also support a second, mutually-exclusive tag mode: PERSONAL use
+ * (personal_tagger_get_owner()/personal_tagger_set(), same file) -- tags the
+ * device to the tagging character themselves, not a faction. An untagged
+ * device can be personally tagged by anyone; a faction-tagged one needs
+ * officer access in that faction to convert; a device already personally
+ * tagged to someone else can't be touched by anyone but an admin, via the
+ * "Override Tag" action.
  */
 /obj/item/faction_tagger
 	name = "faction tagger"
@@ -74,6 +83,24 @@
 
 	var/is_admin = check_rights(R_ADMIN, 0, user)
 	data["is_admin"] = is_admin
+
+	// Personal tag state -- "ckey|char_name" composite, split for display.
+	var/personal_owner = current_target.personal_tagger_get_owner()
+	var/personal_char_name = null
+	if(personal_owner)
+		var/list/parts = splittext(personal_owner, "|")
+		personal_char_name = parts[2]
+	data["personal_owner_name"] = personal_char_name
+	data["is_own_personal_tag"] = personal_owner && (personal_owner == "[user.ckey]|[user.real_name]")
+	data["can_personal_tag"] = current_target.faction_tagger_compatible() && (istype(current_target, /obj/item/modular_computer) || istype(current_target, /obj/structure/machinery/cryopod) || istype(current_target, /obj/structure/machinery/autodoc) || istype(current_target, /obj/structure/machinery/telepad_cargo))
+
+	// Crew tag state -- boolean only, "crew" is resolved dynamically per-ship
+	// rather than a stored identity (see crew_tagger_is_set()).
+	data["is_crew_tagged"] = current_target.crew_tagger_is_set()
+	data["can_crew_tag"] = current_target.faction_tagger_compatible() && (istype(current_target, /obj/item/modular_computer) || istype(current_target, /obj/structure/machinery/cryopod) || istype(current_target, /obj/structure/machinery/autodoc) || istype(current_target, /obj/structure/machinery/telepad_cargo) || istype(current_target, /obj/structure/machinery/door/airlock))
+	var/turf/tag_turf = get_turf(current_target)
+	var/datum/drydock_ship/tag_ship = tag_turf ? _drydock_ship_at(tag_turf.z) : null
+	data["can_manage_crew"] = tag_ship && (is_admin || tag_ship.owned_by(user) || (tag_ship.faction_uid && can_configure_faction_shackle(user, tag_ship.faction_uid, 1)))
 
 	// Non-admins can only ever use their own faction anyway (the rank check
 	// refuses anything else) -- scope the list to that instead of dumping
@@ -158,6 +185,30 @@
 				log_game("[key_name(user)] used a faction tagger to set [current_target] at [get_turf(current_target)] to faction '[new_uid]'.")
 			. = TRUE
 		if("release")
+			// Personal tag takes priority -- release whichever one is actually set.
+			var/personal_owner = current_target.personal_tagger_get_owner()
+			if(personal_owner)
+				if(personal_owner != "[user.ckey]|[user.real_name]" && !check_rights(R_ADMIN, 0, user))
+					to_chat(user, SPAN_WARNING("\The [current_target] is personally tagged to someone else -- an admin must override it."))
+					return
+				if(current_target.faction_tagger_set(null, user))
+					to_chat(user, SPAN_NOTICE("\The [current_target] released from personal use."))
+					log_game("[key_name(user)] used a faction tagger to release [current_target] at [get_turf(current_target)] from personal use.")
+				. = TRUE
+				return
+			if(current_target.crew_tagger_is_set())
+				var/turf/release_turf = get_turf(current_target)
+				var/datum/drydock_ship/release_ship = release_turf ? _drydock_ship_at(release_turf.z) : null
+				var/is_admin_user = check_rights(R_ADMIN, 0, user)
+				var/can_manage = is_admin_user || (release_ship && (release_ship.owned_by(user) || (release_ship.faction_uid && can_configure_faction_shackle(user, release_ship.faction_uid, 1))))
+				if(!can_manage)
+					to_chat(user, SPAN_WARNING("You must be this ship's owner[(release_ship && release_ship.faction_uid) ? " or a faction officer" : ""] to release this crew tag."))
+					return
+				if(current_target.faction_tagger_set(null, user))
+					to_chat(user, SPAN_NOTICE("Released from crew use."))
+					log_game("[key_name(user)] used a faction tagger to release [current_target] at [get_turf(current_target)] from crew use.")
+				. = TRUE
+				return
 			var/old_uid = current_target.faction_tagger_get_uid()
 			if(!old_uid)
 				return
@@ -167,6 +218,61 @@
 			if(current_target.faction_tagger_set(null, user))
 				to_chat(user, SPAN_NOTICE("\The [current_target] released from [get_faction_name(old_uid)]."))
 				log_game("[key_name(user)] used a faction tagger to release [current_target] at [get_turf(current_target)] from faction '[old_uid]'.")
+			. = TRUE
+		if("set_personal")
+			if(!current_target.faction_tagger_compatible())
+				return
+			var/personal_owner = current_target.personal_tagger_get_owner()
+			if(personal_owner && personal_owner != "[user.ckey]|[user.real_name]")
+				to_chat(user, SPAN_WARNING("\The [current_target] is already personally tagged to someone else -- an admin must override it."))
+				return
+			var/old_uid = current_target.faction_tagger_get_uid()
+			if(old_uid && !can_configure_faction_shackle(user, old_uid, 1))
+				to_chat(user, SPAN_WARNING("\The [current_target] is already tagged to [get_faction_name(old_uid)] -- you need officer access there to convert it to personal use."))
+				return
+			// A beacon's own territory is never personal -- its periodic sweep
+			// would just claim an unassigned device for the faction anyway, and
+			// unlike the faction "set" action above there's no "same faction"
+			// exception that could apply to a personal tag.
+			var/obj/structure/machinery/faction_beacon/personal_beacon = GLOB.faction_beacon_by_z["[GET_Z(current_target)]"]
+			if(personal_beacon && !QDELETED(personal_beacon) && personal_beacon.active && personal_beacon.faction_uid && !check_rights(R_ADMIN, 0, user))
+				to_chat(user, SPAN_WARNING("This Z-level belongs to [get_faction_name(personal_beacon.faction_uid)]'s territory -- you can't personally tag machines here."))
+				return
+			if(current_target.personal_tagger_set(user))
+				to_chat(user, SPAN_GOOD("\The [current_target] personally tagged to you."))
+				log_game("[key_name(user)] used a faction tagger to personally tag [current_target] at [get_turf(current_target)] to themselves.")
+			. = TRUE
+		if("override_personal")
+			if(!check_rights(R_ADMIN, 0, user))
+				return
+			if(current_target.personal_tagger_set(user))
+				to_chat(user, SPAN_GOOD("\The [current_target] force-tagged to you (admin override)."))
+				log_admin("[key_name(user)] used a faction tagger to FORCE personal-tag [current_target] at [get_turf(current_target)] to themselves (override).")
+			. = TRUE
+		if("set_crew")
+			if(!current_target.faction_tagger_compatible())
+				return
+			var/turf/set_crew_turf = get_turf(current_target)
+			var/datum/drydock_ship/set_crew_ship = set_crew_turf ? _drydock_ship_at(set_crew_turf.z) : null
+			if(!set_crew_ship)
+				to_chat(user, SPAN_WARNING("This isn't aboard a deployed drydock ship -- crew tagging doesn't apply here."))
+				return
+			var/is_admin_user = check_rights(R_ADMIN, 0, user)
+			var/can_manage = is_admin_user || set_crew_ship.owned_by(user) || (set_crew_ship.faction_uid && can_configure_faction_shackle(user, set_crew_ship.faction_uid, 1))
+			if(!can_manage)
+				to_chat(user, SPAN_WARNING("You must be this ship's owner[set_crew_ship.faction_uid ? " or a faction officer" : ""] to crew-tag its equipment."))
+				return
+			var/personal_owner = current_target.personal_tagger_get_owner()
+			if(personal_owner && personal_owner != "[user.ckey]|[user.real_name]" && !is_admin_user)
+				to_chat(user, SPAN_WARNING("This is personally tagged to someone else -- an admin must override it."))
+				return
+			var/old_uid = current_target.faction_tagger_get_uid()
+			if(old_uid && !can_configure_faction_shackle(user, old_uid, 1))
+				to_chat(user, SPAN_WARNING("This is already tagged to [get_faction_name(old_uid)] -- you need officer access there to convert it to crew use."))
+				return
+			if(current_target.crew_tagger_set(user))
+				to_chat(user, SPAN_GOOD("Tagged to this ship's crew."))
+				log_game("[key_name(user)] used a faction tagger to crew-tag [current_target] at [get_turf(current_target)] to its ship's crew.")
 			. = TRUE
 		if("toggle_public_spawn")
 			if(!check_rights(R_ADMIN, 0, user) || !istype(current_target, /obj/structure/machinery/cryopod))

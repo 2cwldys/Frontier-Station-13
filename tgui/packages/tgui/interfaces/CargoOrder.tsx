@@ -25,6 +25,14 @@ export type CargoData = {
   faction_network: string | null;
   faction_name: string | null;
   faction_balance: number | null;
+  is_personal: BooleanLike;
+  personal_owner_name: string | null;
+  personal_balance: number | null;
+  operator_faction_name: string | null;
+  operator_faction_balance: number | null;
+  is_crew: BooleanLike;
+  crew_ship_name: string | null;
+  crew_balance: number | null;
   telepad_choices: TelepadChoice[];
   selected_telepad_ref: string | null;
   username: string;
@@ -140,6 +148,38 @@ export const MainPage = (props) => {
           {data.faction_name ?? data.faction_network} Balance:{' '}
           <Box as="span" color={data.faction_balance !== null ? 'good' : 'label'}>
             {data.faction_balance !== null ? `${data.faction_balance} credits` : 'N/A'}
+          </Box>
+        </Box>
+      )}
+      {!!data.is_personal && (
+        <Box mb={1} bold>
+          Personal Balance:{' '}
+          <Box as="span" color={data.personal_balance !== null ? 'good' : 'label'}>
+            {data.personal_balance !== null ? `${data.personal_balance} credits` : 'N/A'}
+          </Box>
+          {data.operator_faction_name && (
+            <Box>
+              {data.operator_faction_name} Balance:{' '}
+              <Box as="span" color={data.operator_faction_balance !== null ? 'good' : 'label'}>
+                {data.operator_faction_balance !== null ? `${data.operator_faction_balance} credits` : 'N/A'}
+              </Box>
+            </Box>
+          )}
+          <Box color="label" mt={0.5}>
+            Orders from this console are paid from your personal account, not
+            a faction.
+          </Box>
+        </Box>
+      )}
+      {!!data.is_crew && (
+        <Box mb={1} bold>
+          {data.crew_ship_name ?? 'Ship'} Crew Balance:{' '}
+          <Box as="span" color={data.crew_balance !== null ? 'good' : 'label'}>
+            {data.crew_balance !== null ? `${data.crew_balance} credits` : 'N/A'}
+          </Box>
+          <Box color="label" mt={0.5}>
+            Orders from this console are billed to the ship owner's account,
+            not yours.
           </Box>
         </Box>
       )}

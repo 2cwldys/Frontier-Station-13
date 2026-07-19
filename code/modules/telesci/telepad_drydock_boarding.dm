@@ -683,6 +683,25 @@
 			return candidate
 	return null
 
+/// TRUE if M counts as "crew" of whichever drydock ship currently occupies
+/// z -- the ship's owner or anyone on its crew_ckeys list. FALSE (fails
+/// closed) if no deployed ship resolves at all. Each ship's crew list is
+/// independent -- this only ever checks the ONE ship actually at z, so two
+/// different ships' crews never cross. Admin bypass is the caller's own
+/// responsibility (mirrors every other tag-mode gate this session), not
+/// baked in here.
+/proc/_drydock_crew_check(mob/M, z)
+	return _drydock_crew_check_identity(M.ckey, M.real_name, z)
+
+/// Identity-based counterpart to _drydock_crew_check() -- for callers that
+/// only have a (ckey, char_name) pair on hand, not a live mob (e.g. cryopod
+/// spawn/save lookups, which run before a mob object necessarily exists).
+/proc/_drydock_crew_check_identity(ckey, char_name, z)
+	var/datum/drydock_ship/DS = _drydock_ship_at(z)
+	if(!DS)
+		return FALSE
+	return (DS.owner_ckey == ckey && DS.owner_char_name == char_name) || ("[ckey]|[char_name]" in DS.crew_ckeys)
+
 /// Core disembark delivery, shared by the mob verb below and the Drydock
 /// program's "Exit Ship" action -- only the trigger differs. Step off a
 /// currently-deployed drydock ship -- available from anywhere aboard (no

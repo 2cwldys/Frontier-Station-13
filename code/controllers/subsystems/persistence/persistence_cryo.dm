@@ -345,6 +345,17 @@
 	var/persistent_spawn   = FALSE
 	/// TRUE if this cryopod was placed on the original map (handled by worldstate). FALSE = admin-spawned (handled by persistent_objects).
 	var/persistence_map_placed = FALSE
+	/// ckey of the character this pod is personally reserved for, or null.
+	/// Mutually exclusive with persistent_network/persistent_spawn -- see
+	/// persistence_find_saved_cryopod()/persistence_find_available_cryopod() below.
+	var/personal_ckey = null
+	/// Paired with personal_ckey -- see modular_computer's own var of the same name.
+	var/personal_char_name = null
+	/// TRUE if this pod is reserved for its drydock ship's crew (owner +
+	/// crew_ckeys) rather than one specific person or a faction -- see
+	/// persistence_find_saved_cryopod()/persistence_find_available_cryopod()
+	/// below. Mutually exclusive with persistent_network/personal_ckey.
+	var/crew_tagged = FALSE
 	/// Never expire spawned cryopods
 	persistant_objects_expiration_time_days = 36500
 
@@ -386,7 +397,10 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 /obj/structure/machinery/cryopod/persistent_objects_get_content()
 	return list(
 		"persistent_network" = persistent_network,
-		"persistent_spawn"   = persistent_spawn
+		"persistent_spawn"   = persistent_spawn,
+		"personal_ckey"      = personal_ckey,
+		"personal_char_name" = personal_char_name,
+		"crew_tagged"        = crew_tagged
 	)
 
 /// On load: if a map-placed cryopod already exists at this position, configure it and qdel self.
@@ -409,6 +423,12 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 					existing.persistent_network = content["persistent_network"]
 				if(!isnull(content["persistent_spawn"]))
 					existing.persistent_spawn = content["persistent_spawn"]
+				if(!isnull(content["personal_ckey"]))
+					existing.personal_ckey = content["personal_ckey"]
+				if(!isnull(content["personal_char_name"]))
+					existing.personal_char_name = content["personal_char_name"]
+				if(!isnull(content["crew_tagged"]))
+					existing.crew_tagged = content["crew_tagged"]
 				// Hand off DB ownership so finalize updates this entry instead of purging it
 				existing.persistent_objects_track_id = src.persistent_objects_track_id
 				SSpersistence.objectsRegisterTrack(existing, src.persistent_objects_author_ckey)
@@ -420,6 +440,12 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 		persistent_network = content["persistent_network"]
 	if(!isnull(content["persistent_spawn"]))
 		persistent_spawn = content["persistent_spawn"]
+	if(!isnull(content["personal_ckey"]))
+		personal_ckey = content["personal_ckey"]
+	if(!isnull(content["personal_char_name"]))
+		personal_char_name = content["personal_char_name"]
+	if(!isnull(content["crew_tagged"]))
+		crew_tagged = content["crew_tagged"]
 
 /**
  * Look up the primary faction UID for a player from the ss13_faction_members table.
@@ -467,6 +493,10 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 		return null
 	if(pod.stat & (NOPOWER|BROKEN))
 		return null
+	if(pod.personal_ckey && (pod.personal_ckey != ckey || pod.personal_char_name != char_name))
+		return null
+	if(pod.crew_tagged && !_drydock_crew_check_identity(ckey, char_name, pod.z))
+		return null
 	if(pod.persistent_network && pod.persistent_network != "public")
 		var/player_faction = persistence_get_player_faction(ckey)
 		if(normalize_faction_uid(player_faction) != normalize_faction_uid(pod.persistent_network))
@@ -479,7 +509,30 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
  *   2. Public or unrestricted pod (persistent_network = "public" or "", persistent_spawn = TRUE)
  * Returns the chosen POD, or null (callers handle landmark fallbacks).
  */
-/proc/persistence_find_available_cryopod(faction_uid = null)
+/proc/persistence_find_available_cryopod(faction_uid = null, ckey = null, char_name = null)
+	// Priority 0: a pod personally reserved for this exact character -- takes
+	// precedence over faction/public pods, same as a personal tag overrides
+	// a faction tag on the pod itself (mutually exclusive by design).
+	if(ckey && char_name)
+		for(var/obj/structure/machinery/cryopod/pod in world)
+			if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore))
+				continue
+			if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN)))
+				continue
+			if(pod.personal_ckey == ckey && pod.personal_char_name == char_name)
+				return pod
+
+		// Priority 0.5: a pod tagged to this character's own drydock ship
+		// crew -- checked after the exact-personal match above, before
+		// faction/public, same precedence a Crew tag has everywhere else.
+		for(var/obj/structure/machinery/cryopod/pod in world)
+			if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore))
+				continue
+			if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN)))
+				continue
+			if(pod.crew_tagged && _drydock_crew_check_identity(ckey, char_name, pod.z))
+				return pod
+
 	// Priority 1: faction's own pods
 	if(faction_uid)
 		var/list/faction_pods = list()
@@ -644,6 +697,41 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 		if(lowertext(pad.persistent_network) == "public" && pad.persistent_spawn)
 			return get_turf(pad)
 
+	return null
+
+/// Personal-order counterpart to persistence_find_cargo_telepad() -- matches
+/// a pad's personal_ckey/personal_char_name instead of a faction network. No
+/// public fallback: a personal order only ever delivers to that character's
+/// own personally-tagged pad.
+/proc/persistence_find_personal_cargo_telepad(ckey, char_name)
+	if(!ckey || !char_name)
+		return null
+	for(var/obj/structure/machinery/telepad_cargo/pad in world)
+		if(!pad.accepts_cargo) continue
+		if(!pad.z) continue
+		if(!pad.persistent_spawn) continue
+		if(pad.personal_ckey == ckey && pad.personal_char_name == char_name)
+			return get_turf(pad)
+	return null
+
+/// Crew-order counterpart to persistence_find_personal_cargo_telepad() --
+/// matches a crew-tagged pad belonging to the SAME ship the order was
+/// submitted from (matched by shuttle_id via _drydock_ship_at() on the
+/// pad's own Z, not a stored identity) so Ship A's crew orders never land
+/// on Ship B's crew-tagged pad even if the orderer happens to be crew of
+/// both. No public fallback: a crew order only ever delivers to that ship's
+/// own crew-tagged pad.
+/proc/persistence_find_crew_cargo_telepad(shuttle_id)
+	if(!shuttle_id)
+		return null
+	for(var/obj/structure/machinery/telepad_cargo/pad in world)
+		if(!pad.accepts_cargo) continue
+		if(!pad.z) continue
+		if(!pad.persistent_spawn) continue
+		if(!pad.crew_tagged) continue
+		var/datum/drydock_ship/pad_ship = _drydock_ship_at(pad.z)
+		if(pad_ship && pad_ship.shuttle_id == shuttle_id)
+			return get_turf(pad)
 	return null
 
 /**
