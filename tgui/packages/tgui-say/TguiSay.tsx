@@ -7,8 +7,8 @@ import { type BooleanLike, classes } from 'tgui-core/react';
 
 import { type Channel, ChannelIterator } from './ChannelIterator';
 import { ChatHistory } from './ChatHistory';
-import { LineLength, RADIO_PREFIXES, WindowSize } from './constants';
-import { getPrefix, windowClose, windowOpen, windowSet } from './helpers';
+import { RADIO_PREFIXES } from './constants';
+import { getPrefix, windowClose, windowOpen } from './helpers';
 import { byondMessages } from './timers';
 
 type ByondOpen = {
@@ -34,7 +34,6 @@ export function TguiSay() {
   const [buttonContent, setButtonContent] = useState('');
   const [lightMode, setLightMode] = useState(false);
   const [maxLength, setMaxLength] = useState(1024);
-  const [size, setSize] = useState(WindowSize.Small);
   const [value, setValue] = useState('');
 
   const position = useRef([window.screenX, window.screenY]);
@@ -263,25 +262,6 @@ export function TguiSay() {
     Byond.subscribeTo('close', handleClose);
   }, []);
 
-  /** Value has changed, we need to check if the size of the window is ok */
-  useEffect(() => {
-    const len = value?.length || 0;
-
-    let newSize: WindowSize;
-    if (len > LineLength.Medium) {
-      newSize = WindowSize.Large;
-    } else if (len <= LineLength.Medium && len > LineLength.Small) {
-      newSize = WindowSize.Medium;
-    } else {
-      newSize = WindowSize.Small;
-    }
-
-    if (size !== newSize) {
-      windowSet(newSize, scale.current);
-      setSize(newSize);
-    }
-  }, [value]);
-
   const theme =
     (lightMode && 'lightMode') ||
     (currentPrefix.current && RADIO_PREFIXES[currentPrefix.current]) ||
@@ -290,7 +270,7 @@ export function TguiSay() {
   return (
     <>
       <div
-        className={`window window-${theme} window-${size}`}
+        className={`window window-${theme}`}
         onMouseDown={dragStartHandler}
       >
         {!lightMode && <div className={`shine shine-${theme}`} />}
@@ -311,11 +291,7 @@ export function TguiSay() {
         </button>
         <textarea
           autoCorrect="off"
-          className={classes([
-            'textarea',
-            `textarea-${theme}`,
-            value.length > LineLength.Large && 'textarea-large',
-          ])}
+          className={classes(['textarea', `textarea-${theme}`])}
           maxLength={maxLength}
           onInput={handleInput}
           onKeyDown={handleKeyDown}

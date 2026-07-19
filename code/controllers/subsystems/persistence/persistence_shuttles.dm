@@ -75,6 +75,14 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	/// faction ownership -- faction_uid is never a character-identity concept.
 	var/owner_char_name
 	var/faction_uid
+	/// TRUE once the Hub has repossessed this ship (see drydockRepossess(),
+	/// below) -- faction_uid is forced to "hub" and owner_ckey/owner_char_name
+	/// are cleared while this is set, with the previous values snapshotted
+	/// into the prev_* vars below so drydockReturnToOwner() can restore them.
+	var/repossessed = FALSE
+	var/prev_owner_ckey
+	var/prev_owner_char_name
+	var/prev_faction_uid
 	var/stashed = TRUE
 	/// FALSE from the moment drydockRetrieve() starts materializing a ship
 	/// until its interior's deferred atmos settle finishes (~15s later,
@@ -267,7 +275,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return
 
 	var/datum/db_query/q = SSdbcore.NewQuery(
-		"SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed, z, overmap_x, overmap_y, custom_name, custom_class FROM ss13_drydock_ships",
+		"SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed, z, overmap_x, overmap_y, custom_name, custom_class, repossessed, prev_owner_ckey, prev_owner_char_name, prev_faction_uid FROM ss13_drydock_ships",
 		list()
 	)
 	q.Execute()
@@ -287,6 +295,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		DS.overmap_y   = text2num(q.item[9])
 		DS.custom_name = q.item[10]
 		DS.custom_class = q.item[11]
+		DS.repossessed = !!text2num(q.item[12])
+		DS.prev_owner_ckey = q.item[13]
+		DS.prev_owner_char_name = q.item[14]
+		DS.prev_faction_uid = q.item[15]
 
 		if(!DS.stashed)
 			log_drydock("drydockShipLedgerRestore: shuttle_id=[DS.shuttle_id] ('[DS.template_id]') was still stashed=0 at boot -- graceful shutdown's auto-stash sweep didn't run (crash/hard kill). Forcing back to stashed; interior recovers from the last autosave.")
@@ -484,6 +496,86 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	if(user)
 		to_chat(user, SPAN_GOOD("Ship identity updated."))
 	log_drydock("drydockRename: [acting] renamed shuttle_id=[shuttle_id] to name='[DS.custom_name]', class='[DS.custom_class]'.")
+	return TRUE
+
+/// Seizes ownership of a ship for the Hub -- snapshots whatever ownership
+/// existed (personal or faction) into the prev_* columns, then clears it and
+/// sets faction_uid = "hub". No new retrieve/board code is needed for "the
+/// Hub keeps it": the moment faction_uid reads "hub", every existing
+/// faction-ownership check in the codebase (Drydock's own ship list query,
+/// boarding, disembark) already treats it as belonging to any Hub security
+/// member, same as any other faction-owned ship. Refuses if already
+/// repossessed -- return the ship first via drydockReturnToOwner() to
+/// re-repossess it.
+/datum/controller/subsystem/persistence/proc/drydockRepossess(shuttle_id, mob/user)
+	var/acting = user ? key_name(user) : "SYSTEM"
+	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
+	if(!DS || DS.repossessed)
+		return FALSE
+
+	if(!databaseCheckConnection("drydockRepossess"))
+		if(user)
+			to_chat(user, SPAN_WARNING("Database connection failed."))
+		return FALSE
+
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"UPDATE ss13_drydock_ships SET repossessed = 1, prev_owner_ckey = :prev_ckey, prev_owner_char_name = :prev_char, prev_faction_uid = :prev_faction, owner_ckey = NULL, owner_char_name = NULL, faction_uid = :hub WHERE shuttle_id = :id",
+		list("prev_ckey" = DS.owner_ckey, "prev_char" = DS.owner_char_name, "prev_faction" = DS.faction_uid, "hub" = "hub", "id" = shuttle_id)
+	)
+	q.Execute()
+	if(!databaseCheckQueryResult(q, "drydockRepossess update"))
+		qdel(q)
+		if(user)
+			to_chat(user, SPAN_WARNING("Database error -- repossession not saved."))
+		return FALSE
+	qdel(q)
+
+	DS.prev_owner_ckey = DS.owner_ckey
+	DS.prev_owner_char_name = DS.owner_char_name
+	DS.prev_faction_uid = DS.faction_uid
+	DS.owner_ckey = null
+	DS.owner_char_name = null
+	DS.faction_uid = "hub"
+	DS.repossessed = TRUE
+
+	log_drydock("drydockRepossess: [acting] repossessed shuttle_id=[shuttle_id] for the Hub.")
+	return TRUE
+
+/// Reverses drydockRepossess() -- restores whatever ownership was snapshotted
+/// at seizure time and clears the repossessed flag/prev_* columns. Refuses if
+/// the ship isn't currently repossessed.
+/datum/controller/subsystem/persistence/proc/drydockReturnToOwner(shuttle_id, mob/user)
+	var/acting = user ? key_name(user) : "SYSTEM"
+	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
+	if(!DS || !DS.repossessed)
+		return FALSE
+
+	if(!databaseCheckConnection("drydockReturnToOwner"))
+		if(user)
+			to_chat(user, SPAN_WARNING("Database connection failed."))
+		return FALSE
+
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"UPDATE ss13_drydock_ships SET repossessed = 0, owner_ckey = :owner_ckey, owner_char_name = :owner_char, faction_uid = :faction, prev_owner_ckey = NULL, prev_owner_char_name = NULL, prev_faction_uid = NULL WHERE shuttle_id = :id",
+		list("owner_ckey" = DS.prev_owner_ckey, "owner_char" = DS.prev_owner_char_name, "faction" = DS.prev_faction_uid, "id" = shuttle_id)
+	)
+	q.Execute()
+	if(!databaseCheckQueryResult(q, "drydockReturnToOwner update"))
+		qdel(q)
+		if(user)
+			to_chat(user, SPAN_WARNING("Database error -- return not saved."))
+		return FALSE
+	qdel(q)
+
+	DS.owner_ckey = DS.prev_owner_ckey
+	DS.owner_char_name = DS.prev_owner_char_name
+	DS.faction_uid = DS.prev_faction_uid
+	DS.repossessed = FALSE
+	DS.prev_owner_ckey = null
+	DS.prev_owner_char_name = null
+	DS.prev_faction_uid = null
+
+	log_drydock("drydockReturnToOwner: [acting] returned shuttle_id=[shuttle_id] to its original owner.")
 	return TRUE
 
 /// Renames a sub-ship mapped into this hull's own hangar (see
@@ -825,11 +917,15 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// other; a request arriving while another is active gets queued and
 /// processed once its turn comes, rather than running immediately.
 /datum/controller/subsystem/persistence/proc/drydockRetrieve(shuttle_id, obj/structure/machinery/faction_beacon/anchor, turf/from_turf, mob/user)
-	if(GLOB.drydock_op_active)
+	// save_in_progress: never start a Z-level load while a world save is
+	// mid-walk -- same corruption class as saving mid-stash, opposite order.
+	// The save's own completion (fire()/force_persistence_save()) drains
+	// this queue, so requests parked here don't wait on another drydock op.
+	if(GLOB.drydock_op_active || save_in_progress)
 		GLOB.drydock_op_queue += list(list("op" = "retrieve", "shuttle_id" = shuttle_id, "anchor" = anchor, "from_turf" = from_turf, "user" = user))
 		if(user)
-			to_chat(user, SPAN_WARNING("Too much drydock activity right now -- queued (position [length(GLOB.drydock_op_queue)]). You'll be notified when it starts."))
-		log_drydock("drydockRetrieve: [user ? key_name(user) : "SYSTEM"] queued retrieve of shuttle_id=[shuttle_id] (position [length(GLOB.drydock_op_queue)]).")
+			to_chat(user, SPAN_WARNING("[save_in_progress ? "A world save is in progress" : "Too much drydock activity right now"] -- queued (position [length(GLOB.drydock_op_queue)]). You'll be notified when it starts."))
+		log_drydock("drydockRetrieve: [user ? key_name(user) : "SYSTEM"] queued retrieve of shuttle_id=[shuttle_id] (position [length(GLOB.drydock_op_queue)], [save_in_progress ? "world save" : "drydock op"] active).")
 		return FALSE
 	GLOB.drydock_op_active = TRUE
 	. = _drydockRetrieveRun(shuttle_id, anchor, from_turf, user)
@@ -1232,11 +1328,14 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /datum/controller/subsystem/persistence/proc/drydockStash(shuttle_id, mob/user, force = FALSE)
 	if(force)
 		return _drydockStashRun(shuttle_id, user, force)
-	if(GLOB.drydock_op_active)
+	// save_in_progress: never start a Z-level teardown while a world save is
+	// mid-walk -- the exact "save it mid-stash" corruption case. The save's
+	// own completion (fire()/force_persistence_save()) drains this queue.
+	if(GLOB.drydock_op_active || save_in_progress)
 		GLOB.drydock_op_queue += list(list("op" = "stash", "shuttle_id" = shuttle_id, "user" = user))
 		if(user)
-			to_chat(user, SPAN_WARNING("Too much drydock activity right now -- queued (position [length(GLOB.drydock_op_queue)]). You'll be notified when it starts."))
-		log_drydock("drydockStash: [user ? key_name(user) : "SYSTEM"] queued stash of shuttle_id=[shuttle_id] (position [length(GLOB.drydock_op_queue)]).")
+			to_chat(user, SPAN_WARNING("[save_in_progress ? "A world save is in progress" : "Too much drydock activity right now"] -- queued (position [length(GLOB.drydock_op_queue)]). You'll be notified when it starts."))
+		log_drydock("drydockStash: [user ? key_name(user) : "SYSTEM"] queued stash of shuttle_id=[shuttle_id] (position [length(GLOB.drydock_op_queue)], [save_in_progress ? "world save" : "drydock op"] active).")
 		return FALSE
 	GLOB.drydock_op_active = TRUE
 	. = _drydockStashRun(shuttle_id, user, force)
@@ -1382,15 +1481,23 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// since the whole point is rescuing a ship you can't get back to. Always
 /// logged to admins with a JMP link, and always costs a real fee so it isn't
 /// a free escape hatch.
-/datum/controller/subsystem/persistence/proc/drydockScuttle(shuttle_id, mob/user)
+///
+/// hub_authority = TRUE is the First Responder ship-seizure tap's "Scuttle"
+/// mode (handle_ship_seizure_tap(), first_responder.dm) -- an officer-rank+
+/// Hub security member destroying someone ELSE's ship as an enforcement
+/// action, not the owner's own self-service escape hatch. That path already
+/// verified Hub officer rank before calling in, so it bypasses both the
+/// ownership permission check and the fee -- an officer doing their job
+/// shouldn't have to personally pay 25000cr to destroy seized contraband.
+/datum/controller/subsystem/persistence/proc/drydockScuttle(shuttle_id, mob/user, hub_authority = FALSE)
 	var/acting = user ? key_name(user) : "SYSTEM"
-	log_drydock("drydockScuttle: [acting] attempting to scuttle shuttle_id=[shuttle_id].")
+	log_drydock("drydockScuttle: [acting] attempting to scuttle shuttle_id=[shuttle_id][hub_authority ? " (Hub authority)" : ""].")
 
 	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
 	if(!DS)
 		log_drydock_warning("drydockScuttle: refused -- unknown shuttle_id=[shuttle_id] (acting=[acting]).")
 		return FALSE
-	if(!(check_rights(R_ADMIN, 0, user) || DS.owned_by(user) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
+	if(!(hub_authority || check_rights(R_ADMIN, 0, user) || DS.owned_by(user) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
 		if(user)
 			to_chat(user, SPAN_WARNING("You don't have permission to scuttle this ship."))
 		log_drydock_warning("drydockScuttle: refused -- [acting] lacks permission for shuttle_id=[shuttle_id].")
@@ -1403,27 +1510,37 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		log_drydock_warning("drydockScuttle: refused -- players still present on z=[DS.z] for shuttle_id=[shuttle_id] (acting=[acting]).")
 		return FALSE
 
-	if(!user)
-		log_drydock_error("drydockScuttle: refused -- no user to charge the fee to for shuttle_id=[shuttle_id].")
-		return FALSE
-	var/obj/item/card/id/ID = user.GetIdCard()
-	if(!ID || !ID.associated_account_number)
-		to_chat(user, SPAN_WARNING("No linked bank account."))
-		log_drydock_warning("drydockScuttle: refused -- [acting] has no linked bank account.")
-		return FALSE
-	var/datum/money_account/acc = SSeconomy.get_account(ID.associated_account_number)
-	if(!acc || acc.money < DRYDOCK_SCUTTLE_FEE)
-		to_chat(user, SPAN_WARNING("Insufficient funds -- scuttling costs [DRYDOCK_SCUTTLE_FEE]cr."))
-		log_drydock_warning("drydockScuttle: refused -- [acting] has insufficient funds to scuttle shuttle_id=[shuttle_id].")
-		return FALSE
-
 	if(!databaseCheckConnection("drydockScuttle"))
-		to_chat(user, SPAN_WARNING("Database connection failed -- scuttle not completed."))
+		if(user)
+			to_chat(user, SPAN_WARNING("Database connection failed -- scuttle not completed."))
 		log_drydock_error("drydockScuttle: database connection failed for shuttle_id=[shuttle_id] (acting=[acting]).")
 		return FALSE
 
-	acc.adjust_money(-DRYDOCK_SCUTTLE_FEE)
+	var/fee_paid = 0
+	if(!hub_authority)
+		if(!user)
+			log_drydock_error("drydockScuttle: refused -- no user to charge the fee to for shuttle_id=[shuttle_id].")
+			return FALSE
+		var/obj/item/card/id/ID = user.GetIdCard()
+		if(!ID || !ID.associated_account_number)
+			to_chat(user, SPAN_WARNING("No linked bank account."))
+			log_drydock_warning("drydockScuttle: refused -- [acting] has no linked bank account.")
+			return FALSE
+		var/datum/money_account/acc = SSeconomy.get_account(ID.associated_account_number)
+		if(!acc || acc.money < DRYDOCK_SCUTTLE_FEE)
+			to_chat(user, SPAN_WARNING("Insufficient funds -- scuttling costs [DRYDOCK_SCUTTLE_FEE]cr."))
+			log_drydock_warning("drydockScuttle: refused -- [acting] has insufficient funds to scuttle shuttle_id=[shuttle_id].")
+			return FALSE
+		acc.adjust_money(-DRYDOCK_SCUTTLE_FEE)
+		fee_paid = DRYDOCK_SCUTTLE_FEE
 
+	return _drydockScuttleFinish(shuttle_id, DS, was_deployed, user, acting, fee_paid)
+
+/// Shared deletion body for drydockScuttle() above -- ledger/backup/crew row
+/// removal, marker teardown, and admin/chat/log reporting. fee_paid is 0 for
+/// a Hub-authority seizure (no charge), else DRYDOCK_SCUTTLE_FEE.
+/datum/controller/subsystem/persistence/proc/_drydockScuttleFinish(shuttle_id, datum/drydock_ship/DS, was_deployed, mob/user, acting, fee_paid)
+	PRIVATE_PROC(TRUE)
 	var/obj/effect/overmap/visitable/marker = was_deployed ? GLOB.map_sectors["[DS.z]"] : null
 	var/atom/jmp_target = (was_deployed && marker) ? marker : user
 	var/ship_display_name = DS.display_name()
@@ -1449,14 +1566,26 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	databaseCheckQueryResult(crdq, "drydockScuttle crew delete")
 	qdel(crdq)
 
-	GLOB.drydock_ships -= shuttle_id
+	// GLOB.drydock_ships is keyed by string everywhere else (see the lookup
+	// two lines up in the caller, and every assignment into this list) --
+	// removing by the raw number here never matched the string-keyed entry,
+	// so the ledger datum was never actually removed despite the comment
+	// above, leaking a stale entry that drydock_ship/Destroy()'s orphan-
+	// recovery check later found and misreported as "destroyed outside
+	// sanctioned flow."
+	GLOB.drydock_ships -= "[shuttle_id]"
 
 	if(was_deployed)
 		SSpersistence._drydockMarkerTeardown(deployed_z)
 
-	message_admins("[key_name(user)] SCUTTLED their ship '[ship_display_name]' (#[shuttle_id]) for [DRYDOCK_SCUTTLE_FEE]cr. [ADMIN_JMP(jmp_target)]")
-	to_chat(user, SPAN_GOOD("Ship scuttled -- gone for good."))
-	log_drydock("drydockScuttle: [acting] permanently scuttled shuttle_id=[shuttle_id] ('[DS.template_id]') for [DRYDOCK_SCUTTLE_FEE]cr, was_deployed=[was_deployed].")
+	if(fee_paid)
+		message_admins("[key_name(user)] SCUTTLED their ship '[ship_display_name]' (#[shuttle_id]) for [fee_paid]cr. [ADMIN_JMP(jmp_target)]")
+		if(user)
+			to_chat(user, SPAN_GOOD("Ship scuttled -- gone for good."))
+		log_drydock("drydockScuttle: [acting] permanently scuttled shuttle_id=[shuttle_id] ('[DS.template_id]') for [fee_paid]cr, was_deployed=[was_deployed].")
+	else
+		message_admins("[key_name(user)] SCUTTLED '[ship_display_name]' (#[shuttle_id]) under Hub officer authority (no fee). [ADMIN_JMP(jmp_target)]")
+		log_drydock("drydockScuttle: [acting] permanently scuttled shuttle_id=[shuttle_id] ('[DS.template_id]') under Hub authority, was_deployed=[was_deployed].")
 	return TRUE
 
 #undef DRYDOCK_SCUTTLE_FEE
@@ -1518,6 +1647,21 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return
 
 	SSpersistence.drydockStash(options[pick], usr, force = TRUE)
+
+/// Server-wide version of force_stash_ship() above -- stashes every
+/// currently-deployed ship at once via the same sweep drydockAutoStashAll()
+/// already runs at shutdown.
+/datum/admins/proc/force_stash_all_ships()
+	set name = "Force Stash All Ships"
+	set category = "Persistence"
+
+	if(!check_rights(R_ADMIN))
+		return
+	if(tgui_alert(usr, "Force-stash every deployed ship on the map? This cannot be undone per-ship.", "Force Stash All Ships", list("Stash All", "Cancel")) != "Stash All")
+		return
+	SSpersistence.drydockAutoStashAll()
+	log_and_message_admins("force-stashed all deployed ships", usr)
+	to_chat(usr, SPAN_GOOD("All deployed ships have been stashed."))
 
 /// Recovery tool -- restores a backup row (made by drydockRetrieve() right
 /// before a deployment) back into the main table as a stashed row, for when

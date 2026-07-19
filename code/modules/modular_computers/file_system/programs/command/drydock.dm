@@ -55,6 +55,12 @@
 	var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
 	data["own_faction_name"] = own_faction ? get_faction_name(own_faction) : null
 
+	// Shown in the Market tab so a purchase's affordability is visible without
+	// needing to check an ATM or the cargo console first.
+	var/datum/money_account/personal_account = SSeconomy.get_account_by_ckey(user.ckey)
+	data["personal_balance"] = personal_account ? personal_account.money : null
+	data["faction_balance"] = own_faction ? get_faction_account_balance(own_faction) : null
+
 	data["personal_shuttles"] = list()
 	data["faction_shuttles"] = list()
 	var/list/my_shuttle_ids = list()
@@ -108,6 +114,10 @@
 
 	data["is_admin"] = check_rights(R_ADMIN, 0, user)
 	data["can_buy_faction"] = own_faction && can_configure_faction_shackle(user, own_faction, 1)
+	// Greys out Retrieve/Stash in the UI while a world save runs -- the
+	// backend queue-gate (drydockRetrieve/drydockStash) stays as the real
+	// enforcement for the race window where this flag is seconds stale.
+	data["save_in_progress"] = SSpersistence.save_in_progress
 
 	var/board_ready_at = last_boarded_by_ckey[user.ckey] ? (last_boarded_by_ckey[user.ckey] + 30) : 0
 	data["can_board"] = world.time >= board_ready_at
@@ -130,10 +140,15 @@
 	var/mob/user = usr
 
 	// PDAs can now open this program at all (usage_flags above), but only
-	// to board, invite someone aboard, or exit a ship -- every ownership-
-	// changing action still requires a real console/laptop, which
-	// usage_flags alone no longer guarantees for free.
-	if(action != "board" && action != "invite_board" && action != "disembark" && istype(computer, /obj/item/modular_computer/handheld))
+	// to board, invite someone aboard, exit a ship, or manage crew -- every
+	// ownership-changing action (retrieve/stash/scuttle/sell/rename/buy)
+	// still requires a real console/laptop, which usage_flags alone no
+	// longer guarantees for free. Crew management is safe here: both
+	// drydockAddCrew() and drydockRemoveCrew() (persistence_shuttles.dm)
+	// already gate on ownership/faction-rank independently of what device
+	// the request came from, the same as board/invite_board/disembark do.
+	var/static/list/handheld_allowed_actions = list("board", "invite_board", "disembark", "add_crew", "remove_crew")
+	if(!(action in handheld_allowed_actions) && istype(computer, /obj/item/modular_computer/handheld))
 		to_chat(user, SPAN_WARNING("This requires a full console or laptop, not a handheld device."))
 		return TRUE
 
@@ -219,6 +234,11 @@
 				crdq.Execute()
 				SSpersistence.databaseCheckQueryResult(crdq, "drydock sell crew delete")
 				qdel(crdq)
+				// A stashed ship's ledger datum still lives in GLOB.drydock_ships
+				// (keyed by string, see drydockScuttle's identical fix) -- without
+				// this it would linger there after the DB row is gone, a stale
+				// entry nothing else in this file ever cleans up.
+				GLOB.drydock_ships -= "[shuttle_id]"
 				to_chat(user, SPAN_GOOD("Ship removed."))
 				log_drydock("drydock ui_act: [key_name(user)] permanently deleted shuttle_id=[shuttle_id] from the drydock DB.")
 			else

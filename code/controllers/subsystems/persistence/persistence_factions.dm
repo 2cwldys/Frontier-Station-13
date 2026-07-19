@@ -429,6 +429,50 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	log_and_message_admins("[new_state ? "enabled" : "disabled"] player self-service faction creation.", usr)
 	feedback_add_details("admin_verb", "TFC")
 
+/// Loads the faction raiding toggle from ss13_faction_raiding_toggle at boot.
+/// Mirrors factionCreationToggleInitialize() above.
+/datum/controller/subsystem/persistence/proc/factionRaidingToggleInitialize()
+	if(!databaseCheckConnection("factionRaidingToggleInitialize"))
+		return
+	try
+		var/datum/db_query/q = SSdbcore.NewQuery("SELECT enabled FROM ss13_faction_raiding_toggle WHERE id = 1", list())
+		q.Execute()
+		if(databaseCheckQueryResult(q, "factionRaidingToggleInitialize") && q.NextRow())
+			GLOB.faction_raiding_enabled = text2num(q.item[1])
+		qdel(q)
+	catch(var/exception/toggle_e)
+		log_subsystem_persistence_error("Factions: failed to load faction raiding toggle: [toggle_e]")
+
+/datum/controller/subsystem/persistence/proc/setFactionRaidingEnabled(enabled)
+	GLOB.faction_raiding_enabled = enabled
+	if(!databaseCheckConnection("setFactionRaidingEnabled"))
+		return
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"INSERT INTO ss13_faction_raiding_toggle (id, enabled) VALUES (1, :enabled) ON DUPLICATE KEY UPDATE enabled = VALUES(enabled)",
+		list("enabled" = enabled ? 1 : 0)
+	)
+	q.Execute()
+	databaseCheckQueryResult(q, "setFactionRaidingEnabled")
+	qdel(q)
+
+/// Admin kill-switch: when disabled, non-members are blocked outright from
+/// entering any claimed (non-Hub) faction's own Z-level(s) -- see
+/// _drydock_pick_access_mode()/_drydock_pick_turf_valid()
+/// (telepad_drydock_boarding.dm) for the actual enforcement.
+/datum/admins/proc/toggle_faction_raiding()
+	set name = "Toggle Faction Raiding"
+	set category = "Persistence"
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	var/new_state = !GLOB.faction_raiding_enabled
+	if(tgui_alert(usr, "Faction raiding is currently [GLOB.faction_raiding_enabled ? "ENABLED" : "DISABLED"]. [new_state ? "Enable" : "Disable"] it? Disabling blocks non-members from entering any claimed faction's territory (Hub excluded).", "Toggle Faction Raiding", list("Yes", "No")) != "Yes")
+		return
+
+	SSpersistence.setFactionRaidingEnabled(new_state)
+	log_and_message_admins("[new_state ? "enabled" : "disabled"] faction raiding.", usr)
+
 // ============================================================
 // ACCOUNT OPERATIONS
 // ============================================================
@@ -1790,6 +1834,24 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 /proc/_despawn_away_site_z(z, purge_incidental = TRUE)
 	if(!z)
 		return
+
+	// The template's own .loaded counter (map_template.dm: "times loaded
+	// this round") was never decremented anywhere in this codebase -- so
+	// for any template without TEMPLATE_FLAG_ALLOW_DUPLICATES, the very
+	// first time it's ever spawned this round permanently latches loaded
+	// > 0, and both the "Generate Away Site" admin verb (line ~1731) and
+	// this file's own _spawn_away_site_for_template() (line ~1544) share
+	// the exact same "already loaded somewhere, does not allow duplicates"
+	// refusal check -- so every later attempt to spawn that same template
+	// again, including this file's own automatic respawn-after-despawn,
+	// silently fails forever. Also clears the stale GLOB.map_templates
+	// entry for z, mirroring the equivalent cleanup ship teardown already
+	// does for its own scope.
+	var/datum/map_template/here_template = GLOB.map_templates["[z]"]
+	if(here_template && here_template.loaded > 0)
+		here_template.loaded--
+	GLOB.map_templates -= "[z]"
+
 	if(purge_incidental)
 		SSpersistence.purgeZRows(z)
 

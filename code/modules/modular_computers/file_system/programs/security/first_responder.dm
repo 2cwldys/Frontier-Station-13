@@ -38,6 +38,15 @@
 	var/next_jump_time = 0
 	/// Weakrefs to apprehended mobs tagged for transport on the next Return
 	var/list/tagged_prisoners = list()
+	/// What tapping a mob with the device does -- "tag" (prisoner transport
+	/// tag, the original behavior) or "repossess" (force-stash AND seize
+	/// ownership for the Hub). "repossess" requires a Hub-network terminal
+	/// (set_tap_mode below refuses to switch into it otherwise); "tag" stays
+	/// available on any network at any rank. Force-stashing any deployed ship
+	/// (no seizure) and scuttling an already-repossessed ship are both
+	/// console actions instead ("force_stash_picker"/"scuttle_repossessed"
+	/// below) -- neither needs a physical target to tap.
+	var/tap_mode = "tag"
 
 #define FIRST_RESPONDER_MAX_PRISONERS 4
 /// Prisoners must be within this range of the responder when Return fires
@@ -63,6 +72,20 @@
 	data["cooldown"]     = max(0, round((next_jump_time - world.time) / 10))
 	data["can_secure"]   = can_run(user, FALSE, ACCESS_SECURITY, PROGRAM_ACCESS_ONE)
 	data["in_highsec"]   = (zone_security_get(user.z) == ZONE_HIGHSEC)
+	data["tap_mode"]     = tap_mode
+	data["can_scuttle_ships"] = (net == "hub") && can_configure_faction_shackle(user, "hub", 1)
+
+	// Ships the Hub has repossessed -- visible from any Hub terminal so any
+	// hub member can hand one back. "Retrieve as Hub" needs no extra UI here:
+	// faction_uid = "hub" already makes it show up in the ordinary Drydock
+	// program's own ship list for any hub security member.
+	var/list/repossessed_ships = list()
+	if(net == "hub")
+		for(var/sid in GLOB.drydock_ships)
+			var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
+			if(DS && DS.repossessed)
+				repossessed_ships += list(list("shuttle_id" = DS.shuttle_id, "display_name" = DS.display_name()))
+	data["repossessed_ships"] = repossessed_ships
 	var/last_distress = user.ckey ? GLOB.hub_distress_last_called[user.ckey] : null
 	data["distress_cooldown"] = last_distress ? max(0, round((last_distress + DISTRESS_CALL_COOLDOWN - world.time) / 10)) : 0
 
@@ -201,6 +224,98 @@
 					return TRUE
 			return TRUE
 
+		if("set_tap_mode")
+			if(!can_run(user, TRUE, ACCESS_SECURITY, PROGRAM_ACCESS_ONE))
+				return TRUE
+			var/mode = params["mode"]
+			if(!(mode in list("tag", "repossess")))
+				return TRUE
+			if(mode == "repossess" && normalize_faction_uid(computer.persistent_network) != "hub")
+				to_chat(user, SPAN_WARNING("Ship seizure requires a Hub-network terminal."))
+				return TRUE
+			tap_mode = mode
+			return TRUE
+
+		if("force_stash_picker")
+			// Console action, not a tap -- picks any currently-deployed ship
+			// from a list (same tgui_input_list pattern as the admin "Force
+			// Stash Ship" verb, persistence_shuttles.dm), so a Hub officer
+			// doesn't need to physically find and tap the owner.
+			if(!can_run(user, TRUE, ACCESS_SECURITY, PROGRAM_ACCESS_ONE))
+				return TRUE
+			if(normalize_faction_uid(computer.persistent_network) != "hub")
+				to_chat(user, SPAN_WARNING("Ship seizure requires a Hub-network terminal."))
+				return TRUE
+			var/list/options = list()
+			for(var/sid in GLOB.drydock_ships)
+				var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
+				if(DS && !DS.stashed)
+					options["[DS.display_name()] (#[DS.shuttle_id], [DS.faction_uid ? "faction [DS.faction_uid]" : "owner [DS.owner_ckey]"])"] = sid
+			if(!length(options))
+				to_chat(user, SPAN_WARNING("No deployed ships found."))
+				return TRUE
+			var/pick = tgui_input_list(user, "Force-stash which ship?", "Force Stash Ship", options)
+			if(!pick || !(pick in options))
+				return TRUE
+			var/shuttle_id = options[pick]
+			var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
+			if(!DS)
+				return TRUE
+			var/ship_name = DS.display_name()
+			if(SSpersistence.drydockStash(shuttle_id, user, force = TRUE))
+				to_chat(user, SPAN_GOOD("[ship_name] forcibly stashed."))
+				log_and_message_admins("[key_name(user)] force-stashed [ship_name] (#[shuttle_id]) via First Responder", user)
+			else
+				to_chat(user, SPAN_WARNING("Failed to stash [ship_name]."))
+			return TRUE
+
+		if("return_to_owner")
+			if(!can_run(user, TRUE, ACCESS_SECURITY, PROGRAM_ACCESS_ONE))
+				return TRUE
+			if(normalize_faction_uid(computer.persistent_network) != "hub")
+				to_chat(user, SPAN_WARNING("Requires a Hub-network terminal."))
+				return TRUE
+			var/shuttle_id = text2num(params["shuttle_id"])
+			if(!shuttle_id)
+				return TRUE
+			if(SSpersistence.drydockReturnToOwner(shuttle_id, user))
+				to_chat(user, SPAN_GOOD("Ship returned to its original owner."))
+				log_and_message_admins("[key_name(user)] returned repossessed ship shuttle_id=[shuttle_id] to its original owner via First Responder", user)
+			else
+				to_chat(user, SPAN_WARNING("Failed to return ship -- it may not be repossessed."))
+			return TRUE
+
+		if("scuttle_repossessed")
+			// Console action, not a tap -- a repossessed ship is always
+			// stashed (drydockRepossess() runs after a force-stash) and its
+			// owner_ckey is cleared, so handle_ship_seizure_tap()'s
+			// _find_owned_deployed_ship() can never find it again by tapping
+			// anyone. It's already fully a Hub asset at this point, so
+			// scuttling it is a console action on the Repossessed Ships list
+			// like Return to Owner, not a field enforcement tap.
+			if(!can_run(user, TRUE, ACCESS_SECURITY, PROGRAM_ACCESS_ONE))
+				return TRUE
+			if(normalize_faction_uid(computer.persistent_network) != "hub")
+				to_chat(user, SPAN_WARNING("Requires a Hub-network terminal."))
+				return TRUE
+			if(!can_configure_faction_shackle(user, "hub", 1))
+				to_chat(user, SPAN_WARNING("Scuttling a repossessed ship requires officer rank or higher in the Hub."))
+				return TRUE
+			var/shuttle_id = text2num(params["shuttle_id"])
+			if(!shuttle_id)
+				return TRUE
+			var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
+			if(!DS || !DS.repossessed)
+				to_chat(user, SPAN_WARNING("That ship is no longer repossessed."))
+				return TRUE
+			var/ship_name = DS.display_name()
+			if(SSpersistence.drydockScuttle(shuttle_id, user, hub_authority = TRUE))
+				to_chat(user, SPAN_GOOD("[ship_name] scuttled by Hub authority."))
+				log_and_message_admins("[key_name(user)] scuttled repossessed ship [ship_name] (#[shuttle_id]) via First Responder (Hub officer authority)", user)
+			else
+				to_chat(user, SPAN_WARNING("Failed to scuttle [ship_name]."))
+			return TRUE
+
 /// Finds a passable turf adjacent to the target (the target itself as a
 /// last resort). Skips dense turfs and turfs holding dense anchored objects.
 /datum/computer_file/program/security/first_responder/proc/first_responder_clear_turf_near(turf/target)
@@ -264,6 +379,38 @@
 	tagged_prisoners += WEAKREF(target)
 	user.visible_message(SPAN_NOTICE("[user] waves [computer] over [target], tagging [target] for transport."), SPAN_NOTICE("You tag [target] for transport -- they will be teleported with you on Return."))
 	playsound(get_turf(computer), 'sound/machines/twobeep.ogg', 30, 1)
+
+/// Finds the deployed drydock ship personally owned by target, if any.
+/datum/computer_file/program/security/first_responder/proc/_find_owned_deployed_ship(mob/target)
+	for(var/sid in GLOB.drydock_ships)
+		var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
+		if(DS && !DS.stashed && DS.owned_by(target))
+			return DS
+	return null
+
+/// Tap handler for tap_mode == "stash"/"repossess" (interaction.dm's
+/// modular_computer/attack() branches here instead of toggle_prisoner_tag()
+/// when a mode other than "tag" is active). Adjacency is inherent -- attack()
+/// only fires on adjacent mobs, which is exactly the field "1:1 tile range"
+/// this is meant to have.
+/datum/computer_file/program/security/first_responder/proc/handle_ship_seizure_tap(mob/living/target, mob/user)
+	if(!can_run(user, TRUE, ACCESS_SECURITY, PROGRAM_ACCESS_ONE))
+		return
+	var/net = computer ? normalize_faction_uid(computer.persistent_network) : null
+	if(net != "hub")
+		to_chat(user, SPAN_WARNING("Ship seizure requires a Hub-network terminal."))
+		return
+	var/datum/drydock_ship/DS = _find_owned_deployed_ship(target)
+	if(!DS)
+		to_chat(user, SPAN_WARNING("[target] has no deployed ship to seize."))
+		return
+
+	if(!SSpersistence.drydockStash(DS.shuttle_id, user, force = TRUE))
+		to_chat(user, SPAN_WARNING("Failed to stash [DS.display_name()]."))
+		return
+	SSpersistence.drydockRepossess(DS.shuttle_id, user)
+	to_chat(user, SPAN_GOOD("[DS.display_name()] stashed and repossessed by the Hub."))
+	log_and_message_admins("[key_name(user)] repossessed [target]'s ship [DS.display_name()] via First Responder", user)
 
 #undef FIRST_RESPONDER_COOLDOWN
 #undef FIRST_RESPONDER_OFFENSE_MAX_AGE

@@ -89,6 +89,13 @@
 	if(SSpersistence.save_in_progress)
 		// world.time-driven so the dots alternate each second with no extra state
 		label = "SAVING [(world.time % 20) < 10 ? ".." : "..."]"
+	else if((GLOB.drydock_op_active || length(GLOB.drydock_op_queue)) && (SSpersistence.next_fire - world.time) <= (1 MINUTE))
+		// The autosave is inside its drydock-deferral window (fire() re-arms
+		// next_fire +1 minute per retry while a stash/retrieve runs) -- say
+		// so instead of showing a countdown that silently keeps resetting.
+		// The <= 1 MINUTE guard keeps an ordinary stash long before the next
+		// save from falsely flipping this label.
+		label = "SAVE PAUSED FOR DRYDOCK"
 	else if(SSpersistence.autosave_paused)
 		label = "AUTOSAVE PAUSED"
 	else
@@ -161,6 +168,27 @@
 	to_chat(usr, SPAN_COLOR("#54c556", "  HIGHSEC (green) -- piracy and combat outlawed: Hub law enforced, violent offenses alert Hub security."))
 	to_chat(usr, SPAN_COLOR("#e8bb4a", "  MEDSEC (yellow) -- piracy outlawed: factions enforce their own laws."))
 	to_chat(usr, SPAN_COLOR("#e04545", "  NULLSEC (red) -- no laws enforced: piracy unchecked."))
+	return TRUE
+
+/// "Exit Eye View" -- fixed just beneath the security shield, but only
+/// shown while a turf-pick (Personal Travel leap / drydock Exit Ship) is
+/// actually in progress; drydock_pick_anchor's begin()/Destroy() add and
+/// remove it from client.screen directly (telepad_drydock_boarding.dm).
+/// Not shown for Sector View, which already has its own toggle.
+/atom/movable/screen/exit_eye_view
+	name = "exit eye view"
+	desc = "Cancel your current landing-spot selection."
+	icon = 'icons/hud/exit_eye_view.png'
+	icon_state = ""
+	screen_loc = "EAST:-6,NORTH:-40"
+	mouse_opacity = MOUSE_OPACITY_OPAQUE
+
+/atom/movable/screen/exit_eye_view/Click(location, control, params)
+	if(!usr)
+		return TRUE
+	if(istype(usr.machine, /obj/effect/drydock_pick_anchor))
+		var/obj/effect/drydock_pick_anchor/anchor = usr.machine
+		anchor.cancel(usr)
 	return TRUE
 
 /client/verb/toggle_zone_shield()

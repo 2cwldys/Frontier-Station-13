@@ -647,6 +647,34 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 	return null
 
 /**
+ * Find every cargo telepad for the given faction network. Priority: faction
+ * telepads -> public telepads -> empty list. Returns every match within
+ * whichever tier wins (never mixes tiers) so a caller with more than one
+ * candidate can offer a choice instead of always landing on the first one
+ * iteration happens to find. Mirrors persistence_find_security_telepads()
+ * (persistence_zone_security.dm).
+ */
+/proc/persistence_find_cargo_telepads(network = null)
+	network = normalize_faction_uid(network)
+	var/list/faction_pads = list()
+	if(network)
+		for(var/obj/structure/machinery/telepad_cargo/pad in world)
+			if(!pad.accepts_cargo) continue
+			if(!pad.z) continue
+			if(!pad.persistent_spawn) continue
+			if(normalize_faction_uid(pad.persistent_network) == network)
+				faction_pads += pad
+	if(length(faction_pads))
+		return faction_pads
+	var/list/public_pads = list()
+	for(var/obj/structure/machinery/telepad_cargo/pad in world)
+		if(!pad.accepts_cargo) continue
+		if(!pad.z) continue
+		if(lowertext(pad.persistent_network) == "public" && pad.persistent_spawn)
+			public_pads += pad
+	return public_pads
+
+/**
  * Teleport a list of atoms to the destination turf with a flash effect.
  */
 /proc/persistence_telepad_deliver(list/items, turf/destination)

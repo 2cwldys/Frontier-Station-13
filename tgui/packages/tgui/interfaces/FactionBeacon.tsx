@@ -19,6 +19,8 @@ type FactionBeaconData = {
   max_fuel_credits: number;
   requires_fuel: BooleanLike;
   site_name: string | null;
+  public_territory: BooleanLike;
+  faction_raiding_enabled: BooleanLike;
 };
 
 export const FactionBeacon = (props) => {
@@ -38,6 +40,8 @@ export const FactionBeacon = (props) => {
     max_fuel_credits,
     requires_fuel,
     site_name,
+    public_territory,
+    faction_raiding_enabled,
   } = data;
   const [withdrawAmount, setWithdrawAmount] = useState(0);
 
@@ -95,6 +99,18 @@ export const FactionBeacon = (props) => {
               {active ? 'Yes' : 'No'}
             </Box>
           </Box>
+          <Box mb={1}>
+            Territory:{' '}
+            <Box inline bold color={public_territory ? 'average' : 'good'}>
+              {public_territory ? 'Public' : 'Private'}
+            </Box>
+            {!public_territory && !!faction_raiding_enabled && (
+              <Box inline color="label">
+                {' '}
+                (no effect right now -- raiding is enabled server-wide)
+              </Box>
+            )}
+          </Box>
           {!active && !!refusal_reason && (
             <NoticeBox>Not active: {refusal_reason}.</NoticeBox>
           )}
@@ -123,6 +139,19 @@ export const FactionBeacon = (props) => {
               onClick={() => act('toggle_power')}
             >
               {powered ? 'Power Off' : 'Power On'}
+            </Button>
+            <Button
+              icon="unlock"
+              color={public_territory ? 'average' : 'good'}
+              disabled={!can_configure}
+              tooltip={
+                can_configure
+                  ? 'Public territory lets non-members enter regardless of the admin faction raiding toggle. Private is subject to it like any other claimed territory.'
+                  : 'You need command access in this faction.'
+              }
+              onClick={() => act('toggle_public_territory')}
+            >
+              Make Territory {public_territory ? 'Private' : 'Public'}
             </Button>
           </Box>
         </Section>

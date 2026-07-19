@@ -30,6 +30,9 @@ type Template = {
 type DrydockData = {
   faction_beacon: FactionBeacon | null;
   own_faction_name: string | null;
+  personal_balance: number | null;
+  faction_balance: number | null;
+  save_in_progress: BooleanLike;
   personal_shuttles: ShuttleRow[];
   faction_shuttles: ShuttleRow[];
   crew_by_ship: Record<string, CrewEntry[]>;
@@ -59,13 +62,23 @@ export const ShuttleDrydock = (props) => {
         {row.stashed ? 'Stashed' : notReady ? 'Initializing...' : 'Deployed'}
         <Button
           ml={1}
-          disabled={!row.stashed || !!retrieveBlocked}
+          disabled={!row.stashed || !!retrieveBlocked || !!data.save_in_progress}
+          tooltip={
+            row.stashed && !retrieveBlocked && data.save_in_progress
+              ? 'World save in progress -- please wait.'
+              : undefined
+          }
           onClick={() => act('retrieve', { shuttle_id: row.shuttle_id })}
         >
           Retrieve
         </Button>
         <Button
-          disabled={!!row.stashed || notReady}
+          disabled={!!row.stashed || notReady || !!data.save_in_progress}
+          tooltip={
+            !row.stashed && !notReady && data.save_in_progress
+              ? 'World save in progress -- please wait.'
+              : undefined
+          }
           onClick={() => act('stash', { shuttle_id: row.shuttle_id })}
         >
           Stash
@@ -169,6 +182,21 @@ export const ShuttleDrydock = (props) => {
         )}
         {tab === 'Market' && (
           <Section title="Drydock Market">
+            <Box mb={1} bold>
+              Personal Balance:{' '}
+              <Box as="span" color={data.personal_balance !== null ? 'good' : 'label'}>
+                {data.personal_balance !== null ? `${data.personal_balance} credits` : 'N/A'}
+              </Box>
+              {data.own_faction_name && (
+                <>
+                  {' | '}
+                  {data.own_faction_name} Balance:{' '}
+                  <Box as="span" color={data.faction_balance !== null ? 'good' : 'label'}>
+                    {data.faction_balance !== null ? `${data.faction_balance} credits` : 'N/A'}
+                  </Box>
+                </>
+              )}
+            </Box>
             {!!data.can_buy_faction && (
               <Button
                 selected={buyAsFaction}

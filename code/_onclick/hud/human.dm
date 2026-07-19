@@ -37,6 +37,13 @@
 		target.zone_indicator = new /atom/movable/screen/zone_security_indicator(null, target)
 		hud_elements |= target.zone_indicator
 
+		// ── Exit Eye View (beneath the shield) ────────────────────────────────
+		// Deliberately NOT added to hud_elements -- it must not be part of the
+		// default client.screen rebuild below, only ever shown/hidden directly
+		// by drydock_pick_anchor's begin()/Destroy() while a turf-pick is
+		// actually in progress (telepad_drydock_boarding.dm).
+		target.eye_view_cancel_button = new /atom/movable/screen/exit_eye_view()
+
 	// ── Gear slots ────────────────────────────────────────────────────────────
 	var/has_hidden_gear
 	for(var/gear_slot in hud_data.gear)

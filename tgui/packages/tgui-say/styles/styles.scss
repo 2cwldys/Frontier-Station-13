@@ -3,6 +3,7 @@
 
 .window {
   background-color: black;
+  height: 30px;
   position: relative;
   overflow: hidden;
 }
@@ -29,19 +30,6 @@
 .window-lightMode {
   background-color: colors.$lightMode;
   border: 2px solid colors.$lightBorder;
-}
-
-/** Window sizes */
-.window-30 {
-  height: 30px;
-}
-
-.window-50 {
-  height: 50px;
-}
-
-.window-70 {
-  height: 70px;
 }
 
 .content {
@@ -98,15 +86,13 @@
   margin: 0.1rem 0 0 0.4rem;
   outline: none;
   resize: none;
-  overflow: hidden;
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: thin;
   scrollbar-color: color.scale(
       colors.$button,
       $lightness: 20% * colors.$scrollbar-color-multiplier
     )
     transparent;
-}
-
-.textarea-large {
-  overflow-y: scroll;
 }

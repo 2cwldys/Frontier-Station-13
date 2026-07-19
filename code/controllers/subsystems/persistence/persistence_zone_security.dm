@@ -311,6 +311,29 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 	return TRUE
 
 /**
+ * Live security tier for a position on the OVERMAP grid: the highest
+ * guaranteed_security_tier among active, powered faction beacons whose own
+ * sector is within security_radius of the tile, else ZONE_NULLSEC.
+ * Needed because zone_security_get(z) is stale for a MOVING ship -- its Z
+ * tier is set once at creation and only ever raised by the beacon sweep
+ * (_apply_security_radius_grant(), faction_beacon.dm), never lowered when
+ * it flies back out of coverage. Beacon walk mirrors
+ * _overmap_tile_hazard_excluded() (overmap/events/event.dm).
+ */
+/proc/zone_security_overmap_tier(turf/overmap_tile)
+	. = ZONE_NULLSEC
+	if(!overmap_tile)
+		return
+	for(var/obj/structure/machinery/faction_beacon/B in world)
+		if(QDELETED(B) || !B.active || !B.powered || B.security_radius <= 0)
+			continue
+		if(B.guaranteed_security_tier <= .)
+			continue
+		var/obj/effect/overmap/visitable/beacon_sector = GLOB.map_sectors["[GET_Z(B)]"]
+		if(istype(beacon_sector) && get_dist(overmap_tile, beacon_sector) <= B.security_radius)
+			. = B.guaranteed_security_tier
+
+/**
  * Record a highsec offense (called from admin_attack_log()): escalates to
  * every admin unconditionally (bypasses the CHAT_ATTACKLOGS preference) with
  * a JMP link every time, and feeds the First Responder offense list --

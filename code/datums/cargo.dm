@@ -27,6 +27,7 @@
 	var/tracking_code = null //Use this code with the order ID to get details about the order
 	var/reason = null //Reason for the order
 	var/delivery_network = null // If set, deliver via faction telepad instead of supply ship
+	var/obj/structure/machinery/telepad_cargo/delivery_telepad = null // Explicit pad choice when the network has more than one; null falls back to persistence_find_cargo_telepad()
 
 //Gets the tracking code for the order. Generates one if it does not exist already
 /datum/cargo_order/proc/get_tracking_code()

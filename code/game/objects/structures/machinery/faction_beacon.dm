@@ -53,6 +53,14 @@
 	/// Alt-click to toggle (mirrors APC/air alarm's lock pattern) -- while
 	/// locked, only admins can use the TGUI's power toggle. Secure by default.
 	var/locked = TRUE
+	/// Faction opt-out of the global faction raiding toggle
+	/// (GLOB.faction_raiding_enabled, persistence_factions.dm) -- when TRUE,
+	/// non-members may always enter this beacon's Z(s), even while raiding is
+	/// admin-disabled server-wide. FALSE by default (subject to the global
+	/// toggle like every other beacon). Faction command-toggleable via the
+	/// TGUI ("toggle_public_territory"), same can_configure_faction_shackle()
+	/// gate as every other faction-side control here.
+	var/public_territory = FALSE
 	/// How many overmap sectors out (in addition to this beacon's own Z) get
 	/// their security bumped to at least medsec when the network applies.
 	/// Admin-adjustable via the TGUI. 0 = only this beacon's own Z, matching
@@ -144,6 +152,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		next_sweep_time = world.time + FACTION_BEACON_SWEEP_INTERVAL
 		_sweep_unassigned_objects(_station_zs())
 		_apply_security_radius_grant()
+		_evict_hazards_in_range()
 		zone_security_update_overmap()
 	if(requires_fuel && world.time >= next_fuel_drain_time)
 		next_fuel_drain_time = world.time + BEACON_FUEL_DRAIN_INTERVAL
@@ -186,7 +195,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 /obj/structure/machinery/faction_beacon/worldstate_get_content()
 	if(!faction_uid)
 		return list()
-	return list("faction_uid" = faction_uid, "powered" = powered, "locked" = locked, "security_radius" = security_radius, "fuel_credits" = fuel_credits)
+	return list("faction_uid" = faction_uid, "powered" = powered, "locked" = locked, "security_radius" = security_radius, "fuel_credits" = fuel_credits, "public_territory" = public_territory)
 
 /obj/structure/machinery/faction_beacon/worldstate_apply_content(list/content)
 	faction_uid = content["faction_uid"] || ""
@@ -194,6 +203,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	locked = isnull(content["locked"]) ? TRUE : !!content["locked"]
 	security_radius = isnull(content["security_radius"]) ? 1 : text2num(content["security_radius"])
 	fuel_credits = isnull(content["fuel_credits"]) ? 0 : between(0, text2num(content["fuel_credits"]), max_fuel_credits)
+	public_territory = isnull(content["public_territory"]) ? FALSE : !!content["public_territory"]
 	if(faction_uid && powered && (!requires_fuel || fuel_credits > 0))
 		_apply_network()
 	else if(powered && requires_fuel && fuel_credits <= 0)
@@ -214,6 +224,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	content["locked"] = locked
 	content["security_radius"] = security_radius
 	content["fuel_credits"] = fuel_credits
+	content["public_territory"] = public_territory
 	return content
 
 /obj/structure/machinery/faction_beacon/persistent_objects_apply_content(content, x, y, z)
@@ -225,6 +236,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	if(!isnull(content["locked"]))          locked          = !!content["locked"]
 	if(!isnull(content["security_radius"])) security_radius = text2num(content["security_radius"])
 	if(!isnull(content["fuel_credits"]))    fuel_credits    = between(0, text2num(content["fuel_credits"]), max_fuel_credits)
+	if(!isnull(content["public_territory"])) public_territory = !!content["public_territory"]
 	if(faction_uid && powered && (!requires_fuel || fuel_credits > 0))
 		_apply_network()
 	else if(powered && requires_fuel && fuel_credits <= 0)
@@ -436,6 +448,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	// range() sweep, also re-run periodically by process() so a site
 	// generated or moved into range afterward gets picked up too.
 	_apply_security_radius_grant()
+	_evict_hazards_in_range()
 
 	// Always refresh the overmap/border visuals on a successful claim,
 	// regardless of whether any of the writes above actually changed a
@@ -469,6 +482,27 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 				continue
 			if(zone_security_get(nearby_z) < guaranteed_security_tier)
 				persistence_set_zone_security(nearby_z, guaranteed_security_tier)
+
+/// Destroys any overmap hazard sitting within this beacon's security_radius.
+/// Closes the one gap _overmap_tile_hazard_excluded() (events/event.dm)
+/// documents: new encroachment is already blocked (create_events()'s spawn
+/// exclusion and handle_move()'s drift redirect), but a hazard already
+/// present before the radius claimed its tile -- an older hazard, or a
+/// beacon that just powered on/expanded -- was never retroactively evicted.
+/// Called alongside _apply_security_radius_grant() so both run on the same
+/// activation + periodic-resweep cadence.
+/obj/structure/machinery/faction_beacon/proc/_evict_hazards_in_range()
+	if(!SSatlas.current_map.use_overmap || security_radius <= 0 || guaranteed_security_tier < ZONE_MEDSEC)
+		return
+	var/obj/effect/overmap/visitable/my_sector = GLOB.map_sectors["[GET_Z(src)]"]
+	if(!istype(my_sector))
+		return
+	for(var/turf/T in overmap_event_handler.hazard_by_turf)
+		if(get_dist(T, my_sector) > security_radius)
+			continue
+		for(var/obj/effect/overmap/event/E in overmap_event_handler.hazard_by_turf[T])
+			log_game("Faction beacon at ([x],[y],[z]): evicted overmap hazard [E] at ([T.x],[T.y],[T.z]) -- inside secured radius.")
+			qdel(E)
 
 /// Claims every UNASSIGNED (persistent_network/req_access_faction/etc.
 /// still empty) compatible object across the given Zs for this beacon's
@@ -774,6 +808,13 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	data["fuel_credits"] = fuel_credits
 	data["max_fuel_credits"] = max_fuel_credits
 	data["requires_fuel"] = requires_fuel
+	data["public_territory"] = public_territory
+	// Private only actually restricts entry while raiding is globally
+	// disabled -- with it enabled server-wide, every claimed Z is already
+	// exterior-accessible by default regardless of this setting. Surfaced so
+	// the UI can make that context clear instead of implying Private always
+	// blocks non-members.
+	data["faction_raiding_enabled"] = GLOB.faction_raiding_enabled
 	var/obj/effect/overmap/visitable/here = GLOB.map_sectors["[GET_Z(src)]"]
 	data["site_name"] = istype(here) ? here.name : null
 	return data
@@ -842,6 +883,14 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 			cash.update_icon()
 			to_chat(user, SPAN_GOOD("Withdrew [amount] credits."))
 			log_game("[key_name(user)] withdrew [amount] fuel credits from a faction beacon at ([x],[y],[z]).")
+			. = TRUE
+		if("toggle_public_territory")
+			if(!can_configure_faction_shackle(user, faction_uid, 1))
+				to_chat(user, SPAN_WARNING("You need command access in [faction_uid ? get_faction_name(faction_uid) : "this beacon's faction"] to toggle this."))
+				return
+			public_territory = !public_territory
+			to_chat(user, SPAN_GOOD("Territory set to [public_territory ? "PUBLIC" : "PRIVATE"] -- [public_territory ? "non-members may enter regardless of the faction raiding toggle." : "subject to the faction raiding toggle like any other claimed territory."]"))
+			log_game("[key_name(user)] set faction beacon at ([x],[y],[z]) territory to [public_territory ? "PUBLIC" : "PRIVATE"].")
 			. = TRUE
 		if("rename_site")
 			if(!can_configure_faction_shackle(user, faction_uid, 1))

@@ -136,13 +136,35 @@
 
 /**
  * Apply saved ship-scoped floor items to a freshly loaded ship Z. Rows were
- * already remapped to this z by remapShipRows(); no wipe pass is needed --
- * the template just loaded, so the only untracked items present are the
- * hull's own authored ones, which the save pass will fold in next cycle.
+ * already remapped to this z by remapShipRows(). The template just loaded,
+ * so any untracked floor items present now are its own authored debris --
+ * wipe those first (mirrors floorItemsInitialize()'s boot-time wipe above)
+ * so the saved rows below are the sole source of truth. Without this, every
+ * retrieve stacks the template's fresh copies on top of whatever got saved
+ * last cycle (which itself included the previous retrieve's stack),
+ * compounding duplication with every stash/retrieve cycle.
  */
 /datum/controller/subsystem/persistence/proc/floorItemsApplyZ(z, scope)
 	if(!databaseCheckConnection("floorItemsApplyZ"))
 		return
+
+	for(var/obj/item/I in world)
+		CHECK_TICK
+		if(I.z != z)
+			continue
+		if(!isturf(I.loc))
+			continue
+		if(I.persistent_objects_track_id != 0)
+			continue
+		if(I in GLOB.persistence_object_track_register)
+			continue
+		if(istype(I, /obj/item/ammo_casing))
+			continue
+		try
+			qdel(I)
+		catch(var/exception/wipe_e)
+			log_subsystem_persistence_error("Floor items: Error deleting [I] during ship Z wipe: [wipe_e]")
+
 	var/datum/db_query/query = SSdbcore.NewQuery(
 		"SELECT type, x, y, z, pixel_x, pixel_y, dir, name, icon_state, extra FROM ss13_floor_items WHERE map_path = :map_path AND z = :z",
 		list("map_path" = scope, "z" = z)

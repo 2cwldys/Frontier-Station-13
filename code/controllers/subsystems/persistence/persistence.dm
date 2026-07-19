@@ -17,6 +17,15 @@ GLOBAL_VAR_INIT(persistence_ready, FALSE)
 /// persistence_factions.dm), persists across restarts via ss13_faction_creation_toggle.
 GLOBAL_VAR_INIT(faction_creation_enabled, TRUE)
 
+/// Whether non-members may enter a claimed faction's own Z-level(s) at all
+/// (the Hub's own highsec beacon is always exempt). Default ON. Admin-toggled
+/// (toggle_faction_raiding(), persistence_factions.dm), persists across
+/// restarts via ss13_faction_raiding_toggle. Enforced in
+/// _drydock_pick_access_mode()/_drydock_pick_turf_valid()
+/// (telepad_drydock_boarding.dm), the shared gate behind Personal Travel's
+/// leap and drydock boarding/disembark.
+GLOBAL_VAR_INIT(faction_raiding_enabled, TRUE)
+
 /// Z levels whose numbers appear in this list are SKIPPED by turf/object/worldstate persistence.
 /// Populated from ss13_zlevel_persistence WHERE enabled = 0 at startup.
 /// Empty by default = all Z levels persist.
@@ -113,6 +122,15 @@ SUBSYSTEM_DEF(persistence)
 	if(save_in_progress)
 		log_subsystem_persistence_warning("Persistence: Periodic save skipped -- save already in progress.")
 		return
+	// Never save mid-stash/retrieve -- a save walking turfs/objects while a
+	// Z-level is being torn down or loaded is how half-state saves happen.
+	// Retry every minute until drydock is fully idle (queue included: a
+	// queued op starts the moment the active one ends). next_fire drives the
+	// HUD "NEXT SAVE" countdown, so the deferral is visible to everyone.
+	if(GLOB.drydock_op_active || length(GLOB.drydock_op_queue))
+		next_fire = world.time + (1 MINUTE)
+		log_subsystem_persistence_info("Persistence: Periodic save deferred -- ship stash/retrieve in progress.")
+		return
 
 	save_in_progress = TRUE
 	log_subsystem_persistence_info("Persistence: Running periodic save.")
@@ -126,6 +144,10 @@ SUBSYSTEM_DEF(persistence)
 	save_in_progress = FALSE
 	log_subsystem_persistence_info("Persistence: Periodic save complete.")
 	to_world(SPAN_GOOD(SPAN_BOLD("World save complete.")))
+	// Kick anything that queued behind save_in_progress (the drydock gates
+	// now queue stash/retrieve requests arriving mid-save) -- the normal
+	// drain only runs after another drydock op, never after a save.
+	_drydockProcessNextQueued()
 
 /**
  * Helper method to check and log database connection.
@@ -281,6 +303,9 @@ SUBSYSTEM_DEF(persistence)
 	SSpersistence.subshipSnapshotSaveAllDeployed()
 
 	SSpersistence.save_in_progress = FALSE
+	// Same post-save queue kick as the periodic fire() -- stash/retrieve
+	// requests that arrived during this save are waiting on it.
+	SSpersistence._drydockProcessNextQueued()
 	log_and_message_admins("forced a mid-round persistence save", usr)
 	to_chat(usr, SPAN_GOOD("Persistence save complete."))
 
@@ -585,6 +610,12 @@ SUBSYSTEM_DEF(persistence)
 		factionCreationToggleInitialize()
 	catch(var/exception/faction_toggle_e)
 		log_subsystem_persistence_panic("Unhandled exception during faction creation toggle initialization: [faction_toggle_e]")
+
+	log_subsystem_persistence_info("Starting faction raiding toggle initialization...")
+	try
+		factionRaidingToggleInitialize()
+	catch(var/exception/faction_raiding_toggle_e)
+		log_subsystem_persistence_panic("Unhandled exception during faction raiding toggle initialization: [faction_raiding_toggle_e]")
 
 	log_subsystem_persistence_info("Starting faction research initialization...")
 	try

@@ -676,7 +676,16 @@ SUBSYSTEM_DEF(cargo)
 		log_subsystem_cargo("Warning: order [co.order_id] delivery_network '[co.delivery_network]' not in faction cache -- falling back to shuttle.")
 		return FALSE
 
-	var/turf/telepad_turf = persistence_find_cargo_telepad(co.delivery_network)
+	var/turf/telepad_turf
+	// Prefer the explicit pad the player chose in the ordering UI, as long as
+	// it's still a valid delivery target for this order's network -- it may
+	// have been re-tagged, deconstructed, or deactivated since the order was
+	// placed. Falls back to the arbitrary first-match lookup otherwise,
+	// exactly as if no choice had been made.
+	if(co.delivery_telepad && !QDELETED(co.delivery_telepad) && co.delivery_telepad.accepts_cargo && co.delivery_telepad.persistent_spawn && co.delivery_telepad.z && normalize_faction_uid(co.delivery_telepad.persistent_network) == co.delivery_network)
+		telepad_turf = get_turf(co.delivery_telepad)
+	if(!telepad_turf)
+		telepad_turf = persistence_find_cargo_telepad(co.delivery_network)
 	if(!telepad_turf)
 		log_subsystem_cargo("Warning: order [co.order_id] found no delivery-enabled telepad for '[co.delivery_network]' -- falling back to shuttle.")
 		return FALSE

@@ -95,6 +95,16 @@
 	if(PRG.available_on_syndinet && !computer_emagged)
 		return FALSE
 
+	// This program instance is shared by anyone using this device -- without
+	// this guard, a second concurrent/stale request for a filename already
+	// in download_queue re-adds it: stomping its progress back to 0 (line
+	// below) and double-counting its size into queue_size, which then never
+	// gets fully un-counted (cancel/finish only subtract once), wedging the
+	// queue's capacity checks and its "anything queued" early-out forever.
+	if(PRG.filename in download_queue)
+		to_chat(user, SPAN_WARNING("[PRG.filedesc] is already queued for download."))
+		return TRUE
+
 	if(!hard_drive.can_store_file(queue_size + PRG.size))
 		to_chat(user, SPAN_WARNING("You can't download this program as queued items exceed hard drive capacity."))
 		return TRUE

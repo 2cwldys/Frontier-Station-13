@@ -268,6 +268,9 @@
 /// Turf-pick access modes -- see _drydock_pick_access_mode() (telepad_drydock_boarding.dm).
 #define DRYDOCK_PICK_MODE_OPEN 1
 #define DRYDOCK_PICK_MODE_EXTERIOR_ONLY 2
+/// No turf at all is valid -- faction raiding is disabled and the mob isn't
+/// a member of the claiming (non-Hub) faction.
+#define DRYDOCK_PICK_MODE_BLOCKED 3
 /// Turf-pick anchor states -- see /obj/effect/drydock_pick_anchor (telepad_drydock_boarding.dm).
 #define DRYDOCK_PICK_STATE_WAITING 0
 #define DRYDOCK_PICK_STATE_CONFIRMED 1

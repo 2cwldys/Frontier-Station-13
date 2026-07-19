@@ -42,6 +42,20 @@
 	groupable = FALSE
 	spawn_amount = 1
 
+/singleton/cargo_item/colonyradio
+	category = "operations"
+	name = "colony radio"
+	supplier = "Hub"
+	description = "A transponder for requesting a new colonial station claim from Central Command. Subject to admin approval."
+	price = 100000
+	items = list(
+		/obj/item/colony_radio
+	)
+	access = 0
+	container_type = "box"
+	groupable = FALSE
+	spawn_amount = 1
+
 /singleton/cargo_item/syndicateuplink
 	category = "operations"
 	name = "syndicate uplink terminal"

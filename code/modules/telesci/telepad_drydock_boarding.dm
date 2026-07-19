@@ -98,6 +98,12 @@
 	var/target_z
 	var/turf/picked_turf
 	var/state = DRYDOCK_PICK_STATE_WAITING
+	/// The free-look eye possessing the user for the duration of the pick --
+	/// gives keyboard panning around target_z for free via the same
+	/// mechanism ghosts/observers already use (mob_movement.dm redirects
+	/// movement keys to EyeMove() whenever mob.eyeobj is set), instead of a
+	/// static camera fixed on this anchor's own turf.
+	var/mob/abstract/eye/pick_eye
 
 /// Opens the remote view for L onto target_z, anchored at this object's own
 /// turf. Mirrors ship.dm's look() almost exactly, applied directly to one
@@ -107,7 +113,21 @@
 	src.user = L
 	src.target_z = target_z
 	L.set_machine(src)
-	L.reset_view(src)
+	pick_eye = new(get_turf(src))
+	// living_eye = TRUE (the default) routes through update_living_sight()
+	// (life.dm) -- normal lighting-respecting vision, which can render an
+	// unlit remote Z as solid black. FALSE routes through
+	// update_dead_sight() instead (full SEE_TURFS|SEE_MOBS|SEE_OBJS,
+	// regardless of lighting) -- the same lever the AI eye already uses
+	// (freelook/ai/eye.dm) to see through dark areas.
+	pick_eye.living_eye = FALSE
+	pick_eye.possess(L)
+	// possess() unconditionally snaps the eye back onto the owner's own
+	// turf as its last step (setLoc(owner), eye.dm) -- reassert the real
+	// intended position (this anchor's own turf, on target_z) immediately
+	// after. Shared by Exit Ship disembark and Enter Ship's "Choose Landing
+	// Spot" boarding option -- fixes both.
+	pick_eye.setLoc(get_turf(src))
 	if(L.client)
 		L.client.saved_dynamic_view = L.client.view
 		L.client.view = expanded_client_view(DRYDOCK_PICK_EXTRA_VIEW)
@@ -115,6 +135,10 @@
 			L.client.screen -= L.client.skybox
 		L.reload_fullscreen()
 		L.clear_fullscreen("gameui_border", FALSE)
+		if(istype(L, /mob/living/carbon/human))
+			var/mob/living/carbon/human/H = L
+			if(H.eye_view_cancel_button)
+				L.client.screen |= H.eye_view_cancel_button
 	RegisterSignal(L, COMSIG_MOB_LOGOUT, PROC_REF(_on_cancel_signal))
 	RegisterSignal(L, COMSIG_MOVABLE_MOVED, PROC_REF(_on_cancel_signal))
 	RegisterSignal(L, COMSIG_MOB_CLICKON, PROC_REF(_on_click))
@@ -153,6 +177,16 @@
 	if(state == DRYDOCK_PICK_STATE_WAITING)
 		state = DRYDOCK_PICK_STATE_CANCELLED
 
+/// Deliberate, explicit cancel -- the "Exit Eye View" HUD button. Unlike
+/// the silent move/logout cancel above, this is a purposeful player action,
+/// so it gets its own clear confirmation instead of just quietly tearing
+/// down.
+/obj/effect/drydock_pick_anchor/proc/cancel(mob/user)
+	if(state != DRYDOCK_PICK_STATE_WAITING)
+		return
+	state = DRYDOCK_PICK_STATE_CANCELLED
+	to_chat(user, SPAN_NOTICE("Landing selection cancelled."))
+
 /// Single teardown path for every exit (confirmed pick, timeout, cancel,
 /// disconnect, or a forced qdel) -- mirrors ship.dm's unlook() applied
 /// directly to the stored user.
@@ -161,7 +195,8 @@
 		UnregisterSignal(user, list(COMSIG_MOB_LOGOUT, COMSIG_MOVABLE_MOVED, COMSIG_MOB_CLICKON))
 		REMOVE_TRAIT(user, TRAIT_COMPUTER_VIEW, REF(src))
 		if(!QDELETED(user))
-			user.reset_view()
+			if(pick_eye)
+				pick_eye.release(user)
 			var/client/c = user.client
 			if(c)
 				c.pixel_x = 0
@@ -175,19 +210,15 @@
 				if(c.mob)
 					c.mob.reload_fullscreen()
 					c.mob.apply_gameui_border()
+				if(istype(user, /mob/living/carbon/human))
+					var/mob/living/carbon/human/H = user
+					if(H.eye_view_cancel_button)
+						c.screen -= H.eye_view_cancel_button
 			if(user.machine == src)
 				user.unset_machine()
 		user = null
+	QDEL_NULL(pick_eye)
 	. = ..()
-
-/// FALSE (not -1) while not this anchor's own active session -- same
-/// reasoning as ship.dm/personal_travel.dm's own check_eye() overrides: a
-/// stale `machine` ref pointing here after teardown must not force-cancel
-/// some OTHER session's view every tick (handle_vision(), life.dm).
-/obj/effect/drydock_pick_anchor/check_eye(mob/living/L)
-	if(L == user && state == DRYDOCK_PICK_STATE_WAITING)
-		return SEE_THRU|SEE_TURFS|SEE_OBJS|SEE_MOBS
-	return FALSE
 
 /// Blocking picker -- spawns the anchor, polls until a valid pick, a
 /// cancellation, or a timeout, then tears the anchor down and returns the
@@ -248,6 +279,20 @@
 	// relying on that invariant silently.
 	var/obj/structure/machinery/faction_beacon/B = GLOB.faction_beacon_by_z["[target_z]"]
 	if(istype(B) && B.powered)
+		// Same ownership parity as the drydock-ship case above -- a member of
+		// the claiming faction gets full interior access to their own site,
+		// not just the exterior-only default a stranger gets.
+		var/obj/item/card/id/ID = L.GetIdCard()
+		var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+		if(B.faction_uid && own_faction && B.faction_uid == own_faction)
+			return DRYDOCK_PICK_MODE_OPEN
+		// Admin-toggled raiding kill-switch (GLOB.faction_raiding_enabled,
+		// persistence_factions.dm) -- the Hub's own beacon subtype is always
+		// exempt (istype check below), and a faction can opt its own
+		// territory out of the lockout entirely via public_territory
+		// (faction_beacon.dm's "toggle_public_territory" TGUI action).
+		if(!GLOB.faction_raiding_enabled && !B.public_territory && !istype(B, /obj/structure/machinery/faction_beacon/hub))
+			return DRYDOCK_PICK_MODE_BLOCKED
 		return DRYDOCK_PICK_MODE_EXTERIOR_ONLY
 	// piracy_beacon never claims territory or touches zone security the way
 	// a faction beacon does (piracy_beacon.dm) -- it's tracked in its own
@@ -272,9 +317,31 @@
 /proc/_drydock_pick_turf_valid(turf/T, mob/living/L, target_z)
 	if(!istype(T) || T.density)
 		return FALSE
-	if(_drydock_pick_access_mode(L, target_z) == DRYDOCK_PICK_MODE_EXTERIOR_ONLY && !_drydock_is_exterior_turf(T))
+	var/mode = _drydock_pick_access_mode(L, target_z)
+	if(mode == DRYDOCK_PICK_MODE_BLOCKED)
+		return FALSE
+	if(mode == DRYDOCK_PICK_MODE_EXTERIOR_ONLY && !_drydock_is_exterior_turf(T))
 		return FALSE
 	return TRUE
+
+/// TRUE if L should be refused entry to target_z outright because faction
+/// raiding is currently disabled, the Z is claimed by an ordinary (non-Hub)
+/// powered faction beacon, and L isn't a member of that faction. Checked up
+/// front where practical (mirrors personal_travel.dm's hardsuit pre-check)
+/// so a blocked player gets an immediate message instead of clicking
+/// through an eye-view pick that can never succeed -- _drydock_pick_access_mode()
+/// above is still the authoritative check, re-verified on every click.
+/proc/_drydock_raid_blocked(mob/living/L, target_z)
+	if(GLOB.faction_raiding_enabled)
+		return FALSE
+	if(zone_security_get(target_z) == ZONE_HIGHSEC)
+		return FALSE
+	var/obj/structure/machinery/faction_beacon/B = GLOB.faction_beacon_by_z["[target_z]"]
+	if(!istype(B) || !B.powered || B.public_territory || istype(B, /obj/structure/machinery/faction_beacon/hub))
+		return FALSE
+	var/obj/item/card/id/ID = L.GetIdCard()
+	var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+	return !(B.faction_uid && own_faction && B.faction_uid == own_faction)
 
 /// Delivery with full portal VFX (spark + portal sprite + sound at BOTH
 /// ends) -- a direct adaptation of personal_travel.dm's _execute_travel().
@@ -492,29 +559,39 @@
 /// instead of that player self-boarding -- same underlying rights/proximity
 /// rule as self-board (_drydock_board_resolve_ship(), resolved against the
 /// INVITER), but delivery (_drydock_board_deliver(), same 15s spool-up and
-/// combat checks) applies to the TARGET once they accept. Two distinct
-/// proximity rules apply, both required: the inviter must be within 1 tile
-/// of the target (physical -- this is a PDA-mediated invite, not a click-to-
-/// target interaction, so the inviter isn't necessarily standing at their
-/// own console), and the target's own overmap sector must be within 1 of
-/// the ship's (mirrors the existing sector-proximity rule everywhere else
-/// in this system). cooldown is the same per-ckey world.time list the
-/// caller already owns for self-board, keyed to whichever mob ends up
-/// delivered -- so an invited target's own cooldown is tracked the same way
-/// a self-boarder's would be.
+/// combat checks) applies to the TARGET once they accept. "Nearby" is
+/// sector-adjacency: the target's own overmap sector must be within
+/// DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX of the ship's (mirrors the existing
+/// sector-proximity rule everywhere else in this system) -- this is a
+/// PDA-mediated invite, not a click-to-target interaction, so the target
+/// isn't expected to be standing physically next to the inviter or at any
+/// console. cooldown is the same per-ckey world.time list the caller
+/// already owns for self-board, keyed to whichever mob ends up delivered --
+/// so an invited target's own cooldown is tracked the same way a
+/// self-boarder's would be.
 /proc/_drydock_invite_board_core(mob/living/inviter, list/cooldown)
 	if(!istype(inviter))
 		return FALSE
 	var/datum/drydock_ship/target_ship = _drydock_board_resolve_ship(inviter, null)
 	if(!target_ship)
 		return FALSE
+	var/obj/effect/overmap/visitable/ship_sector = GLOB.map_sectors["[target_ship.z]"]
 
+	// "Nearby" is sector-adjacency to the ship, same rule self-boarding uses
+	// (_drydock_board_resolve_ship) -- not physical same-Z proximity to the
+	// inviter. Ships/away-sites/stations each live on their own dedicated Z,
+	// so a target on a different map from the inviter could never appear
+	// here under the old view(1, inviter) check, even when their sector was
+	// right next to the ship's on the overmap -- which is the whole point of
+	// inviting someone aboard "instead of that player self-boarding".
 	var/list/nearby = list()
-	for(var/mob/living/candidate in view(1, inviter))
+	for(var/mob/living/candidate in GLOB.living_mob_list)
 		if(candidate == inviter || candidate.stat == DEAD)
 			continue
-		if(get_dist(inviter, candidate) <= 1)
-			nearby += candidate
+		var/obj/effect/overmap/visitable/candidate_sector = _drydock_boarder_sector(candidate)
+		if(!istype(candidate_sector) || !istype(ship_sector) || get_dist(candidate_sector, ship_sector) > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
+			continue
+		nearby += candidate
 	if(!length(nearby))
 		to_chat(inviter, SPAN_WARNING("There's no one nearby to invite aboard."))
 		return FALSE
@@ -530,12 +607,12 @@
 		if(!pick)
 			return FALSE
 		target = choices[pick]
-		if(QDELETED(inviter) || QDELETED(target) || target.stat == DEAD || get_dist(inviter, target) > 1)
-			return FALSE
 
+	// Recheck sector-adjacency (candidates may have moved during the picker
+	// delay above) instead of a same-Z physical distance, for the same
+	// reason the gathering loop above no longer uses one.
 	var/obj/effect/overmap/visitable/target_sector = _drydock_boarder_sector(target)
-	var/obj/effect/overmap/visitable/ship_sector = GLOB.map_sectors["[target_ship.z]"]
-	if(!istype(target_sector) || !istype(ship_sector) || get_dist(target_sector, ship_sector) > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
+	if(QDELETED(inviter) || QDELETED(target) || target.stat == DEAD || !istype(target_sector) || !istype(ship_sector) || get_dist(target_sector, ship_sector) > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
 		to_chat(inviter, SPAN_WARNING("[target] is too far from the ship to invite aboard."))
 		return FALSE
 
@@ -549,7 +626,8 @@
 	if(response != "Accept")
 		to_chat(inviter, SPAN_WARNING(response == "Deny" ? "[target] declined." : "[target] didn't respond in time."))
 		return FALSE
-	if(target.stat == DEAD || get_dist(inviter, target) > 1)
+	target_sector = _drydock_boarder_sector(target)
+	if(target.stat == DEAD || !istype(target_sector) || get_dist(target_sector, ship_sector) > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
 		to_chat(inviter, SPAN_WARNING("[target] is no longer in range to board."))
 		return FALSE
 
@@ -658,7 +736,12 @@
 			if(istype(nearby, /obj/effect/overmap/visitable/sector/temporary))
 				continue
 			seen_sectors += nearby
-			if(get_dist(marker, nearby) > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
+			// Adjacent sectors only -- DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX (the
+			// doubled radius) is sized for "can a ship dock near this beacon,"
+			// not "how far can someone walk off the ship to a neighboring
+			// sector." The base radius keeps this Chebyshev distance from
+			// reading as several sectors away by eye.
+			if(get_dist(marker, nearby) > DRYDOCK_SHIP_PLACEMENT_RADIUS)
 				continue
 			if(!length(nearby.map_z))
 				continue
@@ -682,6 +765,13 @@
 			return FALSE
 
 	var/target_z = GET_Z(anchor_turf)
+	// Checked up front, before the instant "Land at Dock" branch below can
+	// bypass the eye-view picker (and its _drydock_pick_turf_valid() check)
+	// entirely -- without this, a ship already docked at a foreign faction's
+	// Z could let its passengers step off with zero access check at all.
+	if(_drydock_raid_blocked(L, target_z))
+		to_chat(L, SPAN_WARNING("Faction raiding is currently disabled -- you cannot disembark into that territory."))
+		return FALSE
 	var/is_dock_target = (shuttle_datum && marker.status == SHIP_STATUS_LANDED && target_z == GET_Z(shuttle_datum.current_location))
 	var/is_hub_target = (zone_security_get(target_z) == ZONE_HIGHSEC)
 

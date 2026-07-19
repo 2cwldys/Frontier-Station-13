@@ -30,6 +30,13 @@ type TelepadChoice = {
   area_name: string;
 };
 
+type RepossessedShip = {
+  shuttle_id: number;
+  display_name: string;
+};
+
+type TapMode = 'tag' | 'stash' | 'repossess' | 'scuttle';
+
 type FirstResponderData = {
   faction_uid: string | null;
   faction_name: string | null;
@@ -42,6 +49,9 @@ type FirstResponderData = {
   distress_cooldown: number;
   offenses: OffenseEntry[];
   tagged: TaggedEntry[];
+  tap_mode: TapMode;
+  can_scuttle_ships: BooleanLike;
+  repossessed_ships: RepossessedShip[];
 };
 
 export const FirstResponder = (props) => {
@@ -58,6 +68,9 @@ export const FirstResponder = (props) => {
     distress_cooldown,
     offenses,
     tagged,
+    tap_mode,
+    can_scuttle_ships,
+    repossessed_ships,
   } = data;
   const [selectedPadRef, setSelectedPadRef] = useState<string | null>(null);
   const needsPadChoice = telepad_choices.length > 1;
@@ -165,12 +178,102 @@ export const FirstResponder = (props) => {
             {tagged.length > 0 ? ` (+${tagged.length} tagged)` : ''}
           </Button>
         </Section>
+        <Section title="Tap Mode">
+          <NoticeBox info>
+            Tapping a person with the device does whatever mode is selected
+            below. Ship seizure taps are adjacent-range only.
+          </NoticeBox>
+          <Box mt={1}>
+            <Button
+              selected={tap_mode === 'tag'}
+              disabled={!can_secure}
+              onClick={() => act('set_tap_mode', { mode: 'tag' })}
+            >
+              Tag for Transport
+            </Button>
+            <Button
+              selected={tap_mode === 'repossess'}
+              disabled={!can_secure || !is_hub}
+              tooltip={!is_hub ? 'Requires a Hub-network terminal.' : undefined}
+              onClick={() => act('set_tap_mode', { mode: 'repossess' })}
+            >
+              Repossess Ship
+            </Button>
+          </Box>
+        </Section>
+        <Section title="Force Stash a Ship">
+          <NoticeBox info>
+            Console action -- picks any currently-deployed ship from a list,
+            no tap needed.
+          </NoticeBox>
+          <Button
+            mt={1}
+            icon="down-to-line"
+            disabled={!can_secure || !is_hub}
+            tooltip={!is_hub ? 'Requires a Hub-network terminal.' : undefined}
+            onClick={() => act('force_stash_picker')}
+          >
+            Force Stash a Ship
+          </Button>
+        </Section>
+        <Section title="Repossessed Ships">
+          {repossessed_ships.length === 0 && (
+            <NoticeBox info>
+              No ships currently repossessed by the Hub.
+            </NoticeBox>
+          )}
+          {repossessed_ships.length > 0 && (
+            <Table>
+              <Table.Row header>
+                <Table.Cell>Ship</Table.Cell>
+                <Table.Cell />
+              </Table.Row>
+              {repossessed_ships.map((ship) => (
+                <Table.Row key={ship.shuttle_id} className="candystripe">
+                  <Table.Cell bold>{ship.display_name}</Table.Cell>
+                  <Table.Cell>
+                    <Button
+                      icon="reply"
+                      color="good"
+                      disabled={!can_secure || !is_hub}
+                      tooltip="Return this ship to its original owner."
+                      onClick={() =>
+                        act('return_to_owner', {
+                          shuttle_id: ship.shuttle_id,
+                        })
+                      }
+                    >
+                      Return to Owner
+                    </Button>
+                    <Button
+                      icon="radiation"
+                      color="bad"
+                      disabled={!can_secure || !is_hub || !can_scuttle_ships}
+                      tooltip={
+                        can_scuttle_ships
+                          ? 'Permanently destroy this ship. Cannot be undone.'
+                          : 'Requires officer rank or higher in the Hub.'
+                      }
+                      onClick={() =>
+                        act('scuttle_repossessed', {
+                          shuttle_id: ship.shuttle_id,
+                        })
+                      }
+                    >
+                      Scuttle
+                    </Button>
+                  </Table.Cell>
+                </Table.Row>
+              ))}
+            </Table>
+          )}
+        </Section>
         <Section title="Tagged for Transport">
           {tagged.length === 0 && (
             <NoticeBox info>
-              No transport tags. With this program open, tap an apprehended
-              (restrained or incapacitated) person with the device to tag
-              them; they teleport with you on Return.
+              No transport tags. With Tag for Transport mode active, tap an
+              apprehended (restrained or incapacitated) person with the
+              device to tag them; they teleport with you on Return.
             </NoticeBox>
           )}
           {tagged.length > 0 && (

@@ -1,6 +1,7 @@
 import {
   Box,
   Button,
+  Dropdown,
   Icon,
   LabeledList,
   Section,
@@ -15,10 +16,17 @@ import { NtosWindow } from '../layouts';
 import { sanitizeText } from '../sanitize';
 import { SearchBar } from './common/SearchBar';
 
+type TelepadChoice = {
+  ref: string;
+  area_name: string;
+};
+
 export type CargoData = {
   faction_network: string | null;
   faction_name: string | null;
   faction_balance: number | null;
+  telepad_choices: TelepadChoice[];
+  selected_telepad_ref: string | null;
   username: string;
   order_items: Item[];
   order_value: number;
@@ -134,6 +142,26 @@ export const MainPage = (props) => {
             {data.faction_balance !== null ? `${data.faction_balance} credits` : 'N/A'}
           </Box>
         </Box>
+      )}
+      {data.telepad_choices.length > 1 && (
+        <Dropdown
+          mb={1}
+          width="100%"
+          selected={
+            data.telepad_choices.find(
+              (t) => t.ref === data.selected_telepad_ref,
+            )?.area_name || 'Select a delivery telepad'
+          }
+          options={data.telepad_choices.map((t) => t.area_name)}
+          onSelected={(area_name) => {
+            const choice = data.telepad_choices.find(
+              (t) => t.area_name === area_name,
+            );
+            if (choice) {
+              act('select_telepad', { select_telepad: choice.ref });
+            }
+          }}
+        />
       )}
       <Section title={`Welcome, ${data.username}`}>
         <Stack vertical>

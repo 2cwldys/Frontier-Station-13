@@ -39,6 +39,43 @@
 	data["faction_name"]    = co_net ? get_faction_name(co_net) : null
 	data["faction_balance"] = co_net ? get_faction_account_balance(co_net) : null
 
+	// Delivery telepad choice -- only surfaced when the faction has more than
+	// one delivery-enabled cargo pad (see persistence_find_cargo_telepads()).
+	// A single (or no) match behaves exactly as before -- no selector shown.
+	data["telepad_choices"] = list()
+	data["selected_telepad_ref"] = null
+	if(co_net)
+		var/list/telepads = persistence_find_cargo_telepads(co_net)
+		if(length(telepads) > 1)
+			// List the closest pad to the ordering console/PDA first. Same-Z
+			// candidates (real tile distance) always outrank cross-Z ones (only
+			// comparable via overmap sector distance) -- +10000 offset keeps the
+			// two tiers from ever interleaving. Mirrors the sector-adjacency
+			// convention used by the drydock/faction proximity checks.
+			var/turf/console_turf = get_turf(computer)
+			var/console_z = GET_Z(computer)
+			var/obj/effect/overmap/visitable/console_sector = console_z ? GLOB.map_sectors["[console_z]"] : null
+			var/list/pad_distances = list()
+			for(var/obj/structure/machinery/telepad_cargo/pad in telepads)
+				var/turf/pad_turf = get_turf(pad)
+				var/dist = 99999
+				if(pad_turf && console_turf && pad_turf.z == console_z)
+					dist = get_dist(console_turf, pad_turf)
+				else if(pad_turf)
+					var/obj/effect/overmap/visitable/pad_sector = GLOB.map_sectors["[pad_turf.z]"]
+					if(console_sector && istype(pad_sector))
+						dist = 10000 + get_dist(console_sector, pad_sector)
+				pad_distances[pad] = dist
+			sortTim(pad_distances, GLOBAL_PROC_REF(cmp_numeric_asc), TRUE)
+			for(var/obj/structure/machinery/telepad_cargo/pad in pad_distances)
+				var/area/A = get_area(pad)
+				data["telepad_choices"] += list(list(
+					"ref" = "\ref[pad]",
+					"area_name" = A ? A.name : "Unknown Area"
+				))
+			if(co.delivery_telepad && !QDELETED(co.delivery_telepad) && (co.delivery_telepad in telepads))
+				data["selected_telepad_ref"] = "\ref[co.delivery_telepad]"
+
 	//Pass the ID Data
 	data["username"] = GetNameAndAssignmentFromId(user.GetIdCard())
 
@@ -182,6 +219,18 @@
 		//Change the displayed item category
 		if("select_category")
 			selected_category = params["select_category"]
+			return TRUE
+
+		//Pick which of the faction's cargo telepads this order should land on
+		if("select_telepad")
+			var/co_net = computer ? normalize_faction_uid(computer.persistent_network) : null
+			var/target_ref = params["select_telepad"]
+			co.delivery_telepad = null
+			if(co_net && target_ref)
+				for(var/obj/structure/machinery/telepad_cargo/pad in persistence_find_cargo_telepads(co_net))
+					if("\ref[pad]" == target_ref)
+						co.delivery_telepad = pad
+						break
 			return TRUE
 
 		if("clear_message")

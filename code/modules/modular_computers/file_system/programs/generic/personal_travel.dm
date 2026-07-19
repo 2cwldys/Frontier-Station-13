@@ -29,37 +29,71 @@
  * mis-scale it).
  */
 
+/// Every (x,y) pair forming the square ring at the given radius around
+/// (cx,cy) -- radius 0 is just the center point itself. Used to search
+/// outward from a known point ring-by-ring instead of scanning a whole Z
+/// uniformly, since a small structure loaded onto a much larger Z (see
+/// load_new_z()/load_into_z(), map_template.dm -- always centered on the Z)
+/// is otherwise very likely to be missed entirely by a blind random pick.
+/proc/_personal_travel_ring_coords(cx, cy, radius)
+	var/list/coords = list()
+	if(radius <= 0)
+		coords += list(list(cx, cy))
+		return coords
+	for(var/x = cx - radius, x <= cx + radius, x++)
+		coords += list(list(x, cy - radius))
+		coords += list(list(x, cy + radius))
+	for(var/y = cy - radius + 1, y <= cy + radius - 1, y++)
+		coords += list(list(cx - radius, y))
+		coords += list(list(cx + radius, y))
+	return coords
+
 /// Leap's landing spot on the given Z. Away sites embedded in open space
 /// land on a non-dense /turf/space tile; solid-ground away sites (asteroids,
 /// exoplanets) have no space turfs at all, so this falls back to a
 /// non-dense /turf/simulated/floor/exoplanet tile (covers every
 /// asteroid/exoplanet biome floor via inheritance) that isn't blocked by a
 /// dense anchored object -- same safety shape as
-/// first_responder_clear_turf_near() (first_responder.dm). Picks randomly
-/// among whichever candidate list is non-empty, rather than always the
-/// first raster-order tile. Returns null only if the whole Z is
-/// impassable, which should not happen for any real away site/sector.
+/// first_responder_clear_turf_near() (first_responder.dm). Searches outward
+/// in rings from the Z's own center (load_new_z()/load_into_z() always
+/// center a template on its Z, so this is where the actual structure sits,
+/// regardless of how much larger the Z canvas itself is) rather than
+/// picking uniformly at random anywhere on the map -- picks randomly only
+/// among whichever ring first yields a hit, so the result always lands
+/// close to the real site. Returns null only if the whole Z is impassable,
+/// which should not happen for any real away site/sector.
 /proc/personal_travel_find_space_landing(z)
-	var/list/space_candidates = list()
-	for(var/turf/space/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
-		if(!T.density)
-			space_candidates += T
-	if(length(space_candidates))
-		return pick(space_candidates)
+	var/center_x = round(world.maxx / 2)
+	var/center_y = round(world.maxy / 2)
+	var/max_radius = max(world.maxx, world.maxy)
 
-	var/list/ground_candidates = list()
-	for(var/turf/simulated/floor/exoplanet/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
-		if(T.density)
-			continue
-		var/blocked = FALSE
-		for(var/obj/O in T)
-			if(O.density && O.anchored)
-				blocked = TRUE
-				break
-		if(!blocked)
-			ground_candidates += T
-	if(length(ground_candidates))
-		return pick(ground_candidates)
+	var/list/ground_fallback = list()
+
+	for(var/radius = 0 to max_radius)
+		var/list/space_ring = list()
+		for(var/list/coord in _personal_travel_ring_coords(center_x, center_y, radius))
+			var/x = coord[1]
+			var/y = coord[2]
+			if(x < 1 || x > world.maxx || y < 1 || y > world.maxy)
+				continue
+			var/turf/T = locate(x, y, z)
+			if(!T)
+				continue
+			if(istype(T, /turf/space) && !T.density)
+				space_ring += T
+			else if(istype(T, /turf/simulated/floor/exoplanet) && !T.density)
+				var/blocked = FALSE
+				for(var/obj/O in T)
+					if(O.density && O.anchored)
+						blocked = TRUE
+						break
+				if(!blocked)
+					ground_fallback += T
+		if(length(space_ring))
+			return pick(space_ring)
+
+	if(length(ground_fallback))
+		return pick(ground_fallback)
 
 	return null
 
@@ -80,6 +114,12 @@
 	/// currently borrowing this program's camera, so kill_program()/the
 	/// toggle-off path know exactly who to restore.
 	var/mob/viewing_user = null
+	/// The free-look eye possessing viewing_user for the duration of Sector
+	/// View -- gives keyboard panning across the whole overmap for free via
+	/// the same mechanism ghosts/observers already use (mob_movement.dm
+	/// redirects movement keys to EyeMove() whenever mob.eyeobj is set),
+	/// instead of a static camera fixed on the player's own current sector.
+	var/mob/abstract/eye/sector_eye
 	/// Sensor-style marker images cast to the viewer while Sector View is
 	/// active (requires_contact overmap objects are invisible atoms; ship
 	/// sensors reveal them via contact images -- this is the same trick,
@@ -203,6 +243,9 @@
 	if(user.in_recent_combat())
 		to_chat(user, SPAN_WARNING("\The [computer] flashes: RECENT COMBAT DETECTED -- systems locked."))
 		return TRUE
+	if(user.buckled_to)
+		to_chat(user, SPAN_WARNING("You can't travel while buckled."))
+		return TRUE
 	if(world.time < next_travel_time)
 		to_chat(user, SPAN_WARNING("\The [computer] is still recalibrating."))
 		return TRUE
@@ -212,6 +255,15 @@
 
 	switch(action)
 		if("leap")
+			// Sector View must be fully closed before the eye-view turf
+			// picker opens below -- otherwise the picker's own begin()
+			// caches client.view while it's still Sector-View-expanded
+			// (clobbering the real value _start_viewing() cached), and its
+			// Destroy() later restores that clobbered value, leaving the
+			// player's camera stuck zoomed out even after control returns
+			// to their mob.
+			if(viewing_user == user)
+				_stop_viewing(user)
 			// Checked before the (potentially ~60s) eye-view pick opens --
 			// no point making a player sit through an interactive turf
 			// choice only to refuse them afterward for lacking a hardsuit.
@@ -227,6 +279,13 @@
 				to_chat(user, SPAN_WARNING("That destination is no longer valid."))
 				return TRUE
 			target_z = target_sector.map_z[1]
+			// Checked before the eye-view pick opens, same as the hardsuit
+			// check above -- a raid-blocked player gets an immediate refusal
+			// instead of clicking through a pick that can never succeed
+			// (_drydock_pick_access_mode() still enforces this authoritatively).
+			if(_drydock_raid_blocked(user, target_z))
+				to_chat(user, SPAN_WARNING("Faction raiding is currently disabled -- you cannot enter that territory."))
+				return TRUE
 			var/turf/anchor = personal_travel_find_space_landing(target_z)
 			if(!anchor)
 				to_chat(user, SPAN_WARNING("No safe landing point could be found there."))
@@ -272,6 +331,10 @@
 	if(user.in_recent_combat())
 		spool_seq++ // invalidate the pending spark pulses above
 		to_chat(user, SPAN_WARNING("Combat detected -- jump aborted."))
+		return TRUE
+	if(user.buckled_to)
+		spool_seq++ // invalidate the pending spark pulses above
+		to_chat(user, SPAN_WARNING("You are buckled -- jump aborted."))
 		return TRUE
 
 	if(action == "leap")
@@ -342,11 +405,20 @@
 	// before pointing the camera at them -- see repair_stray_overmap_marker
 	// (sectors.dm).
 	repair_stray_overmap_marker(my_sector)
-	// check_eye()'s sight grant (the full-reveal trio) only flows while the
-	// hosting computer IS the mob's polled `machine` -- claim it explicitly
-	// (PDAs in hand never set it on their own).
-	user.set_machine(computer)
-	user.reset_view(my_sector)
+	sector_eye = new(get_turf(my_sector))
+	// living_eye = TRUE (the default) routes through update_living_sight()
+	// (life.dm) -- normal lighting-respecting vision, which renders the
+	// unlit overmap plane as solid black. FALSE routes through
+	// update_dead_sight() instead (full SEE_TURFS|SEE_MOBS|SEE_OBJS,
+	// regardless of lighting) -- the same lever the AI eye already uses
+	// (freelook/ai/eye.dm) to see through dark areas.
+	sector_eye.living_eye = FALSE
+	sector_eye.possess(user)
+	// possess() unconditionally snaps the eye back onto the owner's own
+	// turf as its last step (setLoc(owner), eye.dm) -- reassert the real
+	// intended position (the overmap sector, not the player's own Z)
+	// immediately after.
+	sector_eye.setLoc(get_turf(my_sector))
 	if(user.client)
 		// Cache the real dynamic view so _stop_viewing() can restore it
 		// directly instead of asking refit_dynamic_view() to re-derive it
@@ -380,7 +452,9 @@
 /datum/computer_file/program/personal_travel/proc/_stop_viewing(mob/user)
 	if(!user)
 		return
-	user.reset_view()
+	if(sector_eye)
+		sector_eye.release(user)
+	QDEL_NULL(sector_eye)
 	var/client/c = user.client
 	if(c)
 		c.pixel_x = 0
@@ -397,8 +471,6 @@
 		if(c.mob)
 			c.mob.reload_fullscreen()
 			c.mob.apply_gameui_border()
-	if(user.machine == computer)
-		user.unset_machine()
 	if(user.client)
 		for(var/image/I in sensor_images)
 			user.client.images -= I
@@ -418,10 +490,11 @@
 	for(var/image/I in sensor_images)
 		user.client.images -= I
 	sensor_images.Cut()
-	var/obj/effect/overmap/visitable/my_sector = _current_sector(user)
-	if(!my_sector)
-		return
-	var/turf/T = get_turf(my_sector)
+	// Centered on the eye's current position (wherever the player has
+	// panned to), not the player's own fixed sector -- so exploring with
+	// the eye actually reveals new contacts as you go, instead of only ever
+	// showing what's within range of your starting spot.
+	var/turf/T = sector_eye ? get_turf(sector_eye) : null
 	if(!T)
 		return
 	// view() (not range) -- the same opacity-respecting scan ship sensors
@@ -469,25 +542,6 @@
 	primed_ref = "\ref[target]"
 	to_chat(source, SPAN_GOOD("Primed [target.name] as the leap destination."))
 	return COMSIG_MOB_CANCEL_CLICKON
-
-/// handle_vision() (life.dm) polls machine.check_eye() every tick and
-/// snaps the camera back to the mob on any negative return. The base
-/// program check_eye() is an unconditional -1 (program.dm), which yanked
-/// Sector View shut whenever user.machine happened to be set to this
-/// computer. Same override pattern as the camera monitor program.
-/datum/computer_file/program/personal_travel/check_eye(mob/user)
-	if(viewing_user == user)
-		// Full-reveal trio (camera XRay pattern) -- see ship.dm's check_eye
-		// note: hides nothing on the overmap plane behind opaque hazards.
-		return SEE_THRU|SEE_TURFS|SEE_OBJS|SEE_MOBS
-	// FALSE (0), not -1: negative means "actively cancel the view NOW,
-	// every tick" (handle_vision, life.dm) -- correct only for a session
-	// this program owns that went invalid. A stale `machine` ref can point
-	// here long after use (aghost closes the TGUI without the ui_status
-	// recheck that calls unset_machine()), and -1 would then yank ANY
-	// other console's sector view back to the mob every tick. Same
-	// semantics as the ship console's !viewing_overmap() branch (ship.dm).
-	return FALSE
 
 /datum/computer_file/program/personal_travel/kill_program(forced = 0)
 	if(viewing_user)

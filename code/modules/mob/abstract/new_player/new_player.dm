@@ -713,7 +713,19 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 
 	// ── Lock character preferences on first spawn (by specific character ID) ────
 	// Targets only the character being spawned, not all unspawned characters by ckey.
+	var/is_first_ever_spawn = FALSE
 	if(client.prefs.current_character && GLOB.config.sql_saves && SSdbcore.Connect())
+		// Read before the lock flips it -- this is the only way to know whether
+		// this specific character has ever spawned before, to gate the one-time
+		// starter PDA grant below.
+		var/datum/db_query/spawnedq = SSdbcore.NewQuery(
+			"SELECT first_spawned_at FROM ss13_characters WHERE id = :id AND deleted_at IS NULL",
+			list("id" = client.prefs.current_character))
+		spawnedq.Execute()
+		if(spawnedq.NextRow())
+			is_first_ever_spawn = isnull(spawnedq.item[1])
+		qdel(spawnedq)
+
 		var/datum/db_query/fq = SSdbcore.NewQuery(
 			{"UPDATE ss13_characters SET first_spawned_at = NOW()
 			WHERE id = :id AND deleted_at IS NULL AND first_spawned_at IS NULL"},
@@ -775,6 +787,14 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		character.force_update_limbs()
 		character.update_body()
 		character.regenerate_icons()
+
+	// Starter PDA -- this server's spawn flow bypasses job/outfit equip
+	// entirely (see create_character()'s own doc comment), so a genuinely
+	// new character has nothing at all, including no way to reach any
+	// console/PDA program. Granted exactly once, gated on the same
+	// first-spawn-ever flag used to lock character preferences above.
+	if(is_first_ever_spawn)
+		character.equip_or_collect(new /obj/item/modular_computer/handheld/pda(character), slot_wear_id)
 
 	// Neural lace — wire up any lace restored by health persistence, or install fresh if preference is on
 	var/obj/item/organ/internal/neural_lace/existing_lace = null

@@ -26,9 +26,9 @@
 
 	// Fixed overmap spot so the station lands in the same place every boot
 	// instead of move_to_starting_location()'s random-placement fallback
-	// (overmap_size = 70, OVERMAP_EDGE = 4 -- 35,35 is a safely-centered spot).
-	start_x = 35
-	start_y = 35
+	// (overmap_size = 50, OVERMAP_EDGE = 4 -- 25,25 is a safely-centered spot).
+	start_x = 25
+	start_y = 25
 
 	initial_restricted_waypoints = list(
 		"Spark" = list("nav_hangar_mining"), 	//can't have random shuttles popping inside the ship
