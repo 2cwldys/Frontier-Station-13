@@ -527,7 +527,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 				continue
 			if(!(GET_Z(pod) in zs))
 				continue
-			if(pod.persistent_network || pod.crew_tagged)
+			if(pod.persistent_network || pod.personal_ckey || pod.crew_tagged)
 				continue
 			pod.persistent_network = faction_uid
 			pod.persistent_spawn   = TRUE
@@ -539,7 +539,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		for(var/obj/structure/machinery/telepad_cargo/pad in world)
 			if(!(GET_Z(pad) in zs))
 				continue
-			if(pad.persistent_network || pad.crew_tagged)
+			if(pad.persistent_network || pad.personal_ckey || pad.crew_tagged)
 				continue
 			pad.persistent_network = faction_uid
 			pad.persistent_spawn   = TRUE
@@ -557,7 +557,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 				continue
 			if(istype(MC, /obj/item/modular_computer/handheld))
 				continue
-			if(MC.persistent_network || MC.crew_tagged)
+			if(MC.persistent_network || MC.personal_ckey || MC.crew_tagged)
 				continue
 			MC.persistent_network = faction_uid
 			MC.faction_shackled   = TRUE
@@ -601,7 +601,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		for(var/obj/structure/machinery/autodoc/AD in world)
 			if(!(GET_Z(AD) in zs))
 				continue
-			if(AD.persistent_network || AD.crew_tagged)
+			if(AD.persistent_network || AD.personal_ckey || AD.crew_tagged)
 				continue
 			AD.persistent_network = faction_uid
 			configured++

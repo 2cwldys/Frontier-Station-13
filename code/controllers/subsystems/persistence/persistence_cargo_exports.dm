@@ -148,7 +148,7 @@ GLOBAL_LIST_EMPTY(cargo_export_prices)
 		return
 
 	while(usr && usr.client)
-		var/choice = tgui_input_list(usr, "Cargo exports ([length(GLOB.cargo_export_prices)] priced type(s), base price [CARGO_EXPORT_BASE_PRICE] cr for anything unlisted):", "Manage Cargo Exports", list("Add/Edit Export", "Remove Export", "View List", "Done"))
+		var/choice = tgui_input_list(usr, "Cargo exports ([length(GLOB.cargo_export_prices)] priced type(s), base price [CARGO_EXPORT_BASE_PRICE] cr for anything unlisted):", "Manage Cargo Exports", list("Add/Edit Export", "Remove Export", "Wipe All Exports", "View List", "Done"))
 		if(!choice || choice == "Done")
 			return
 
@@ -186,6 +186,31 @@ GLOBAL_LIST_EMPTY(cargo_export_prices)
 				to_chat(usr, SPAN_GOOD("'[remove_tp]' removed -- now sells at the base price ([CARGO_EXPORT_BASE_PRICE] cr)."))
 			else
 				to_chat(usr, SPAN_WARNING("Failed to remove -- database error."))
+
+		if(choice == "Wipe All Exports")
+			if(!length(GLOB.cargo_export_prices))
+				to_chat(usr, SPAN_NOTICE("No priced exports to wipe."))
+				continue
+			var/wipe_count = length(GLOB.cargo_export_prices)
+			var/confirm = tgui_alert(usr, "Wipe all [wipe_count] priced export type(s)? Everything will revert to the base price ([CARGO_EXPORT_BASE_PRICE] cr). Cannot be undone.", "Wipe All Exports", list("Wipe", "Cancel"))
+			if(confirm != "Wipe")
+				continue
+			if(!SSpersistence.databaseCheckConnection("wipe_all_cargo_exports"))
+				to_chat(usr, SPAN_WARNING("Failed to wipe -- database connection error."))
+				continue
+			var/datum/db_query/wipeq = SSdbcore.NewQuery(
+				"DELETE FROM ss13_cargo_exports WHERE map_path = :mp",
+				list("mp" = "[SSatlas.current_map.path]")
+			)
+			wipeq.Execute()
+			if(!SSpersistence.databaseCheckQueryResult(wipeq, "wipe_all_cargo_exports"))
+				qdel(wipeq)
+				to_chat(usr, SPAN_WARNING("Failed to wipe -- database error."))
+				continue
+			qdel(wipeq)
+			GLOB.cargo_export_prices = list()
+			log_and_message_admins("wiped all [wipe_count] cargo export price(s) -- everything now sells at the base price ([CARGO_EXPORT_BASE_PRICE] cr)", usr)
+			to_chat(usr, SPAN_GOOD("Wiped [wipe_count] export price(s) -- everything now sells at the base price ([CARGO_EXPORT_BASE_PRICE] cr)."))
 
 		if(choice == "View List")
 			if(!length(GLOB.cargo_export_prices))

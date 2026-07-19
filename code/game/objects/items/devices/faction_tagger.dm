@@ -167,7 +167,10 @@
 				return
 			var/old_uid = current_target.faction_tagger_get_uid()
 			if(old_uid && old_uid != new_uid && !can_configure_faction_shackle(user, old_uid, 1))
-				to_chat(user, SPAN_WARNING("\The [current_target] is already tagged to [get_faction_name(old_uid)] -- you need officer access there to retag it."))
+				if(old_uid == "public")
+					to_chat(user, SPAN_WARNING("\The [current_target] is marked Public -- an admin must clear it before it can be retagged."))
+				else
+					to_chat(user, SPAN_WARNING("\The [current_target] is already tagged to [get_faction_name(old_uid)] -- you need officer access there to retag it."))
 				return
 			// Territory check: even an UNCLAIMED target (no old_uid yet) can't
 			// be claimed for a foreign faction if this Z is already under a
@@ -213,7 +216,10 @@
 			if(!old_uid)
 				return
 			if(!can_configure_faction_shackle(user, old_uid, 1))
-				to_chat(user, SPAN_WARNING("You need officer access in [get_faction_name(old_uid)] to release this tag."))
+				if(old_uid == "public")
+					to_chat(user, SPAN_WARNING("\The [current_target] is marked Public -- an admin must clear it before it can be released."))
+				else
+					to_chat(user, SPAN_WARNING("You need officer access in [get_faction_name(old_uid)] to release this tag."))
 				return
 			if(current_target.faction_tagger_set(null, user))
 				to_chat(user, SPAN_NOTICE("\The [current_target] released from [get_faction_name(old_uid)]."))
@@ -228,7 +234,10 @@
 				return
 			var/old_uid = current_target.faction_tagger_get_uid()
 			if(old_uid && !can_configure_faction_shackle(user, old_uid, 1))
-				to_chat(user, SPAN_WARNING("\The [current_target] is already tagged to [get_faction_name(old_uid)] -- you need officer access there to convert it to personal use."))
+				if(old_uid == "public")
+					to_chat(user, SPAN_WARNING("\The [current_target] is marked Public -- an admin must clear it before it can be personally tagged."))
+				else
+					to_chat(user, SPAN_WARNING("\The [current_target] is already tagged to [get_faction_name(old_uid)] -- you need officer access there to convert it to personal use."))
 				return
 			// A beacon's own territory is never personal -- its periodic sweep
 			// would just claim an unassigned device for the faction anyway, and
@@ -268,7 +277,10 @@
 				return
 			var/old_uid = current_target.faction_tagger_get_uid()
 			if(old_uid && !can_configure_faction_shackle(user, old_uid, 1))
-				to_chat(user, SPAN_WARNING("This is already tagged to [get_faction_name(old_uid)] -- you need officer access there to convert it to crew use."))
+				if(old_uid == "public")
+					to_chat(user, SPAN_WARNING("This is marked Public -- an admin must clear it before it can be crew-tagged."))
+				else
+					to_chat(user, SPAN_WARNING("This is already tagged to [get_faction_name(old_uid)] -- you need officer access there to convert it to crew use."))
 				return
 			if(current_target.crew_tagger_set(user))
 				to_chat(user, SPAN_GOOD("Tagged to this ship's crew."))

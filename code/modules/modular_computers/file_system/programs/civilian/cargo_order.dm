@@ -49,11 +49,6 @@
 		var/obj/item/card/id/viewer_id = user.GetIdCard()
 		var/datum/money_account/viewer_acc = viewer_id?.associated_account_number ? SSeconomy.get_account(viewer_id.associated_account_number) : null
 		data["personal_balance"] = viewer_acc ? viewer_acc.money : null
-		// Reference-only, same as Cargo Exports -- the operator's own faction
-		// balance if they belong to one, even though this console won't bill it.
-		var/viewer_uid = (viewer_id && viewer_id.employer_faction) ? normalize_faction_uid(viewer_id.employer_faction) : null
-		data["operator_faction_name"]    = viewer_uid ? get_faction_name(viewer_uid) : null
-		data["operator_faction_balance"] = viewer_uid ? get_faction_account_balance(viewer_uid) : null
 
 	// Crew balance -- mutually exclusive with faction/personal mode. Orders
 	// placed from a crew-tagged console bill the SHIP OWNER's account (not
@@ -68,42 +63,26 @@
 		var/datum/money_account/crew_acc = (crew_ship && crew_ship.owner_account_number) ? SSeconomy.get_account(crew_ship.owner_account_number) : null
 		data["crew_balance"] = crew_acc ? crew_acc.money : null
 
-	// Delivery telepad choice -- only surfaced when the faction has more than
-	// one delivery-enabled cargo pad (see persistence_find_cargo_telepads()).
-	// A single (or no) match behaves exactly as before -- no selector shown.
+	// Delivery telepad choice -- only surfaced when the console's OWN tag
+	// mode has more than one delivery-enabled cargo pad in ITS scope (never
+	// cross-mode: a faction console only ever sees that faction's pads, a
+	// personal console only that character's own, a crew console only that
+	// ship's). A single (or no) match behaves exactly as before -- no
+	// selector shown. See cargo_telepad_choice_data() (persistence_cryo.dm).
 	data["telepad_choices"] = list()
 	data["selected_telepad_ref"] = null
+	var/list/candidate_pads = list()
 	if(co_net)
-		var/list/telepads = persistence_find_cargo_telepads(co_net)
-		if(length(telepads) > 1)
-			// List the closest pad to the ordering console/PDA first. Same-Z
-			// candidates (real tile distance) always outrank cross-Z ones (only
-			// comparable via overmap sector distance) -- +10000 offset keeps the
-			// two tiers from ever interleaving. Mirrors the sector-adjacency
-			// convention used by the drydock/faction proximity checks.
-			var/turf/console_turf = get_turf(computer)
-			var/console_z = GET_Z(computer)
-			var/obj/effect/overmap/visitable/console_sector = console_z ? GLOB.map_sectors["[console_z]"] : null
-			var/list/pad_distances = list()
-			for(var/obj/structure/machinery/telepad_cargo/pad in telepads)
-				var/turf/pad_turf = get_turf(pad)
-				var/dist = 99999
-				if(pad_turf && console_turf && pad_turf.z == console_z)
-					dist = get_dist(console_turf, pad_turf)
-				else if(pad_turf)
-					var/obj/effect/overmap/visitable/pad_sector = GLOB.map_sectors["[pad_turf.z]"]
-					if(console_sector && istype(pad_sector))
-						dist = 10000 + get_dist(console_sector, pad_sector)
-				pad_distances[pad] = dist
-			sortTim(pad_distances, GLOBAL_PROC_REF(cmp_numeric_asc), TRUE)
-			for(var/obj/structure/machinery/telepad_cargo/pad in pad_distances)
-				var/area/A = get_area(pad)
-				data["telepad_choices"] += list(list(
-					"ref" = "\ref[pad]",
-					"area_name" = A ? A.name : "Unknown Area"
-				))
-			if(co.delivery_telepad && !QDELETED(co.delivery_telepad) && (co.delivery_telepad in telepads))
-				data["selected_telepad_ref"] = "\ref[co.delivery_telepad]"
+		candidate_pads = persistence_find_cargo_telepads(co_net)
+	else if(is_personal)
+		candidate_pads = persistence_find_personal_cargo_telepads(computer.personal_ckey, computer.personal_char_name)
+	else if(is_crew)
+		var/datum/drydock_ship/crew_ship_for_pads = _drydock_ship_at(GET_Z(computer))
+		if(crew_ship_for_pads)
+			candidate_pads = persistence_find_crew_cargo_telepads(crew_ship_for_pads.shuttle_id)
+	data["telepad_choices"] = cargo_telepad_choice_data(candidate_pads, computer)
+	if(length(data["telepad_choices"]) && co.delivery_telepad && !QDELETED(co.delivery_telepad) && (co.delivery_telepad in candidate_pads))
+		data["selected_telepad_ref"] = "\ref[co.delivery_telepad]"
 
 	//Pass the ID Data
 	data["username"] = GetNameAndAssignmentFromId(user.GetIdCard())
@@ -315,13 +294,25 @@
 			selected_category = params["select_category"]
 			return TRUE
 
-		//Pick which of the faction's cargo telepads this order should land on
+		//Pick which of the console's own-scope cargo telepads this order should
+		//land on -- resolved the same 3-mode way as ui_data() above, so the
+		//clicked ref can only ever match a pad already in THIS console's own
+		//candidate set (never a different faction's/character's/ship's pad).
 		if("select_telepad")
-			var/co_net = computer ? normalize_faction_uid(computer.persistent_network) : null
 			var/target_ref = params["select_telepad"]
 			co.delivery_telepad = null
-			if(co_net && target_ref)
-				for(var/obj/structure/machinery/telepad_cargo/pad in persistence_find_cargo_telepads(co_net))
+			if(target_ref)
+				var/co_net = computer ? normalize_faction_uid(computer.persistent_network) : null
+				var/list/candidate_pads = list()
+				if(co_net)
+					candidate_pads = persistence_find_cargo_telepads(co_net)
+				else if(computer && computer.personal_ckey)
+					candidate_pads = persistence_find_personal_cargo_telepads(computer.personal_ckey, computer.personal_char_name)
+				else if(computer && computer.crew_tagged)
+					var/datum/drydock_ship/crew_ship_for_select = _drydock_ship_at(GET_Z(computer))
+					if(crew_ship_for_select)
+						candidate_pads = persistence_find_crew_cargo_telepads(crew_ship_for_select.shuttle_id)
+				for(var/obj/structure/machinery/telepad_cargo/pad in candidate_pads)
 					if("\ref[pad]" == target_ref)
 						co.delivery_telepad = pad
 						break

@@ -209,3 +209,13 @@ sound/species/synthetic/synthetic_restart.ogg -- https://freesound.org/s/176796/
 ATTRIBUTIONS SECTION START
 sound/effects/metalping.ogg - ported from CM-SS13
 ATTRIBUTIONS SECTION END
+
+ATTRIBUTIONS SECTION START
+sound/music/ambient_playlist/eve_nouvelle_rouvenor_hero.ogg - "Nouvelle Rouvenor Hero" from the EVE Online Jukebox
+sound/music/ambient_playlist/amongst_allies.ogg - "Amongst Allies" from the EVE Online Jukebox
+sound/music/ambient_playlist/but_still_we_go_on.ogg - "But Still We Go On" from the EVE Online Jukebox
+sound/music/ambient_playlist/eve_my_other_residency.ogg - "My Other Residency" from the EVE Online Jukebox
+sound/music/ambient_playlist/eve_lost_wormhole.ogg - "Lost Wormhole" from the EVE Online Jukebox
+sound/music/ambient_playlist/eve_forsaken_ruins.ogg - "Forsaken Ruins" from the EVE Online Jukebox
+sound/music/ambient_playlist/eve_object_almost_accomplished.ogg - "Object Almost Accomplished" from the EVE Online Jukebox
+ATTRIBUTIONS SECTION END

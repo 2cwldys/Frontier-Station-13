@@ -1,6 +1,7 @@
 import {
   Box,
   Button,
+  Dropdown,
   NoticeBox,
   Section,
   Table,
@@ -14,6 +15,11 @@ type ExportEntry = {
   price: number;
 };
 
+type TelepadChoice = {
+  ref: string;
+  area_name: string;
+};
+
 type CargoExportsData = {
   faction_uid: string | null;
   faction_name: string | null;
@@ -21,17 +27,18 @@ type CargoExportsData = {
   has_telepad: BooleanLike;
   status_message: string;
   export_catalog: ExportEntry[];
+  export_base_price: number;
   op_rank: number; // -1 = non-member, 0+ = rank, 99 = admin
   is_personal: BooleanLike;
   personal_owner_name: string | null;
   has_personal_telepad: BooleanLike;
   personal_balance: number | null;
-  operator_faction_name: string | null;
-  operator_faction_balance: number | null;
   is_crew: BooleanLike;
   crew_ship_name: string | null;
   has_crew_telepad: BooleanLike;
   crew_balance: number | null;
+  telepad_choices: TelepadChoice[];
+  selected_telepad_ref: string | null;
 };
 
 export const CargoExports = (props) => {
@@ -43,17 +50,18 @@ export const CargoExports = (props) => {
     has_telepad,
     status_message,
     export_catalog,
+    export_base_price,
     op_rank,
     is_personal,
     personal_owner_name,
     has_personal_telepad,
     personal_balance,
-    operator_faction_name,
-    operator_faction_balance,
     is_crew,
     crew_ship_name,
     has_crew_telepad,
     crew_balance,
+    telepad_choices,
+    selected_telepad_ref,
   } = data;
 
   if (!faction_uid && !is_personal && !is_crew) {
@@ -96,14 +104,27 @@ export const CargoExports = (props) => {
   return (
     <NtosWindow resizable width={600} height={600}>
       <NtosWindow.Content scrollable>
+        {telepad_choices.length > 1 && (
+          <Dropdown
+            mb={1}
+            width="100%"
+            selected={
+              telepad_choices.find((t) => t.ref === selected_telepad_ref)
+                ?.area_name || 'Select an export telepad'
+            }
+            options={telepad_choices.map((t) => t.area_name)}
+            onSelected={(area_name) => {
+              const choice = telepad_choices.find(
+                (t) => t.area_name === area_name,
+              );
+              if (choice) {
+                act('select_telepad', { select_telepad: choice.ref });
+              }
+            }}
+          />
+        )}
         <Section
-          title={
-            is_personal
-              ? `${personal_owner_name} — Personal Cargo Exports`
-              : is_crew
-                ? `${crew_ship_name ?? 'Ship'} — Crew Cargo Exports`
-                : `${faction_name ?? faction_uid} — Cargo Exports`
-          }
+          title="Cargo Exports"
           buttons={
             canExport && (
               <Button
@@ -128,22 +149,13 @@ export const CargoExports = (props) => {
         >
           {is_personal ? (
             <Box mb={1}>
+              <Box bold>{personal_owner_name} — Personal Cargo Exports</Box>
               Personal Balance:{' '}
               <b>
                 {personal_balance != null
                   ? `${personal_balance} credits`
                   : 'N/A'}
               </b>
-              {operator_faction_name && (
-                <Box>
-                  {operator_faction_name} Balance:{' '}
-                  <b>
-                    {operator_faction_balance != null
-                      ? `${operator_faction_balance} credits`
-                      : 'N/A'}
-                  </b>
-                </Box>
-              )}
               <Box color="label">
                 Exports are credited directly to your own personal bank
                 account, not a faction.
@@ -151,6 +163,7 @@ export const CargoExports = (props) => {
             </Box>
           ) : is_crew ? (
             <Box mb={1}>
+              <Box bold>{crew_ship_name ?? 'Ship'} — Crew Cargo Exports</Box>
               {crew_ship_name ?? 'Ship'} Crew Balance:{' '}
               <b>{crew_balance != null ? `${crew_balance} credits` : 'N/A'}</b>
               <Box color="label">
@@ -160,6 +173,7 @@ export const CargoExports = (props) => {
             </Box>
           ) : (
             <Box mb={1}>
+              <Box bold>{faction_name ?? faction_uid} — Cargo Exports</Box>
               Faction Balance:{' '}
               <b>{faction_balance != null ? `${faction_balance} credits` : 'N/A'}</b>
             </Box>
@@ -195,6 +209,10 @@ export const CargoExports = (props) => {
             Place items or crates on the faction telepad, then click &quot;Export
             Items at Telepad&quot;. Prices reflect current market rates
             (diminishing returns apply).
+          </Box>
+          <Box color="label" mb={1}>
+            Anything not listed below still sells -- at the flat base price of{' '}
+            {export_base_price} cr.
           </Box>
           <Table>
             <Table.Row header>

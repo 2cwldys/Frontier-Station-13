@@ -156,7 +156,7 @@ export const FactionTagger = (props) => {
             </Button>
           </Box>
         </Section>
-        {can_crew_tag && (
+        {!!can_crew_tag && (
           <Section title="Crew Use">
             <Button
               icon="users"
@@ -169,7 +169,7 @@ export const FactionTagger = (props) => {
             </Button>
           </Section>
         )}
-        {can_personal_tag && (
+        {!!can_personal_tag && (
           <Section title="Personal Use">
             {personal_owner_name && !is_own_personal_tag && !is_admin && (
               <NoticeBox>
@@ -186,7 +186,7 @@ export const FactionTagger = (props) => {
             >
               Tag to Me
             </Button>
-            {is_admin && personal_owner_name && !is_own_personal_tag && (
+            {!!is_admin && personal_owner_name && !is_own_personal_tag && (
               <Button
                 icon="user-shield"
                 color="bad"
@@ -198,7 +198,7 @@ export const FactionTagger = (props) => {
             )}
           </Section>
         )}
-        {is_admin && is_cryopod && (
+        {!!(is_admin && is_cryopod) && (
           <Section title="Admin: Public Spawn">
             <Button
               icon={persistent_spawn ? 'times' : 'door-open'}
@@ -211,7 +211,7 @@ export const FactionTagger = (props) => {
             </Button>
           </Section>
         )}
-        {is_admin && is_telecomms && (
+        {!!(is_admin && is_telecomms) && (
           <Section title="Admin: Public Comms">
             <Button
               icon={is_public_comms ? 'times' : 'broadcast-tower'}
@@ -222,7 +222,7 @@ export const FactionTagger = (props) => {
             </Button>
           </Section>
         )}
-        {is_admin && is_autodoc && (
+        {!!(is_admin && is_autodoc) && (
           <Section title="Admin: Public Autodoc">
             <Button
               icon={is_public_autodoc ? 'times' : 'medkit'}
@@ -233,7 +233,7 @@ export const FactionTagger = (props) => {
             </Button>
           </Section>
         )}
-        {is_admin && is_lace_storage && (
+        {!!(is_admin && is_lace_storage) && (
           <Section title="Admin: Public Lace Vault">
             <Button
               icon={is_public_lace ? 'times' : 'vial'}
@@ -244,7 +244,7 @@ export const FactionTagger = (props) => {
             </Button>
           </Section>
         )}
-        {is_airlock && current_uid && current_uid !== 'public' && (
+        {!!is_airlock && current_uid && current_uid !== 'public' && (
           <Section title="Door Access">
             <Button
               icon="key"
@@ -254,7 +254,7 @@ export const FactionTagger = (props) => {
             </Button>
           </Section>
         )}
-        {is_turret && current_uid && (
+        {!!is_turret && current_uid && (
           <Section title="Turret Control">
             <Button
               mb={0.5}
@@ -281,7 +281,7 @@ export const FactionTagger = (props) => {
             ))}
           </Section>
         )}
-        {is_admin && is_turret && (
+        {!!(is_admin && is_turret) && (
           <Section title="Admin: Public Turret">
             <Button
               icon={is_public_turret ? 'times' : 'door-open'}
@@ -292,7 +292,7 @@ export const FactionTagger = (props) => {
             </Button>
           </Section>
         )}
-        {is_admin && is_airlock && (
+        {!!(is_admin && is_airlock) && (
           <Section title="Admin: Public Airlock">
             <Button
               icon={is_public_airlock ? 'times' : 'door-open'}

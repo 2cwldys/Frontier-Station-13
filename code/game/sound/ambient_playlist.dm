@@ -48,6 +48,13 @@ GLOBAL_LIST_INIT(ambient_playlist_tracks, list(
 	'sound/music/ambient_playlist/orbital_deck1.ogg',
 	'sound/music/ambient_playlist/NEambi.ogg',
 	'sound/music/ambient_playlist/arrivals.ogg',
+	'sound/music/ambient_playlist/eve_nouvelle_rouvenor_hero.ogg',
+	'sound/music/ambient_playlist/amongst_allies.ogg',
+	'sound/music/ambient_playlist/but_still_we_go_on.ogg',
+	'sound/music/ambient_playlist/eve_my_other_residency.ogg',
+	'sound/music/ambient_playlist/eve_lost_wormhole.ogg',
+	'sound/music/ambient_playlist/eve_forsaken_ruins.ogg',
+	'sound/music/ambient_playlist/eve_object_almost_accomplished.ogg',
 ))
 
 /// Duration of each track in deciseconds, buffered a few deciseconds short so
@@ -81,6 +88,13 @@ GLOBAL_LIST_INIT(ambient_playlist_durations, list(
 	'sound/music/ambient_playlist/orbital_deck1.ogg' = 510,
 	'sound/music/ambient_playlist/NEambi.ogg' = 2030,
 	'sound/music/ambient_playlist/arrivals.ogg' = 210,
+	'sound/music/ambient_playlist/eve_nouvelle_rouvenor_hero.ogg' = 2705,
+	'sound/music/ambient_playlist/amongst_allies.ogg' = 3358,
+	'sound/music/ambient_playlist/but_still_we_go_on.ogg' = 4895,
+	'sound/music/ambient_playlist/eve_my_other_residency.ogg' = 2201,
+	'sound/music/ambient_playlist/eve_lost_wormhole.ogg' = 3246,
+	'sound/music/ambient_playlist/eve_forsaken_ruins.ogg' = 3665,
+	'sound/music/ambient_playlist/eve_object_almost_accomplished.ogg' = 4615,
 ))
 
 /// Crossfade length (deciseconds) when area ambience ducks/hands back the playlist.

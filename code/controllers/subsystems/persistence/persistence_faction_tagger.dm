@@ -377,3 +377,69 @@
 	persistent_network = new_uid
 	return TRUE
 
+/*
+ * One-time admin remedy for a fixed bug: _sweep_unassigned_objects_for_faction()
+ * (faction_beacon.dm) used to claim a cryopod/telepad_cargo/modular computer/
+ * autodoc for a faction without checking personal_ckey first, clobbering an
+ * already personally-tagged device with a faction network on top instead of
+ * skipping it -- leaving both set simultaneously (mutual exclusivity broken).
+ * The sweep itself is fixed now (checks personal_ckey before claiming), but
+ * that doesn't retroactively repair devices already left in this state.
+ * Personal wins on repair -- the sweep is what mistakenly added the faction
+ * tag on top of a deliberately-set personal one, never the other way around.
+ * Restores each type to exactly the state its own personal_tagger_set()
+ * would have left it in.
+ */
+/datum/admins/proc/repair_dual_tagged_devices()
+	set name = "Repair Dual-Tagged Devices"
+	set category = "Persistence"
+	set desc = "Finds cryopods/telepads/computers/autodocs left tagged to both a faction AND a personal owner by a now-fixed sweep bug -- clears the erroneous faction tag, keeps the personal one."
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	var/list/fixed_lines = list()
+
+	for(var/obj/structure/machinery/cryopod/pod in world)
+		if(!pod.personal_ckey || !pod.persistent_network)
+			continue
+		var/turf/T = get_turf(pod)
+		fixed_lines += "Cryopod at ([T.x],[T.y],[T.z]): faction '[pod.persistent_network]' cleared, kept personal to [pod.personal_ckey]|[pod.personal_char_name]"
+		pod.persistent_network = ""
+		pod.persistent_spawn = FALSE
+		if(!pod.persistence_map_placed && GLOB.config.sql_enabled && GLOB.persistence_ready)
+			SSpersistence.objectsRegisterTrack(pod)
+
+	for(var/obj/structure/machinery/telepad_cargo/pad in world)
+		if(!pad.personal_ckey || !pad.persistent_network)
+			continue
+		var/turf/T = get_turf(pad)
+		fixed_lines += "Cargo telepad at ([T.x],[T.y],[T.z]): faction '[pad.persistent_network]' cleared, kept personal to [pad.personal_ckey]|[pad.personal_char_name]"
+		pad.persistent_network = ""
+		pad.persistent_spawn = TRUE // still "accepts deliveries", just keyed to a person -- matches personal_tagger_set()
+		pad.faction_shackled = FALSE
+		if(!pad.persistence_map_placed && GLOB.config.sql_enabled && GLOB.persistence_ready)
+			SSpersistence.objectsRegisterTrack(pad)
+
+	for(var/obj/item/modular_computer/MC in world)
+		if(!MC.personal_ckey || !MC.persistent_network)
+			continue
+		var/turf/T = get_turf(MC)
+		fixed_lines += "Modular computer at ([T.x],[T.y],[T.z]): faction '[MC.persistent_network]' cleared, kept personal to [MC.personal_ckey]|[MC.personal_char_name]"
+		MC.persistent_network = ""
+		MC.faction_shackled = FALSE
+
+	for(var/obj/structure/machinery/autodoc/AD in world)
+		if(!AD.personal_ckey || !AD.persistent_network)
+			continue
+		var/turf/T = get_turf(AD)
+		fixed_lines += "Autodoc at ([T.x],[T.y],[T.z]): faction '[AD.persistent_network]' cleared, kept personal to [AD.personal_ckey]|[AD.personal_char_name]"
+		AD.persistent_network = ""
+
+	if(!length(fixed_lines))
+		to_chat(usr, SPAN_NOTICE("No dual-tagged devices found."))
+		return
+
+	to_chat(usr, SPAN_GOOD("Repaired [length(fixed_lines)] dual-tagged device(s):\n[jointext(fixed_lines, "\n")]"))
+	log_and_message_admins("ran Repair Dual-Tagged Devices -- fixed [length(fixed_lines)] device(s): [jointext(fixed_lines, "; ")]", usr)
+

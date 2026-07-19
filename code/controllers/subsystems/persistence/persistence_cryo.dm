@@ -734,6 +734,41 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 			return get_turf(pad)
 	return null
 
+/// Plural counterpart to persistence_find_personal_cargo_telepad() -- every
+/// matching pad instead of just the first, for the telepad-choice picker
+/// (cargo_order.dm/cargo_exports.dm) when a character has tagged more than
+/// one. Same scoping as the singular version -- never crosses into another
+/// character's, faction's, or ship's pads.
+/proc/persistence_find_personal_cargo_telepads(ckey, char_name)
+	var/list/pads = list()
+	if(!ckey || !char_name)
+		return pads
+	for(var/obj/structure/machinery/telepad_cargo/pad in world)
+		if(!pad.accepts_cargo) continue
+		if(!pad.z) continue
+		if(!pad.persistent_spawn) continue
+		if(pad.personal_ckey == ckey && pad.personal_char_name == char_name)
+			pads += pad
+	return pads
+
+/// Plural counterpart to persistence_find_crew_cargo_telepad() -- every
+/// matching pad instead of just the first, for the telepad-choice picker.
+/// Same scoping as the singular version -- never crosses into a different
+/// ship's crew-tagged pads.
+/proc/persistence_find_crew_cargo_telepads(shuttle_id)
+	var/list/pads = list()
+	if(!shuttle_id)
+		return pads
+	for(var/obj/structure/machinery/telepad_cargo/pad in world)
+		if(!pad.accepts_cargo) continue
+		if(!pad.z) continue
+		if(!pad.persistent_spawn) continue
+		if(!pad.crew_tagged) continue
+		var/datum/drydock_ship/pad_ship = _drydock_ship_at(pad.z)
+		if(pad_ship && pad_ship.shuttle_id == shuttle_id)
+			pads += pad
+	return pads
+
 /**
  * Find every cargo telepad for the given faction network. Priority: faction
  * telepads -> public telepads -> empty list. Returns every match within
@@ -761,6 +796,38 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 		if(lowertext(pad.persistent_network) == "public" && pad.persistent_spawn)
 			public_pads += pad
 	return public_pads
+
+/// Builds telepad_choices UI data (ref + area_name, distance-sorted from the
+/// viewing computer) for any candidate list -- shared by Cargo Order/Exports
+/// across all three tag modes (each resolves its own already-scoped
+/// candidate list via the finders above before calling this). Empty list if
+/// there's 1 or fewer candidates -- callers shouldn't show a picker then.
+/// Same-Z tile distance always outranks cross-Z overmap-sector distance
+/// (+10000 offset keeps the two tiers from ever interleaving), so the
+/// closest pad to the console lists first.
+/proc/cargo_telepad_choice_data(list/telepads, obj/item/modular_computer/computer)
+	var/list/choices = list()
+	if(length(telepads) <= 1)
+		return choices
+	var/turf/console_turf = get_turf(computer)
+	var/console_z = GET_Z(computer)
+	var/obj/effect/overmap/visitable/console_sector = console_z ? GLOB.map_sectors["[console_z]"] : null
+	var/list/pad_distances = list()
+	for(var/obj/structure/machinery/telepad_cargo/pad in telepads)
+		var/turf/pad_turf = get_turf(pad)
+		var/dist = 99999
+		if(pad_turf && console_turf && pad_turf.z == console_z)
+			dist = get_dist(console_turf, pad_turf)
+		else if(pad_turf)
+			var/obj/effect/overmap/visitable/pad_sector = GLOB.map_sectors["[pad_turf.z]"]
+			if(console_sector && istype(pad_sector))
+				dist = 10000 + get_dist(console_sector, pad_sector)
+		pad_distances[pad] = dist
+	sortTim(pad_distances, GLOBAL_PROC_REF(cmp_numeric_asc), TRUE)
+	for(var/obj/structure/machinery/telepad_cargo/pad in pad_distances)
+		var/area/A = get_area(pad)
+		choices += list(list("ref" = "\ref[pad]", "area_name" = A ? A.name : "Unknown Area"))
+	return choices
 
 /**
  * Teleport a list of atoms to the destination turf with a flash effect.

@@ -28,8 +28,6 @@ export type CargoData = {
   is_personal: BooleanLike;
   personal_owner_name: string | null;
   personal_balance: number | null;
-  operator_faction_name: string | null;
-  operator_faction_balance: number | null;
   is_crew: BooleanLike;
   crew_ship_name: string | null;
   crew_balance: number | null;
@@ -157,14 +155,6 @@ export const MainPage = (props) => {
           <Box as="span" color={data.personal_balance !== null ? 'good' : 'label'}>
             {data.personal_balance !== null ? `${data.personal_balance} credits` : 'N/A'}
           </Box>
-          {data.operator_faction_name && (
-            <Box>
-              {data.operator_faction_name} Balance:{' '}
-              <Box as="span" color={data.operator_faction_balance !== null ? 'good' : 'label'}>
-                {data.operator_faction_balance !== null ? `${data.operator_faction_balance} credits` : 'N/A'}
-              </Box>
-            </Box>
-          )}
           <Box color="label" mt={0.5}>
             Orders from this console are paid from your personal account, not
             a faction.
