@@ -203,8 +203,9 @@ export const FirstResponder = (props) => {
         </Section>
         <Section title="Force Stash a Ship">
           <NoticeBox info>
-            Console action -- picks any currently-deployed ship from a list,
-            no tap needed.
+            Console action -- picks a currently-deployed, already-repossessed
+            ship from a list, no tap needed. Recalls a Hub asset that's out
+            and about.
           </NoticeBox>
           <Button
             mt={1}
@@ -213,7 +214,7 @@ export const FirstResponder = (props) => {
             tooltip={!is_hub ? 'Requires a Hub-network terminal.' : undefined}
             onClick={() => act('force_stash_picker')}
           >
-            Force Stash a Ship
+            Force Stash a Repossessed Ship
           </Button>
         </Section>
         <Section title="Repossessed Ships">

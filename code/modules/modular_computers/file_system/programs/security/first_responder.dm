@@ -237,10 +237,13 @@
 			return TRUE
 
 		if("force_stash_picker")
-			// Console action, not a tap -- picks any currently-deployed ship
-			// from a list (same tgui_input_list pattern as the admin "Force
-			// Stash Ship" verb, persistence_shuttles.dm), so a Hub officer
-			// doesn't need to physically find and tap the owner.
+			// Console action, not a tap -- picks a currently-deployed,
+			// already-repossessed ship from a list (same tgui_input_list
+			// pattern as the admin "Force Stash Ship" verb,
+			// persistence_shuttles.dm), so a Hub officer can recall a Hub
+			// asset that's out and about without needing to physically find
+			// and tap anyone. Deliberately scoped to repossessed ships only,
+			// not every deployed ship server-wide.
 			if(!can_run(user, TRUE, ACCESS_SECURITY, PROGRAM_ACCESS_ONE))
 				return TRUE
 			if(normalize_faction_uid(computer.persistent_network) != "hub")
@@ -249,10 +252,10 @@
 			var/list/options = list()
 			for(var/sid in GLOB.drydock_ships)
 				var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
-				if(DS && !DS.stashed)
+				if(DS && !DS.stashed && DS.repossessed)
 					options["[DS.display_name()] (#[DS.shuttle_id], [DS.faction_uid ? "faction [DS.faction_uid]" : "owner [DS.owner_ckey]"])"] = sid
 			if(!length(options))
-				to_chat(user, SPAN_WARNING("No deployed ships found."))
+				to_chat(user, SPAN_WARNING("No deployed repossessed ships found."))
 				return TRUE
 			var/pick = tgui_input_list(user, "Force-stash which ship?", "Force Stash Ship", options)
 			if(!pick || !(pick in options))

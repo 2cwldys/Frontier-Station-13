@@ -75,7 +75,7 @@
 	heat_level_2 = 380 //Default 400
 	heat_level_3 = 600 //Default 1000
 	flags = NO_SLIP | NO_CHUBBY | NO_ARTERIES | PHORON_IMMUNE | NO_COLD_SLOWDOWN
-	spawn_flags = CAN_JOIN | IS_WHITELISTED | NO_AGE_MINIMUM
+	spawn_flags = CAN_JOIN | NO_AGE_MINIMUM
 	appearance_flags = HAS_SKIN_COLOR | HAS_HAIR_COLOR | HAS_SKIN_PRESET
 	blood_color = COLOR_VAURCA_BLOOD // dark yellow
 	flesh_color = "#E6E600"

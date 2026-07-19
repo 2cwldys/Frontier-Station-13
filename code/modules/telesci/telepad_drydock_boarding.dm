@@ -806,7 +806,10 @@
 			if(!destination || destination.density)
 				to_chat(L, SPAN_WARNING("The disembark point is obstructed."))
 				return FALSE
-			persistence_telepad_deliver(list(L), destination)
+			var/list/deliver_items = list(L)
+			if(L.pulling && !QDELETED(L.pulling))
+				deliver_items += L.pulling
+			persistence_telepad_deliver(deliver_items, destination)
 			to_chat(L, SPAN_GOOD("You disembark the ship."))
 			log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id] at its docked beacon.")
 			return TRUE

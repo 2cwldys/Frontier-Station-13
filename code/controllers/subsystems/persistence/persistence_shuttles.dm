@@ -933,6 +933,24 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	_drydockProcessNextQueued()
 	return .
 
+/// Returns the OTHER currently-deployed drydock ship personally owned by
+/// the same (ckey, char_name) pair as candidate, or null if there isn't
+/// one (or candidate isn't personally owned at all -- faction ships are
+/// exempt from this check). Excludes candidate itself. Enforces "one
+/// deployed personal ship at a time" in _drydockRetrieveRun() below --
+/// without this, a player owning more than one ship could deploy all of
+/// them simultaneously, which is also what let First Responder's tap-to-
+/// repossess lookup (_find_owned_deployed_ship(), first_responder.dm)
+/// silently pick an ambiguous match.
+/datum/controller/subsystem/persistence/proc/_drydock_owner_other_deployed_ship(datum/drydock_ship/candidate)
+	if(!candidate.owner_ckey)
+		return null
+	for(var/sid in GLOB.drydock_ships)
+		var/datum/drydock_ship/other = GLOB.drydock_ships[sid]
+		if(other && other != candidate && !other.stashed && other.owner_ckey == candidate.owner_ckey && other.owner_char_name == candidate.owner_char_name)
+			return other
+	return null
+
 /datum/controller/subsystem/persistence/proc/_drydockRetrieveRun(shuttle_id, obj/structure/machinery/faction_beacon/anchor, turf/from_turf, mob/user)
 	var/acting = user ? key_name(user) : "SYSTEM"
 	log_drydock("drydockRetrieve: [acting] attempting to retrieve shuttle_id=[shuttle_id].")
@@ -957,6 +975,12 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		if(user)
 			to_chat(user, SPAN_WARNING("A ship of this class is already deployed somewhere -- stash it first."))
 		log_drydock_warning("drydockRetrieve: refused -- template '[DS.template_id]' already has a deployed instance (acting=[acting]).")
+		return FALSE
+	var/datum/drydock_ship/other_deployed = _drydock_owner_other_deployed_ship(DS)
+	if(other_deployed)
+		if(user)
+			to_chat(user, SPAN_WARNING("You already have [other_deployed.display_name()] deployed -- stash or scuttle it before retrieving another."))
+		log_drydock_warning("drydockRetrieve: refused -- owner [DS.owner_ckey]|[DS.owner_char_name] already has shuttle_id=[other_deployed.shuttle_id] deployed (acting=[acting]).")
 		return FALSE
 	if(GLOB.drydock_max_deployed_ships > 0)
 		var/currently_deployed = 0
