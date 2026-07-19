@@ -136,34 +136,18 @@
 
 /**
  * Apply saved ship-scoped floor items to a freshly loaded ship Z. Rows were
- * already remapped to this z by remapShipRows(). The template just loaded,
- * so any untracked floor items present now are its own authored debris --
- * wipe those first (mirrors floorItemsInitialize()'s boot-time wipe above)
- * so the saved rows below are the sole source of truth. Without this, every
- * retrieve stacks the template's fresh copies on top of whatever got saved
- * last cycle (which itself included the previous retrieve's stack),
- * compounding duplication with every stash/retrieve cycle.
+ * already remapped to this z by remapShipRows(). A ship that has never been
+ * saved has no rows here -- nothing to restore, so the template's own
+ * authored debris is left untouched (pristine-load case). Once a saved
+ * snapshot DOES exist, the template's freshly-spawned debris is wiped first
+ * (mirrors floorItemsInitialize()'s boot-time wipe above) so the saved rows
+ * are the sole source of truth -- without this, every retrieve from the
+ * second one onward stacks the template's fresh copies on top of whatever
+ * got saved last cycle, compounding duplication with every stash/retrieve.
  */
 /datum/controller/subsystem/persistence/proc/floorItemsApplyZ(z, scope)
 	if(!databaseCheckConnection("floorItemsApplyZ"))
 		return
-
-	for(var/obj/item/I in world)
-		CHECK_TICK
-		if(I.z != z)
-			continue
-		if(!isturf(I.loc))
-			continue
-		if(I.persistent_objects_track_id != 0)
-			continue
-		if(I in GLOB.persistence_object_track_register)
-			continue
-		if(istype(I, /obj/item/ammo_casing))
-			continue
-		try
-			qdel(I)
-		catch(var/exception/wipe_e)
-			log_subsystem_persistence_error("Floor items: Error deleting [I] during ship Z wipe: [wipe_e]")
 
 	var/datum/db_query/query = SSdbcore.NewQuery(
 		"SELECT type, x, y, z, pixel_x, pixel_y, dir, name, icon_state, extra FROM ss13_floor_items WHERE map_path = :map_path AND z = :z",
@@ -189,6 +173,30 @@
 			"extra"      = query.item[10]
 		))
 	qdel(query)
+
+	if(!length(saved_items))
+		// Pristine template, never saved before -- nothing to restore, and
+		// wiping here would strip the template's own authored debris for no
+		// reason. Leave it as-is; the next Stash captures it as the baseline.
+		return
+
+	for(var/obj/item/I in world)
+		CHECK_TICK
+		if(I.z != z)
+			continue
+		if(!isturf(I.loc))
+			continue
+		if(I.persistent_objects_track_id != 0)
+			continue
+		if(I in GLOB.persistence_object_track_register)
+			continue
+		if(istype(I, /obj/item/ammo_casing))
+			continue
+		try
+			qdel(I)
+		catch(var/exception/wipe_e)
+			log_subsystem_persistence_error("Floor items: Error deleting [I] during ship Z wipe: [wipe_e]")
+
 	var/restored = 0
 	for(var/list/data in saved_items)
 		CHECK_TICK
