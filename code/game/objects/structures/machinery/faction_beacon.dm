@@ -749,111 +749,112 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 /obj/structure/machinery/faction_beacon/proc/_release_swept_objects()
 	var/list/station_zs = _station_zs()
 	var/released = 0
+	var/list/seen_areas = list()
 
-	try
-		for(var/obj/structure/machinery/cryopod/pod in world)
-			if(!(GET_Z(pod) in station_zs))
-				continue
-			if(pod.persistent_network != faction_uid)
-				continue
-			pod.persistent_network = ""
-			pod.persistent_spawn   = FALSE
-			released++
-	catch(var/exception/cryo_e)
-		log_subsystem_persistence_error("Faction beacon: cryopod release failed: [cryo_e]")
+	// Single turf-scoped pass across just this beacon's station Zs, instead
+	// of the 7 separate `for(TYPE in world)` scans + nested area/turf
+	// double-loop this used to run -- same fix shape (and same rationale)
+	// as _sweep_unassigned_objects_for_faction()/_sweep_unassigned_crew()
+	// above; this proc runs on every faction-ship stash/beacon-deactivate,
+	// same hot path.
+	for(var/z in station_zs)
+		for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+			CHECK_TICK
+			seen_areas[get_area(T)] = TRUE
+			for(var/atom/movable/AM in T.contents)
+				if(istype(AM, /obj/structure/machinery/cryopod))
+					var/obj/structure/machinery/cryopod/pod = AM
+					try
+						if(pod.persistent_network != faction_uid)
+							continue
+						pod.persistent_network = ""
+						pod.persistent_spawn   = FALSE
+						released++
+					catch(var/exception/cryo_e)
+						log_subsystem_persistence_error("Faction beacon: cryopod release failed: [cryo_e]")
 
-	try
-		for(var/obj/structure/machinery/telepad_cargo/pad in world)
-			if(!(GET_Z(pad) in station_zs))
-				continue
-			if(pad.persistent_network != faction_uid)
-				continue
-			pad.persistent_network = ""
-			pad.persistent_spawn   = FALSE
-			pad.faction_shackled   = FALSE
-			released++
-	catch(var/exception/pad_e)
-		log_subsystem_persistence_error("Faction beacon: telepad release failed: [pad_e]")
+				else if(istype(AM, /obj/structure/machinery/telepad_cargo))
+					var/obj/structure/machinery/telepad_cargo/pad = AM
+					try
+						if(pad.persistent_network != faction_uid)
+							continue
+						pad.persistent_network = ""
+						pad.persistent_spawn   = FALSE
+						pad.faction_shackled   = FALSE
+						released++
+					catch(var/exception/pad_e)
+						log_subsystem_persistence_error("Faction beacon: telepad release failed: [pad_e]")
 
-	try
-		for(var/obj/item/modular_computer/MC in world)
-			if(istype(MC, /obj/item/modular_computer/handheld))
-				continue
-			if(!(GET_Z(MC) in station_zs))
-				continue
-			if(MC.persistent_network != faction_uid)
-				continue
-			MC.persistent_network = ""
-			MC.faction_shackled   = FALSE
-			released++
-	catch(var/exception/mc_e)
-		log_subsystem_persistence_error("Faction beacon: modular computer release failed: [mc_e]")
+				else if(istype(AM, /obj/item/modular_computer) && !istype(AM, /obj/item/modular_computer/handheld))
+					var/obj/item/modular_computer/MC = AM
+					try
+						if(MC.persistent_network != faction_uid)
+							continue
+						MC.persistent_network = ""
+						MC.faction_shackled   = FALSE
+						released++
+					catch(var/exception/mc_e)
+						log_subsystem_persistence_error("Faction beacon: modular computer release failed: [mc_e]")
 
-	try
-		for(var/obj/structure/machinery/telecomms/T in world)
-			if(!(GET_Z(T) in station_zs))
-				continue
-			if(T.persistent_network != faction_uid)
-				continue
-			T.persistent_network = ""
-			released++
-	catch(var/exception/tc_e)
-		log_subsystem_persistence_error("Faction beacon: telecomms release failed: [tc_e]")
+				else if(istype(AM, /obj/structure/machinery/telecomms))
+					var/obj/structure/machinery/telecomms/T2 = AM
+					try
+						if(T2.persistent_network != faction_uid)
+							continue
+						T2.persistent_network = ""
+						released++
+					catch(var/exception/tc_e)
+						log_subsystem_persistence_error("Faction beacon: telecomms release failed: [tc_e]")
 
-	try
-		for(var/obj/structure/machinery/door/airlock/AL in world)
-			if(!(GET_Z(AL) in station_zs))
-				continue
-			if(AL.req_access_faction != faction_uid)
-				continue
-			AL.req_access_faction = ""
-			// Mirror the sweep's own reset -- an abandoned door reverts to
-			// fully open, not stuck with the former faction's custom codes.
-			AL.req_access = null
-			AL.req_one_access = null
-			released++
-	catch(var/exception/al_e)
-		log_subsystem_persistence_error("Faction beacon: airlock release failed: [al_e]")
+				else if(istype(AM, /obj/structure/machinery/door/airlock))
+					var/obj/structure/machinery/door/airlock/AL = AM
+					try
+						if(AL.req_access_faction != faction_uid)
+							continue
+						AL.req_access_faction = ""
+						// Mirror the sweep's own reset -- an abandoned door
+						// reverts to fully open, not stuck with the former
+						// faction's custom codes.
+						AL.req_access = null
+						AL.req_one_access = null
+						released++
+					catch(var/exception/al_e)
+						log_subsystem_persistence_error("Faction beacon: airlock release failed: [al_e]")
 
-	try
-		for(var/obj/structure/machinery/autodoc/AD in world)
-			if(!(GET_Z(AD) in station_zs))
-				continue
-			if(AD.persistent_network != faction_uid)
-				continue
-			AD.persistent_network = ""
-			released++
-	catch(var/exception/ad_e)
-		log_subsystem_persistence_error("Faction beacon: autodoc release failed: [ad_e]")
+				else if(istype(AM, /obj/structure/machinery/autodoc))
+					var/obj/structure/machinery/autodoc/AD = AM
+					try
+						if(AD.persistent_network != faction_uid)
+							continue
+						AD.persistent_network = ""
+						released++
+					catch(var/exception/ad_e)
+						log_subsystem_persistence_error("Faction beacon: autodoc release failed: [ad_e]")
 
+				else if(istype(AM, /obj/structure/machinery/porta_turret))
+					var/obj/structure/machinery/porta_turret/PT = AM
+					try
+						if(PT.persistent_network != faction_uid)
+							continue
+						PT.persistent_network = ""
+						released++
+					catch(var/exception/turret_e)
+						log_subsystem_persistence_error("Faction beacon: turret release failed: [turret_e]")
+
+	// Areas discovered above are, by construction, already confirmed to be
+	// on one of this beacon's station Zs (found via a turf within that Z's
+	// own block() scan) -- no separate "is this area on Zs" re-check needed,
+	// unlike the old nested for(area) { for(turf in area.contents) } double-scan.
 	try
-		for(var/area/A in GLOB.areas)
+		for(var/area/A in seen_areas)
 			if(!A.is_blueprint_area)
 				continue
 			if(A.persistent_network != faction_uid)
-				continue
-			var/on_z = FALSE
-			for(var/turf/AT in A.contents)
-				if(GET_Z(AT) in station_zs)
-					on_z = TRUE
-					break
-			if(!on_z)
 				continue
 			A.persistent_network = ""
 			released++
 	catch(var/exception/area_e)
 		log_subsystem_persistence_error("Faction beacon: area release failed: [area_e]")
-
-	try
-		for(var/obj/structure/machinery/porta_turret/PT in world)
-			if(!(GET_Z(PT) in station_zs))
-				continue
-			if(PT.persistent_network != faction_uid)
-				continue
-			PT.persistent_network = ""
-			released++
-	catch(var/exception/turret_e)
-		log_subsystem_persistence_error("Faction beacon: turret release failed: [turret_e]")
 
 	if(released)
 		log_game("Faction beacon at ([x],[y],[z]): released [released] object(s)/area(s) from faction '[faction_uid]' across z-level(s) [english_list(station_zs)].")

@@ -116,6 +116,21 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	/// crew-list OR clause in _drydock_board_core() (telepad_drydock_boarding.dm).
 	var/list/crew_ckeys = list()
 
+	/// TRUE while this ship's unattended interior has its machinery/
+	/// powernets/bot mobs paused -- see _drydock_freeze_ship()/
+	/// _drydock_thaw_ship() below. Always FALSE while stashed (cleared
+	/// defensively at the start of _drydockStashRun()).
+	var/is_frozen = FALSE
+	/// Machine -> its processing_flags at the moment it was paused, so thaw
+	/// restores exactly what freeze removed instead of assuming
+	/// MACHINERY_PROCESS_ALL.
+	var/list/frozen_machinery = list()
+	/// Paused /datum/powernet references.
+	var/list/frozen_powernets = list()
+	/// Bot/simple_animal mobs paused via mob.frozen -- never a player-
+	/// controlled or SSD (ckey-holding) mob.
+	var/list/frozen_mobs = list()
+
 /// TRUE if user is personally the owning CHARACTER (not just the owning
 /// account) -- both owner_ckey AND owner_char_name must match. Used
 /// throughout instead of a bare ckey check so a player's other characters
@@ -155,6 +170,138 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		if(istype(beacon_sector) && get_dist(sector, beacon_sector) <= 1)
 			return TRUE
 	return FALSE
+
+// ============================================================
+// FREEZE/THAW  pause an unoccupied deployed ship's machinery/powernets/
+// bot mobs so its per-tick cost drops to near-zero while nobody's aboard,
+// instead of scaling with total deployed ship count regardless of
+// occupancy (SSmachinery's processing/powernets lists and SSmobs/
+// SSmob_ai's lists are flat and global, zero Z-partitioning). ZAS zone/edge
+// geometry is deliberately never touched here -- tearing that down (like
+// shipZTeardown() does for a stashed ship) is what costs the ~15s
+// atmos-resettle delay documented in persistence_ship_interiors.dm, which
+// would defeat the point of an "instant" thaw on boarding.
+// ============================================================
+
+/// How often the reconciliation sweep below re-checks every deployed ship --
+/// catches the shuttle/lift blind spot where a mob's Z changes via turf
+/// translation without ever firing Moved()/COMSIG_MOVABLE_MOVED (documented
+/// at persistence_zone_security.dm:227-232), on top of the instant attempts
+/// at _drydock_board_deliver()/_drydock_disembark_core(). Bounded by
+/// deployed-ship count, not world size, so cheap even at this cadence.
+#define DRYDOCK_FREEZE_RECONCILE_INTERVAL 30 SECONDS
+
+/// Starts the recurring reconciliation sweep -- called once from the tail of
+/// drydockShipLedgerRestore() so it's armed right after boot.
+/proc/_drydock_freeze_reconcile_start()
+	addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_drydock_freeze_reconcile)), DRYDOCK_FREEZE_RECONCILE_INTERVAL, TIMER_LOOP)
+
+/// Safety net for the instant freeze/thaw attempts at board/disembark --
+/// walks every currently-deployed ship and freezes/thaws it based on
+/// zlevel_has_players(), catching any transition those two hooks missed.
+/proc/_drydock_freeze_reconcile()
+	for(var/sid in GLOB.drydock_ships)
+		var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
+		if(!DS || DS.stashed)
+			continue
+		if(DS.is_frozen)
+			if(zlevel_has_players(DS.z))
+				_drydock_thaw_ship(DS)
+		else
+			_drydock_attempt_freeze(DS)
+
+/// Attempts to freeze DS if it's currently safe to -- unattended, fully
+/// settled (never during the post-retrieve atmos-settle window), and no
+/// active/powered faction beacon claim on its Z (the user's explicit
+/// exception). No-ops silently on any guard failure; never refuses loudly
+/// since this isn't a player-facing action.
+/proc/_drydock_attempt_freeze(datum/drydock_ship/DS)
+	if(!istype(DS) || DS.stashed || !DS.ready || DS.is_frozen)
+		return
+	if(zlevel_has_players(DS.z))
+		return
+	// istype+active+powered, not just a truthy dict lookup -- mirrors the
+	// documented convention at telepad_drydock_boarding.dm:276-279.
+	var/obj/structure/machinery/faction_beacon/B = GLOB.faction_beacon_by_z["[DS.z]"]
+	if(istype(B) && B.active && B.powered)
+		return
+	_drydock_freeze_ship(DS)
+
+/// Pauses every machine and powernet on DS's Z out of SSmachinery's live
+/// lists, and every non-player bot/simple_animal mob's Life()/think() via
+/// mob.frozen (mob.dm/mob_ai.dm's existing Life()-skip hook, otherwise only
+/// driven by the wizard-statue mechanic) -- never a player-controlled or
+/// SSD (ckey-holding) mob. Single turf-scoped pass, same idiom as this
+/// session's other FinalizeZ/sweep rewrites.
+/proc/_drydock_freeze_ship(datum/drydock_ship/DS)
+	if(!istype(DS) || DS.is_frozen)
+		return
+	var/machines_frozen = 0
+	var/powernets_frozen = 0
+	var/mobs_frozen = 0
+	var/list/seen_powernets = list()
+
+	for(var/turf/T in block(locate(1, 1, DS.z), locate(world.maxx, world.maxy, DS.z)))
+		CHECK_TICK
+		for(var/atom/movable/AM in T.contents)
+			if(istype(AM, /obj/structure/machinery))
+				var/obj/structure/machinery/M = AM
+				if(M.processing_flags)
+					DS.frozen_machinery[M] = M.processing_flags
+					STOP_PROCESSING_MACHINE(M, M.processing_flags)
+					machines_frozen++
+				if(istype(M, /obj/structure/machinery/power))
+					var/obj/structure/machinery/power/PM = M
+					if(PM.powernet)
+						seen_powernets[PM.powernet] = TRUE
+
+			else if(istype(AM, /obj/structure/cable))
+				var/obj/structure/cable/C = AM
+				if(C.powernet)
+					seen_powernets[C.powernet] = TRUE
+
+			else if(istype(AM, /mob/living/bot) || istype(AM, /mob/living/simple_animal))
+				var/mob/living/L = AM
+				if(!L.ckey && !L.frozen)
+					DS.frozen_mobs += L
+					L.frozen = TRUE
+					mobs_frozen++
+
+	for(var/datum/powernet/PN in seen_powernets)
+		if(QDELETED(PN) || !(PN.datum_flags & DF_ISPROCESSING))
+			continue
+		DS.frozen_powernets += PN
+		STOP_PROCESSING_POWERNET(PN)
+		powernets_frozen++
+
+	DS.is_frozen = TRUE
+	if(machines_frozen || powernets_frozen || mobs_frozen)
+		log_drydock("_drydock_freeze_ship: froze shuttle_id=[DS.shuttle_id] (z=[DS.z]) -- [machines_frozen] machine(s), [powernets_frozen] powernet(s), [mobs_frozen] mob(s).")
+
+/// Reverses _drydock_freeze_ship() -- restores exactly what freeze recorded.
+/// No atmos rebuild needed (zone geometry was never touched), so this is
+/// cheap and effectively instant -- safe to call unconditionally from a
+/// boarding hook even when the ship was never actually frozen.
+/proc/_drydock_thaw_ship(datum/drydock_ship/DS)
+	if(!istype(DS) || !DS.is_frozen)
+		return
+	for(var/obj/structure/machinery/M in DS.frozen_machinery)
+		if(!QDELETED(M))
+			START_PROCESSING_MACHINE(M, DS.frozen_machinery[M])
+	DS.frozen_machinery = list()
+
+	for(var/datum/powernet/PN in DS.frozen_powernets)
+		if(!QDELETED(PN))
+			START_PROCESSING_POWERNET(PN)
+	DS.frozen_powernets = list()
+
+	for(var/mob/living/L in DS.frozen_mobs)
+		if(!QDELETED(L))
+			L.frozen = FALSE
+	DS.frozen_mobs = list()
+
+	DS.is_frozen = FALSE
+	log_drydock("_drydock_thaw_ship: thawed shuttle_id=[DS.shuttle_id] (z=[DS.z]).")
 
 /// Verbose debug logging for the drydock/shuttle system -- writes to the
 /// dedicated persistence subsystem log file (gated behind the
@@ -356,6 +503,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	log_drydock("drydockShipLedgerRestore: [restored] drydock ship(s) restored[reset_stale ? ", [reset_stale] recovered from an unclean shutdown" : ""], [crew_loaded] crew entr[crew_loaded == 1 ? "y" : "ies"] loaded.")
 
 	_drydockLoadShipCap()
+	_drydock_freeze_reconcile_start()
 
 /// Loads the admin-tunable deployed-ship cap from its singleton DB row into
 /// GLOB.drydock_max_deployed_ships (0 = no limit). Called once at boot
@@ -1472,6 +1620,15 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 	if(user)
 		to_chat(user, SPAN_NOTICE("Stashing ship -- this may take a moment, please be patient."))
+
+	// Defensive: don't try to thaw into a Z about to be torn down --
+	// shipZTeardown() (below, via shipInteriorSave()) qdels everything on
+	// this Z regardless, so any paused machine/powernet/mob references are
+	// about to become invalid either way. Just drop the bookkeeping.
+	DS.is_frozen = FALSE
+	DS.frozen_machinery = list()
+	DS.frozen_powernets = list()
+	DS.frozen_mobs = list()
 
 	var/scope = "ship:d:[shuttle_id]"
 	var/stash_z = DS.z

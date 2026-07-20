@@ -36,6 +36,10 @@ SUBSYSTEM_DEF(mapping)
 	if(!GLOB.config.fastboot || GLOB.config.exoplanets["enable_loading"] || GLOB.config.awaysites["enable_loading"])
 		// Load templates and build away sites.
 		preloadTemplates()
+		// Persists any newly-learned (or changed) template width/height
+		// measurements -- see preload_size(), map_template.dm. No-ops if
+		// every template hit the cache and nothing changed.
+		save_map_template_size_cache()
 
 		SSatlas.current_map.build_away_sites()
 		SSatlas.current_map.build_exoplanets()

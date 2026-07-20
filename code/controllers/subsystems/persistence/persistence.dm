@@ -537,6 +537,12 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/ms_e)
 		log_subsystem_persistence_error("Missions init failed: [ms_e] on [ms_e.file]:[ms_e.line]")
 
+	// Arms the away/ruin site freeze/thaw reconciliation sweep -- see
+	// persistence_factions.dm's "AWAY SITE FREEZE/THAW" section. Pinned away
+	// sites are already loaded by SSmapping (an earlier init_order) by this
+	// point, so the first sweep (30s later) sees everything.
+	_away_site_freeze_reconcile_start()
+
 	log_subsystem_persistence_info("Starting area initialization...")
 	try
 		// Before objectsInitialize()/worldstateInitialize() -- a restored

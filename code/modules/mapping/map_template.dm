@@ -1,3 +1,39 @@
+/// mappath -> list("hash" = md5 of the file's current contents, "width" = W,
+/// "height" = H) -- persisted to disk (not just in-memory) so it survives a
+/// full server restart, not just a round restart. preloadBlacklistableTemplates()
+/// (mapping.dm) instantiates every registered map_template subtype (~400+
+/// .dmm files) on every single boot just to learn each one's width/height
+/// via a full DMM measure-parse (preload_size() below) -- this cache lets a
+/// template whose file hasn't changed since the last boot skip that parse
+/// entirely. Read-only measurement data, fully decoupled from the save/
+/// persistence path.
+GLOBAL_LIST_EMPTY(map_template_size_cache)
+GLOBAL_VAR_INIT(map_template_size_cache_loaded, FALSE)
+GLOBAL_VAR_INIT(map_template_size_cache_dirty, FALSE)
+
+#define MAP_TEMPLATE_SIZE_CACHE_FILE "data/map_template_size_cache.json"
+
+/proc/load_map_template_size_cache()
+	GLOB.map_template_size_cache_loaded = TRUE
+	var/raw = file2text(MAP_TEMPLATE_SIZE_CACHE_FILE)
+	if(!raw)
+		return
+	try
+		var/list/decoded = json_decode(raw)
+		if(islist(decoded))
+			GLOB.map_template_size_cache = decoded
+	catch(var/exception/e)
+		log_world("load_map_template_size_cache: invalid JSON in [MAP_TEMPLATE_SIZE_CACHE_FILE]: [e]")
+
+/// Called once at the tail of SSmapping's Initialize() -- no-ops if nothing
+/// new was learned this boot (every template hit the cache already).
+/proc/save_map_template_size_cache()
+	if(!GLOB.map_template_size_cache_dirty)
+		return
+	fdel(MAP_TEMPLATE_SIZE_CACHE_FILE)
+	text2file(json_encode(GLOB.map_template_size_cache), MAP_TEMPLATE_SIZE_CACHE_FILE)
+	GLOB.map_template_size_cache_dirty = FALSE
+
 /datum/map_template
 	var/name = "Default Template Name"
 	var/id = null // All maps that should be loadable during runtime need an id
@@ -39,6 +75,16 @@
 		name = rename
 
 /datum/map_template/proc/preload_size(path)
+	if(!GLOB.map_template_size_cache_loaded)
+		load_map_template_size_cache()
+
+	var/file_hash = md5filepath(mappath)
+	var/list/cached = GLOB.map_template_size_cache["[mappath]"]
+	if(islist(cached) && cached["hash"] == file_hash)
+		width = cached["width"]
+		height = cached["height"]
+		return TRUE
+
 	var/list/bounds = list(1.#INF, 1.#INF, 1.#INF, -1.#INF, -1.#INF, -1.#INF)
 
 	var/datum/map_load_metadata/M = maploader.load_map_impl(file(mappath), 1, 1, cropMap=FALSE, measureOnly=TRUE, no_changeturf=TRUE)
@@ -49,6 +95,9 @@
 
 	width = bounds[MAP_MAXX] - bounds[MAP_MINX] + 1
 	height = bounds[MAP_MAXY] - bounds[MAP_MINX] + 1
+
+	GLOB.map_template_size_cache["[mappath]"] = list("hash" = file_hash, "width" = width, "height" = height)
+	GLOB.map_template_size_cache_dirty = TRUE
 	return bounds
 
 /datum/map_template/proc/load_new_z(var/no_changeturf = TRUE)
