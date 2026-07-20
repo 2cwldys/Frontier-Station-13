@@ -1812,125 +1812,6 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 	to_chat(usr, SPAN_GOOD("Generated '[tmpl_pick]' at overmap ([pick_x],[pick_y]), z=[site_z]. It is DYNAMIC (gone on reboot, not saved) -- pin it via Persistent Overmap Sites to make it permanent."))
 	log_and_message_admins("generated away site '[tmpl_pick]' at overmap ([pick_x],[pick_y]), z=[site_z]", usr)
 
-// ============================================================
-// AWAY SITE FREEZE/THAW  pause an unoccupied away/ruin site's machinery
-// and powernets out of SSmachinery's live lists, same rationale and
-// mechanism as the drydock ship freeze/thaw (_drydock_freeze_ship()/
-// _drydock_thaw_ship(), persistence_shuttles.dm) -- an idle site otherwise
-// costs exactly as much per-tick as an occupied one. ZAS zone/edge geometry
-// is left completely untouched here too, for the same reason.
-//
-// Deliberately does NOT freeze mobs the way the ship version does: an away
-// site can hold hostile wildlife/NPCs mid-mission, and unlike drydock
-// boarding -- which funnels through one chokepoint, _drydock_board_deliver(),
-// that thaws BEFORE anyone lands -- away sites have no single entry
-// chokepoint (teleporters, shuttles, personal travel, mission accept-and-
-// travel all deliver players independently). A player could walk in up to
-// AWAY_SITE_FREEZE_RECONCILE_INTERVAL seconds before the sweep below thaws
-// the site, which would be a real (if brief) "the monster doesn't react"
-// bug for a frozen mob -- not worth it for the AI-tick savings. Machinery/
-// powernets have no such stakes: a light or vending machine coming back
-// online a few seconds late is unnoticeable.
-// ============================================================
-
-/// z (as a string key, "[z]") -> list("machinery" = list(machine -> its
-/// processing_flags), "powernets" = list of paused /datum/powernet refs) --
-/// absence of a key means that z isn't frozen. Kept separate from
-/// GLOB.drydock_ships since away sites have no equivalent per-site datum to
-/// hang state off of.
-GLOBAL_LIST_EMPTY(away_site_freeze_state)
-
-/// How often the reconciliation sweep below re-checks every loaded away/
-/// ruin site -- there's no instant board/disembark-style hook here (see the
-/// section header above), so this interval is the only thing driving
-/// freeze/thaw for these Zs. Bounded by loaded-site count, not world size.
-#define AWAY_SITE_FREEZE_RECONCILE_INTERVAL 30 SECONDS
-
-/// Starts the recurring away-site reconciliation sweep -- called once from
-/// SSpersistence's own Initialize(), alongside the drydock ship equivalent
-/// (_drydock_freeze_reconcile_start(), persistence_shuttles.dm).
-/proc/_away_site_freeze_reconcile_start()
-	addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_away_site_freeze_reconcile)), AWAY_SITE_FREEZE_RECONCILE_INTERVAL, TIMER_LOOP)
-
-/// Walks every currently-loaded, non-station, non-drydock-ship template Z
-/// (GLOB.map_templates covers away sites, space ruins, and exoplanet ruins
-/// alike -- ship Zs are excluded via GLOB.persistence_ship_z, which are
-/// handled by their own dedicated mechanism instead) and freezes/thaws it
-/// based on zlevel_has_players().
-/proc/_away_site_freeze_reconcile()
-	for(var/key in GLOB.map_templates)
-		var/z = text2num(key)
-		if(!z || is_station_level(z) || GLOB.persistence_ship_z[key])
-			continue
-		if(GLOB.away_site_freeze_state[key])
-			if(zlevel_has_players(z))
-				_away_site_thaw(z)
-		else
-			if(!zlevel_has_players(z))
-				_away_site_freeze(z)
-
-/// Pauses every machine and powernet on z -- see the section header above
-/// for why mobs are deliberately left alone here, unlike the drydock ship
-/// version. Single turf-scoped pass, same idiom as this session's other
-/// FinalizeZ/sweep rewrites.
-/proc/_away_site_freeze(z)
-	if(!z || GLOB.away_site_freeze_state["[z]"])
-		return
-	var/list/frozen_machinery = list()
-	var/list/frozen_powernets = list()
-	var/list/seen_powernets = list()
-	var/machines_frozen = 0
-	var/powernets_frozen = 0
-
-	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
-		CHECK_TICK
-		for(var/atom/movable/AM in T.contents)
-			if(istype(AM, /obj/structure/machinery))
-				var/obj/structure/machinery/M = AM
-				if(M.processing_flags)
-					frozen_machinery[M] = M.processing_flags
-					STOP_PROCESSING_MACHINE(M, M.processing_flags)
-					machines_frozen++
-				if(istype(M, /obj/structure/machinery/power))
-					var/obj/structure/machinery/power/PM = M
-					if(PM.powernet)
-						seen_powernets[PM.powernet] = TRUE
-
-			else if(istype(AM, /obj/structure/cable))
-				var/obj/structure/cable/C = AM
-				if(C.powernet)
-					seen_powernets[C.powernet] = TRUE
-
-	for(var/datum/powernet/PN in seen_powernets)
-		if(QDELETED(PN) || !(PN.datum_flags & DF_ISPROCESSING))
-			continue
-		frozen_powernets += PN
-		STOP_PROCESSING_POWERNET(PN)
-		powernets_frozen++
-
-	GLOB.away_site_freeze_state["[z]"] = list("machinery" = frozen_machinery, "powernets" = frozen_powernets)
-	if(machines_frozen || powernets_frozen)
-		log_subsystem_persistence_info("Away site freeze: froze z=[z] -- [machines_frozen] machine(s), [powernets_frozen] powernet(s).")
-
-/// Reverses _away_site_freeze().
-/proc/_away_site_thaw(z)
-	var/list/state = GLOB.away_site_freeze_state["[z]"]
-	if(!state)
-		return
-	var/list/frozen_machinery = state["machinery"]
-	var/list/frozen_powernets = state["powernets"]
-
-	for(var/obj/structure/machinery/M in frozen_machinery)
-		if(!QDELETED(M))
-			START_PROCESSING_MACHINE(M, frozen_machinery[M])
-
-	for(var/datum/powernet/PN in frozen_powernets)
-		if(!QDELETED(PN))
-			START_PROCESSING_POWERNET(PN)
-
-	GLOB.away_site_freeze_state -= "[z]"
-	log_subsystem_persistence_info("Away site freeze: thawed z=[z].")
-
 /**
  * Core away-site teardown shared by "Remove Away Site" and the missions
  * auto-gen cleanup (turn-in-triggered despawn of a mission-spawned sector).
@@ -1954,13 +1835,6 @@ GLOBAL_LIST_EMPTY(away_site_freeze_state)
 /proc/_despawn_away_site_z(z, purge_incidental = TRUE)
 	if(!z)
 		return
-
-	// Defensive: don't leave stale freeze bookkeeping behind for whatever
-	// (possibly unrelated) content loads onto this z number next, if it's
-	// ever released back into the Z reuse pool below. Harmless either way
-	// (_away_site_thaw()'s own QDELETED guards would just no-op on
-	// everything), but this keeps a reused z starting from a clean slate.
-	GLOB.away_site_freeze_state -= "[z]"
 
 	// The template's own .loaded counter (map_template.dm: "times loaded
 	// this round") was never decremented anywhere in this codebase -- so

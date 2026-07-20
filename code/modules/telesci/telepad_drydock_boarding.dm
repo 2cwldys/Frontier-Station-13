@@ -492,10 +492,6 @@
 		return FALSE
 	if(QDELETED(L) || L.stat == DEAD || L.buckled_to)
 		return FALSE
-	// Instant thaw -- a frozen ship's machinery/powernets/bots must be back
-	// online before anyone actually lands aboard it.
-	if(recheck.is_frozen)
-		_drydock_thaw_ship(recheck)
 	var/obj/effect/overmap/visitable/recheck_mob_sector = _drydock_boarder_sector(L)
 	var/obj/effect/overmap/visitable/recheck_ship_sector = GLOB.map_sectors["[target.z]"]
 	if(!istype(recheck_mob_sector) || !istype(recheck_ship_sector) || get_dist(recheck_mob_sector, recheck_ship_sector) > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
@@ -835,9 +831,6 @@
 			persistence_telepad_deliver(deliver_items, destination)
 			to_chat(L, SPAN_GOOD("You disembark the ship."))
 			log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id] at its docked beacon.")
-			// Attempt a freeze now that L has actually left -- no-ops if
-			// anyone else is still aboard.
-			_drydock_attempt_freeze(DS)
 			return TRUE
 
 	if(use_picker)
@@ -874,9 +867,6 @@
 	_drydock_deliver_with_portal(L, destination)
 	to_chat(L, SPAN_GOOD("You disembark the ship."))
 	log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id][is_hub_target ? " via the Hub telepad" : " choosing a landing spot"].")
-	// Attempt a freeze now that L has actually left -- no-ops if anyone else
-	// is still aboard.
-	_drydock_attempt_freeze(DS)
 	return TRUE
 
 /mob/living/verb/disembark_drydock_ship()
