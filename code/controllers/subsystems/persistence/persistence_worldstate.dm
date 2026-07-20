@@ -326,28 +326,19 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	if(!cutoff)
 		return
 
-	// Single turf-scoped pass across just this Z, instead of 3 separate
-	// `for(TYPE in world)` scans (every structure/intercom/modular computer
-	// across the ENTIRE game, filtered down to one Z) -- that scaled with
-	// total server content, not the ship's own size, and was a dominant
-	// cost in "immense lag on ship stash". Mirrors turfsFinalizeZ()'s
-	// already-correct block()+CHECK_TICK pattern (persistence_turfs.dm).
 	var/saved = 0
-	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
-		CHECK_TICK
-		for(var/atom/movable/AM in T.contents)
-			if(istype(AM, /obj/structure))
-				var/obj/structure/S = AM
-				if(persistence_area_excluded(S)) continue
-				saved += worldstateSaveOneMachine(S)
-			else if(istype(AM, /obj/item/radio/intercom))
-				var/obj/item/radio/intercom/IC = AM
-				if(persistence_area_excluded(IC)) continue
-				saved += worldstateSaveOneMachine(IC)
-			else if(istype(AM, /obj/item/modular_computer))
-				var/obj/item/modular_computer/MC = AM
-				if(persistence_area_excluded(MC)) continue
-				saved += worldstateSaveOneMachine(MC)
+	for(var/obj/structure/S in world)
+		if(S.z != z) continue
+		if(persistence_area_excluded(S)) continue
+		saved += worldstateSaveOneMachine(S)
+	for(var/obj/item/radio/intercom/IC in world)
+		if(IC.z != z) continue
+		if(persistence_area_excluded(IC)) continue
+		saved += worldstateSaveOneMachine(IC)
+	for(var/obj/item/modular_computer/MC in world)
+		if(MC.z != z) continue
+		if(persistence_area_excluded(MC)) continue
+		saved += worldstateSaveOneMachine(MC)
 
 	var/datum/db_query/delete_stale = SSdbcore.NewQuery(
 		"DELETE FROM ss13_worldstate_objects WHERE saved_at < :cutoff AND map_path = :map_path",
@@ -382,19 +373,16 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	if(!length(rows_by_key))
 		return
 
-	// Same turf-scoped single pass as worldstateFinalizeZ() above -- see its
-	// comment for why (this used to be 3 separate `for(TYPE in world)`
-	// scans, run on every ship retrieve).
 	var/applied = 0
-	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
-		CHECK_TICK
-		for(var/atom/movable/AM in T.contents)
-			if(istype(AM, /obj/structure))
-				applied += _worldstateApplyRowTo(AM, rows_by_key)
-			else if(istype(AM, /obj/item/radio/intercom))
-				applied += _worldstateApplyRowTo(AM, rows_by_key)
-			else if(istype(AM, /obj/item/modular_computer))
-				applied += _worldstateApplyRowTo(AM, rows_by_key)
+	for(var/obj/structure/S in world)
+		if(S.z != z) continue
+		applied += _worldstateApplyRowTo(S, rows_by_key)
+	for(var/obj/item/radio/intercom/IC in world)
+		if(IC.z != z) continue
+		applied += _worldstateApplyRowTo(IC, rows_by_key)
+	for(var/obj/item/modular_computer/MC in world)
+		if(MC.z != z) continue
+		applied += _worldstateApplyRowTo(MC, rows_by_key)
 	log_subsystem_persistence_info("Worldstate: Applied [applied] ship machine states to z=[z] ([scope]).")
 
 /// Match one machine against a (type|x|y)-keyed row set and apply its saved

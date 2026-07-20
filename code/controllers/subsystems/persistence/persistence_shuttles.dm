@@ -944,16 +944,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		log_drydock("drydockRetrieve: [user ? key_name(user) : "SYSTEM"] queued retrieve of shuttle_id=[shuttle_id] (position [length(GLOB.drydock_op_queue)], [save_in_progress ? "world save" : "drydock op"] active).")
 		return FALSE
 	GLOB.drydock_op_active = TRUE
-	// try/catch is load-bearing here, not defensive boilerplate -- without
-	// it, an uncaught exception in _drydockRetrieveRun() skips the reset
-	// below and wedges drydock_op_active TRUE forever, permanently
-	// stalling autosaves (persistence.dm's save gate checks this flag) and
-	// every future retrieve/stash request (they just queue behind it,
-	// never draining) until the next server restart.
-	try
-		. = _drydockRetrieveRun(shuttle_id, anchor, from_turf, user)
-	catch(var/exception/e)
-		log_subsystem_persistence_error("drydockRetrieve: unhandled exception in _drydockRetrieveRun: [e]")
+	. = _drydockRetrieveRun(shuttle_id, anchor, from_turf, user)
 	GLOB.drydock_op_active = FALSE
 	_drydockProcessNextQueued()
 	return .
@@ -1399,16 +1390,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		log_drydock("drydockStash: [user ? key_name(user) : "SYSTEM"] queued stash of shuttle_id=[shuttle_id] (position [length(GLOB.drydock_op_queue)], [save_in_progress ? "world save" : "drydock op"] active).")
 		return FALSE
 	GLOB.drydock_op_active = TRUE
-	// try/catch is load-bearing here, not defensive boilerplate -- without
-	// it, an uncaught exception in _drydockStashRun() skips the reset below
-	// and wedges drydock_op_active TRUE forever, permanently stalling
-	// autosaves (persistence.dm's save gate checks this flag) and every
-	// future retrieve/stash request (they just queue behind it, never
-	// draining) until the next server restart.
-	try
-		. = _drydockStashRun(shuttle_id, user, force)
-	catch(var/exception/e)
-		log_subsystem_persistence_error("drydockStash: unhandled exception in _drydockStashRun: [e]")
+	. = _drydockStashRun(shuttle_id, user, force)
 	GLOB.drydock_op_active = FALSE
 	_drydockProcessNextQueued()
 	return .

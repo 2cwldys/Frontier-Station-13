@@ -324,22 +324,14 @@
 	databaseCheckQueryResult(wipe_q, "floorItemsFinalizeZ delete")
 	qdel(wipe_q)
 
-	// Single turf-scoped pass across just this Z, instead of scanning every
-	// item in the entire game (loose or nested in any container/backpack
-	// anywhere) and filtering by Z -- that scaled with total server item
-	// count, likely the largest population of any of these scans, and was
-	// a real contributor to "immense lag on ship stash". _floorItemRow()
-	// already requires isturf(I.loc) (item resting directly on a floor),
-	// so a turf.contents scan finds exactly the same matches the old
-	// world-scan did, just scoped correctly. Mirrors turfsFinalizeZ()'s
-	// block()+CHECK_TICK pattern (persistence_turfs.dm).
 	var/list/value_rows = list()
-	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+	for(var/obj/item/I in world)
 		CHECK_TICK
-		for(var/obj/item/I in T.contents)
-			var/row = _floorItemRow(I)
-			if(row)
-				value_rows += row
+		if(I.z != z)
+			continue
+		var/row = _floorItemRow(I)
+		if(row)
+			value_rows += row
 
 	var/saved = _floorItemsFlush(value_rows, "floorItemsFinalizeZ")
 	log_subsystem_persistence_info("Floor items: Saved [saved] ship floor items for z=[z] ([scope]).")
