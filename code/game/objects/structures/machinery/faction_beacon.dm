@@ -520,122 +520,132 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 /// permanently.
 /proc/_sweep_unassigned_objects_for_faction(list/zs, faction_uid)
 	var/configured = 0
+	var/list/seen_areas = list()
 
-	try
-		for(var/obj/structure/machinery/cryopod/pod in world)
-			if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore))
-				continue
-			if(!(GET_Z(pod) in zs))
-				continue
-			if(pod.persistent_network || pod.personal_ckey || pod.crew_tagged)
-				continue
-			pod.persistent_network = faction_uid
-			pod.persistent_spawn   = TRUE
-			configured++
-	catch(var/exception/cryo_e)
-		log_subsystem_persistence_error("Faction sweep: cryopod sweep failed: [cryo_e]")
+	// Single turf-scoped pass across just the given Zs, instead of the
+	// 7 separate `for(TYPE in world)` scans this used to run (every
+	// instance of each type across the ENTIRE game, filtered down to one
+	// Z) -- that scaled with total server content, not the ship/station's
+	// own size, and was the dominant cost in "immense lag on ship
+	// retrieve/stash" (this proc runs on every faction-ship retrieve).
+	// Mirrors the already-correct pattern turfsFinalizeZ() uses
+	// (persistence_turfs.dm) -- block() over the Z's own turfs, CHECK_TICK
+	// per turf. Structures/machines sit directly on their turf (not nested
+	// in containers), and non-handheld modular computers are always
+	// anchored consoles, never carried in inventory, so a turf.contents
+	// check finds every match the old world-scan did. Each type keeps its
+	// own try/catch, preserving the original "one bad object doesn't abort
+	// the rest of the sweep" isolation.
+	for(var/z in zs)
+		for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+			CHECK_TICK
+			seen_areas[get_area(T)] = TRUE
+			for(var/atom/movable/AM in T.contents)
+				if(istype(AM, /obj/structure/machinery/cryopod))
+					var/obj/structure/machinery/cryopod/pod = AM
+					try
+						if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore))
+							continue
+						if(pod.persistent_network || pod.personal_ckey || pod.crew_tagged)
+							continue
+						pod.persistent_network = faction_uid
+						pod.persistent_spawn   = TRUE
+						configured++
+					catch(var/exception/cryo_e)
+						log_subsystem_persistence_error("Faction sweep: cryopod sweep failed: [cryo_e]")
 
-	try
-		for(var/obj/structure/machinery/telepad_cargo/pad in world)
-			if(!(GET_Z(pad) in zs))
-				continue
-			if(pad.persistent_network || pad.personal_ckey || pad.crew_tagged)
-				continue
-			pad.persistent_network = faction_uid
-			pad.persistent_spawn   = TRUE
-			pad.faction_shackled   = TRUE
-			configured++
-	catch(var/exception/pad_e)
-		log_subsystem_persistence_error("Faction sweep: telepad sweep failed: [pad_e]")
+				else if(istype(AM, /obj/structure/machinery/telepad_cargo))
+					var/obj/structure/machinery/telepad_cargo/pad = AM
+					try
+						if(pad.persistent_network || pad.personal_ckey || pad.crew_tagged)
+							continue
+						pad.persistent_network = faction_uid
+						pad.persistent_spawn   = TRUE
+						pad.faction_shackled   = TRUE
+						configured++
+					catch(var/exception/pad_e)
+						log_subsystem_persistence_error("Faction sweep: telepad sweep failed: [pad_e]")
 
-	// Configure modular computers directly (machine-level persistent_network).
-	// Skips handheld PDAs/wristbound computers entirely -- those are personal
-	// devices a crew member carries, not station/faction infrastructure.
-	try
-		for(var/obj/item/modular_computer/MC in world)
-			if(!(GET_Z(MC) in zs))
-				continue
-			if(istype(MC, /obj/item/modular_computer/handheld))
-				continue
-			if(MC.persistent_network || MC.personal_ckey || MC.crew_tagged)
-				continue
-			MC.persistent_network = faction_uid
-			MC.faction_shackled   = TRUE
-			configured++
-	catch(var/exception/mc_e)
-		log_subsystem_persistence_error("Faction sweep: modular computer sweep failed: [mc_e]")
+				// Skips handheld PDAs/wristbound computers entirely -- those
+				// are personal devices a crew member carries, not station/
+				// faction infrastructure.
+				else if(istype(AM, /obj/item/modular_computer) && !istype(AM, /obj/item/modular_computer/handheld))
+					var/obj/item/modular_computer/MC = AM
+					try
+						if(MC.persistent_network || MC.personal_ckey || MC.crew_tagged)
+							continue
+						MC.persistent_network = faction_uid
+						MC.faction_shackled   = TRUE
+						configured++
+					catch(var/exception/mc_e)
+						log_subsystem_persistence_error("Faction sweep: modular computer sweep failed: [mc_e]")
 
-	try
-		for(var/obj/structure/machinery/telecomms/T in world)
-			if(!(GET_Z(T) in zs))
-				continue
-			if(T.persistent_network)
-				continue
-			T.persistent_network = faction_uid
-			configured++
-	catch(var/exception/tc_e)
-		log_subsystem_persistence_error("Faction sweep: telecomms sweep failed: [tc_e]")
+				else if(istype(AM, /obj/structure/machinery/telecomms))
+					var/obj/structure/machinery/telecomms/Tc = AM
+					try
+						if(Tc.persistent_network)
+							continue
+						Tc.persistent_network = faction_uid
+						configured++
+					catch(var/exception/tc_e)
+						log_subsystem_persistence_error("Faction sweep: telecomms sweep failed: [tc_e]")
 
-	try
-		for(var/obj/structure/machinery/door/airlock/AL in world)
-			if(!(GET_Z(AL) in zs))
-				continue
-			if(AL.req_access_faction || AL.crew_tagged)
-				continue
-			AL.req_access_faction = faction_uid
-			// Clear whatever specific access codes the door had left over
-			// from mapping -- otherwise a claimed door could stay locked to
-			// the new faction's own members, who have no matching codes.
-			// Faction-only access by default; members can tighten it further
-			// via the faction tagger's own door-access configuration.
-			AL.req_access = null
-			AL.req_one_access = null
-			configured++
-	catch(var/exception/al_e)
-		log_subsystem_persistence_error("Faction sweep: airlock sweep failed: [al_e]")
+				else if(istype(AM, /obj/structure/machinery/door/airlock))
+					var/obj/structure/machinery/door/airlock/AL = AM
+					try
+						if(AL.req_access_faction || AL.crew_tagged)
+							continue
+						AL.req_access_faction = faction_uid
+						// Clear whatever specific access codes the door had
+						// left over from mapping -- otherwise a claimed door
+						// could stay locked to the new faction's own members,
+						// who have no matching codes. Faction-only access by
+						// default; members can tighten it further via the
+						// faction tagger's own door-access configuration.
+						AL.req_access = null
+						AL.req_one_access = null
+						configured++
+					catch(var/exception/al_e)
+						log_subsystem_persistence_error("Faction sweep: airlock sweep failed: [al_e]")
 
-	// Autodocs already have their own persistent_network mechanism
-	// (gates medical-system access by faction) but were never actually
-	// added to this sweep before -- separate gap from the multi-deck one.
-	try
-		for(var/obj/structure/machinery/autodoc/AD in world)
-			if(!(GET_Z(AD) in zs))
-				continue
-			if(AD.persistent_network || AD.personal_ckey || AD.crew_tagged)
-				continue
-			AD.persistent_network = faction_uid
-			configured++
-	catch(var/exception/ad_e)
-		log_subsystem_persistence_error("Faction sweep: autodoc sweep failed: [ad_e]")
+				// Autodocs already have their own persistent_network
+				// mechanism (gates medical-system access by faction) but
+				// were never actually added to this sweep before -- separate
+				// gap from the multi-deck one.
+				else if(istype(AM, /obj/structure/machinery/autodoc))
+					var/obj/structure/machinery/autodoc/AD = AM
+					try
+						if(AD.persistent_network || AD.personal_ckey || AD.crew_tagged)
+							continue
+						AD.persistent_network = faction_uid
+						configured++
+					catch(var/exception/ad_e)
+						log_subsystem_persistence_error("Faction sweep: autodoc sweep failed: [ad_e]")
 
+				else if(istype(AM, /obj/structure/machinery/porta_turret))
+					var/obj/structure/machinery/porta_turret/PT = AM
+					try
+						if(PT.persistent_network)
+							continue
+						PT.persistent_network = faction_uid
+						configured++
+					catch(var/exception/turret_e)
+						log_subsystem_persistence_error("Faction sweep: turret sweep failed: [turret_e]")
+
+	// Areas discovered above are, by construction, already confirmed to be
+	// on one of the target Zs (found via a turf within that Z's own block()
+	// scan) -- no separate "is this area on Zs" re-check needed, unlike the
+	// old nested for(area) { for(turf in area.contents) } double-scan.
 	try
-		for(var/area/A in GLOB.areas)
+		for(var/area/A in seen_areas)
 			if(!A.is_blueprint_area)
 				continue
 			if(A.persistent_network)
-				continue
-			var/on_z = FALSE
-			for(var/turf/AT in A.contents)
-				if(GET_Z(AT) in zs)
-					on_z = TRUE
-					break
-			if(!on_z)
 				continue
 			A.persistent_network = faction_uid
 			configured++
 	catch(var/exception/area_e)
 		log_subsystem_persistence_error("Faction sweep: area sweep failed: [area_e]")
-
-	try
-		for(var/obj/structure/machinery/porta_turret/PT in world)
-			if(!(GET_Z(PT) in zs))
-				continue
-			if(PT.persistent_network)
-				continue
-			PT.persistent_network = faction_uid
-			configured++
-	catch(var/exception/turret_e)
-		log_subsystem_persistence_error("Faction sweep: turret sweep failed: [turret_e]")
 
 	if(configured)
 		log_game("Faction sweep: networked [configured] object(s)/area(s) to faction '[faction_uid]' across z-level(s) [english_list(zs)].")
@@ -653,74 +663,76 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 /proc/_sweep_unassigned_crew(list/zs)
 	var/configured = 0
 
-	try
-		for(var/obj/structure/machinery/cryopod/pod in world)
-			if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore))
-				continue
-			if(!(GET_Z(pod) in zs))
-				continue
-			if(pod.persistent_network || pod.personal_ckey || pod.crew_tagged)
-				continue
-			pod.crew_tagged = TRUE
-			configured++
-	catch(var/exception/cryo_e)
-		log_subsystem_persistence_error("Crew sweep: cryopod sweep failed: [cryo_e]")
+	// Same turf-scoped single pass as _sweep_unassigned_objects_for_faction()
+	// above -- see its comment for why (this used to be 4 separate
+	// `for(TYPE in world)` scans, now called on every personal-ship
+	// retrieve).
+	for(var/z in zs)
+		for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+			CHECK_TICK
+			for(var/atom/movable/AM in T.contents)
+				if(istype(AM, /obj/structure/machinery/cryopod))
+					var/obj/structure/machinery/cryopod/pod = AM
+					try
+						if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore))
+							continue
+						if(pod.persistent_network || pod.personal_ckey || pod.crew_tagged)
+							continue
+						pod.crew_tagged = TRUE
+						configured++
+					catch(var/exception/cryo_e)
+						log_subsystem_persistence_error("Crew sweep: cryopod sweep failed: [cryo_e]")
 
-	try
-		for(var/obj/structure/machinery/telepad_cargo/pad in world)
-			if(!(GET_Z(pad) in zs))
-				continue
-			if(pad.persistent_network || pad.personal_ckey || pad.crew_tagged)
-				continue
-			pad.crew_tagged      = TRUE
-			pad.persistent_spawn = TRUE // still "accepts deliveries", just keyed to the ship's crew now
-			configured++
-	catch(var/exception/pad_e)
-		log_subsystem_persistence_error("Crew sweep: telepad sweep failed: [pad_e]")
+				else if(istype(AM, /obj/structure/machinery/telepad_cargo))
+					var/obj/structure/machinery/telepad_cargo/pad = AM
+					try
+						if(pad.persistent_network || pad.personal_ckey || pad.crew_tagged)
+							continue
+						pad.crew_tagged      = TRUE
+						pad.persistent_spawn = TRUE // still "accepts deliveries", just keyed to the ship's crew now
+						configured++
+					catch(var/exception/pad_e)
+						log_subsystem_persistence_error("Crew sweep: telepad sweep failed: [pad_e]")
 
-	// Skips handheld PDAs/wristbound computers entirely -- those are personal
-	// devices a crew member carries, not ship infrastructure, same exemption
-	// the faction sweep applies.
-	try
-		for(var/obj/item/modular_computer/MC in world)
-			if(!(GET_Z(MC) in zs))
-				continue
-			if(istype(MC, /obj/item/modular_computer/handheld))
-				continue
-			if(MC.persistent_network || MC.personal_ckey || MC.crew_tagged)
-				continue
-			MC.crew_tagged = TRUE
-			configured++
-	catch(var/exception/mc_e)
-		log_subsystem_persistence_error("Crew sweep: modular computer sweep failed: [mc_e]")
+				// Skips handheld PDAs/wristbound computers entirely -- those
+				// are personal devices a crew member carries, not ship
+				// infrastructure, same exemption the faction sweep applies.
+				else if(istype(AM, /obj/item/modular_computer) && !istype(AM, /obj/item/modular_computer/handheld))
+					var/obj/item/modular_computer/MC = AM
+					try
+						if(MC.persistent_network || MC.personal_ckey || MC.crew_tagged)
+							continue
+						MC.crew_tagged = TRUE
+						configured++
+					catch(var/exception/mc_e)
+						log_subsystem_persistence_error("Crew sweep: modular computer sweep failed: [mc_e]")
 
-	try
-		for(var/obj/structure/machinery/door/airlock/AL in world)
-			if(!(GET_Z(AL) in zs))
-				continue
-			if(AL.req_access_faction || AL.crew_tagged)
-				continue
-			AL.crew_tagged = TRUE
-			// Clear whatever specific access codes the door had left over
-			// from mapping -- same reasoning as the faction sweep's own
-			// clear: a crew-tagged door shouldn't stay locked to unrelated
-			// map-authored access codes.
-			AL.req_access = null
-			AL.req_one_access = null
-			configured++
-	catch(var/exception/al_e)
-		log_subsystem_persistence_error("Crew sweep: airlock sweep failed: [al_e]")
+				else if(istype(AM, /obj/structure/machinery/door/airlock))
+					var/obj/structure/machinery/door/airlock/AL = AM
+					try
+						if(AL.req_access_faction || AL.crew_tagged)
+							continue
+						AL.crew_tagged = TRUE
+						// Clear whatever specific access codes the door had
+						// left over from mapping -- same reasoning as the
+						// faction sweep's own clear: a crew-tagged door
+						// shouldn't stay locked to unrelated map-authored
+						// access codes.
+						AL.req_access = null
+						AL.req_one_access = null
+						configured++
+					catch(var/exception/al_e)
+						log_subsystem_persistence_error("Crew sweep: airlock sweep failed: [al_e]")
 
-	try
-		for(var/obj/structure/machinery/autodoc/AD in world)
-			if(!(GET_Z(AD) in zs))
-				continue
-			if(AD.persistent_network || AD.personal_ckey || AD.crew_tagged)
-				continue
-			AD.crew_tagged = TRUE
-			configured++
-	catch(var/exception/ad_e)
-		log_subsystem_persistence_error("Crew sweep: autodoc sweep failed: [ad_e]")
+				else if(istype(AM, /obj/structure/machinery/autodoc))
+					var/obj/structure/machinery/autodoc/AD = AM
+					try
+						if(AD.persistent_network || AD.personal_ckey || AD.crew_tagged)
+							continue
+						AD.crew_tagged = TRUE
+						configured++
+					catch(var/exception/ad_e)
+						log_subsystem_persistence_error("Crew sweep: autodoc sweep failed: [ad_e]")
 
 	if(configured)
 		log_game("Crew sweep: crew-tagged [configured] object(s) across z-level(s) [english_list(zs)].")

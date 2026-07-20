@@ -231,14 +231,18 @@
 	databaseCheckQueryResult(delete_old, "botsFinalizeZ delete")
 	qdel(delete_old)
 
+	// Single turf-scoped pass across just this Z instead of scanning every
+	// bot in the entire game filtered by Z -- same fix shape as the other
+	// FinalizeZ procs in this subsystem (see worldstateFinalizeZ(),
+	// persistence_worldstate.dm, for the full rationale). Bot population is
+	// small either way, but this keeps the pattern consistent.
 	var/list/value_rows = list()
-	for(var/mob/living/bot/B in world)
+	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
 		CHECK_TICK
-		if(B.z != z)
-			continue
-		var/row = _botRow(B)
-		if(row)
-			value_rows += row
+		for(var/mob/living/bot/B in T.contents)
+			var/row = _botRow(B)
+			if(row)
+				value_rows += row
 
 	var/saved = _botsFlush(value_rows, "botsFinalizeZ")
 	log_subsystem_persistence_info("Bots: Saved [saved] ship bot(s) for z=[z] ([scope]).")
