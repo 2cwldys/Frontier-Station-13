@@ -373,10 +373,10 @@
 	var/turf/origin = get_turf(user)
 	var/atom/movable/pulled = user.pulling
 	if(origin)
-		new /obj/effect/portal/decorative(origin, null, null, 5 SECONDS, 0)
+		new /obj/effect/portal/decorative/fading(origin, null, null, 5 SECONDS, 0)
 		spark(origin, 3, GLOB.alldirs)
 		playsound(origin, 'sound/effects/phasein.ogg', 30, 1)
-	new /obj/effect/portal/decorative(dest, null, null, 5 SECONDS, 0)
+	new /obj/effect/portal/decorative/fading(dest, null, null, 5 SECONDS, 0)
 	spark(dest, 3, GLOB.alldirs)
 	user.forceMove(dest)
 	if(pulled && !QDELETED(pulled))

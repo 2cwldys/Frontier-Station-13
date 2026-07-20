@@ -474,7 +474,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 // stationary shackled computer keeps its installed programs across restarts
 // the same way a dynamically-tracked one does via persistent_objects_*_content().
 /obj/item/modular_computer/worldstate_get_content()
-	var/list/content = list("persistent_network" = persistent_network, "faction_shackled" = faction_shackled, "personal_ckey" = personal_ckey, "personal_char_name" = personal_char_name, "crew_tagged" = crew_tagged)
+	var/list/content = list("persistent_network" = persistent_network, "faction_shackled" = faction_shackled, "personal_ckey" = personal_ckey, "personal_char_name" = personal_char_name, "crew_tagged" = crew_tagged, "computer_emagged" = computer_emagged)
 	var/list/programs = modcomp_save_programs()
 	if(length(programs))
 		content["programs"] = json_encode(programs)
@@ -491,11 +491,13 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		personal_char_name = content["personal_char_name"]
 	if(!isnull(content["crew_tagged"]))
 		crew_tagged = content["crew_tagged"]
+	if(!isnull(content["computer_emagged"]))
+		computer_emagged = content["computer_emagged"]
 	if(content["programs"])
 		modcomp_restore_programs(json_decode(content["programs"]))
 
 /obj/structure/machinery/door/airlock
-	worldstate_vars = list("name", "welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access", "id_tag", "frequency", "crew_tagged")
+	worldstate_vars = list("name", "welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access", "id_tag", "frequency", "crew_tagged", "emagged")
 
 /obj/structure/machinery/door/airlock/worldstate_get_content()
 	var/list/content = ..()
@@ -681,16 +683,16 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	worldstate_vars = list("detecting", "working")
 
 /obj/structure/machinery/suit_cycler
-	worldstate_vars = list("locked", "safeties", "radiation_level", "target_department", "target_species")
+	worldstate_vars = list("locked", "safeties", "radiation_level", "target_department", "target_species", "emagged")
 
 /obj/structure/machinery/porta_turret
-	worldstate_vars = list("enabled", "lethal", "locked", "check_arrest", "check_records", "check_weapons", "check_access", "check_wildlife", "check_synth", "target_borgs", "auto_repair", "persistent_network", "turret_faction_target_mode")
+	worldstate_vars = list("enabled", "lethal", "locked", "check_arrest", "check_records", "check_weapons", "check_access", "check_wildlife", "check_synth", "target_borgs", "auto_repair", "persistent_network", "turret_faction_target_mode", "emagged")
 
 /obj/structure/machinery/disposal
 	worldstate_vars = list("is_on", "can_flush")
 
 /obj/structure/machinery/turret_control
-	worldstate_vars = list("enabled", "lethal", "locked", "check_arrest", "check_records", "check_weapons", "check_access", "check_wildlife", "check_synth", "target_borgs")
+	worldstate_vars = list("enabled", "lethal", "locked", "check_arrest", "check_records", "check_weapons", "check_access", "check_wildlife", "check_synth", "target_borgs", "emagged", "ailock")
 
 /obj/structure/machinery/atmospherics/unary/cryo_cell
 	worldstate_vars = list("on", "temperature_warning_threshold", "temperature_danger_threshold")
@@ -705,7 +707,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	worldstate_vars = list("target_temperature", "should_heat", "slow_mode")
 
 /obj/structure/machinery/biogenerator
-	worldstate_vars = list("points", "build_eff", "eat_eff", "processing_time_divisor")
+	worldstate_vars = list("points", "build_eff", "eat_eff", "processing_time_divisor", "emagged")
 
 /obj/structure/machinery/stasis_bed
 	worldstate_vars = list("stasis_enabled", "stasis_can_toggle")
@@ -747,7 +749,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	worldstate_vars = list("mode", "target_temperature", "breach_detection", "locked", "aidisabled", "highpower", "frequency")
 
 /obj/structure/machinery/power/portgen/basic
-	worldstate_vars = list("active", "open", "power_output", "sheets", "sheet_left", "anchored")
+	worldstate_vars = list("active", "open", "power_output", "sheets", "sheet_left", "anchored", "emagged")
 
 /obj/structure/machinery/power/portgen/basic/worldstate_apply_content(list/content)
 	. = ..()
@@ -784,6 +786,14 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	content["autoflag"]   = autoflag
 	content["aidisabled"] = aidisabled
 	content["locked"]     = locked
+	// hacker (var/mob/living/silicon/ai) deliberately NOT persisted -- a live
+	// mob reference can't survive a JSON round-trip through worldstate the
+	// way a plain boolean/number can (the AI it names may not even exist in
+	// a future session). infected is what actually matters for behavior
+	// (which IPC gets hacked next); losing the "who did it" attribution on
+	// restart is an acceptable tradeoff for not storing a dangling reference.
+	content["emagged"]    = emagged
+	content["infected"]   = infected
 	if(cell)
 		content["cell_type"]      = "[cell.type]"
 		content["cell_charge"]    = cell.charge
@@ -804,6 +814,8 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	if(!isnull(content["autoflag"]))   autoflag   = content["autoflag"]
 	if(!isnull(content["aidisabled"])) aidisabled = content["aidisabled"]
 	if(!isnull(content["locked"]))     locked     = content["locked"]
+	if(!isnull(content["emagged"]))    emagged    = content["emagged"]
+	if(!isnull(content["infected"]))   infected   = content["infected"]
 	if(content["cell_type"])
 		var/celltype = text2path(content["cell_type"])
 		if(celltype && (!cell || cell.type != celltype))

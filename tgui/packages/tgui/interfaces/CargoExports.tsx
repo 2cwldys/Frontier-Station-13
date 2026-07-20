@@ -39,6 +39,7 @@ type CargoExportsData = {
   crew_balance: number | null;
   telepad_choices: TelepadChoice[];
   selected_telepad_ref: string | null;
+  on_drydock_ship: BooleanLike;
 };
 
 export const CargoExports = (props) => {
@@ -62,6 +63,7 @@ export const CargoExports = (props) => {
     crew_balance,
     telepad_choices,
     selected_telepad_ref,
+    on_drydock_ship,
   } = data;
 
   if (!faction_uid && !is_personal && !is_crew) {
@@ -129,16 +131,18 @@ export const CargoExports = (props) => {
             canExport && (
               <Button
                 icon="upload"
-                color={telepadReady ? 'good' : 'grey'}
-                disabled={!telepadReady}
+                color={!on_drydock_ship && telepadReady ? 'good' : 'grey'}
+                disabled={!telepadReady || !!on_drydock_ship}
                 tooltip={
-                  !telepadReady
-                    ? is_personal
-                      ? 'No personally-tagged telepad found. Place and personally tag one nearby.'
-                      : is_crew
-                        ? 'No crew-tagged telepad found. Place and crew-tag one nearby.'
-                        : 'No faction telepad found. Place and link a cargo telepad.'
-                    : 'Scan telepad and export all items.'
+                  on_drydock_ship
+                    ? 'Return to a station to be able to sell your exports.'
+                    : !telepadReady
+                      ? is_personal
+                        ? 'No personally-tagged telepad found. Place and personally tag one nearby.'
+                        : is_crew
+                          ? 'No crew-tagged telepad found. Place and crew-tag one nearby.'
+                          : 'No faction telepad found. Place and link a cargo telepad.'
+                      : 'Scan telepad and export all items.'
                 }
                 onClick={() => act('export_now')}
               >
@@ -189,7 +193,13 @@ export const CargoExports = (props) => {
             </Box>
           )}
 
-          {!telepadReady && (
+          {!!on_drydock_ship && (
+            <NoticeBox color="orange">
+              Return to a station to be able to sell your exports.
+            </NoticeBox>
+          )}
+
+          {!on_drydock_ship && !telepadReady && (
             <NoticeBox color="orange">
               {is_personal
                 ? 'No personally-tagged cargo telepad detected. Place a telepad and personally tag it with a faction tagger.'

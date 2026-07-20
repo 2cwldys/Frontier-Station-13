@@ -55,6 +55,13 @@
 	data["faction_balance"] = isnull(raw_balance) ? 0 : raw_balance
 	data["has_telepad"]     = net ? !!persistence_find_cargo_telepad(net) : FALSE
 	data["status_message"]  = status_message
+	// Exports require being docked at a station -- unlike Cargo Order
+	// (imports), which works fine anywhere. Applies uniformly across all
+	// three tag modes, including Crew (which only ever exists aboard a
+	// ship, so Crew-mode exports are permanently unreachable by design --
+	// confirmed with the user). See export_now below for the actual
+	// enforcement; this is just the UI-side signal.
+	data["on_drydock_ship"] = computer ? !!_drydock_ship_at(GET_Z(computer)) : FALSE
 
 	// Personal mode -- mutually exclusive with faction mode (same as every
 	// other personal_tagger_set() type). No officer-rank concept applies:
@@ -193,6 +200,12 @@
 			return TRUE
 
 		if("export_now")
+			// Exports require being docked at a station -- applies uniformly
+			// regardless of tag mode (Faction/Personal/Crew), checked before
+			// anything else. Cargo Order (imports) has no such restriction.
+			if(computer && _drydock_ship_at(GET_Z(computer)))
+				status_message = "Return to a station to be able to sell your exports."
+				return TRUE
 			var/is_personal = computer && computer.personal_ckey
 			var/is_crew = computer && computer.crew_tagged
 			if(!net && !is_personal && !is_crew)
@@ -311,6 +324,12 @@
 			// Send-off feedback -- matches the sound persistence_telepad_deliver()
 			// already plays for an INCOMING order arriving at this same pad
 			// (persistence_cryo.dm), so export and delivery sound consistent.
+			// The fading decorative portal (portals.dm) is the visual half --
+			// a non-functional flash (does_teleport = FALSE, inherited from
+			// the base decorative portal) that fades out over its lifespan
+			// instead of vanishing abruptly, for a "goods just left through
+			// here" send-off.
 			spark(pad_turf, 5, GLOB.alldirs)
 			playsound(pad_turf, 'sound/effects/phasein.ogg', 50, 1)
+			new /obj/effect/portal/decorative/fading(pad_turf)
 			return TRUE

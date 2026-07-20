@@ -39,6 +39,26 @@
 /obj/effect/portal/decorative
 	does_teleport = FALSE
 
+/// Same purely-visual flash as the base decorative portal, but fades out
+/// over its final moments instead of abruptly vanishing when its lifespan
+/// timer (QDEL_IN, base /obj/effect/portal/Initialize()) deletes it -- for
+/// a send-off that reads as fading away, not a jump-cut. Used everywhere
+/// the plain decorative portal used to be (telepad travel, drydock
+/// boarding, First Responder, Personal Travel, Cargo Exports) -- the base
+/// /obj/effect/portal/decorative type itself is kept only as the shared
+/// parent (does_teleport = FALSE), not spawned directly anymore.
+/obj/effect/portal/decorative/fading
+	/// How long the fade-out itself takes -- clamped to the actual lifespan
+	/// in Initialize() so a short-lived portal doesn't get asked to hold at
+	/// full opacity for a negative duration.
+	var/fade_time = 1 SECOND
+
+/obj/effect/portal/decorative/fading/Initialize(mapload, turf/set_target, set_creator, lifespan = 3 SECONDS, precise = 1)
+	. = ..()
+	var/actual_fade = min(fade_time, lifespan)
+	animate(src, alpha = 255, time = max(0, lifespan - actual_fade))
+	animate(alpha = 0, time = actual_fade)
+
 /obj/effect/portal/Initialize(mapload, turf/set_target, set_creator, lifespan = 300, precise = 1)
 	. = ..()
 

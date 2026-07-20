@@ -346,10 +346,10 @@
 /datum/computer_file/program/security/first_responder/proc/first_responder_jump(mob/M, turf/dest, arm_cooldown = TRUE)
 	var/turf/origin = get_turf(M)
 	if(origin)
-		new /obj/effect/portal/decorative(origin, null, null, 5 SECONDS, 0)
+		new /obj/effect/portal/decorative/fading(origin, null, null, 5 SECONDS, 0)
 		spark(origin, 3, GLOB.alldirs)
 		playsound(origin, 'sound/effects/phasein.ogg', 50, 1)
-	new /obj/effect/portal/decorative(dest, null, null, 5 SECONDS, 0)
+	new /obj/effect/portal/decorative/fading(dest, null, null, 5 SECONDS, 0)
 	spark(dest, 3, GLOB.alldirs)
 	// forceMove, NOT do_teleport: the science teleport datum scatters anyone
 	// carrying a bag of holding up to 100 tiles (teleport.dm setPrecision) --

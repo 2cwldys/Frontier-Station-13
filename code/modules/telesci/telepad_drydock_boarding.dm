@@ -353,10 +353,10 @@
 	var/turf/origin = get_turf(L)
 	var/atom/movable/pulled = L.pulling
 	if(origin)
-		new /obj/effect/portal/decorative(origin, null, null, 5 SECONDS, 0)
+		new /obj/effect/portal/decorative/fading(origin, null, null, 5 SECONDS, 0)
 		spark(origin, 3, GLOB.alldirs)
 		playsound(origin, 'sound/effects/phasein.ogg', 30, 1)
-	new /obj/effect/portal/decorative(destination, null, null, 5 SECONDS, 0)
+	new /obj/effect/portal/decorative/fading(destination, null, null, 5 SECONDS, 0)
 	spark(destination, 3, GLOB.alldirs)
 	L.forceMove(destination)
 	if(pulled && !QDELETED(pulled))
@@ -551,7 +551,7 @@
 /proc/_drydock_invite_vfx(turf/T)
 	if(!T)
 		return
-	new /obj/effect/portal/decorative(T, null, null, 5 SECONDS, 0)
+	new /obj/effect/portal/decorative/fading(T, null, null, 5 SECONDS, 0)
 	spark(T, 3, GLOB.alldirs)
 	playsound(T, 'sound/effects/phasein.ogg', 30, 1)
 

@@ -173,9 +173,9 @@
 	// persistence_telepad_deliver() below.
 	var/turf/origin = get_turf(L)
 	if(origin)
-		new /obj/effect/portal/decorative(origin, null, null, 5 SECONDS, 0)
+		new /obj/effect/portal/decorative/fading(origin, null, null, 5 SECONDS, 0)
 		spark(origin, 3, GLOB.alldirs)
-	new /obj/effect/portal/decorative(destination, null, null, 5 SECONDS, 0)
+	new /obj/effect/portal/decorative/fading(destination, null, null, 5 SECONDS, 0)
 	spark(destination, 3, GLOB.alldirs)
 
 	last_used_by_ckey[L.ckey] = world.time
@@ -233,9 +233,9 @@
 		return FALSE
 
 	var/turf/origin = get_turf(src)
-	new /obj/effect/portal/decorative(origin, null, null, 5 SECONDS, 0)
+	new /obj/effect/portal/decorative/fading(origin, null, null, 5 SECONDS, 0)
 	spark(origin, 3, GLOB.alldirs)
-	new /obj/effect/portal/decorative(destination, null, null, 5 SECONDS, 0)
+	new /obj/effect/portal/decorative/fading(destination, null, null, 5 SECONDS, 0)
 	spark(destination, 3, GLOB.alldirs)
 
 	last_used_by_ckey[user.ckey] = world.time

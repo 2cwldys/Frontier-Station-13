@@ -301,7 +301,7 @@
 // ============================================================
 
 /obj/structure/closet/persistent_objects_get_content()
-	var/list/content = list("opened" = opened)
+	var/list/content = list("opened" = opened, "broken" = broken, "locked" = locked)
 	var/list/items = list()
 	for(var/obj/item/I in src.contents)
 		items += list(serializePersistentItem(I))
@@ -328,4 +328,8 @@
 			density = TRUE
 		else if(!dense_when_open)
 			density = FALSE
-		update_icon()
+	if(!isnull(content["broken"]))
+		broken = content["broken"] ? TRUE : FALSE
+	if(!isnull(content["locked"]))
+		locked = content["locked"] ? TRUE : FALSE
+	update_icon()
