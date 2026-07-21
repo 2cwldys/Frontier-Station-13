@@ -260,9 +260,6 @@
 
 #define SHADOW_RENDER_TARGET "SHADOW_RENDER_TARGET"
 
-/// Shared render target for the vision cone's fov_mask/fov_mask_two "ghost hint" objects -- consumed by fov's alpha_mask_filter (vision_cone.dm).
-#define FOV_GHOST_MASK_RENDER_TARGET "*FOV_GHOST_MASK_RENDER_TARGET"
-
 #define DEFAULT_APPEARANCE_FLAGS (PIXEL_SCALE)
 
 #define DEFAULT_RENDERER_APPEARANCE_FLAGS (PLANE_MASTER | NO_CLIENT_COLOR)

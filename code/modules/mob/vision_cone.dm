@@ -32,14 +32,6 @@
 	plane         = FULLSCREEN_PLANE
 	color         = "#000000"
 
-/atom/movable/screen/fov/Initialize(mapload)
-	. = ..()
-	// fov_mask/fov_mask_two render into FOV_GHOST_MASK_RENDER_TARGET (below,
-	// on HIDDEN_SHIT_PLANE -- never composited directly); this punches a
-	// hole in the black cone wherever that mask has content, showing the
-	// "ghost hint" through to the game world underneath.
-	add_filter("fov_ghost_hint", 1, alpha_mask_filter(render_source = FOV_GHOST_MASK_RENDER_TARGET, flags = MASK_INVERSE))
-
 // Behind-mask — renders on the hidden plane
 /atom/movable/screen/fov_mask
 	icon          = 'icons/mob/hide.dmi'
@@ -49,7 +41,6 @@
 	mouse_opacity = MOUSE_OPACITY_TRANSPARENT
 	layer         = FULLSCREEN_LAYER
 	plane         = HIDDEN_SHIT_PLANE
-	render_target = FOV_GHOST_MASK_RENDER_TARGET
 
 // Secondary mask — changes shape based on eye/helmet state
 /atom/movable/screen/fov_mask_two
@@ -60,7 +51,6 @@
 	mouse_opacity = MOUSE_OPACITY_TRANSPARENT
 	layer         = FULLSCREEN_LAYER
 	plane         = HIDDEN_SHIT_PLANE
-	render_target = FOV_GHOST_MASK_RENDER_TARGET
 
 // Rear-observer "something moved behind you" flash -- see _ping_rear_observers().
 /atom/movable/screen/behind_ping
