@@ -116,7 +116,9 @@
 		list(type = /mob/living/simple_animal/hostile/carp/shark/phoron_deposit, speed = 4),
 		list(type = /mob/living/simple_animal/hostile/carp/shark/reaver/phoron_deposit, speed = 5),
 		list(type = /mob/living/simple_animal/hostile/gnat/phoron_deposit, speed = 1),
-		list(type = /mob/living/simple_animal/hostile/carp, speed = 2)
+		list(type = /mob/living/simple_animal/hostile/carp, speed = 2),
+		list(type = /mob/living/simple_animal/hostile/gutslug, speed = 2),
+		list(type = /mob/living/simple_animal/hostile/greed, speed = 4)
 	)
 
 /**
