@@ -98,12 +98,15 @@
 	max_force = 20
 	force_divisor = 0.2
 	build_from_parts = TRUE
+	/// Random handle tint picked in Initialize() -- saved/restored by persistence_objects.dm.
+	var/handle_color
 
 /obj/item/material/hatchet/machete/Initialize()
 	. = ..()
 	if(build_from_parts)
+		handle_color = pick(COLOR_BLUE, COLOR_RED, COLOR_CYAN, COLOR_BLACK, COLOR_AMBER, COLOR_GREEN, COLOR_OLIVE, COLOR_GUNMETAL, COLOR_DARK_BLUE_GRAY)
 		var/image/I = image(icon, icon_state = "machete_handle")
-		I.color = pick(COLOR_BLUE, COLOR_RED, COLOR_CYAN, COLOR_BLACK, COLOR_AMBER, COLOR_GREEN, COLOR_OLIVE, COLOR_GUNMETAL, COLOR_DARK_BLUE_GRAY)
+		I.color = handle_color
 		AddOverlays(I)
 
 /obj/item/material/hatchet/machete/unbreakable

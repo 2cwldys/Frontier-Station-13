@@ -391,6 +391,30 @@
 			return DS
 	return null
 
+/// Every deployed vessel personally owned by target -- since a player may now
+/// have both a ship AND a shuttle deployed at once (the category-aware deploy
+/// limit, persistence_shuttles.dm), the seizure tap must offer a choice
+/// instead of grabbing whichever the singular finder above happened to hit
+/// first. Personal ownership only (owned_by()), same as always -- faction
+/// ships are never seized this way.
+/datum/computer_file/program/security/first_responder/proc/_find_owned_deployed_ships(mob/target)
+	. = list()
+	for(var/sid in GLOB.drydock_ships)
+		var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
+		if(DS && !DS.stashed && DS.owned_by(target))
+			. += DS
+
+/// Shared force-stash + repossess + notify tail, used by both the single-
+/// vessel and the picker paths of handle_ship_seizure_tap() below.
+/datum/computer_file/program/security/first_responder/proc/_seize_deployed_vessel(datum/drydock_ship/DS, mob/target, mob/user)
+	var/kind = (_drydock_vessel_category(DS) == "shuttle") ? "shuttle" : "ship"
+	if(!SSpersistence.drydockStash(DS.shuttle_id, user, force = TRUE))
+		to_chat(user, SPAN_WARNING("Failed to stash [DS.display_name()]."))
+		return
+	SSpersistence.drydockRepossess(DS.shuttle_id, user)
+	to_chat(user, SPAN_GOOD("[DS.display_name()] stashed and repossessed by the Hub."))
+	log_and_message_admins("[key_name(user)] repossessed [target]'s [kind] [DS.display_name()] via First Responder", user)
+
 /// Tap handler for tap_mode == "stash"/"repossess" (interaction.dm's
 /// modular_computer/attack() branches here instead of toggle_prisoner_tag()
 /// when a mode other than "tag" is active). Adjacency is inherent -- attack()
@@ -403,17 +427,41 @@
 	if(net != "hub")
 		to_chat(user, SPAN_WARNING("Ship seizure requires a Hub-network terminal."))
 		return
-	var/datum/drydock_ship/DS = _find_owned_deployed_ship(target)
-	if(!DS)
-		to_chat(user, SPAN_WARNING("[target] has no deployed ship to seize."))
+	var/list/owned = _find_owned_deployed_ships(target)
+	if(!length(owned))
+		to_chat(user, SPAN_WARNING("[target] has no deployed ship or shuttle to seize."))
 		return
 
-	if(!SSpersistence.drydockStash(DS.shuttle_id, user, force = TRUE))
-		to_chat(user, SPAN_WARNING("Failed to stash [DS.display_name()]."))
-		return
-	SSpersistence.drydockRepossess(DS.shuttle_id, user)
-	to_chat(user, SPAN_GOOD("[DS.display_name()] stashed and repossessed by the Hub."))
-	log_and_message_admins("[key_name(user)] repossessed [target]'s ship [DS.display_name()] via First Responder", user)
+	var/datum/drydock_ship/DS
+	if(length(owned) == 1)
+		DS = owned[1]
+	else
+		// More than one deployed vessel owned by target (a ship + a shuttle) --
+		// let the officer choose which to seize rather than grabbing one at
+		// random. Same tgui_input_list + choices[pick] pattern as
+		// _drydock_board_resolve_ship() (telepad_drydock_boarding.dm).
+		var/list/choices = list()
+		for(var/datum/drydock_ship/candidate in owned)
+			var/kind = (_drydock_vessel_category(candidate) == "shuttle") ? "Shuttle" : "Ship"
+			choices["[candidate.display_name()] -- [kind] #[candidate.shuttle_id]"] = candidate
+		var/pick = tgui_input_list(user, "Which vessel do you want to repossess from [target]?", "Repossess Vessel", choices)
+		if(!pick)
+			return
+		var/datum/drydock_ship/chosen = choices[pick]
+		if(!istype(chosen))
+			return
+		// Re-validate after the async menu -- tgui_input_list yields, so the
+		// tap's inherent adjacency no longer holds and the vessel may have
+		// been stashed/repossessed in the meantime.
+		DS = GLOB.drydock_ships["[chosen.shuttle_id]"]
+		if(!DS || DS.stashed || !DS.owned_by(target))
+			to_chat(user, SPAN_WARNING("That vessel is no longer available to seize."))
+			return
+		if(QDELETED(target) || !user.Adjacent(target))
+			to_chat(user, SPAN_WARNING("You're no longer within reach of [target]."))
+			return
+
+	_seize_deployed_vessel(DS, target, user)
 
 #undef FIRST_RESPONDER_COOLDOWN
 #undef FIRST_RESPONDER_OFFENSE_MAX_AGE

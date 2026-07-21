@@ -5,7 +5,7 @@
 	prefix = "away_site/phoron_deposit/"
 	suffix = "phoron_deposit.dmm"
 
-	sectors = list(SECTOR_TAU_CETI, SECTOR_ROMANOVICH, SECTOR_VALLEY_HALE, SECTOR_TABITI)
+	sectors = list(SECTOR_TAU_CETI, SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER, SECTOR_VALLEY_HALE, SECTOR_TABITI)
 	spawn_weight = 5
 	spawn_cost = 2
 	auto_despawn_when_depleted = TRUE

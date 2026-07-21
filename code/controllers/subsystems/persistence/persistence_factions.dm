@@ -2162,6 +2162,10 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 
 	if(istype(target, /mob/living/carbon/human))
 		var/mob/living/carbon/human/H = target
+		// The issuing faction IS this ID's employer -- sync the mob before
+		// set_id_info() copies employer_faction onto the card, otherwise it
+		// stamps the holder's old prefs faction straight back over chosen_uid.
+		H.employer_faction = chosen_uid
 		H.set_id_info(new_card)
 
 	target.put_in_hands(new_card)

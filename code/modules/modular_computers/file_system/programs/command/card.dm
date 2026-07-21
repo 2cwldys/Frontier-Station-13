@@ -298,6 +298,15 @@
 			// Biometric imprint
 			if(istype(user, /mob/living/carbon/human))
 				var/mob/living/carbon/human/H = user
+				// The console's faction (set by the faction tagger / beacon) IS
+				// this ID's employer, so make it the holder's employer too.
+				// set_id_info() below copies the human's employer_faction onto
+				// the card -- as do its ~15 other callers -- so syncing the mob
+				// here is what keeps card, mob and crew records agreeing,
+				// instead of the card being silently stamped back to the
+				// character's prefs faction on the next call.
+				if(repl_net)
+					H.employer_faction = repl_net
 				H.set_id_info(new_card)
 
 			// Get or create personal bank account
@@ -402,6 +411,10 @@
 			new_card.update_name()
 			if(istype(user, /mob/living/carbon/human))
 				var/mob/living/carbon/human/H = user
+				// See print_replacement above -- the console's faction is the
+				// employer, so sync the mob before set_id_info() copies it.
+				if(disp_net)
+					H.employer_faction = disp_net
 				H.set_id_info(new_card)
 			user.put_in_hands(new_card)
 			// Register member record in DB and save account number for payroll
@@ -556,6 +569,10 @@
 
 	if(istype(user, /mob/living/carbon/human))
 		var/mob/living/carbon/human/H = user
+		// See print_replacement above -- the console's faction is the employer,
+		// so sync the mob before set_id_info() copies it.
+		if(verb_repl_net)
+			H.employer_faction = verb_repl_net
 		H.set_id_info(new_card)
 
 	// Link existing bank account -- only mint a new one if the player has none anywhere

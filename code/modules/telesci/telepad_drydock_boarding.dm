@@ -433,7 +433,14 @@
 /// invited target actually being delivered). cooldown is a per-ckey
 /// world.time list owned by the caller, keyed to whichever mob is actually
 /// delivered.
-/proc/_drydock_board_deliver(mob/living/L, datum/drydock_ship/target, list/cooldown)
+///
+/// forced_destination (invite-to-board only, see
+/// _drydock_invite_board_core()): when set, skips the console lookup and the
+/// Land at Console/Choose Landing Spot prompt entirely and delivers straight
+/// there -- the inviter already made the placement decision by inviting L to
+/// wherever they themselves are standing. Null for self-board (default),
+/// which is completely unaffected.
+/proc/_drydock_board_deliver(mob/living/L, datum/drydock_ship/target, list/cooldown, turf/forced_destination)
 	if(!istype(L) || !istype(target))
 		return FALSE
 	if(L.buckled_to)
@@ -449,27 +456,33 @@
 		to_chat(L, SPAN_WARNING("Still recalibrating -- wait a moment."))
 		return FALSE
 
-	var/turf/destination = _drydock_console_turf(target.z)
-	if(!destination)
-		to_chat(L, SPAN_WARNING("Could not locate that ship's navigation console."))
-		log_drydock_error("_drydock_board_deliver: no shuttle_control console found on z=[target.z] for shuttle_id=[target.shuttle_id].")
-		return FALSE
-	if(destination.density)
-		to_chat(L, SPAN_WARNING("The boarding point is obstructed."))
-		return FALSE
+	var/use_picker = FALSE
+	var/turf/destination
 
-	// Additive choice -- "Land at Console" is today's exact instant-delivery
-	// path, byte-for-byte unchanged; "Choose Landing Spot" opens the turf-
-	// pick eye view (telepad_drydock_boarding.dm's picker block, above),
-	// anchored at the same console turf, instead of forcing it as the
-	// destination.
-	var/use_picker = (tgui_alert(L, "Board how?", "Enter Ship", list("Land at Console", "Choose Landing Spot")) == "Choose Landing Spot")
-	if(QDELETED(L) || L.stat == DEAD || L.buckled_to)
-		return FALSE
-	if(use_picker)
-		destination = _drydock_pick_destination_turf(L, target.z, destination)
+	if(forced_destination)
+		destination = forced_destination
+	else
+		destination = _drydock_console_turf(target.z)
 		if(!destination)
+			to_chat(L, SPAN_WARNING("Could not locate that ship's navigation console."))
+			log_drydock_error("_drydock_board_deliver: no shuttle_control console found on z=[target.z] for shuttle_id=[target.shuttle_id].")
 			return FALSE
+		if(destination.density)
+			to_chat(L, SPAN_WARNING("The boarding point is obstructed."))
+			return FALSE
+
+		// Additive choice -- "Land at Console" is today's exact instant-delivery
+		// path, byte-for-byte unchanged; "Choose Landing Spot" opens the turf-
+		// pick eye view (telepad_drydock_boarding.dm's picker block, above),
+		// anchored at the same console turf, instead of forcing it as the
+		// destination.
+		use_picker = (tgui_alert(L, "Board how?", "Enter Ship", list("Land at Console", "Choose Landing Spot")) == "Choose Landing Spot")
+		if(QDELETED(L) || L.stat == DEAD || L.buckled_to)
+			return FALSE
+		if(use_picker)
+			destination = _drydock_pick_destination_turf(L, target.z, destination)
+			if(!destination)
+				return FALSE
 
 	cooldown[L.ckey] = world.time
 	to_chat(L, SPAN_NOTICE("You begin boarding the ship..."))
@@ -498,17 +511,25 @@
 		to_chat(L, SPAN_WARNING("You're no longer close enough to board."))
 		return FALSE
 	// Picked-spot flow re-validates the SPECIFIC chosen turf (it may have
-	// become dense/inaccessible during the spool-up); the console flow
-	// re-fetches the console fresh, exactly as before.
-	var/turf/final_destination = use_picker ? destination : _drydock_console_turf(target.z)
+	// become dense/inaccessible during the spool-up); the forced-destination
+	// (invite) flow re-checks its own turf is still open the same way, but
+	// deliberately skips _drydock_pick_turf_valid()'s exterior-only access
+	// gate -- that exists to stop an outsider picking their way past a
+	// claimed Z's walls, and doesn't apply to a guest a rightful crew member
+	// just invited aboard their own ship; the console flow re-fetches the
+	// console fresh, exactly as before.
+	var/turf/final_destination
+	if(use_picker)
+		final_destination = destination
+	else if(forced_destination)
+		final_destination = forced_destination
+	else
+		final_destination = _drydock_console_turf(target.z)
 	if(!final_destination || final_destination.density || (use_picker && !_drydock_pick_turf_valid(final_destination, L, target.z)))
 		to_chat(L, SPAN_WARNING("The boarding point is no longer available."))
 		return FALSE
 
-	if(use_picker)
-		_drydock_deliver_with_portal(L, final_destination)
-	else
-		persistence_telepad_deliver(list(L), final_destination)
+	_drydock_deliver_with_portal(L, final_destination)
 	to_chat(L, SPAN_GOOD("You board the ship."))
 	log_drydock("_drydock_board_deliver: [key_name(L)] boarded shuttle_id=[target.shuttle_id].")
 	return TRUE
@@ -554,6 +575,34 @@
 	new /obj/effect/portal/decorative/fading(T, null, null, 5 SECONDS, 0)
 	spark(T, 3, GLOB.alldirs)
 	playsound(T, 'sound/effects/phasein.ogg', 30, 1)
+
+/// Finds a passable, unobstructed turf adjacent to center, falling back to
+/// center itself if it's non-dense, or null if nothing usable is found.
+/// Mirrors first_responder_clear_turf_near() (first_responder.dm) -- that one
+/// is scoped to a first_responder program instance and can't be called from
+/// here, so this is a standalone copy for delivering an invited boarder next
+/// to their inviter instead of always at the ship's console
+/// (_drydock_invite_board_core() below).
+/proc/_drydock_adjacent_open_turf(turf/center)
+	if(!center)
+		return null
+	var/list/candidates = list()
+	for(var/check_dir in GLOB.alldirs)
+		var/turf/T = get_step(center, check_dir)
+		if(!T || T.density)
+			continue
+		var/blocked = FALSE
+		for(var/obj/O in T)
+			if(O.density && O.anchored)
+				blocked = TRUE
+				break
+		if(!blocked)
+			candidates += T
+	if(length(candidates))
+		return pick(candidates)
+	if(!center.density)
+		return center
+	return null
 
 /// Lets an existing crew member invite a specific nearby player aboard,
 /// instead of that player self-boarding -- same underlying rights/proximity
@@ -637,7 +686,16 @@
 		return FALSE
 
 	to_chat(inviter, SPAN_NOTICE("[target] accepted -- boarding..."))
-	var/boarded = _drydock_board_deliver(target, target_ship, cooldown)
+	// Deliver next to the inviter if they're still aboard the ship's own Z
+	// right now -- that's the whole point of an invite, as opposed to self-
+	// boarding, which always lands at the console/picker spot. Falls back to
+	// the ordinary console/picker delivery (forced_destination left null) if
+	// the inviter isn't actually on the ship, died, or disconnected between
+	// the invite and the accept.
+	var/turf/forced_destination
+	if(!QDELETED(inviter) && inviter.stat != DEAD && GET_Z(inviter) == target_ship.z)
+		forced_destination = _drydock_adjacent_open_turf(get_turf(inviter))
+	var/boarded = _drydock_board_deliver(target, target_ship, cooldown, forced_destination)
 	to_chat(inviter, boarded ? SPAN_GOOD("[target] boarded the ship.") : SPAN_WARNING("[target]'s boarding attempt failed."))
 	return boarded
 
@@ -825,10 +883,12 @@
 			if(!destination || destination.density)
 				to_chat(L, SPAN_WARNING("The disembark point is obstructed."))
 				return FALSE
-			var/list/deliver_items = list(L)
-			if(L.pulling && !QDELETED(L.pulling))
-				deliver_items += L.pulling
-			persistence_telepad_deliver(deliver_items, destination)
+			// _drydock_deliver_with_portal() forceMoves L.pulling itself, so no
+			// need to build a deliver_items list -- also brings this branch up
+			// to the same spark+portal-at-both-ends VFX the picker branch below
+			// already has, instead of persistence_telepad_deliver()'s
+			// destination-only spark.
+			_drydock_deliver_with_portal(L, destination)
 			to_chat(L, SPAN_GOOD("You disembark the ship."))
 			log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id] at its docked beacon.")
 			return TRUE

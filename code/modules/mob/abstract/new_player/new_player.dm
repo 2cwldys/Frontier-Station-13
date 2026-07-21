@@ -845,11 +845,19 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		qdel(src)
 		return
 
+	// Offer an explicit choice among every cryopod currently valid for this
+	// character -- last-used -> personal -> crew -> faction -> public,
+	// mandatory and re-prompted until a valid pick is made or none remain.
+	// Falls back to the original silent auto-cascade below if there was
+	// nothing to offer.
+	var/spawner_faction = GLOB.config.sql_enabled ? persistence_get_player_faction(ckey_lower) : null
+	var/obj/structure/machinery/cryopod/spawn_pod = persistence_prompt_cryopod_choice(character, ckey_lower, character.real_name, spawner_faction)
+
 	// Wake inside the character's last-used cryopod when still valid, else
 	// faction pods -> public pods, any free working pod as last resort
-	var/obj/structure/machinery/cryopod/spawn_pod = persistence_find_saved_cryopod(ckey_lower, character.real_name)
 	if(!spawn_pod)
-		var/spawner_faction = GLOB.config.sql_enabled ? persistence_get_player_faction(ckey_lower) : null
+		spawn_pod = persistence_find_saved_cryopod(ckey_lower, character.real_name)
+	if(!spawn_pod)
 		spawn_pod = persistence_find_available_cryopod(spawner_faction, ckey_lower, character.real_name)
 	if(!spawn_pod)
 		for(var/obj/structure/machinery/cryopod/pod in world)

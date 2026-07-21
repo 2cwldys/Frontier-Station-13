@@ -572,6 +572,102 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 		return pick(public_pods)
 	return null
 
+/**
+ * Collect every cryopod currently valid for this player, tiered and labeled,
+ * for the spawn-choice picker below. Mirrors the exact per-pod validity
+ * checks used by persistence_find_saved_cryopod()/persistence_find_available_cryopod()
+ * (unpowered/broken, occupied, ignore-listed, personal/crew/network gates),
+ * but collects every match per tier instead of returning on first hit. A pod
+ * that would qualify under more than one tier (e.g. your personal pod is
+ * also your last-used one) is only listed once, under its highest-priority
+ * tier. Those two procs are untouched -- this is a separate, additive pass.
+ */
+/proc/persistence_collect_available_cryopods(ckey, char_name, faction_uid)
+	. = list()
+	if(!ckey || !char_name)
+		return
+	var/list/seen = list()
+
+	var/list/entry = GLOB.persistence_position_cache["[ckey]|[char_name]"]
+	if(islist(entry) && entry["last_pod_z"])
+		var/pz = entry["last_pod_z"]
+		if(pz >= 1 && pz <= world.maxz)
+			var/turf/T = locate(entry["last_pod_x"], entry["last_pod_y"], pz)
+			var/obj/structure/machinery/cryopod/pod = T ? (locate(/obj/structure/machinery/cryopod) in T) : null
+			if(pod && !is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore) && !pod.occupant && !(pod.stat & (NOPOWER|BROKEN)))
+				var/personal_ok = !pod.personal_ckey || (pod.personal_ckey == ckey && pod.personal_char_name == char_name)
+				var/crew_ok = !pod.crew_tagged || _drydock_crew_check_identity(ckey, char_name, pod.z)
+				var/network_ok = TRUE
+				if(pod.persistent_network && pod.persistent_network != "public")
+					network_ok = (normalize_faction_uid(faction_uid) == normalize_faction_uid(pod.persistent_network))
+				if(personal_ok && crew_ok && network_ok)
+					. += list(list("pod" = pod, "tier" = "Last Used"))
+					seen[pod] = TRUE
+
+	for(var/obj/structure/machinery/cryopod/pod in world)
+		if(seen[pod]) continue
+		if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore)) continue
+		if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
+		if(pod.personal_ckey == ckey && pod.personal_char_name == char_name)
+			. += list(list("pod" = pod, "tier" = "Personal"))
+			seen[pod] = TRUE
+
+	for(var/obj/structure/machinery/cryopod/pod in world)
+		if(seen[pod]) continue
+		if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore)) continue
+		if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
+		if(pod.crew_tagged && _drydock_crew_check_identity(ckey, char_name, pod.z))
+			. += list(list("pod" = pod, "tier" = "Crew"))
+			seen[pod] = TRUE
+
+	if(faction_uid)
+		for(var/obj/structure/machinery/cryopod/pod in world)
+			if(seen[pod]) continue
+			if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore)) continue
+			if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
+			if(pod.persistent_network == faction_uid)
+				. += list(list("pod" = pod, "tier" = "Faction"))
+				seen[pod] = TRUE
+
+	for(var/obj/structure/machinery/cryopod/pod in world)
+		if(seen[pod]) continue
+		if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore)) continue
+		if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
+		if(pod.persistent_network == "public" && pod.persistent_spawn)
+			. += list(list("pod" = pod, "tier" = "Public"))
+			seen[pod] = TRUE
+
+/**
+ * Mandatory spawn-pod picker shown once per fresh world entry (see
+ * PersistentAutoSpawn()'s fresh-spawn branch, new_player.dm). Lists every
+ * pod persistence_collect_available_cryopods() finds, tiered and labeled
+ * with its area and coordinates. Re-prompts with a freshly recollected list
+ * if the player cancels or their pick got raced away by another spawn in the
+ * meantime, until either a still-valid pod is chosen (returned) or a
+ * recollect comes back with nothing left to offer (returns null -- caller
+ * falls back to the existing automatic cascade).
+ */
+/proc/persistence_prompt_cryopod_choice(mob/user, ckey, char_name, faction_uid)
+	while(TRUE)
+		var/list/candidates = persistence_collect_available_cryopods(ckey, char_name, faction_uid)
+		if(!length(candidates))
+			return null
+
+		var/list/choices = list()
+		for(var/list/candidate in candidates)
+			var/obj/structure/machinery/cryopod/pod = candidate["pod"]
+			var/area/A = get_area(pod)
+			var/label = "[candidate["tier"]] -- [A ? A.name : "Unknown Area"] ([pod.x], [pod.y], [pod.z])"
+			choices[label] = pod
+
+		var/pick = tgui_input_list(user, "Choose a cryopod to wake in:", "Cryopod Selection", choices, timeout = 0)
+		if(QDELETED(user))
+			return null
+		var/obj/structure/machinery/cryopod/chosen = pick ? choices[pick] : null
+		if(!istype(chosen) || QDELETED(chosen) || chosen.occupant || (chosen.stat & (NOPOWER|BROKEN)))
+			continue
+		return chosen
+
 // ============================================================
 // GHOST VERB BLOCK  prevent ghosting while in/near cryopod
 // ============================================================

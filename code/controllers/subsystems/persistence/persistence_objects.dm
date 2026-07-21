@@ -333,3 +333,93 @@
 	if(!isnull(content["locked"]))
 		locked = content["locked"] ? TRUE : FALSE
 	update_icon()
+
+// ============================================================
+// COSMETIC COLOR -- these item types roll a random `color` in Initialize()
+// with no persistence hook, so a saved instance gets a fresh random reroll
+// every restore. Save/restore the roll the same way CABLE does above; their
+// own decorative overlays (where they have one) are added with RESET_COLOR
+// and don't depend on `color`, so restoring the var alone is sufficient --
+// no update_icon()/overlay rebuild needed.
+// ============================================================
+
+/obj/item/screwdriver/persistent_objects_get_content()
+	. = ..()
+	if(color)
+		.["color"] = color
+
+/obj/item/screwdriver/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(islist(content) && content["color"])
+		color = content["color"]
+
+/obj/item/wirecutters/persistent_objects_get_content()
+	. = ..()
+	if(color)
+		.["color"] = color
+
+/obj/item/wirecutters/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(islist(content) && content["color"])
+		color = content["color"]
+
+/obj/item/sleeping_bag/persistent_objects_get_content()
+	. = ..()
+	if(color)
+		.["color"] = color
+
+/obj/item/sleeping_bag/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(islist(content) && content["color"])
+		color = content["color"]
+
+/obj/item/clothing/mask/smokable/ecig/util/persistent_objects_get_content()
+	. = ..()
+	if(color)
+		.["color"] = color
+
+/obj/item/clothing/mask/smokable/ecig/util/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(islist(content) && content["color"])
+		color = content["color"]
+
+/obj/item/handcuffs/cable/persistent_objects_get_content()
+	. = ..()
+	if(color)
+		.["color"] = color
+
+/obj/item/handcuffs/cable/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(islist(content) && content["color"])
+		color = content["color"]
+
+/obj/item/toy/balloon/color/persistent_objects_get_content()
+	. = ..()
+	if(color)
+		.["color"] = color
+
+/obj/item/toy/balloon/color/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(islist(content) && content["color"])
+		color = content["color"]
+
+// ============================================================
+// MACHETE -- the random handle color tints a separate overlay image, not
+// the item's own `color` var, so it needs its own captured var and an
+// overlay rebuild on restore (ClearOverlays() first, since Initialize()
+// already added one with a different random pick before restore runs).
+// ============================================================
+
+/obj/item/material/hatchet/machete/persistent_objects_get_content()
+	. = ..()
+	if(handle_color)
+		.["handle_color"] = handle_color
+
+/obj/item/material/hatchet/machete/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(islist(content) && content["handle_color"])
+		handle_color = content["handle_color"]
+		ClearOverlays()
+		var/image/I = image(icon, icon_state = "machete_handle")
+		I.color = handle_color
+		AddOverlays(I)

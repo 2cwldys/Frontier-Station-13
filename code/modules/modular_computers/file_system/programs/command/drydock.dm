@@ -86,7 +86,11 @@
 					"custom_name" = q.item[7], "custom_class" = q.item[8],
 					"ready" = live ? live.ready : TRUE,
 					"display_name" = live ? live.display_name() : (q.item[7] || q.item[2]),
-					"sub_shuttle_tags" = (row_template && length(row_template.sub_shuttle_tags)) ? row_template.sub_shuttle_tags : list()
+					"sub_shuttle_tags" = (row_template && length(row_template.sub_shuttle_tags)) ? row_template.sub_shuttle_tags : list(),
+					// Listing category for the Ships/Shuttles split -- entirely
+					// separate from sub_shuttle_tags above (an EMBEDDED hangar
+					// sub-ship), which is a different mechanism this never touches.
+					"vessel_category" = (row_template ? row_template.vessel_category : "ship")
 				)
 				my_shuttle_ids += sid
 				if(row["owner_ckey"] == user.ckey && row["owner_char_name"] == user.real_name)
@@ -129,7 +133,7 @@
 		var/datum/map_template/drydock_ship/T = SSmapping.drydock_ship_templates[tid]
 		data["templates"] += list(list(
 			"template_id" = tid, "display_name" = T.name,
-			"price" = T.price
+			"price" = T.price, "vessel_category" = T.vessel_category
 		))
 
 	return data

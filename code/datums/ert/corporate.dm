@@ -8,7 +8,7 @@
 	name = "NanoTrasen ERT"
 	chance = 20
 	spawner = /datum/ghostspawner/human/ert/nanotrasen
-	possible_space_sector = list(SECTOR_ROMANOVICH, SECTOR_TAU_CETI)
+	possible_space_sector = list(SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER, SECTOR_TAU_CETI)
 
 /datum/responseteam/hephaestus
 	name = "Hephaestus ERT"
@@ -20,13 +20,13 @@
 	name = "Zavodskoi ERT"
 	chance = 20
 	spawner = /datum/ghostspawner/human/ert/zavodskoi
-	possible_space_sector = list(SECTOR_ROMANOVICH, SECTOR_TAU_CETI)
+	possible_space_sector = list(SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER, SECTOR_TAU_CETI)
 
 /datum/responseteam/zeng
 	name = "Zeng-Hu ERT"
 	chance = 20
 	spawner = /datum/ghostspawner/human/ert/zeng
-	possible_space_sector = list(SECTOR_ROMANOVICH, SECTOR_TAU_CETI)
+	possible_space_sector = list(SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER, SECTOR_TAU_CETI)
 
 /datum/responseteam/einstein
 	name = "Einstein ERT"

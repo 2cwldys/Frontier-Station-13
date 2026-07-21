@@ -3,14 +3,14 @@
 	chance = 15
 	spawner = /datum/ghostspawner/human/ert/mercenary
 	equipment_map = /datum/map_template/distress_freelancers
-	possible_space_sector = list(SECTOR_ROMANOVICH, SECTOR_TAU_CETI, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE)
+	possible_space_sector = list(SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER, SECTOR_TAU_CETI, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE)
 
 /datum/responseteam/kataphracts
 	name = "Kataphracts"
 	chance = 15
 	spawner = /datum/ghostspawner/human/ert/kataphract
 	equipment_map = /datum/map_template/distress_kataphract
-	possible_space_sector = list(SECTOR_ROMANOVICH, SECTOR_CORP_ZONE, SECTOR_BADLANDS, SECTOR_UUEOAESA)
+	possible_space_sector = list(SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER, SECTOR_CORP_ZONE, SECTOR_BADLANDS, SECTOR_UUEOAESA)
 
 /datum/responseteam/iac
 	name = "Interstellar Aid Corps"
@@ -23,13 +23,13 @@
 	chance = 15
 	spawner = /datum/ghostspawner/human/ert/ap_eridani
 	equipment_map = /datum/map_template/distress_iac
-	possible_space_sector = list(SECTOR_ROMANOVICH, SECTOR_TAU_CETI, SECTOR_CORP_ZONE)
+	possible_space_sector = list(SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER, SECTOR_TAU_CETI, SECTOR_CORP_ZONE)
 
 /datum/responseteam/fsf
 	name = "Free Solarian Fleets Fireteam"
 	chance = 15
 	spawner = /datum/ghostspawner/human/ert/fsf
-	possible_space_sector = list(SECTOR_ROMANOVICH, SECTOR_CORP_ZONE)
+	possible_space_sector = list(SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER, SECTOR_CORP_ZONE)
 
 /datum/responseteam/syndicate
 	name = "Syndicate Commandos"
@@ -83,7 +83,7 @@
 	name = "Zo'ra Hive Warriors"
 	chance = 10
 	spawner = /datum/ghostspawner/human/ert/zora
-	possible_space_sector = list(SECTOR_TAU_CETI, SECTOR_ROMANOVICH)
+	possible_space_sector = list(SECTOR_TAU_CETI, SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER)
 
 /datum/responseteam/klax
 	name = "K'lax Hive Warriors"

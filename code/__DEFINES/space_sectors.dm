@@ -2,9 +2,17 @@
 //Generic sectors are generic intermediate areas for when we can't attribute locale to anywhere in specific
 //Tau ceti sectors
 #define SECTOR_ROMANOVICH			"Romanovich Cloud"	//The fat cloud of rocks surrounding Tau Ceti and its gravity well
+/// A complete copy of the Romanovich Cloud (/datum/space_sector/romanovich/deep_frontier
+/// subtypes it, inheriting its meteors/exoplanets/starlight wholesale) under a
+/// frontier identity of its own. Romanovich Cloud itself is untouched and still
+/// selectable. Sector content is gated by NAME (`SSatlas.current_sector.name in
+/// <list>` -- ruins.dm, trade.dm, responseteam.dm), so this is listed alongside
+/// SECTOR_ROMANOVICH everywhere that gates on it, which is what makes the copy
+/// behave identically rather than spawning into an empty sector.
+#define SECTOR_DEEP_FRONTIER		"Deep Frontier"
 #define SECTOR_TAU_CETI				"Tau Ceti"			//Tau Ceti and its gravity well, Biesel and its subfactions are found here
 #define SECTOR_CORP_ZONE			"Corporate Reconstruction Zone"	//The entire corporate reconstruction zone borders
-#define ALL_TAU_CETI_SECTORS		list(SECTOR_ROMANOVICH, SECTOR_TAU_CETI, SECTOR_CORP_ZONE)
+#define ALL_TAU_CETI_SECTORS		list(SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER, SECTOR_TAU_CETI, SECTOR_CORP_ZONE)
 
 //Badlands sectors, at least six factions are here so its noteworthy
 #define SECTOR_VALLEY_HALE			"Valley Hale"	//Generic sector but is also used for the entire Elyran territory

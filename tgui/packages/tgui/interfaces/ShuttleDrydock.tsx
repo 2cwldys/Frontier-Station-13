@@ -17,6 +17,7 @@ type ShuttleRow = {
   ready: BooleanLike;
   display_name: string;
   sub_shuttle_tags: string[];
+  vessel_category: string;
 };
 
 type CrewEntry = { ckey: string; char_name: string; label: string | null };
@@ -25,6 +26,7 @@ type Template = {
   template_id: string;
   display_name: string;
   price: number;
+  vessel_category: string;
 };
 
 type DrydockData = {
@@ -117,6 +119,65 @@ export const ShuttleDrydock = (props) => {
     );
   };
 
+  // Ships and Shuttles are the same underlying vessel, just categorized so
+  // players who can't afford a full hull have an affordable tier. The split
+  // here is purely presentational -- ownership, retrieve/stash, and crew all
+  // work identically for both.
+  const isShuttle = (cat: string) => cat === 'shuttle';
+
+  const renderOwnedSection = (title: string, rows: ShuttleRow[]) => {
+    const shipRows = rows.filter((r) => !isShuttle(r.vessel_category));
+    const shuttleRows = rows.filter((r) => isShuttle(r.vessel_category));
+    return (
+      <Section title={title}>
+        <Box bold color="label">
+          Ships
+        </Box>
+        <LabeledList>
+          {shipRows.length ? (
+            shipRows.map(renderRow)
+          ) : (
+            <LabeledList.Item label="">None.</LabeledList.Item>
+          )}
+        </LabeledList>
+        <Box bold color="label" mt={1}>
+          Shuttles
+        </Box>
+        <LabeledList>
+          {shuttleRows.length ? (
+            shuttleRows.map(renderRow)
+          ) : (
+            <LabeledList.Item label="">None.</LabeledList.Item>
+          )}
+        </LabeledList>
+      </Section>
+    );
+  };
+
+  const renderTemplate = (t: Template) => (
+    <LabeledList.Item key={t.template_id} label={t.display_name}>
+      {t.price} cr
+      <Button
+        ml={1}
+        onClick={() =>
+          act('buy_template', {
+            template_id: t.template_id,
+            as_faction: buyAsFaction,
+          })
+        }
+      >
+        Buy
+      </Button>
+    </LabeledList.Item>
+  );
+
+  const shipTemplates = data.templates.filter(
+    (t) => !isShuttle(t.vessel_category),
+  );
+  const shuttleTemplates = data.templates.filter((t) =>
+    isShuttle(t.vessel_category),
+  );
+
   return (
     <NtosWindow width={480} height={420}>
       <NtosWindow.Content scrollable>
@@ -166,18 +227,13 @@ export const ShuttleDrydock = (props) => {
                   : 'No faction beacon in range -- faction ships cannot retrieve here.'}
               </Box>
             </Section>
-            <Section title="Personal">
-              <LabeledList>{data.personal_shuttles.map(renderRow)}</LabeledList>
-            </Section>
-            <Section
-              title={
-                data.own_faction_name
-                  ? `Faction: ${data.own_faction_name}`
-                  : 'Faction'
-              }
-            >
-              <LabeledList>{data.faction_shuttles.map(renderRow)}</LabeledList>
-            </Section>
+            {renderOwnedSection('Personal', data.personal_shuttles)}
+            {renderOwnedSection(
+              data.own_faction_name
+                ? `Faction: ${data.own_faction_name}`
+                : 'Faction',
+              data.faction_shuttles,
+            )}
           </>
         )}
         {tab === 'Market' && (
@@ -205,23 +261,25 @@ export const ShuttleDrydock = (props) => {
                 Buy as faction ship
               </Button>
             )}
+            <Box bold color="label" mt={1}>
+              Ships
+            </Box>
             <LabeledList>
-              {data.templates.map((t) => (
-                <LabeledList.Item key={t.template_id} label={t.display_name}>
-                  {t.price} cr
-                  <Button
-                    ml={1}
-                    onClick={() =>
-                      act('buy_template', {
-                        template_id: t.template_id,
-                        as_faction: buyAsFaction,
-                      })
-                    }
-                  >
-                    Buy
-                  </Button>
-                </LabeledList.Item>
-              ))}
+              {shipTemplates.length ? (
+                shipTemplates.map(renderTemplate)
+              ) : (
+                <LabeledList.Item label="">None available.</LabeledList.Item>
+              )}
+            </LabeledList>
+            <Box bold color="label" mt={1}>
+              Shuttles
+            </Box>
+            <LabeledList>
+              {shuttleTemplates.length ? (
+                shuttleTemplates.map(renderTemplate)
+              ) : (
+                <LabeledList.Item label="">None available.</LabeledList.Item>
+              )}
             </LabeledList>
           </Section>
         )}

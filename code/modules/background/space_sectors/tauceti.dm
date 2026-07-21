@@ -125,6 +125,27 @@
 		/obj/effect/meteor/supermatter=1\
 		)
 
+/**
+ * A complete copy of the Romanovich Cloud above under its own frontier
+ * identity -- subtyping it inherits every gameplay property wholesale
+ * (starlight and all eight meteor tables), so the two behave nearly
+ * identically; only the name, description, and exoplanet pool differ. The
+ * Romanovich Cloud itself is left fully intact and still selectable.
+ *
+ * Sector content is gated by NAME, not by type (`SSatlas.current_sector.name
+ * in <list>` -- see ruins.dm, trade.dm, responseteam.dm), so SECTOR_DEEP_FRONTIER
+ * is listed alongside SECTOR_ROMANOVICH in every away site / ruin / trading /
+ * ERT gate. Without that this sector would load completely barren.
+ */
+/datum/space_sector/romanovich/deep_frontier
+	name = SECTOR_DEEP_FRONTIER
+	description = "The Deep Frontier is a vast shell of icy, rocky and metallic bodies scattered far beyond the reach of the core worlds. Rich in deposits of precious and \
+	semi-precious metals as well as radioactive elements, it supplies nearly all the raw material that keeps the outer holdings running. It is also one of the few sources of \
+	Phoron, a volatile but highly sought-after compound prized in the biomedical and energy industries. Authority out here is thin and contested -- independent operators, \
+	corporate prospectors and private ventures all press their own claims across the Frontier, far from anyone able to enforce a better one."
+	/// No exoplanets in the Deep Frontier -- unlike Romanovich Cloud, which it otherwise copies.
+	possible_exoplanets = list()
+
 /datum/space_sector/corp_zone
 	name = SECTOR_CORP_ZONE
 	description = "Formerly Solarian space, the Corporate Reconstruction Zone is the name for all systems occupied by the Republic of Biesel that are not within Tau Ceti's gravity well. \

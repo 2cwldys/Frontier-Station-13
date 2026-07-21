@@ -5,7 +5,7 @@
 	prefix = "away_site/first_aurora/"
 	suffix = "first_aurora.dmm"
 
-	sectors = list(SECTOR_ROMANOVICH)
+	sectors = list(SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER)
 	spawn_weight = 1
 	spawn_cost = 2
 	id = "first_aurora"

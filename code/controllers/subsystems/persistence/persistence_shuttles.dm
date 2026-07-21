@@ -949,21 +949,36 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	_drydockProcessNextQueued()
 	return .
 
-/// Returns the OTHER currently-deployed drydock ship personally owned by
-/// the same (ckey, char_name) pair as candidate, or null if there isn't
-/// one (or candidate isn't personally owned at all -- faction ships are
-/// exempt from this check). Excludes candidate itself. Enforces "one
-/// deployed personal ship at a time" in _drydockRetrieveRun() below --
-/// without this, a player owning more than one ship could deploy all of
-/// them simultaneously, which is also what let First Responder's tap-to-
-/// repossess lookup (_find_owned_deployed_ship(), first_responder.dm)
-/// silently pick an ambiguous match.
+/// A drydock ship's listing category ("ship"/"shuttle"), read from its
+/// template. Defaults to "ship" when the template can't be resolved, so a
+/// missing/renamed template never silently reclassifies an owned vessel.
+/// Shared by the deployed-limit rule below and the Drydock program's
+/// ui_data() (drydock.dm) so both agree on the same categorization.
+/proc/_drydock_vessel_category(datum/drydock_ship/DS)
+	if(!istype(DS))
+		return "ship"
+	var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
+	return template ? template.vessel_category : "ship"
+
+/// Returns the OTHER currently-deployed drydock ship OF THE SAME CATEGORY
+/// personally owned by the same (ckey, char_name) pair as candidate, or null
+/// if there isn't one (or candidate isn't personally owned at all -- faction
+/// ships are exempt from this check). Excludes candidate itself. Enforces
+/// "one deployed personal ship AND one deployed personal shuttle at a time"
+/// in _drydockRetrieveRun() below (category-aware since shuttles became
+/// separately ownable) -- without this, a player owning more than one vessel
+/// of a category could deploy all of them simultaneously. Note: First
+/// Responder's tap-to-repossess lookup (_find_owned_deployed_ship(),
+/// first_responder.dm) is category-agnostic and returns the FIRST deployed
+/// vessel it finds -- with a ship + shuttle both deployed it seizes one per
+/// tap, which is acceptable for a seizure tool.
 /datum/controller/subsystem/persistence/proc/_drydock_owner_other_deployed_ship(datum/drydock_ship/candidate)
 	if(!candidate.owner_ckey)
 		return null
+	var/candidate_category = _drydock_vessel_category(candidate)
 	for(var/sid in GLOB.drydock_ships)
 		var/datum/drydock_ship/other = GLOB.drydock_ships[sid]
-		if(other && other != candidate && !other.stashed && other.owner_ckey == candidate.owner_ckey && other.owner_char_name == candidate.owner_char_name)
+		if(other && other != candidate && !other.stashed && other.owner_ckey == candidate.owner_ckey && other.owner_char_name == candidate.owner_char_name && _drydock_vessel_category(other) == candidate_category)
 			return other
 	return null
 

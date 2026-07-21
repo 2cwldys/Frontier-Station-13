@@ -5,7 +5,7 @@
 	prefix = "away_site/sol_bunker/"
 	suffix = "bunker.dmm"
 
-	sectors = list(SECTOR_ROMANOVICH, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE, SECTOR_WEEPING_STARS)
+	sectors = list(SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE, SECTOR_WEEPING_STARS)
 	spawn_weight = 1
 	spawn_cost = 1
 	id = "abandoned_bunker"

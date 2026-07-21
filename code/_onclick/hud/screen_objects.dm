@@ -805,9 +805,37 @@
 
 /// Hand slots are special to handle the handcuffs overlay
 /atom/movable/screen/inventory/hand
+	// A HUD screen object sits on no turf, so base_mouse_drop_handler()'s
+	// Adjacent() gate (drag_drop.dm) would silently discard every drop onto a
+	// hand slot without this. mouse_drop_receive() below re-establishes the
+	// safety this waives, by requiring the dragged item to already be held in
+	// one of the dragging player's OWN hands.
+	interaction_flags_atom = INTERACT_ATOM_MOUSEDROP_IGNORE_ADJACENT
 	var/image/handcuff_overlay
 	var/image/disabled_hand_overlay
 	var/image/removed_hand_overlay
+
+/// Drag a held gun onto the opposite hand slot to move it into that hand.
+/// Refuses if the destination hand is already occupied. Scoped to guns as
+/// requested -- energy weapons are /obj/item/gun/energy, so they're covered;
+/// dropping the istype() check below would allow any held item.
+/atom/movable/screen/inventory/hand/mouse_drop_receive(atom/dropped, mob/user, params)
+	var/obj/item/I = dropped
+	if(!istype(I))
+		return
+	var/mob/living/carbon/human/H = user
+	if(!istype(H))
+		return
+	// Only ever act on the dragging player's own HUD.
+	if(!hud || hud.mymob != H)
+		return
+	// Security-critical: the adjacency check is bypassed above, so without
+	// this an item anywhere in the world could be dragged straight into a hand.
+	if(I != H.l_hand && I != H.r_hand)
+		return
+	if(!istype(I, /obj/item/gun))
+		return
+	H.move_held_item_to_hand(I, slot_id)
 
 /atom/movable/screen/inventory/hand/update_icon()
 	..()

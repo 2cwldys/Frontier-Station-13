@@ -56,6 +56,10 @@
 	data["queue_size"] = queue_size
 	data["speed"] = speed
 	data["active_download"] = active_download
+	// process_tick() derives download speed purely from ntnet_status -- at 0
+	// the queue sits at 0% indefinitely with no other outward sign, which
+	// reads as a broken device rather than "the network is down". Surface it.
+	data["no_signal"] = !ntnet_status
 	data["queue"] = list()
 	for(var/name in download_queue)
 		var/datum/computer_file/program/PRG = download_files[name]

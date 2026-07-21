@@ -50,26 +50,37 @@
 /obj/structure/machinery/telecomms/allinone/ship
 	away_aio = TRUE
 
-/obj/structure/machinery/telecomms/allinone/ship/LateInitialize()
+// Name/frequency setup lives here rather than LateInitialize() because during
+// a fresh drydock deploy the shuttle datum doesn't exist yet when this
+// machine's own LateInitialize() runs, so attempt_hook_up() fails there and
+// linked stays null; SSshuttle's populate_sector_objects() then links it
+// correctly moments later via a DIRECT attempt_hook_up() call that bypasses
+// LateInitialize() entirely. Hooking this into attempt_hook_up() itself means
+// it fires exactly once, whichever call site is the one that actually
+// succeeds -- so the machine never ends up linked-but-listening-on-the-wrong-
+// frequency (looks online, never actually relays).
+/obj/structure/machinery/telecomms/allinone/ship/attempt_hook_up(obj/effect/overmap/visitable/sector)
 	. = ..()
-	if(!linked)
+	if(!. || !away_aio)
 		return
-
-	if(away_aio)
-		if(linked.comms_name)
-			name = "[lowertext(linked.comms_name)] [initial(name)]"
-		freq_listening = list(
-			HAIL_FREQ,
-			assign_away_freq(linked.name)
-		)
+	if(linked.comms_name)
+		name = "[lowertext(linked.comms_name)] [initial(name)]"
+	freq_listening = list(
+		HAIL_FREQ,
+		assign_away_freq(linked.name)
+	)
 
 /obj/structure/machinery/telecomms/allinone/ship/coalition_navy
 	name = "coalition navy telecommunications mainframe"
 	desc = "A compact machine used for portable subspace telecommuniations processing. This one also has encryption codes for Coalition navy vessels."
 
-/obj/structure/machinery/telecomms/allinone/ship/coalition_navy/LateInitialize()
+// Same reasoning as the base /ship override above -- must react to
+// attempt_hook_up() succeeding, not just LateInitialize(), or COAL_FREQ never
+// gets added when the hookup only succeeds via the later drydock-deploy path.
+/obj/structure/machinery/telecomms/allinone/ship/coalition_navy/attempt_hook_up(obj/effect/overmap/visitable/sector)
 	. = ..()
-	freq_listening += COAL_FREQ
+	if(.)
+		freq_listening += COAL_FREQ
 
 //This goes on the station map so away ships can maintain radio contact.
 /obj/structure/machinery/telecomms/allinone/ship/station_relay

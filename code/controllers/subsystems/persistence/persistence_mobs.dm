@@ -1224,6 +1224,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	if(!isnull(data["rfd_matter"]) && istype(I, /obj/item/rfd))
 		var/obj/item/rfd/R = I
 		R.stored_matter = clamp(text2num("[data["rfd_matter"]]"), 0, initial(R.stored_matter))
+		R.update_icon()
 
 	// Reagents
 	if(data["reagents"] && I.reagents)
