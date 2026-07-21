@@ -646,6 +646,22 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		if(saved_char_state == "dead_body")
 			restoring_dead_body = TRUE
 
+	// Resolve the cryopod choice NOW, while src (the lobby mob) still owns the
+	// client -- create_character() below is what transfers key/client onto the
+	// new mob and places it at GLOB.newplayer_start, so waiting until after
+	// that to show the picker means the player is already a live, clickable,
+	// movable body in the world for however long they take to answer.
+	// random_players mode randomizes real_name inside create_character()
+	// itself, so identity isn't knowable yet in that one case -- falls through
+	// to the post-creation call further down instead.
+	var/obj/structure/machinery/cryopod/pre_chosen_spawn_pod
+	if(!restoring_dead_body && !SSticker.random_players)
+		var/pending_char_name = selected_char || client.prefs.real_name
+		var/pending_faction = GLOB.config.sql_enabled ? persistence_get_player_faction(ckey_lower) : null
+		pre_chosen_spawn_pod = persistence_prompt_cryopod_choice(src, ckey_lower, pending_char_name, pending_faction)
+		if(QDELETED(src))
+			return
+
 	// ── Load this character's full SQL data into prefs before spawning ──────
 	// create_character() uses client.prefs to build appearance/species/DNA.
 	// Loading by character ID ensures the correct character's data is used,
@@ -845,13 +861,14 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		qdel(src)
 		return
 
-	// Offer an explicit choice among every cryopod currently valid for this
-	// character -- last-used -> personal -> crew -> faction -> public,
-	// mandatory and re-prompted until a valid pick is made or none remain.
-	// Falls back to the original silent auto-cascade below if there was
-	// nothing to offer.
+	// Cryopod choice was already resolved above, before this mob existed, so
+	// the player was never placed in the world with a decision still
+	// pending. random_players is the one mode where identity wasn't knowable
+	// yet at that point -- resolve it here instead, same as before this fix.
 	var/spawner_faction = GLOB.config.sql_enabled ? persistence_get_player_faction(ckey_lower) : null
-	var/obj/structure/machinery/cryopod/spawn_pod = persistence_prompt_cryopod_choice(character, ckey_lower, character.real_name, spawner_faction)
+	var/obj/structure/machinery/cryopod/spawn_pod = pre_chosen_spawn_pod
+	if(!spawn_pod && SSticker.random_players)
+		spawn_pod = persistence_prompt_cryopod_choice(character, ckey_lower, character.real_name, spawner_faction)
 
 	// Wake inside the character's last-used cryopod when still valid, else
 	// faction pods -> public pods, any free working pod as last resort
