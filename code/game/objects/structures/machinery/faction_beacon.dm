@@ -508,7 +508,12 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	var/obj/effect/overmap/visitable/my_sector = GLOB.map_sectors["[GET_Z(src)]"]
 	if(!istype(my_sector))
 		return
-	for(var/turf/T in overmap_event_handler.hazard_by_turf)
+	// .Copy() -- qdel(E) below cascades into update_hazards(T) (event.dm),
+	// which removes T from hazard_by_turf once its last hazard is gone.
+	// Iterating the live list let that removal shift the next turf into the
+	// just-vacated slot, causing this loop to skip it and leave a hazard
+	// un-evicted inside an otherwise-secured radius.
+	for(var/turf/T in overmap_event_handler.hazard_by_turf.Copy())
 		if(get_dist(T, my_sector) > security_radius)
 			continue
 		for(var/obj/effect/overmap/event/E in overmap_event_handler.hazard_by_turf[T])
