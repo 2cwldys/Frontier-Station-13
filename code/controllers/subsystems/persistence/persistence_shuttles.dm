@@ -58,10 +58,31 @@ GLOBAL_VAR_INIT(drydock_max_deployed_ships, 0)
 /// of each other.
 GLOBAL_VAR_INIT(drydock_op_active, FALSE)
 
+/// shuttle_id of whichever ship drydock_op_active is currently running for
+/// (null while inactive). Lets _drydock_ship_busy() below tell the Drydock
+/// program's ui_data() which specific row to grey Remove/Scuttle out for,
+/// instead of disabling every ship's buttons just because some other ship
+/// is mid-retrieve/stash somewhere else.
+GLOBAL_VAR_INIT(drydock_op_active_shuttle_id, null)
+
 /// Pending retrieve/stash requests that arrived while drydock_op_active was
 /// TRUE, each an assoc list of the args needed to re-invoke the matching
 /// public proc. Drained one at a time by _drydockProcessNextQueued().
 GLOBAL_LIST_EMPTY(drydock_op_queue)
+
+/// TRUE if shuttle_id is the ship drydock_op_active is currently running
+/// for, or has a retrieve/stash queued behind it -- either way, its state is
+/// about to change out from under a sell/scuttle, so both must refuse until
+/// it settles. Checked both server-side (ui_act() "sell"/"scuttle") and
+/// surfaced to the Drydock program's ui_data() so the TGUI can grey the
+/// buttons out instead of just erroring after the fact.
+/proc/_drydock_ship_busy(shuttle_id)
+	if(GLOB.drydock_op_active && GLOB.drydock_op_active_shuttle_id == shuttle_id)
+		return TRUE
+	for(var/list/req in GLOB.drydock_op_queue)
+		if(req["shuttle_id"] == shuttle_id)
+			return TRUE
+	return FALSE
 
 /datum/drydock_ship
 	var/shuttle_id
@@ -348,7 +369,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	if(SSpersistence.databaseCheckQueryResult(cq, "drydockShipLedgerRestore crew"))
 		while(cq.NextRow())
 			var/datum/drydock_ship/DS = GLOB.drydock_ships[cq.item[1]]
-			if(DS)
+			if(istype(DS))
 				DS.crew_ckeys |= "[cq.item[2]]|[cq.item[3]]"
 				crew_loaded++
 	qdel(cq)
@@ -682,6 +703,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	var/list/turf_rows = list()
 	for(var/area/A in sub.shuttle_area)
 		for(var/turf/T in get_area_turfs(A))
+			CHECK_TICK
 			var/list/items = list()
 			for(var/obj/item/I in T)
 				var/list/item_data = serializePersistentItem(I)
@@ -944,41 +966,31 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		log_drydock("drydockRetrieve: [user ? key_name(user) : "SYSTEM"] queued retrieve of shuttle_id=[shuttle_id] (position [length(GLOB.drydock_op_queue)], [save_in_progress ? "world save" : "drydock op"] active).")
 		return FALSE
 	GLOB.drydock_op_active = TRUE
-	. = _drydockRetrieveRun(shuttle_id, anchor, from_turf, user)
+	GLOB.drydock_op_active_shuttle_id = shuttle_id
+	try
+		. = _drydockRetrieveRun(shuttle_id, anchor, from_turf, user)
+	catch(var/exception/e)
+		log_drydock_error("drydockRetrieve: uncaught exception retrieving shuttle_id=[shuttle_id] (acting=[user ? key_name(user) : "SYSTEM"]): [e]")
+		if(user)
+			to_chat(user, SPAN_WARNING("Something went wrong retrieving that ship -- an admin has been notified."))
+		message_admins("drydockRetrieve: uncaught exception retrieving shuttle_id=[shuttle_id]: [e]")
 	GLOB.drydock_op_active = FALSE
+	GLOB.drydock_op_active_shuttle_id = null
 	_drydockProcessNextQueued()
 	return .
 
-/// A drydock ship's listing category ("ship"/"shuttle"), read from its
-/// template. Defaults to "ship" when the template can't be resolved, so a
-/// missing/renamed template never silently reclassifies an owned vessel.
-/// Shared by the deployed-limit rule below and the Drydock program's
-/// ui_data() (drydock.dm) so both agree on the same categorization.
-/proc/_drydock_vessel_category(datum/drydock_ship/DS)
-	if(!istype(DS))
-		return "ship"
-	var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
-	return template ? template.vessel_category : "ship"
-
-/// Returns the OTHER currently-deployed drydock ship OF THE SAME CATEGORY
-/// personally owned by the same (ckey, char_name) pair as candidate, or null
-/// if there isn't one (or candidate isn't personally owned at all -- faction
-/// ships are exempt from this check). Excludes candidate itself. Enforces
-/// "one deployed personal ship AND one deployed personal shuttle at a time"
-/// in _drydockRetrieveRun() below (category-aware since shuttles became
-/// separately ownable) -- without this, a player owning more than one vessel
-/// of a category could deploy all of them simultaneously. Note: First
-/// Responder's tap-to-repossess lookup (_find_owned_deployed_ship(),
-/// first_responder.dm) is category-agnostic and returns the FIRST deployed
-/// vessel it finds -- with a ship + shuttle both deployed it seizes one per
-/// tap, which is acceptable for a seizure tool.
+/// Returns the OTHER currently-deployed drydock ship personally owned by the
+/// same (ckey, char_name) pair as candidate, or null if there isn't one (or
+/// candidate isn't personally owned at all -- faction ships are exempt from
+/// this check). Excludes candidate itself. Enforces "one deployed personal
+/// vessel at a time" in _drydockRetrieveRun() below -- without this, a player
+/// owning more than one vessel could deploy all of them simultaneously.
 /datum/controller/subsystem/persistence/proc/_drydock_owner_other_deployed_ship(datum/drydock_ship/candidate)
 	if(!candidate.owner_ckey)
 		return null
-	var/candidate_category = _drydock_vessel_category(candidate)
 	for(var/sid in GLOB.drydock_ships)
 		var/datum/drydock_ship/other = GLOB.drydock_ships[sid]
-		if(other && other != candidate && !other.stashed && other.owner_ckey == candidate.owner_ckey && other.owner_char_name == candidate.owner_char_name && _drydock_vessel_category(other) == candidate_category)
+		if(other && other != candidate && !other.stashed && other.owner_ckey == candidate.owner_ckey && other.owner_char_name == candidate.owner_char_name)
 			return other
 	return null
 
@@ -1405,10 +1417,55 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		log_drydock("drydockStash: [user ? key_name(user) : "SYSTEM"] queued stash of shuttle_id=[shuttle_id] (position [length(GLOB.drydock_op_queue)], [save_in_progress ? "world save" : "drydock op"] active).")
 		return FALSE
 	GLOB.drydock_op_active = TRUE
-	. = _drydockStashRun(shuttle_id, user, force)
+	GLOB.drydock_op_active_shuttle_id = shuttle_id
+	try
+		. = _drydockStashRun(shuttle_id, user, force)
+	catch(var/exception/e)
+		log_drydock_error("drydockStash: uncaught exception stashing shuttle_id=[shuttle_id] (acting=[user ? key_name(user) : "SYSTEM"]): [e]")
+		if(user)
+			to_chat(user, SPAN_WARNING("Something went wrong stashing that ship -- an admin has been notified."))
+		message_admins("drydockStash: uncaught exception stashing shuttle_id=[shuttle_id]: [e]")
 	GLOB.drydock_op_active = FALSE
+	GLOB.drydock_op_active_shuttle_id = null
 	_drydockProcessNextQueued()
 	return .
+
+/// TRUE if a living mob (stat != DEAD, client or lingering ckey) or an
+/// occupied neural lace is anywhere aboard this ship -- the parent hull's Z
+/// (which, after the sub-ship recall in _drydockStashRun() above it runs,
+/// includes any sub-ship docked home), plus a direct sweep of each sub-ship's
+/// shuttle_area turfs as a backstop (checked by area membership, not
+/// z-coordinate, so it's still found even if recall somehow left it
+/// elsewhere). Narrower than zlevel_has_players() (persistence_zlevel_reset.dm)
+/// on purpose -- that one also blocks on a dead body with a lingering ckey or
+/// any neural lace regardless of occupancy, which don't matter here.
+/proc/_drydock_ship_has_living_occupants(datum/drydock_ship/DS)
+	if(DS.z)
+		for(var/mob/M in GLOB.mob_list)
+			CHECK_TICK
+			if(M.z == DS.z && M.stat != DEAD && (M.client || M.ckey))
+				return TRUE
+		for(var/obj/item/organ/internal/neural_lace/L in world)
+			CHECK_TICK
+			if(L.lace_occupied)
+				var/turf/T = get_turf(L)
+				if(T && T.z == DS.z)
+					return TRUE
+	var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
+	if(template && length(template.sub_shuttle_tags))
+		for(var/sub_tag in template.sub_shuttle_tags)
+			var/datum/shuttle/autodock/sub = SSshuttle.shuttles[sub_tag]
+			if(!istype(sub))
+				continue
+			for(var/area/A in sub.shuttle_area)
+				for(var/turf/T in get_area_turfs(A))
+					for(var/mob/M in T)
+						if(M.stat != DEAD && (M.client || M.ckey))
+							return TRUE
+					for(var/obj/item/organ/internal/neural_lace/L in T)
+						if(L.lace_occupied)
+							return TRUE
+	return FALSE
 
 /datum/controller/subsystem/persistence/proc/_drydockStashRun(shuttle_id, mob/user, force = FALSE)
 	var/acting = user ? key_name(user) : "SYSTEM[force ? "(force)" : ""]"
@@ -1445,27 +1502,51 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 				to_chat(user, SPAN_WARNING("You (or your ship) were recently in combat -- wait before stashing."))
 			log_drydock_warning("drydockStash: refused -- combat lockout active for shuttle_id=[shuttle_id] (acting=[acting]).")
 			return FALSE
-	if(zlevel_has_players(DS.z))
-		if(user)
-			to_chat(user, SPAN_WARNING("Make sure everyone is off the ship first."))
-		log_drydock_warning("drydockStash: refused -- players still present on z=[DS.z] for shuttle_id=[shuttle_id] (acting=[acting]).")
-		return FALSE
-
 	// A hangar sub-ship (drydock_ship.dm's sub_shuttle_tags) always travels
-	// with its parent -- no independent stash/retrieve of its own -- so it
-	// must be docked home before the parent can be torn down, or its
-	// undocked position (and whatever's aboard it) would just vanish along
-	// with the rest of the interior.
-	if(!force)
-		var/datum/map_template/drydock_ship/guard_template = SSmapping.drydock_ship_templates[DS.template_id]
-		if(guard_template && length(guard_template.sub_shuttle_tags))
-			for(var/sub_tag in guard_template.sub_shuttle_tags)
-				var/datum/shuttle/autodock/sub = SSshuttle.shuttles[sub_tag]
-				if(istype(sub) && (!istype(sub.current_location) || sub.current_location.landmark_tag != sub.logging_home_tag))
-					if(user)
-						to_chat(user, SPAN_WARNING("Make sure '[sub_tag]' is docked at home before stashing."))
-					log_drydock_warning("drydockStash: refused -- sub-ship '[sub_tag]' not docked at home for shuttle_id=[shuttle_id] (acting=[acting]).")
-					return FALSE
+	// with its parent -- no independent stash/retrieve of its own -- so it's
+	// recalled home unconditionally (not just for a forced stash) rather
+	// than refusing and telling the player to fly it there themselves. It
+	// may be docked elsewhere, mid-long_jump (see the moving_status ==
+	// SHUTTLE_IDLE checkpoint added to long_jump(), shuttle.dm), or actively
+	// piloted on the overmap (attempt_move()'s GLOB.shuttle_moved_event ->
+	// on_shuttle_jump() -> on_landing() correctly lands and halts it either
+	// way) -- all three are handled by the same attempt_move() call below.
+	// Must run BEFORE the occupancy check just below: once recalled, the
+	// sub-ship's turfs sit at its home landmark, which is part of the
+	// parent's own Z, so that check then naturally covers both vessels.
+	var/datum/map_template/drydock_ship/sub_template = SSmapping.drydock_ship_templates[DS.template_id]
+	if(sub_template && length(sub_template.sub_shuttle_tags))
+		for(var/sub_tag in sub_template.sub_shuttle_tags)
+			var/datum/shuttle/autodock/sub = SSshuttle.shuttles[sub_tag]
+			if(!istype(sub) || !istype(sub.current_location))
+				continue
+			if(sub.current_location.landmark_tag == sub.logging_home_tag)
+				continue // already home
+			var/obj/effect/shuttle_landmark/home = SSshuttle.get_landmark(sub.logging_home_tag)
+			if(!home)
+				log_drydock_error("drydockStash: force-recall failed -- no home landmark '[sub.logging_home_tag]' for sub-ship '[sub_tag]', shuttle_id=[shuttle_id].")
+				return FALSE
+			// Cancel any pending long_jump cleanly first -- the long_jump()
+			// checkpoint is what catches this if it's currently asleep
+			// mid-loop. Harmless no-op if it's just docked elsewhere/idle,
+			// or actively flying (flight never touches these vars).
+			sub.moving_status = SHUTTLE_IDLE
+			sub.next_location = null
+			sub.in_use = null
+			sub.set_process_state(IDLE_STATE)
+			if(sub.attempt_move(home))
+				sub.next_location = home
+				sub.process_arrived()
+				log_drydock("drydockStash: force-recalled sub-ship '[sub_tag]' home for shuttle_id=[shuttle_id] (acting=[acting]).")
+			else
+				log_drydock_error("drydockStash: force-recall of sub-ship '[sub_tag]' failed (attempt_move refused -- possibly grappled/blocked), shuttle_id=[shuttle_id]. Admin attention needed.")
+				return FALSE // don't let the parent stash proceed and orphan it
+
+	if(_drydock_ship_has_living_occupants(DS))
+		if(user)
+			to_chat(user, SPAN_WARNING("Everyone must be off the ship (and no one still in a neural lace) before it can be stashed."))
+		log_drydock_warning("drydockStash: refused -- living occupant or occupied neural lace present for shuttle_id=[shuttle_id] (acting=[acting]).")
+		return FALSE
 
 	if(user)
 		to_chat(user, SPAN_NOTICE("Stashing ship -- this may take a moment, please be patient."))

@@ -272,16 +272,19 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	var/saved = 0
 
 	for(var/obj/structure/S in world)
+		CHECK_TICK
 		if(persistence_z_excluded(S.z)) continue
 		if(persistence_area_excluded(S)) continue
 		saved += worldstateSaveOneMachine(S)
 
 	for(var/obj/item/radio/intercom/IC in world)
+		CHECK_TICK
 		if(persistence_z_excluded(IC.z)) continue
 		if(persistence_area_excluded(IC)) continue
 		saved += worldstateSaveOneMachine(IC)
 
 	for(var/obj/item/modular_computer/MC in world)
+		CHECK_TICK
 		if(persistence_z_excluded(MC.z)) continue
 		if(persistence_area_excluded(MC)) continue
 		saved += worldstateSaveOneMachine(MC)
@@ -375,12 +378,15 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 
 	var/applied = 0
 	for(var/obj/structure/S in world)
+		CHECK_TICK
 		if(S.z != z) continue
 		applied += _worldstateApplyRowTo(S, rows_by_key)
 	for(var/obj/item/radio/intercom/IC in world)
+		CHECK_TICK
 		if(IC.z != z) continue
 		applied += _worldstateApplyRowTo(IC, rows_by_key)
 	for(var/obj/item/modular_computer/MC in world)
+		CHECK_TICK
 		if(MC.z != z) continue
 		applied += _worldstateApplyRowTo(MC, rows_by_key)
 	log_subsystem_persistence_info("Worldstate: Applied [applied] ship machine states to z=[z] ([scope]).")

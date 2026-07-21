@@ -220,6 +220,7 @@
 		machine.power_change()
 
 	for (var/turf/T as anything in turfs)
+		CHECK_TICK
 		T.post_change(FALSE)
 		if(template_flags & TEMPLATE_FLAG_NO_RUINS)
 			T.turf_flags |= TURF_NORUINS

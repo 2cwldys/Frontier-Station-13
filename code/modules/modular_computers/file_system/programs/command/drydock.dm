@@ -87,10 +87,10 @@
 					"ready" = live ? live.ready : TRUE,
 					"display_name" = live ? live.display_name() : (q.item[7] || q.item[2]),
 					"sub_shuttle_tags" = (row_template && length(row_template.sub_shuttle_tags)) ? row_template.sub_shuttle_tags : list(),
-					// Listing category for the Ships/Shuttles split -- entirely
-					// separate from sub_shuttle_tags above (an EMBEDDED hangar
-					// sub-ship), which is a different mechanism this never touches.
-					"vessel_category" = (row_template ? row_template.vessel_category : "ship")
+					// Retrieve/stash active or queued for this ship -- Remove/
+					// Scuttle must grey out until it settles (see
+					// _drydock_ship_busy(), persistence_shuttles.dm).
+					"busy" = _drydock_ship_busy(sid)
 				)
 				my_shuttle_ids += sid
 				if(row["owner_ckey"] == user.ckey && row["owner_char_name"] == user.real_name)
@@ -133,7 +133,7 @@
 		var/datum/map_template/drydock_ship/T = SSmapping.drydock_ship_templates[tid]
 		data["templates"] += list(list(
 			"template_id" = tid, "display_name" = T.name,
-			"price" = T.price, "vessel_category" = T.vessel_category
+			"price" = T.price
 		))
 
 	return data
@@ -173,7 +173,22 @@
 
 		if("scuttle")
 			var/shuttle_id = text2num(params["shuttle_id"])
+			// Never scuttle a ship whose retrieve/stash is active or queued --
+			// its Z/ledger state is mid-transition and scuttling it out from
+			// under that corrupts things. Client-side disabling (ui_data()'s
+			// "busy" flag) is the first line of defense; this is the one that
+			// actually matters against a bypassed/replayed action.
+			if(_drydock_ship_busy(shuttle_id))
+				to_chat(user, SPAN_WARNING("That ship is still being retrieved/stashed -- wait for it to finish."))
+				log_drydock_warning("drydock ui_act: [key_name(user)] tried to scuttle shuttle_id=[shuttle_id] while busy.")
+				return TRUE
 			if(tgui_alert(user, "Permanently scuttle this ship? This costs 25000cr and cannot be undone.", "Scuttle Ship", list("Scuttle", "Cancel")) != "Scuttle")
+				return TRUE
+			// Re-check after the async alert -- tgui_alert() yields, so a
+			// retrieve/stash could have started in the meantime.
+			if(_drydock_ship_busy(shuttle_id))
+				to_chat(user, SPAN_WARNING("That ship is still being retrieved/stashed -- wait for it to finish."))
+				log_drydock_warning("drydock ui_act: [key_name(user)] tried to scuttle shuttle_id=[shuttle_id] while busy (post-alert).")
 				return TRUE
 			log_drydock("drydock ui_act: [key_name(user)] requested scuttle of shuttle_id=[shuttle_id].")
 			SSpersistence.drydockScuttle(shuttle_id, user)
@@ -219,7 +234,23 @@
 				to_chat(user, SPAN_WARNING("You don't have permission to remove this ship."))
 				log_drydock_warning("drydock ui_act: [key_name(user)] lacks permission to sell shuttle_id=[shuttle_id] (owner=[owner_ckey || "none"], faction=[faction_uid || "none"]).")
 				return TRUE
+			// Never remove a ship whose retrieve/stash is active or queued --
+			// its Z/ledger state is mid-transition. The stashed check above
+			// already blocks most of this window (stashed flips FALSE almost
+			// immediately on retrieve, and stays FALSE until stash fully
+			// completes), but this closes the remaining gap and matches
+			// scuttle's guard for consistency.
+			if(_drydock_ship_busy(shuttle_id))
+				to_chat(user, SPAN_WARNING("That ship is still being retrieved/stashed -- wait for it to finish."))
+				log_drydock_warning("drydock ui_act: [key_name(user)] tried to sell shuttle_id=[shuttle_id] while busy.")
+				return TRUE
 			if(tgui_alert(user, "Permanently remove this ship? This cannot be undone.", "Remove Ship", list("Remove", "Cancel")) != "Remove")
+				return TRUE
+			// Re-check after the async alert -- tgui_alert() yields, so a
+			// retrieve/stash could have started in the meantime.
+			if(_drydock_ship_busy(shuttle_id))
+				to_chat(user, SPAN_WARNING("That ship is still being retrieved/stashed -- wait for it to finish."))
+				log_drydock_warning("drydock ui_act: [key_name(user)] tried to sell shuttle_id=[shuttle_id] while busy (post-alert).")
 				return TRUE
 			var/datum/db_query/dq = SSdbcore.NewQuery("DELETE FROM ss13_drydock_ships WHERE shuttle_id = :id", list("id" = shuttle_id))
 			dq.Execute()

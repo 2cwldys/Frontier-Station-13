@@ -156,6 +156,7 @@ GLOBAL_LIST_EMPTY(mission_templates)
 	var/list/candidates = list()
 	if(allow_space)
 		for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+			CHECK_TICK
 			if(T.density)
 				continue
 			var/blocked = FALSE
@@ -167,6 +168,7 @@ GLOBAL_LIST_EMPTY(mission_templates)
 				candidates += T
 	else
 		for(var/turf/simulated/floor/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+			CHECK_TICK
 			if(T.density)
 				continue
 			var/blocked = FALSE
@@ -208,10 +210,15 @@ GLOBAL_LIST_EMPTY(mission_templates)
 			if(!new_z)
 				to_chat(accepter, SPAN_WARNING("No suitable sector could be found right now -- try again later."))
 				return FALSE
-			GLOB.mission_spawned_zs += new_z
 			sector_marker = GLOB.map_sectors["[new_z]"]
 			if(!sector_marker || !length(sector_marker.map_z))
 				return FALSE
+			// Every deck the sector spans, not just new_z -- otherwise
+			// _try_cleanup_mission_sector()'s "if(!(z in GLOB.mission_spawned_zs))
+			// return" guard silently skips every deck past the first, and a
+			// multi-Z sector's extra decks are never torn down/pooled once
+			// the mission ends.
+			GLOB.mission_spawned_zs |= sector_marker.map_z
 			to_chat(accepter, SPAN_NOTICE("Mission sector located and prepared."))
 		var/datum/mission_instance/instance = new()
 		instance.template_id = template_id

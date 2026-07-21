@@ -249,11 +249,22 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 /// single-Z away site this is just that one Z, identical to pre-fix behavior.
 /obj/structure/machinery/faction_beacon/proc/_station_zs()
 	var/beacon_z = GET_Z(src)
+	var/list/zs = list(beacon_z)
 	if(SSatlas.current_map.use_overmap)
 		var/obj/effect/overmap/visitable/my_sector = GLOB.map_sectors["[beacon_z]"]
 		if(istype(my_sector) && length(my_sector.map_z))
-			return my_sector.map_z
-	return list(beacon_z)
+			zs = my_sector.map_z.Copy()
+	// A physically-landed drydock ship (or its sub-ship, which shares its
+	// mothership's z) is never this beacon's territory, even if its z falls
+	// within the same multi-deck sector -- excluding every z tracked in
+	// GLOB.persistence_ship_z (persistence_shuttles.dm) keeps its equipment
+	// out of every operation that funnels through this proc: the claim
+	// itself, the periodic unassigned-object sweep, security-tier grants,
+	// persistence-save flagging, and release.
+	for(var/z in zs.Copy())
+		if(GLOB.persistence_ship_z["[z]"])
+			zs -= z
+	return zs
 
 /// Null if this beacon could claim/hold its station right now, otherwise a
 /// short reason explaining why not -- lets callers show a specific message

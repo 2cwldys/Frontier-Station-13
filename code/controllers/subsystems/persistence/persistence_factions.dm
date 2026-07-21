@@ -1542,6 +1542,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	var/list/secured_sectors = list()
 	if(avoid_unsecured_zones)
 		for(var/obj/structure/machinery/faction_beacon/B in world)
+			CHECK_TICK
 			if(!B.active || !B.powered || B.security_radius <= 0 || B.guaranteed_security_tier < ZONE_MEDSEC)
 				continue
 			var/obj/effect/overmap/visitable/beacon_sector = GLOB.map_sectors["[GET_Z(B)]"]
@@ -1629,6 +1630,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	// active beacon's radius, instead of waiting up to one sweep interval
 	// for process()'s periodic _apply_security_radius_grant() to catch it.
 	for(var/obj/structure/machinery/faction_beacon/B in world)
+		CHECK_TICK
 		if(B.active && B.powered)
 			B._apply_security_radius_grant()
 
@@ -1680,8 +1682,10 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 ///   dug counter), dropping out of this scan naturally either way.
 /proc/_away_site_asteroid_depleted(z)
 	for(var/turf/simulated/mineral/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+		CHECK_TICK
 		return FALSE // an unmined wall vein still exists
 	for(var/turf/simulated/floor/exoplanet/asteroid/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+		CHECK_TICK
 		if(T.has_resources && length(T.resources))
 			return FALSE
 	return TRUE
@@ -1694,9 +1698,11 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 /// consciousness, not a corpse.
 /proc/_zlevel_has_living_or_lace(z)
 	for(var/mob/M in GLOB.mob_list)
+		CHECK_TICK
 		if(M.z == z && M.stat != DEAD && (M.client || M.ckey))
 			return TRUE
 	for(var/obj/item/organ/internal/neural_lace/L in world)
+		CHECK_TICK
 		if(!length(L.registered_ckey))
 			continue
 		var/turf/T = get_turf(L)
@@ -1877,13 +1883,38 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 	GLOB.persistence_zlevel_allow -= z
 
 	// Delete every remaining atom/mob (caller already guaranteed player-free),
-	// wipe turfs to plain space, then remove the overmap marker. Snapshot each
-	// turf's contents first -- can't qdel while iterating a turf's live
-	// contents list (same gotcha reset_zlevel() already works around).
+	// wipe turfs to plain space, then remove the overmap marker. Pass 1 is a
+	// type-indexed world scan (the safe pattern): qdel'ing an object can
+	// itself spawn/drop a new movable as a side effect (an APC ejecting its
+	// cell is normal APC behavior), which a one-shot turf/contents snapshot
+	// taken before that qdel would never catch. Passes 2+ mop up whatever
+	// pass 1's qdel cascade freshly ejected -- those land directly on a turf
+	// (never nested), so a Z-scoped turf/contents re-check is safe there and,
+	// critically, bounded to this Z's own turf count instead of a second full
+	// for(TYPE in world) sweep. Repeating the world-wide scan every pass was
+	// a real hang: qdel() only calls Destroy() immediately (SSgarbage defers
+	// the real del()), so a just-qdel'd object with its .loc/.z untouched
+	// keeps matching on every subsequent pass, guaranteeing all 5 passes ran
+	// as full-world scans every time.
+	for(var/atom/movable/AM in world)
+		CHECK_TICK
+		if(AM.z != z)
+			continue
+		qdel(AM)
+
+	var/pass = 1
+	var/found_any = TRUE
+	while(found_any && pass < 5)
+		found_any = FALSE
+		pass++
+		for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+			CHECK_TICK
+			var/list/contents_snapshot = T.contents.Copy()
+			for(var/atom/movable/AM in contents_snapshot)
+				qdel(AM)
+				found_any = TRUE
+
 	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
-		var/list/contents_snapshot = T.contents.Copy()
-		for(var/atom/movable/AM in contents_snapshot)
-			qdel(AM)
 		T.ChangeTurf(/turf/space)
 		CHECK_TICK
 

@@ -407,13 +407,12 @@
 /// Shared force-stash + repossess + notify tail, used by both the single-
 /// vessel and the picker paths of handle_ship_seizure_tap() below.
 /datum/computer_file/program/security/first_responder/proc/_seize_deployed_vessel(datum/drydock_ship/DS, mob/target, mob/user)
-	var/kind = (_drydock_vessel_category(DS) == "shuttle") ? "shuttle" : "ship"
 	if(!SSpersistence.drydockStash(DS.shuttle_id, user, force = TRUE))
 		to_chat(user, SPAN_WARNING("Failed to stash [DS.display_name()]."))
 		return
 	SSpersistence.drydockRepossess(DS.shuttle_id, user)
 	to_chat(user, SPAN_GOOD("[DS.display_name()] stashed and repossessed by the Hub."))
-	log_and_message_admins("[key_name(user)] repossessed [target]'s [kind] [DS.display_name()] via First Responder", user)
+	log_and_message_admins("[key_name(user)] repossessed [target]'s ship [DS.display_name()] via First Responder", user)
 
 /// Tap handler for tap_mode == "stash"/"repossess" (interaction.dm's
 /// modular_computer/attack() branches here instead of toggle_prisoner_tag()
@@ -429,21 +428,20 @@
 		return
 	var/list/owned = _find_owned_deployed_ships(target)
 	if(!length(owned))
-		to_chat(user, SPAN_WARNING("[target] has no deployed ship or shuttle to seize."))
+		to_chat(user, SPAN_WARNING("[target] has no deployed ship to seize."))
 		return
 
 	var/datum/drydock_ship/DS
 	if(length(owned) == 1)
 		DS = owned[1]
 	else
-		// More than one deployed vessel owned by target (a ship + a shuttle) --
-		// let the officer choose which to seize rather than grabbing one at
-		// random. Same tgui_input_list + choices[pick] pattern as
+		// More than one deployed vessel owned by target -- let the officer
+		// choose which to seize rather than grabbing one at random. Same
+		// tgui_input_list + choices[pick] pattern as
 		// _drydock_board_resolve_ship() (telepad_drydock_boarding.dm).
 		var/list/choices = list()
 		for(var/datum/drydock_ship/candidate in owned)
-			var/kind = (_drydock_vessel_category(candidate) == "shuttle") ? "Shuttle" : "Ship"
-			choices["[candidate.display_name()] -- [kind] #[candidate.shuttle_id]"] = candidate
+			choices["[candidate.display_name()] -- Ship #[candidate.shuttle_id]"] = candidate
 		var/pick = tgui_input_list(user, "Which vessel do you want to repossess from [target]?", "Repossess Vessel", choices)
 		if(!pick)
 			return

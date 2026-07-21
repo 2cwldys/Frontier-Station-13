@@ -145,6 +145,9 @@
 	corporate prospectors and private ventures all press their own claims across the Frontier, far from anyone able to enforce a better one."
 	/// No exoplanets in the Deep Frontier -- unlike Romanovich Cloud, which it otherwise copies.
 	possible_exoplanets = list()
+	/// No port visits out here -- overrides the inherited weekly Sunday default.
+	scheduled_port_visits = null
+	next_port_visit_string = "Never"
 
 /datum/space_sector/corp_zone
 	name = SECTOR_CORP_ZONE

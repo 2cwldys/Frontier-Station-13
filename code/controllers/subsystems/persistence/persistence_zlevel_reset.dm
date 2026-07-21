@@ -126,9 +126,11 @@
 /// all) -- is currently on z. Hard-blocks destructive Z-level admin actions.
 /proc/zlevel_has_players(z)
 	for(var/mob/M in GLOB.mob_list)
+		CHECK_TICK
 		if(M.z == z && (M.client || M.ckey))
 			return TRUE
 	for(var/obj/item/organ/internal/neural_lace/L in world)
+		CHECK_TICK
 		if(!length(L.registered_ckey))
 			continue
 		var/turf/T = get_turf(L)

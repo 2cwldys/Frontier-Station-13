@@ -1076,6 +1076,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
  * RETURN: the created item, or null on failure.
  */
 /proc/deserializePersistentItem(list/data, atom/holder)
+	CHECK_TICK
 	if(!data || !islist(data))
 		return null
 	var/item_type = text2path(data["type"])

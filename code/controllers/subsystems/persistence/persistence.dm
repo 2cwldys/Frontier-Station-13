@@ -99,10 +99,20 @@ SUBSYSTEM_DEF(persistence)
 	name = "Persistence"
 	init_order = INIT_ORDER_PERSISTENCE // The order is tied with the init and maploading subsystem.
 	wait = 30 MINUTES // Fires every 30 minutes; saves all persistence data including turfs and atmos.
+	// Without this, the MC schedules the next fire from when THIS one was
+	// due, not when it actually finished -- forceSaveAll() can take 1-2 real
+	// minutes, which would otherwise be silently absorbed into the next
+	// interval instead of the full 30 minutes always separating one
+	// completed save from the next.
+	flags = SS_POST_FIRE_TIMING
 	var/prevent_saving = FALSE // Toggle to prevent saving at round end, changed by toggle_persistence proc, used for admin purposes.
 	var/save_in_progress = FALSE // Set TRUE while a save is running to prevent concurrent saves.
 	var/autosave_paused = FALSE
 	var/autosave_pause_remaining = 0
+	/// TRUE only when _autosave_empty_reconcile() (below) is what caused the
+	/// current pause, never the admin's own "Toggle Autosave Pause" verb --
+	/// so auto-resume can never override a pause the admin explicitly chose.
+	var/autosave_auto_paused = FALSE
 
 /**
  * Subsystem info stub message generation.
@@ -134,7 +144,7 @@ SUBSYSTEM_DEF(persistence)
 
 	save_in_progress = TRUE
 	log_subsystem_persistence_info("Persistence: Running periodic save.")
-	to_world(SPAN_NOTICE(SPAN_BOLD("Automatic world save in progress. This may take 1-2 minutes.")))
+	to_world(SPAN_NOTICE(SPAN_BOLD("Automatic world save in progress.")))
 
 	try
 		forceSaveAll()
@@ -144,10 +154,58 @@ SUBSYSTEM_DEF(persistence)
 	save_in_progress = FALSE
 	log_subsystem_persistence_info("Persistence: Periodic save complete.")
 	to_world(SPAN_GOOD(SPAN_BOLD("World save complete.")))
+	// ignite() (subsystem.dm) is waitfor=FALSE, and forceSaveAll() really
+	// does sleep across real time (CHECK_TICK) for a save this size -- so
+	// Master's RunQueue() gets control back (and calls update_nextfire())
+	// at the FIRST yield, i.e. essentially when the save STARTED, not when
+	// it finished ~1-2 minutes later. SS_POST_FIRE_TIMING can't fix this on
+	// its own since it's computed at that same premature moment. Setting
+	// next_fire explicitly here, now that the save is actually done, is
+	// what makes the HUD countdown (screen_objects.dm) show a real 30
+	// minutes instead of 30 minutes minus however long the save took.
+	next_fire = world.time + wait
 	// Kick anything that queued behind save_in_progress (the drydock gates
 	// now queue stash/retrieve requests arriving mid-save) -- the normal
 	// drain only runs after another drydock op, never after a save.
 	_drydockProcessNextQueued()
+
+/// TRUE if any mob in the round is alive, has a connected client, and is
+/// actively possessing it right now -- i.e. someone is really playing, not
+/// just an admin ghost/ dead body with a lingering ckey/ lobby client.
+/proc/_any_active_player_character()
+	for(var/mob/M in GLOB.mob_list)
+		if(M.stat != DEAD && M.client)
+			return TRUE
+	return FALSE
+
+/// How often _autosave_empty_reconcile() below re-checks round population.
+#define AUTOSAVE_EMPTY_CHECK_INTERVAL 1 MINUTE
+
+/// Starts the recurring "is anyone actually playing" reconciliation --
+/// called once from SSpersistence's own Initialize().
+/proc/_autosave_empty_reconcile_start()
+	addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_autosave_empty_reconcile)), AUTOSAVE_EMPTY_CHECK_INTERVAL, TIMER_LOOP)
+
+/// Auto-pauses the periodic autosave (same visible PAUSED status/mechanism
+/// as the admin's manual "Toggle Autosave Pause" verb) the moment nobody's
+/// actively playing, and auto-resumes it the moment someone is again --
+/// without ever touching or overriding a pause the admin verb itself set
+/// (see autosave_auto_paused's doc comment).
+/proc/_autosave_empty_reconcile()
+	if(SSpersistence.prevent_saving || !GLOB.config.sql_enabled)
+		return
+	var/playing = _any_active_player_character()
+	if(!playing && !SSpersistence.autosave_paused)
+		SSpersistence.autosave_pause_remaining = max(0, SSpersistence.next_fire - world.time)
+		SSpersistence.next_fire = world.time + (999 MINUTES)
+		SSpersistence.autosave_paused = TRUE
+		SSpersistence.autosave_auto_paused = TRUE
+		log_subsystem_persistence_info("Persistence: Autosave auto-paused -- no active player characters.")
+	else if(playing && SSpersistence.autosave_auto_paused)
+		SSpersistence.next_fire = world.time + max(0, SSpersistence.autosave_pause_remaining)
+		SSpersistence.autosave_paused = FALSE
+		SSpersistence.autosave_auto_paused = FALSE
+		log_subsystem_persistence_info("Persistence: Autosave auto-resumed -- a player character is active again.")
 
 /**
  * Helper method to check and log database connection.
@@ -536,6 +594,9 @@ SUBSYSTEM_DEF(persistence)
 		missionsInitialize()
 	catch(var/exception/ms_e)
 		log_subsystem_persistence_error("Missions init failed: [ms_e] on [ms_e.file]:[ms_e.line]")
+
+	// Arms the "is anyone actually playing" autosave auto-pause sweep.
+	_autosave_empty_reconcile_start()
 
 	log_subsystem_persistence_info("Starting area initialization...")
 	try

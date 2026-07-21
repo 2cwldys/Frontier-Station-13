@@ -17,17 +17,6 @@
 /datum/map_template/drydock_ship
 	/// Credits charged by drydockBuy() (persistence_shuttles.dm). 0 = free.
 	var/price = 0
-	/// "ship" or "shuttle" -- purely a listing/ownership CATEGORY, not a size
-	/// or capability difference (the framework treats both identically for
-	/// buy/retrieve/stash/board/persistence). Drives the Ships-vs-Shuttles
-	/// split in the Drydock program and the category-aware deployed-limit
-	/// rule (a player may have one ship AND one shuttle deployed at once, but
-	/// not two of the same category -- see _drydock_owner_other_deployed_ship(),
-	/// persistence_shuttles.dm). Looked up from the template by template_id,
-	/// same as price/name -- never stored per-row, so no DB schema change.
-	/// Distinct from a hull's EMBEDDED hangar sub-ships (sub_shuttle_tags
-	/// below), which are a separate mechanism entirely and unaffected by this.
-	var/vessel_category = "ship"
 	/// Area type identifying this hull's bridge/CIC/command room, for hulls
 	/// converted from a static away-site mothership that never had its own
 	/// console mapped in (see drydockAutoFurnish(), persistence_shuttles.dm).

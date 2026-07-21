@@ -270,16 +270,49 @@ GLOBAL_LIST_EMPTY(reusable_z_pool)
 		if(QDELETED(L) || L.z == z)
 			SSshuttle.registered_shuttle_landmarks -= tag
 
-	// 2. Movable + turf wipe (snapshot contents first -- can't qdel while
-	// iterating a turf's live contents list).
-	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
-		var/list/contents_snapshot = T.contents.Copy()
-		for(var/atom/movable/AM in contents_snapshot)
+	// 2. Movable wipe. Pass 1 is a type-indexed world scan (the safe pattern):
+	// qdel'ing an object can itself spawn/drop a new movable as a side effect
+	// (an APC ejecting its cell is normal APC behavior), which a one-shot
+	// turf/contents snapshot taken before that qdel would never catch.
+	// Passes 2+ mop up whatever pass 1's qdel cascade freshly ejected -- those
+	// land directly on a turf (never nested), so a Z-scoped turf/contents
+	// re-check is safe there and, critically, bounded to this Z's own turf
+	// count instead of a second full for(TYPE in world) sweep. Repeating the
+	// world-wide scan every pass was the actual hang: qdel() only calls
+	// Destroy() immediately (SSgarbage defers the real del()), so a just-qdel'd
+	// object with its .loc/.z untouched keeps matching on every subsequent
+	// pass, guaranteeing all 5 passes ran as full-world scans every time.
+	for(var/atom/movable/AM in world)
+		CHECK_TICK
+		if(AM.z != z)
+			continue
+		try
 			qdel(AM)
+		catch(var/exception/qdel_e)
+			log_subsystem_persistence_error("Ship interiors: shipZTeardown qdel failed for [AM] on z=[z]: [qdel_e]")
+
+	var/pass = 1
+	var/found_any = TRUE
+	while(found_any && pass < 5)
+		found_any = FALSE
+		pass++
+		for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+			CHECK_TICK
+			var/list/contents_snapshot = T.contents.Copy()
+			for(var/atom/movable/AM in contents_snapshot)
+				try
+					qdel(AM)
+				catch(var/exception/qdel_e)
+					log_subsystem_persistence_error("Ship interiors: shipZTeardown mop-up qdel failed for [AM] on z=[z]: [qdel_e]")
+				found_any = TRUE
+
+	// 3. Turf wipe -- movables are actually gone now, safe to convert every
+	// turf to space unconditionally.
+	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
 		T.ChangeTurf(/turf/space)
 		CHECK_TICK
 
-	// 3. Area reassignment back to the world default -- a smaller future
+	// 4. Area reassignment back to the world default -- a smaller future
 	// template must not inherit a ring of turfs still claimed by the old
 	// hull's area instances. Same primitive blueprints/areasInitialize use.
 	var/area/default_area = locate(world.area)
@@ -290,7 +323,7 @@ GLOBAL_LIST_EMPTY(reusable_z_pool)
 				T.change_area(current, default_area)
 			CHECK_TICK
 
-	// 4. Bookkeeping: template registry, zone security, stray current-map
+	// 5. Bookkeeping: template registry, zone security, stray current-map
 	// persistence rows at this z (legacy pre-migration deployments must not
 	// leak onto the next occupant -- ship-scope rows are untouched, they
 	// live under a different map_path).
@@ -298,7 +331,7 @@ GLOBAL_LIST_EMPTY(reusable_z_pool)
 	GLOB.zone_security_by_z -= "[z]"
 	purgeZRows(z, quiet = TRUE)
 
-	// 5. Release into the shared reuse pool.
+	// 6. Release into the shared reuse pool.
 	poolReusableZ(z)
 
 /**

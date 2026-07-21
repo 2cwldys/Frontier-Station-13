@@ -43,7 +43,7 @@
 /// Returns the load of the powernet attached to the machine (powernet.load)
 #define POWER_LOAD(machine) (machine.powernet?.load || 0)
 /// Returns the surplus power available to the machine via the powernet (avail - load)
-#define POWER_SURPLUS(machine) ((machine.powernet) ? (POWERNET_SURPLUS(machine.powernet)) : 0)
+#define POWER_SURPLUS(machine) ((machine?.powernet) ? (POWERNET_SURPLUS(machine.powernet)) : 0)
 /// Clamps the passed-in amount between 0 and the powernet's available load capacity.
 #define POWER_DRAW(machine, amt) (POWERNET_POWER_DRAW(machine.powernet, amt))
 /// Draws power from the machine's powernet, if it exists.

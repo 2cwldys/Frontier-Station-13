@@ -12,7 +12,6 @@
 	id = "drydock_yacht"
 	mappath = "maps/drydock_ships/yacht/yacht.dmm"
 	price = 0
-	vessel_category = "shuttle"
 	bridge_area_type = /area/shuttle/yacht/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/yacht)
 

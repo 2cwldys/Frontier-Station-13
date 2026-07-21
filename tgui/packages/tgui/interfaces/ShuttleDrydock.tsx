@@ -17,7 +17,7 @@ type ShuttleRow = {
   ready: BooleanLike;
   display_name: string;
   sub_shuttle_tags: string[];
-  vessel_category: string;
+  busy: BooleanLike;
 };
 
 type CrewEntry = { ckey: string; char_name: string; label: string | null };
@@ -26,7 +26,6 @@ type Template = {
   template_id: string;
   display_name: string;
   price: number;
-  vessel_category: string;
 };
 
 type DrydockData = {
@@ -103,7 +102,8 @@ export const ShuttleDrydock = (props) => {
         )}
         <Button
           color="bad"
-          disabled={!row.stashed}
+          disabled={!row.stashed || !!row.busy}
+          tooltip={row.busy ? 'Retrieve/stash in progress -- please wait.' : undefined}
           onClick={() => act('sell', { shuttle_id: row.shuttle_id })}
         >
           Remove
@@ -111,6 +111,8 @@ export const ShuttleDrydock = (props) => {
         <Button
           color="bad"
           icon="radiation"
+          disabled={!!row.busy}
+          tooltip={row.busy ? 'Retrieve/stash in progress -- please wait.' : undefined}
           onClick={() => act('scuttle', { shuttle_id: row.shuttle_id })}
         >
           Scuttle
@@ -119,40 +121,17 @@ export const ShuttleDrydock = (props) => {
     );
   };
 
-  // Ships and Shuttles are the same underlying vessel, just categorized so
-  // players who can't afford a full hull have an affordable tier. The split
-  // here is purely presentational -- ownership, retrieve/stash, and crew all
-  // work identically for both.
-  const isShuttle = (cat: string) => cat === 'shuttle';
-
-  const renderOwnedSection = (title: string, rows: ShuttleRow[]) => {
-    const shipRows = rows.filter((r) => !isShuttle(r.vessel_category));
-    const shuttleRows = rows.filter((r) => isShuttle(r.vessel_category));
-    return (
-      <Section title={title}>
-        <Box bold color="label">
-          Ships
-        </Box>
-        <LabeledList>
-          {shipRows.length ? (
-            shipRows.map(renderRow)
-          ) : (
-            <LabeledList.Item label="">None.</LabeledList.Item>
-          )}
-        </LabeledList>
-        <Box bold color="label" mt={1}>
-          Shuttles
-        </Box>
-        <LabeledList>
-          {shuttleRows.length ? (
-            shuttleRows.map(renderRow)
-          ) : (
-            <LabeledList.Item label="">None.</LabeledList.Item>
-          )}
-        </LabeledList>
-      </Section>
-    );
-  };
+  const renderOwnedSection = (title: string, rows: ShuttleRow[]) => (
+    <Section title={title}>
+      <LabeledList>
+        {rows.length ? (
+          rows.map(renderRow)
+        ) : (
+          <LabeledList.Item label="">None.</LabeledList.Item>
+        )}
+      </LabeledList>
+    </Section>
+  );
 
   const renderTemplate = (t: Template) => (
     <LabeledList.Item key={t.template_id} label={t.display_name}>
@@ -169,13 +148,6 @@ export const ShuttleDrydock = (props) => {
         Buy
       </Button>
     </LabeledList.Item>
-  );
-
-  const shipTemplates = data.templates.filter(
-    (t) => !isShuttle(t.vessel_category),
-  );
-  const shuttleTemplates = data.templates.filter((t) =>
-    isShuttle(t.vessel_category),
   );
 
   return (
@@ -261,22 +233,9 @@ export const ShuttleDrydock = (props) => {
                 Buy as faction ship
               </Button>
             )}
-            <Box bold color="label" mt={1}>
-              Ships
-            </Box>
             <LabeledList>
-              {shipTemplates.length ? (
-                shipTemplates.map(renderTemplate)
-              ) : (
-                <LabeledList.Item label="">None available.</LabeledList.Item>
-              )}
-            </LabeledList>
-            <Box bold color="label" mt={1}>
-              Shuttles
-            </Box>
-            <LabeledList>
-              {shuttleTemplates.length ? (
-                shuttleTemplates.map(renderTemplate)
+              {data.templates.length ? (
+                data.templates.map(renderTemplate)
               ) : (
                 <LabeledList.Item label="">None available.</LabeledList.Item>
               )}

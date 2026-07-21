@@ -139,6 +139,7 @@
 	qdel(query)
 	var/restored = 0
 	for(var/list/data in rows)
+		CHECK_TICK
 		restored += _botsRestoreRow(data)
 	log_subsystem_persistence_info("Bots: Applied [restored] ship bot(s) to z=[z] ([scope]).")
 

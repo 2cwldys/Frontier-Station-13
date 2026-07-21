@@ -80,6 +80,22 @@ SUBSYSTEM_DEF(holomap)
 		generate_minimap_scan(z)
 		CHECK_TICK
 
+/// Regenerates minimaps only for [min_z, max_z] instead of every existing Z --
+/// use this after adding new Z's (e.g. an Odyssey scenario site) instead of
+/// generate_all_minimaps(), which wastefully re-renders every untouched Z too.
+/datum/controller/subsystem/holomap/proc/generate_minimaps_for_range(min_z, max_z)
+	if(minimaps.len < world.maxz)
+		minimaps.len = world.maxz
+		minimaps_base64.len = world.maxz
+		minimaps_area_colored_base64.len = world.maxz
+		minimaps_scan_base64.len = world.maxz
+
+	for (var/z in min_z to max_z)
+		generate_minimap(z)
+		generate_minimap_area_colored(z)
+		generate_minimap_scan(z)
+		CHECK_TICK
+
 /datum/controller/subsystem/holomap/proc/generate_minimap(zlevel = 1)
 	// Sanity checks - Better to generate a helpful error message now than have DrawBox() runtime
 	var/icon/canvas = icon('icons/255x255.dmi', "blank")

@@ -162,6 +162,7 @@
 	var/humidity_seed = rand(0, 50000)
 
 	for(var/turf/gen_turf in block(locate(min_x, min_y, z_to_gen), locate(max_x, max_y, z_to_gen)))
+		CHECK_TICK
 
 		if(gen_turf.type != target_turf_type)
 			continue

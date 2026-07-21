@@ -13,7 +13,6 @@
 	id = "einstein_shuttle"
 	mappath = "maps/drydock_ships/einstein_shuttle/einstein_shuttle.dmm"
 	price = 0
-	vessel_category = "shuttle"
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/einstein_shuttle)
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/einstein_shuttle

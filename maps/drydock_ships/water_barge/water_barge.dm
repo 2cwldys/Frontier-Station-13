@@ -9,7 +9,6 @@
 	id = "water_barge"
 	mappath = "maps/drydock_ships/water_barge/water_barge.dmm"
 	price = 0
-	vessel_category = "shuttle"
 	bridge_area_type = /area/water_barge/helm
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/water_barge, /datum/shuttle/autodock/overmap/water_barge_shuttle)
 	sub_shuttle_tags = list("Water Barge Shuttle")

@@ -335,7 +335,7 @@
 
 	var/points = isnum(GLOB.config.awaysites["away_site_budget"]) ? (GLOB.config.awaysites["away_site_budget"]) : (rand(away_site_budget, away_site_budget + away_variance))
 	var/players = -min_offmap_players
-	var/shippoints = isnum(GLOB.config.awaysites["away_ship_budget"]) ? (GLOB.config.awaysites["away_ship_budget"]) : (rand(away_ship_budget, away_ship_budget + away_variance))
+	var/shippoints = isnum(GLOB.config.awaysites["away_ship_budget"]) ? (GLOB.config.awaysites["away_ship_budget"]) : (away_ship_budget ? rand(away_ship_budget, away_ship_budget + away_variance) : 0)
 	var/totalbudget = shippoints + points
 	for (var/client/C)
 		++players
