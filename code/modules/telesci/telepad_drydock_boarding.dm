@@ -343,6 +343,14 @@
 	var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
 	return !(B.faction_uid && own_faction && B.faction_uid == own_faction)
 
+/// Plays the raiding-prohibited announcer cue to L, gated by ASFX_ANNOUNCER
+/// like every other announcer line -- call alongside _drydock_raid_blocked()'s
+/// "you cannot enter" chat message so a blocked player also gets an audio cue.
+/// Local to L only, not a broadcast.
+/proc/play_raid_blocked_sound(mob/living/L)
+	if(!isdeaf(L) && (L.client?.prefs.sfx_toggles & ASFX_ANNOUNCER))
+		sound_to(L, 'sound/AI/announcements/raiding_prohibited.ogg')
+
 /// Delivery with full portal VFX (spark + portal sprite + sound at BOTH
 /// ends) -- a direct adaptation of personal_travel.dm's _execute_travel().
 /// Used only by the new "choose landing spot" pick flows; the existing
@@ -485,8 +493,13 @@
 				return FALSE
 
 	cooldown[L.ckey] = world.time
-	to_chat(L, SPAN_NOTICE("You begin boarding the ship..."))
+	L.visible_message(SPAN_NOTICE("[L] begins boarding a ship."), SPAN_NOTICE("You begin boarding the ship..."))
+	// Sparks at both the boarder's own tile and the ship-side landing spot --
+	// warns anyone already aboard that someone's about to portal in.
+	var/list/spool_token = list(TRUE)
+	_start_travel_spool_pulses(get_turf(L), destination, DRYDOCK_BOARDING_SPOOLUP, CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_spool_token_valid), spool_token))
 	if(!do_after(L, DRYDOCK_BOARDING_SPOOLUP, L))
+		spool_token[1] = FALSE
 		to_chat(L, SPAN_WARNING("Boarding interrupted."))
 		return FALSE
 	if(L.in_recent_combat())
@@ -635,7 +648,7 @@
 	// inviting someone aboard "instead of that player self-boarding".
 	var/list/nearby = list()
 	for(var/mob/living/candidate in GLOB.living_mob_list)
-		if(candidate == inviter || candidate.stat == DEAD)
+		if(candidate == inviter || candidate.stat == DEAD || !candidate.client)
 			continue
 		var/obj/effect/overmap/visitable/candidate_sector = _drydock_boarder_sector(candidate)
 		if(!istype(candidate_sector) || !istype(ship_sector) || get_dist(candidate_sector, ship_sector) > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
@@ -848,6 +861,7 @@
 	// Z could let its passengers step off with zero access check at all.
 	if(_drydock_raid_blocked(L, target_z))
 		to_chat(L, SPAN_WARNING("Faction raiding is currently disabled -- you cannot disembark into that territory."))
+		play_raid_blocked_sound(L)
 		return FALSE
 	var/is_dock_target = (shuttle_datum && marker.status == SHIP_STATUS_LANDED && target_z == GET_Z(shuttle_datum.current_location))
 	var/is_hub_target = (zone_security_get(target_z) == ZONE_HIGHSEC)
@@ -898,7 +912,12 @@
 		if(!destination)
 			return FALSE
 
+	// Sparks at both the disembarking player's own tile and the landing
+	// spot -- warns anyone already there that someone's about to portal in.
+	var/list/spool_token = list(TRUE)
+	_start_travel_spool_pulses(get_turf(L), destination, DRYDOCK_DISEMBARK_SPOOLUP, CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_spool_token_valid), spool_token))
 	if(!do_after(L, DRYDOCK_DISEMBARK_SPOOLUP, L))
+		spool_token[1] = FALSE
 		to_chat(L, SPAN_WARNING("Disembarking interrupted."))
 		return FALSE
 	if(L.in_recent_combat())

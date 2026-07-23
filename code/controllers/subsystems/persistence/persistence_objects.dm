@@ -79,17 +79,39 @@
 				else
 					instance.forceMove(spawn_turf)
 			else
-				instance = new typepath(spawn_turf)
-				if(!instance || QDELETED(instance))
-					var/obj/existing = null
-					for(var/obj/O in spawn_turf)
-						if(O.type == typepath) { existing = O; break }
-					if(existing)
-						existing.persistent_objects_track_id = text2num(data["id"])
-						objectsRegisterTrack(existing, data["author_ckey"])
-					else
-						objectsDatabaseExpireEntry(data["id"])
-					continue
+				// Reuse an already-existing, untracked (persistent_objects_track_id
+				// == 0) instance of this exact type at the saved position instead
+				// of always minting a new one -- a freshly-loaded ship template
+				// re-spawns its own authored decor (e.g. an ashtray) on every
+				// retrieve BEFORE this runs, and without this check the saved row
+				// mints a second, independent instance alongside it. At the next
+				// stash, the untracked original gets its own fresh DB row
+				// (objectsFinalizeZ()'s create-branch) while the restored one
+				// updates in place -- one extra instance AND one extra row every
+				// single stash/retrieve cycle, compounding indefinitely. Mirrors
+				// the /obj/structure/lattice special case above, generalized to
+				// every type. The track_id == 0 check specifically prevents this
+				// row from "stealing" an instance a PRIOR row in this same batch
+				// already claimed.
+				var/obj/existing = null
+				for(var/obj/O in spawn_turf)
+					if(O.type == typepath && O.persistent_objects_track_id == 0)
+						existing = O
+						break
+				if(existing)
+					instance = existing
+				else
+					instance = new typepath(spawn_turf)
+					if(!instance || QDELETED(instance))
+						var/obj/existing_after_fail = null
+						for(var/obj/O in spawn_turf)
+							if(O.type == typepath) { existing_after_fail = O; break }
+						if(existing_after_fail)
+							existing_after_fail.persistent_objects_track_id = text2num(data["id"])
+							objectsRegisterTrack(existing_after_fail, data["author_ckey"])
+						else
+							objectsDatabaseExpireEntry(data["id"])
+						continue
 			instance.persistent_objects_track_id = data["id"]
 			objectsApplyTrackContent(instance, data["content"], data["x"], data["y"], data["z"])
 			objectsRegisterTrack(instance, data["author_ckey"])

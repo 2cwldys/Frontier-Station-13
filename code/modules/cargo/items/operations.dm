@@ -345,6 +345,286 @@
 	groupable = FALSE
 	spawn_amount = 1
 
+/*
+ * Space pod parts, DIY build kit, and fully-built hulls -- see
+ * code/modules/vehicles/pods/. Individual components let a buyer equip a
+ * pod they built (or bought bare) piece by piece; the pod crate is the
+ * from-scratch path (bundles the frame kit + enough raw material to finish
+ * all 7 construction stages, code/modules/vehicles/pods/ships.dm, plus an
+ * engine since that recipe can't finish without one); the 9 hull packs are
+ * the fully-built path, each delivering a /stocked variant (ships.dm) with a
+ * bare, unfueled engine already installed.
+ */
+/singleton/cargo_item/podengine
+	category = "operations"
+	name = "pod engine"
+	supplier = "Hub"
+	description = "A compact phoron-fed drive engine for a space pod."
+	price = 2500
+	items = list(
+		/obj/item/podcomponent/engine
+	)
+	access = 0
+	container_type = "box"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/podwarpengine
+	category = "operations"
+	name = "pod warp engine"
+	supplier = "Hub"
+	description = "A pod drive engine fitted with a bluespace warp coil for sector-to-sector jumps."
+	price = 6000
+	items = list(
+		/obj/item/podcomponent/engine/warp
+	)
+	access = ACCESS_CARGO
+	container_type = "box"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/podphaser
+	category = "operations"
+	name = "pod phaser"
+	supplier = "Hub"
+	description = "A light energy weapon mount for a space pod."
+	price = 4000
+	items = list(
+		/obj/item/podcomponent/mainweapon
+	)
+	access = ACCESS_CARGO
+	container_type = "box"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/podcargohold
+	category = "operations"
+	name = "pod cargo hold"
+	supplier = "Hub"
+	description = "A small cargo module for a space pod."
+	price = 1500
+	items = list(
+		/obj/item/podcomponent/secondary/cargo
+	)
+	access = 0
+	container_type = "box"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/podshielding
+	category = "operations"
+	name = "pod shielding"
+	supplier = "Hub"
+	description = "A short-lived deflector shield system for a space pod."
+	price = 3500
+	items = list(
+		/obj/item/podcomponent/secondary/shielding
+	)
+	access = 0
+	container_type = "box"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/podhatchlock
+	category = "operations"
+	name = "pod hatch lock"
+	supplier = "Hub"
+	description = "A passcode-locked hatch control for a space pod."
+	price = 500
+	items = list(
+		/obj/item/podcomponent/lock
+	)
+	access = 0
+	container_type = "box"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/podcommsarray
+	category = "operations"
+	name = "pod comms array"
+	supplier = "Hub"
+	description = "A short-range communications and navigation-network transceiver for a space pod."
+	price = 1000
+	items = list(
+		/obj/item/podcomponent/comms
+	)
+	access = 0
+	container_type = "box"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/podsensorarray
+	category = "operations"
+	name = "pod sensor array"
+	supplier = "Hub"
+	description = "A short-range sensor suite for a space pod."
+	price = 1500
+	items = list(
+		/obj/item/podcomponent/sensors
+	)
+	access = 0
+	container_type = "box"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/podlights
+	category = "operations"
+	name = "pod running lights"
+	supplier = "Hub"
+	description = "An exterior light fixture for a space pod."
+	price = 300
+	items = list(
+		/obj/item/podcomponent/lights
+	)
+	access = 0
+	container_type = "box"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/podcrate
+	category = "operations"
+	name = "pod crate"
+	supplier = "Hub"
+	description = "Everything needed to build a space pod from scratch: a frame kit, raw materials, and an engine."
+	price = 3000
+	items = list(
+		/obj/item/pod_frame_kit,
+		/obj/item/stack/cable_coil,
+		/obj/item/stack/material/steel/full,
+		/obj/item/stack/material/glass/reinforced/full,
+		/obj/item/podcomponent/engine
+	)
+	access = 0
+	container_type = "crate"
+	groupable = FALSE
+	spawn_amount = 1
+
+/singleton/cargo_item/podhullescape
+	category = "operations"
+	name = "escape pod (fully built)"
+	supplier = "Hub"
+	description = "A minimal, cheaply-built pod meant to get one person out of danger, not into it. Arrives with a bare engine installed -- no fuel tank."
+	price = 15000
+	items = list(
+		/obj/vehicle/bike/pod/escape/stocked
+	)
+	access = ACCESS_HEADS
+	container_type = "box"
+	groupable = FALSE
+	spawn_amount = 1
+
+/singleton/cargo_item/podhullindependent
+	category = "operations"
+	name = "independent pod (fully built)"
+	supplier = "Hub"
+	description = "A no-frills civilian space pod, cheap and easy to build. Arrives with a bare engine installed -- no fuel tank."
+	price = 16000
+	items = list(
+		/obj/vehicle/bike/pod/independent/stocked
+	)
+	access = ACCESS_HEADS
+	container_type = "box"
+	groupable = FALSE
+	spawn_amount = 1
+
+/singleton/cargo_item/podhullrecon
+	category = "operations"
+	name = "recon pod (fully built)"
+	supplier = "Hub"
+	description = "A stripped-down space pod built for speed over survivability. Arrives with a bare engine installed -- no fuel tank."
+	price = 17000
+	items = list(
+		/obj/vehicle/bike/pod/recon/stocked
+	)
+	access = ACCESS_HEADS
+	container_type = "box"
+	groupable = FALSE
+	spawn_amount = 1
+
+/singleton/cargo_item/podhullslick
+	category = "operations"
+	name = "slick pod (fully built)"
+	supplier = "Hub"
+	description = "A sleek, fast space pod that trades armor plating for a sharper hull. Arrives with a bare engine installed -- no fuel tank."
+	price = 17500
+	items = list(
+		/obj/vehicle/bike/pod/slick/stocked
+	)
+	access = ACCESS_HEADS
+	container_type = "box"
+	groupable = FALSE
+	spawn_amount = 1
+
+/singleton/cargo_item/podhullmini
+	category = "operations"
+	name = "mini pod (fully built)"
+	supplier = "Hub"
+	description = "A small, single-seat space pod. Arrives with a bare engine installed -- no fuel tank."
+	price = 18000
+	items = list(
+		/obj/vehicle/bike/pod/mini/stocked
+	)
+	access = ACCESS_HEADS
+	container_type = "box"
+	groupable = FALSE
+	spawn_amount = 1
+
+/singleton/cargo_item/podhullsaucer
+	category = "operations"
+	name = "saucer pod (fully built)"
+	supplier = "Hub"
+	description = "A space pod built in an unmistakable saucer shape. Arrives with a bare engine installed -- no fuel tank."
+	price = 18000
+	items = list(
+		/obj/vehicle/bike/pod/saucer/stocked
+	)
+	access = ACCESS_HEADS
+	container_type = "box"
+	groupable = FALSE
+	spawn_amount = 1
+
+/singleton/cargo_item/podhullcargo
+	category = "operations"
+	name = "cargo pod (fully built)"
+	supplier = "Hub"
+	description = "A space pod with a built-in cargo hold. Arrives with a bare engine installed -- no fuel tank."
+	price = 19000
+	items = list(
+		/obj/vehicle/bike/pod/cargo/stocked
+	)
+	access = ACCESS_HEADS
+	container_type = "box"
+	groupable = FALSE
+	spawn_amount = 1
+
+/singleton/cargo_item/podhullcorporate
+	category = "operations"
+	name = "corporate pod (fully built)"
+	supplier = "Hub"
+	description = "A space pod finished in corporate livery. Arrives with a bare engine installed -- no fuel tank."
+	price = 19500
+	items = list(
+		/obj/vehicle/bike/pod/corporate/stocked
+	)
+	access = ACCESS_HEADS
+	container_type = "box"
+	groupable = FALSE
+	spawn_amount = 1
+
+/singleton/cargo_item/podhullheg
+	category = "operations"
+	name = "Hegemony-pattern pod (fully built)"
+	supplier = "Hub"
+	description = "A space pod built to a Hegemony maintenance pattern. Arrives with a bare engine installed -- no fuel tank."
+	price = 20000
+	items = list(
+		/obj/vehicle/bike/pod/heg/stocked
+	)
+	access = ACCESS_HEADS
+	container_type = "box"
+	groupable = FALSE
+	spawn_amount = 1
+
 /singleton/cargo_item/webbing
 	category = "operations"
 	name = "webbing"

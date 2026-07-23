@@ -701,8 +701,7 @@ GLOBAL_LIST_INIT(admin_verbs_storyteller, list(
 	else
 		//ghostize
 		var/mob/body = mob
-		var/mob/abstract/ghost/observer/ghost = body.ghostize(1)
-		ghost.admin_ghosted = 1
+		var/mob/abstract/ghost/observer/ghost = body.ghostize(can_reenter_corpse = 1, admin_ghosted = TRUE)
 		if(body)
 			body.teleop = ghost
 			if(!body.key)

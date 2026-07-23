@@ -148,6 +148,11 @@
 	var/rogue_drone_destroyed_message = "Icarus drone control registers disappointment at the loss of the drones, but the survivors have been recovered."
 
 	var/num_exoplanets = 0
+	/// When TRUE, build_exoplanets() does nothing at all -- no random exoplanets,
+	/// no guaranteed ones either. Unlike num_exoplanets (which only zeroes the
+	/// random budget and leaves a sector's guaranteed_exoplanets untouched),
+	/// this is an explicit "no exoplanets on this map, period" override.
+	var/disable_exoplanets = FALSE
 	///Dimensions of planet zlevel, defaults to world size. Due to how maps are generated, must be (2^n+1) e.g. 17,33,65,129 etc. Map will just round up to those if set to anything other.
 	var/list/planet_size
 	var/min_offmap_players = 0
@@ -211,6 +216,8 @@
 
 /datum/map/proc/build_exoplanets()
 	if(!use_overmap)
+		return
+	if(disable_exoplanets)
 		return
 
 	if(!GLOB.config.exoplanets["enable_loading"])

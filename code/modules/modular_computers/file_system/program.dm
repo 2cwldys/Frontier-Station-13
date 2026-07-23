@@ -48,6 +48,12 @@ ABSTRACT_TYPE(/datum/computer_file/program)
 	/// Optional, if above is set to TRUE checks for specific function of NTNet (currently NTNET_SOFTWAREDOWNLOAD, NTNET_PEERTOPEER, NTNET_SYSTEMCONTROL and NTNET_COMMUNICATION)
 	var/requires_ntnet_feature = FALSE
 
+	/// Whether losing NTNet mid-run should hard-kill this program (event_networkfailure()).
+	/// Most requires_ntnet programs have no graceful way to handle a drop and should keep
+	/// crashing on one -- but a program with its own pause/resume logic (see ntnetdownload's
+	/// process_tick()) can opt out and just ride out the gap instead of losing all progress.
+	var/network_failure_is_fatal = TRUE
+
 	/// NTNet status, updated every tick by computer running this program. Don't use this for checks if NTNet works, computers do that. Use this for calculations, etc.
 	var/ntnet_status = TRUE
 

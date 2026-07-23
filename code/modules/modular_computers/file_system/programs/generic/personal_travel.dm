@@ -285,6 +285,7 @@
 			// (_drydock_pick_access_mode() still enforces this authoritatively).
 			if(_drydock_raid_blocked(user, target_z))
 				to_chat(user, SPAN_WARNING("Faction raiding is currently disabled -- you cannot enter that territory."))
+				play_raid_blocked_sound(user)
 				return TRUE
 			var/turf/anchor = personal_travel_find_space_landing(target_z)
 			if(!anchor)
@@ -321,9 +322,9 @@
 	to_chat(user, SPAN_NOTICE("\The [computer] begins calibrating a bluespace jump..."))
 	var/turf/spool_turf = get_turf(user)
 	var/seq = ++spool_seq
-	_travel_spool_pulse(spool_turf, seq)
-	addtimer(CALLBACK(src, PROC_REF(_travel_spool_pulse), spool_turf, seq), 5 SECONDS)
-	addtimer(CALLBACK(src, PROC_REF(_travel_spool_pulse), spool_turf, seq), 10 SECONDS)
+	// Destination-side pulses too, not just the origin -- warns anyone
+	// already standing there that someone's about to jump in.
+	_start_travel_spool_pulses(spool_turf, destination, PERSONAL_TRAVEL_SPOOLUP, CALLBACK(src, PROC_REF(_spool_still_valid), seq))
 	if(!do_after(user, PERSONAL_TRAVEL_SPOOLUP, user))
 		spool_seq++ // invalidate the pending spark pulses above
 		to_chat(user, SPAN_WARNING("Bluespace calibration interrupted."))
@@ -356,15 +357,12 @@
 	_execute_travel(user, destination)
 	return TRUE
 
-/datum/computer_file/program/personal_travel/proc/_travel_spool_pulse(turf/T, seq)
-	if(!T)
-		return
-	// Stale pulse from an interrupted/aborted spool-up -- the sparks must
-	// stop the moment the calibration does.
-	if(seq != spool_seq)
-		return
-	spark(T, 2, GLOB.alldirs)
-	playsound(T, 'sound/effects/sparks4.ogg', 20, 1)
+/// Callback target for _start_travel_spool_pulses() (telepad_travel.dm) --
+/// FALSE once this spool-up has been interrupted/aborted (spool_seq bumped
+/// past seq on every abort path below), so a pulse scheduled before the
+/// abort doesn't still fire after it.
+/datum/computer_file/program/personal_travel/proc/_spool_still_valid(seq)
+	return seq == spool_seq
 
 /// forceMove, NOT do_teleport -- same reasoning as first_responder_jump():
 /// the science teleport datum scatters anyone carrying a bag of holding up

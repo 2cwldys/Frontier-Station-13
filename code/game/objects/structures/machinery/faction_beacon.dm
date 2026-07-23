@@ -23,6 +23,13 @@
 /// one-time _apply_network() sweep can never see on its own.
 #define FACTION_BEACON_SWEEP_INTERVAL 30 SECONDS
 
+/// How often an active, powered beacon re-evaluates its security_radius
+/// grant/revoke (_apply_security_radius_grant()) -- deliberately much
+/// tighter than FACTION_BEACON_SWEEP_INTERVAL (unassigned-object sweep,
+/// hazard eviction), since this drives player-visible zone detection
+/// (overmap outline, chat/sound announcement) and should feel responsive.
+#define FACTION_BEACON_SECURITY_SWEEP_INTERVAL 5 SECONDS
+
 /// How often (while operating) a beacon's fuel reserve drains, and by how
 /// much. Shared by faction_beacon.dm and piracy_beacon.dm. ~100 credits/hour
 /// -- a full 50000 reserve lasts ~3 weeks of continuous operation.
@@ -71,6 +78,13 @@
 	/// or above this tier. ZONE_MEDSEC for the standard beacon; the hub
 	/// beacon variant (below) raises this to ZONE_HIGHSEC.
 	var/guaranteed_security_tier = ZONE_MEDSEC
+	/// Z's currently granted guaranteed_security_tier via this beacon's
+	/// security_radius reach -- recomputed every _apply_security_radius_grant()
+	/// call and diffed against the previous sweep's set so a Z that falls OUT
+	/// of range gets released too, not just raised and left stuck. Never
+	/// contains this beacon's own station Zs -- those are a separate,
+	/// whole-level ownership model this doesn't touch.
+	var/list/granted_neighbor_zs = list()
 	/// Set just before qdel() when health hit zero (see on_death()) --
 	/// distinguishes genuine combat destruction from admin qdel/VV-delete
 	/// and any future tool-deconstruction path, neither of which call
@@ -86,6 +100,11 @@
 	/// placed AFTER the beacon already went active, which the one-time
 	/// _apply_network() sweep can never see on its own.
 	var/next_sweep_time = 0
+	/// world.time of the next periodic security_radius grant/revoke sweep --
+	/// see process()/_apply_security_radius_grant(). Runs on its own, much
+	/// tighter cadence than next_sweep_time since it drives player-visible
+	/// zone detection.
+	var/next_security_sweep_time = 0
 	/// Physical credit reserve that keeps this beacon running -- drains
 	/// slowly while powered (see process()), auto-powers the beacon off at
 	/// zero via _power_down(). Fed by inserting spacecash (attackby()),
@@ -103,6 +122,30 @@
 /// configured takes precedence; a second beacon on the same Z is refused
 /// until the first is powered off or destroyed.
 GLOBAL_LIST_EMPTY(faction_beacon_by_z)
+
+/// The active, powered faction beacon responsible for z's current security
+/// tier -- either it directly owns z (GLOB.faction_beacon_by_z), or z falls
+/// within its security_radius reach (mirrors _apply_security_radius_grant()'s
+/// own range() sweep). Null if no beacon is responsible (admin-set security,
+/// Hub-default territory with no beacon, or plain nullsec).
+/proc/get_owning_faction_beacon(z)
+	if(!z)
+		return null
+	var/obj/structure/machinery/faction_beacon/direct = GLOB.faction_beacon_by_z["[z]"]
+	if(direct && !QDELETED(direct) && direct.active && direct.powered)
+		return direct
+	if(!SSatlas.current_map.use_overmap)
+		return null
+	for(var/obj/structure/machinery/faction_beacon/B in world)
+		if(QDELETED(B) || !B.active || !B.powered || B.security_radius <= 0)
+			continue
+		var/obj/effect/overmap/visitable/beacon_sector = GLOB.map_sectors["[GET_Z(B)]"]
+		if(!istype(beacon_sector))
+			continue
+		for(var/obj/effect/overmap/visitable/V in range(B.security_radius, beacon_sector))
+			if(z in V.map_z)
+				return B
+	return null
 
 /obj/structure/machinery/faction_beacon/Initialize(mapload)
 	. = ..()
@@ -148,12 +191,14 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		return
 	if(prob(15))
 		spark_system.queue()
+	if(world.time >= next_security_sweep_time)
+		next_security_sweep_time = world.time + FACTION_BEACON_SECURITY_SWEEP_INTERVAL
+		_apply_security_radius_grant()
+		zone_security_update_overmap()
 	if(world.time >= next_sweep_time)
 		next_sweep_time = world.time + FACTION_BEACON_SWEEP_INTERVAL
 		_sweep_unassigned_objects_for_faction(_station_zs(), faction_uid)
-		_apply_security_radius_grant()
 		_evict_hazards_in_range()
-		zone_security_update_overmap()
 	if(requires_fuel && world.time >= next_fuel_drain_time)
 		next_fuel_drain_time = world.time + BEACON_FUEL_DRAIN_INTERVAL
 		fuel_credits = max(0, fuel_credits - BEACON_FUEL_DRAIN_AMOUNT)
@@ -321,29 +366,34 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		if(GLOB.faction_beacon_by_z[key] == src)
 			GLOB.faction_beacon_by_z -= key
 
-/// TRUE if some OTHER active, powered faction beacon still justifies at least
-/// min_tier on nearby_z -- either it (or one of its own station's other
-/// decks) owns nearby_z directly, or its own security_radius reaches it.
-/// Used by _release_security_grants() so releasing one beacon's grant never
-/// undoes an overlapping beacon's claim.
-/obj/structure/machinery/faction_beacon/proc/_z_covered_by_other_beacon(nearby_z, min_tier)
+/// Highest guaranteed_security_tier justified for nearby_z by any OTHER
+/// active, powered faction beacon -- either it (or one of its own station's
+/// other decks) owns nearby_z directly, or its own security_radius reaches
+/// it. ZONE_NULLSEC if none. Used by _revoke_stale_neighbor_grants() so
+/// releasing one beacon's grant falls back to whatever tier a DIFFERENT
+/// beacon still legitimately justifies (lower, equal, or even higher than
+/// this beacon's own tier) in one step, instead of always dropping to
+/// nullsec and waiting for that other beacon's own next sweep to notice and
+/// re-raise it.
+/obj/structure/machinery/faction_beacon/proc/_max_tier_from_other_beacons(nearby_z)
+	. = ZONE_NULLSEC
 	for(var/obj/structure/machinery/faction_beacon/B in world)
 		if(B == src || QDELETED(B) || !B.active || !B.powered)
 			continue
-		if(B.guaranteed_security_tier < min_tier)
+		if(B.guaranteed_security_tier <= .)
 			continue
 		if(nearby_z in B._station_zs())
-			return TRUE
+			. = B.guaranteed_security_tier
+			continue
 		if(!SSatlas.current_map.use_overmap || B.security_radius <= 0)
 			continue
-		var/other_z = GET_Z(B)
-		var/obj/effect/overmap/visitable/other_sector = GLOB.map_sectors["[other_z]"]
+		var/obj/effect/overmap/visitable/other_sector = GLOB.map_sectors["[GET_Z(B)]"]
 		if(!istype(other_sector))
 			continue
 		for(var/obj/effect/overmap/visitable/V in range(B.security_radius, other_sector))
 			if(nearby_z in V.map_z)
-				return TRUE
-	return FALSE
+				. = B.guaranteed_security_tier
+				break
 
 /// Reverses _apply_network()'s security-tier grants for this beacon: drops
 /// every Z of its own station back to nullsec, and any nearby Z it uplifted
@@ -366,20 +416,13 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		if(zone_security_get(z) == guaranteed_security_tier)
 			persistence_set_zone_security(z, ZONE_NULLSEC)
 
-	if(!SSatlas.current_map.use_overmap || security_radius <= 0)
-		return
-	var/obj/effect/overmap/visitable/my_sector = GLOB.map_sectors["[beacon_z]"]
-	if(!istype(my_sector))
-		return
-	for(var/obj/effect/overmap/visitable/V in range(security_radius, my_sector))
-		for(var/nearby_z in V.map_z)
-			if(nearby_z in station_zs)
-				continue
-			if(zone_security_get(nearby_z) != guaranteed_security_tier)
-				continue
-			if(_z_covered_by_other_beacon(nearby_z, guaranteed_security_tier))
-				continue
-			persistence_set_zone_security(nearby_z, ZONE_NULLSEC)
+	// Release every neighbor Z this beacon has EVER confirmed granted
+	// (granted_neighbor_zs), not just whatever's still spatially in range --
+	// a ship granted a tier while passing through, then flown far away, is
+	// invisible to a live range() rescan at release time. Same guards as
+	// every other sweep (still-ours-to-touch tier match, other-beacon
+	// coverage) live in _revoke_stale_neighbor_grants() itself.
+	_revoke_stale_neighbor_grants(list())
 
 /// Turns persistence saving back off for every Z of this beacon's own
 /// station -- called whenever the beacon stops being active (powered down,
@@ -475,15 +518,21 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 /// Called once from _apply_network() on activation, and periodically from
 /// process() so a site generated or moved into range afterward -- which
 /// would otherwise never be swept up until a full power-cycle -- gets
-/// picked up within one sweep interval instead.
+/// picked up within one sweep interval instead. Also diffs the current
+/// in-range set against granted_neighbor_zs via _revoke_stale_neighbor_grants()
+/// so a Z that falls OUT of range (e.g. a ship that flew off again) gets
+/// released too, not just raised and left stuck.
 /obj/structure/machinery/faction_beacon/proc/_apply_security_radius_grant()
 	if(!SSatlas.current_map.use_overmap || security_radius <= 0)
+		_revoke_stale_neighbor_grants(list())
 		return
 	var/beacon_z = GET_Z(src)
 	var/list/station_zs = _station_zs()
 	var/obj/effect/overmap/visitable/my_sector = GLOB.map_sectors["[beacon_z]"]
 	if(!istype(my_sector))
+		_revoke_stale_neighbor_grants(list())
 		return
+	var/list/current_neighbor_zs = list()
 	for(var/obj/effect/overmap/visitable/V in range(security_radius, my_sector))
 		for(var/nearby_z in V.map_z)
 			if(nearby_z in station_zs)
@@ -491,8 +540,34 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 			var/obj/structure/machinery/faction_beacon/other = GLOB.faction_beacon_by_z["[nearby_z]"]
 			if(other && !QDELETED(other) && other != src)
 				continue
+			current_neighbor_zs |= nearby_z
 			if(zone_security_get(nearby_z) < guaranteed_security_tier)
 				persistence_set_zone_security(nearby_z, guaranteed_security_tier)
+				zone_security_recheck_mobs_on_z(nearby_z)
+	_revoke_stale_neighbor_grants(current_neighbor_zs)
+
+/// Diffs current_neighbor_zs (freshly computed by the caller) against
+/// granted_neighbor_zs, and for any z that fell out, falls back to whatever
+/// tier is still legitimately justified -- but only if it's still ours to
+/// touch: still exactly at guaranteed_security_tier (an admin override, or
+/// another beacon since raising it further, leaves a mismatch here and is
+/// skipped). The fallback is computed live via _max_tier_from_other_beacons()
+/// rather than always dropping to nullsec, so a z still covered by a
+/// DIFFERENT, lower-tier beacon lands on that tier directly in one step
+/// instead of dipping to nullsec and waiting for that beacon's own next
+/// sweep to notice and re-raise it. Pass list() to release everything this
+/// beacon has ever granted (deactivating/destroyed, or radius disabled/its
+/// sector unresolvable). Always ends by replacing granted_neighbor_zs with
+/// current_neighbor_zs.
+/obj/structure/machinery/faction_beacon/proc/_revoke_stale_neighbor_grants(list/current_neighbor_zs)
+	for(var/z in granted_neighbor_zs)
+		if(z in current_neighbor_zs)
+			continue
+		if(zone_security_get(z) != guaranteed_security_tier)
+			continue
+		persistence_set_zone_security(z, _max_tier_from_other_beacons(z))
+		zone_security_recheck_mobs_on_z(z)
+	granted_neighbor_zs = current_neighbor_zs.Copy()
 
 /// Destroys any overmap hazard sitting within this beacon's security_radius.
 /// Closes the one gap _overmap_tile_hazard_excluded() (events/event.dm)
@@ -961,9 +1036,9 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 			// the tier to newly-covered neighbor Zs (idempotent -- every check
 			// inside only ever writes unset fields), which in turn repaints the
 			// overmap border via persistence_set_zone_security(). A decrease
-			// shrinks the border immediately (full-recompute) but does not
-			// retract any tier already granted to Zs now outside the radius --
-			// same as every other release path, that needs a power-down. An
+			// also revokes any Z now outside the radius immediately, via
+			// _apply_security_radius_grant()'s own _revoke_stale_neighbor_grants()
+			// diff against granted_neighbor_zs -- no power-down needed. An
 			// inactive beacon never contributes to the border either way, so
 			// there's nothing to repaint when it isn't active.
 			if(active)

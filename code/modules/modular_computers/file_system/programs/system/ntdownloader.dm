@@ -19,6 +19,11 @@
 	size = 2
 	requires_ntnet = TRUE
 	requires_ntnet_feature = NTNET_SOFTWAREDOWNLOAD
+	// process_tick() below already pauses gracefully on lost signal (speed
+	// drops to 0, last_update resets, download_queue's progress is untouched)
+	// -- don't let the generic requires_ntnet crash-on-disconnect path kill
+	// the whole program and wipe the queue over a momentary blip.
+	network_failure_is_fatal = FALSE
 	available_on_ntnet = 0
 	ui_header = "downloader_finished.gif"
 	tgui_id = "NTOSDownloader"

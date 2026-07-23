@@ -226,6 +226,11 @@
 			var/faction_uid = oq.item[2]
 			var/stashed = text2num(oq.item[3])
 			qdel(oq)
+			// Ledger datum is still alive at this point (only sold/scuttled
+			// ships ever leave GLOB.drydock_ships) -- grab its display name
+			// now for the admin log below, before the delete removes it.
+			var/datum/drydock_ship/sell_DS = GLOB.drydock_ships["[shuttle_id]"]
+			var/ship_display_name = sell_DS ? sell_DS.display_name() : "shuttle_id=[shuttle_id]"
 			if(!stashed)
 				to_chat(user, SPAN_WARNING("Stash the ship before removing it."))
 				log_drydock_warning("drydock ui_act: [key_name(user)] tried to sell shuttle_id=[shuttle_id] while it's still deployed.")
@@ -275,6 +280,7 @@
 				// entry nothing else in this file ever cleans up.
 				GLOB.drydock_ships -= "[shuttle_id]"
 				to_chat(user, SPAN_GOOD("Ship removed."))
+				message_admins("[key_name(user)] permanently removed drydock ship '[ship_display_name]' (#[shuttle_id]) from storage (no fee). [ADMIN_JMP(user)]")
 				log_drydock("drydock ui_act: [key_name(user)] permanently deleted shuttle_id=[shuttle_id] from the drydock DB.")
 			else
 				log_drydock_error("drydock ui_act: sell DB delete failed for shuttle_id=[shuttle_id].")

@@ -9,11 +9,11 @@
 		shutdown_computer()
 		return FALSE
 
-	if(active_program?.requires_ntnet && !get_ntnet_status(active_program.requires_ntnet_feature)) // Active program requires NTNet to run but we've just lost connection. Crash.
+	if(active_program?.requires_ntnet && active_program.network_failure_is_fatal && !get_ntnet_status(active_program.requires_ntnet_feature)) // Active program requires NTNet to run but we've just lost connection. Crash.
 		active_program.event_networkfailure(FALSE)
 
 	for(var/datum/computer_file/program/P in idle_threads)
-		if(P.requires_ntnet && !get_ntnet_status(P.requires_ntnet_feature))
+		if(P.requires_ntnet && P.network_failure_is_fatal && !get_ntnet_status(P.requires_ntnet_feature))
 			P.event_networkfailure(TRUE)
 
 	if(active_program)

@@ -78,6 +78,18 @@
 	last_power_generated = .
 	total_power_generated += .
 
+/*
+ * Android's reactor -- always biological (see default_preset), never
+ * player-selectable back to electric/kinetic/solar (Android's
+ * alterable_internal_organs deliberately excludes BP_REACTOR, see
+ * species/station/ipc/android.dm) so it never ends up needing external
+ * charging. get_preset_from_pref() (_generic.dm) falls back to
+ * default_preset whenever no player pref exists for a slot, which is always
+ * the case here since the slot isn't offered as customizable.
+ */
+/obj/item/organ/internal/machine/reactor/android
+	default_preset = /singleton/synthetic_organ_preset/reactor/biological
+
 /obj/item/organ/internal/machine/reactor/high_integrity_damage(integrity)
 	if(prob(get_integrity_damage_probability()))
 		if(base_power_generation)

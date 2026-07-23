@@ -145,6 +145,7 @@ SUBSYSTEM_DEF(persistence)
 	save_in_progress = TRUE
 	log_subsystem_persistence_info("Persistence: Running periodic save.")
 	to_world(SPAN_NOTICE(SPAN_BOLD("Automatic world save in progress.")))
+	play_announcer_voice_to_all('sound/AI/announcements/autosave_in_progress.ogg')
 
 	try
 		forceSaveAll()
@@ -332,8 +333,18 @@ SUBSYSTEM_DEF(persistence)
 		to_chat(usr, SPAN_WARNING("A save is already in progress. Please wait for it to complete before forcing another."))
 		return
 
+	// Mirror fire()'s deferral (persistence.dm) -- a retrieve/stash mid-flight
+	// is a multi-second window where objectsApplyZ()/floorItemsApplyZ() are
+	// still populating a ship's scope; finalizing that same scope here
+	// concurrently would interleave two independent save passes over it and
+	// can produce duplicate rows.
+	if(GLOB.drydock_op_active || length(GLOB.drydock_op_queue))
+		to_chat(usr, SPAN_WARNING("A ship stash/retrieve is in progress. Please wait for it to complete before forcing a save."))
+		return
+
 	SSpersistence.save_in_progress = TRUE
 	to_world(SPAN_NOTICE(SPAN_BOLD("World state save in progress.")))
+	play_announcer_voice_to_all('sound/AI/announcements/autosave_in_progress.ogg')
 	log_and_message_admins("initiated a world persistence save", usr)
 
 	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("1/8")] Saving economy..."))
@@ -423,6 +434,11 @@ SUBSYSTEM_DEF(persistence)
 		economyFinalize()
 	catch(var/exception/economy_e)
 		log_subsystem_persistence_panic("Unhandled exception during economy persistence finalization: [economy_e]")
+
+	try
+		stockMarketSaveCompanies()
+	catch(var/exception/stock_market_e)
+		log_subsystem_persistence_panic("Unhandled exception during stock market persistence finalization: [stock_market_e]")
 
 	try
 		recordsFinalize()
@@ -678,6 +694,12 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/faction_raiding_toggle_e)
 		log_subsystem_persistence_panic("Unhandled exception during faction raiding toggle initialization: [faction_raiding_toggle_e]")
 
+	log_subsystem_persistence_info("Starting stock market initialization...")
+	try
+		stockMarketInitialize()
+	catch(var/exception/stock_market_e)
+		log_subsystem_persistence_panic("Unhandled exception during stock market initialization: [stock_market_e]")
+
 	log_subsystem_persistence_info("Starting faction research initialization...")
 	try
 		factionResearchInitialize()
@@ -874,6 +896,11 @@ SUBSYSTEM_DEF(persistence)
 		economyFinalize()
 	catch(var/exception/economy_e)
 		log_subsystem_persistence_panic("Unhandled exception during economy persistence finalization: [economy_e]")
+
+	try
+		stockMarketSaveCompanies()
+	catch(var/exception/stock_market_e)
+		log_subsystem_persistence_panic("Unhandled exception during stock market persistence finalization: [stock_market_e]")
 
 	try
 		recordsFinalize()

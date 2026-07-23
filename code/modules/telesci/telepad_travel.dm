@@ -13,6 +13,45 @@
  * link one, no faction tagger/officer rank involved, unlike every other
  * telepad_cargo subtype in this codebase.
  */
+
+/// One spark+sound pulse at each of origin/destination (either may be null to
+/// skip -- e.g. a system that only wants a destination-side warning). Shared
+/// by every "channel for N seconds, then arrive somewhere" mechanic
+/// (personal_travel.dm, drydock board/disembark, pod warp) so a bystander at
+/// the destination gets the same "something's about to portal in" warning the
+/// traveler's own origin tile already gave. still_valid is a CALLBACK
+/// returning FALSE once the travel this pulse belongs to has been aborted or
+/// has already completed -- callers must flip whatever it checks on every one
+/// of their own abort paths, or a pulse scheduled before the abort will still
+/// fire after the fact.
+/proc/_travel_spool_pulse(turf/origin, turf/destination, datum/callback/still_valid)
+	if(still_valid && !still_valid.Invoke())
+		return
+	if(origin)
+		spark(origin, 2, GLOB.alldirs)
+		playsound(origin, 'sound/effects/sparks4.ogg', 20, 1)
+	if(destination)
+		spark(destination, 2, GLOB.alldirs)
+		playsound(destination, 'sound/effects/sparks4.ogg', 20, 1)
+
+/// Fires _travel_spool_pulse() immediately, then every 5 seconds until
+/// duration -- personal_travel.dm's original 15s/3-pulse cadence (t=0/5/10),
+/// generalized to any duration so a 3-second channel (pod warp) still gets
+/// its one t=0 pulse without extra repeats.
+/proc/_start_travel_spool_pulses(turf/origin, turf/destination, duration, datum/callback/still_valid)
+	_travel_spool_pulse(origin, destination, still_valid)
+	var/t = 5 SECONDS
+	while(t < duration)
+		addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_travel_spool_pulse), origin, destination, still_valid), t)
+		t += 5 SECONDS
+
+/// Generic still_valid callback target for callers with no existing sequence
+/// var of their own (drydock board/disembark, pod warp) -- token is a
+/// one-element list acting as a mutable box, e.g. `list(TRUE)`; set
+/// `token[1] = FALSE` on whatever abort path ends the spool-up early.
+/proc/_spool_token_valid(list/token)
+	return token && token[1]
+
 /obj/structure/machinery/telepad_cargo/travel
 	name = "travel pad"
 	desc = "A tuned telepad that links to any other travel pad sharing its access code, letting you step directly between them."

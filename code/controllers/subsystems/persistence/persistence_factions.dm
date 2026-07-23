@@ -472,6 +472,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 
 	SSpersistence.setFactionRaidingEnabled(new_state)
 	to_world(FONT_LARGE(EXAMINE_BLOCK_RED("Faction raiding has been [new_state ? SPAN_WARNING("enabled") : SPAN_GOOD("disabled")] by an administrator.[new_state ? "" : " Non-members can no longer enter claimed faction territory."]")))
+	play_announcer_voice_to_all(new_state ? 'sound/AI/announcements/raiding_allowed.ogg' : 'sound/AI/announcements/raiding_prohibited.ogg')
 	log_and_message_admins("[new_state ? "enabled" : "disabled"] faction raiding.", usr)
 
 // ============================================================

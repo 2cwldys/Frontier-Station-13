@@ -241,37 +241,99 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 /// wouldn't change.
 /mob/var/zone_announce_mission = FALSE
 
-/// Announce when this mob's current zone level (or mission-sector status)
-/// differs from the last one announced. quiet_baseline suppresses the
-/// message and just records the state (used at login so every fresh join
-/// doesn't print a banner).
-/mob/proc/check_zone_announce(quiet_baseline = FALSE)
+/// Last faction_uid announced as controlling this mob's zone (null = none/
+/// nullsec). Tracked separately from zone_announce_level so a same-tier
+/// handoff between two different factions' beacon radii still re-prints the
+/// "sector is under X control" line, without re-printing the whole
+/// zone-entry banner (that stays gated on tier/mission only).
+/mob/var/zone_announce_faction = null
+
+/// Announce when this mob's current zone level (or mission-sector status, or
+/// controlling faction) differs from the last one announced. quiet_baseline
+/// suppresses the message and just records the state (used at login so every
+/// fresh join doesn't print a banner). force_faction_check makes the
+/// (potentially expensive, see get_owning_faction_beacon()) owner lookup run
+/// even when the tier didn't change -- set by zone_security_recheck_mobs_on_z()
+/// for beacon-driven state changes; left FALSE for ordinary movement-driven
+/// calls so walking around does not pay that cost on every step.
+/mob/proc/check_zone_announce(quiet_baseline = FALSE, force_faction_check = FALSE)
 	if(!client)
 		return
 	// Pregame lobby mobs sit on a real station z but aren't "in" the world --
 	// never announce (nor set the baseline; the spawned body announces fresh)
 	if(istype(src, /mob/abstract/new_player))
 		return
+	// Admins flying around in aghost aren't "really" in whatever zone they're
+	// passing through -- never announce (nor track state; their own body's
+	// tracking is a separate mob instance, unaffected either way).
+	if(isobserver(src))
+		var/mob/abstract/ghost/observer/O = src
+		if(O.admin_ghosted)
+			return
 	var/nz = GET_Z(src)
 	if(!nz)
 		return
 	var/new_level = zone_security_get(nz)
 	var/new_mission = is_active_mission_sector(nz)
-	if(new_level == zone_announce_level && new_mission == zone_announce_mission)
+	var/tier_changed = (new_level != zone_announce_level) || (new_mission != zone_announce_mission)
+
+	// Owner lookup is skipped on ordinary movement-driven calls where the
+	// tier didn't change -- get_owning_faction_beacon() falls back to an
+	// O(active beacons) world scan for any non-station (radius-covered) Z,
+	// and crew walking around inside a stationary ship fire Moved() every
+	// step even when the ship itself never moves on the overmap. Only worth
+	// paying that cost when the tier changed (already free -- same call was
+	// always made below in that case) or when force_faction_check requests
+	// it (beacon-sweep-driven notification, bounded by sweep cadence).
+	var/obj/structure/machinery/faction_beacon/owner
+	var/new_faction = zone_announce_faction
+	var/faction_changed = FALSE
+	if(tier_changed || force_faction_check)
+		owner = (new_level != ZONE_NULLSEC) ? get_owning_faction_beacon(nz) : null
+		new_faction = (owner && owner.faction_uid) ? owner.faction_uid : null
+		faction_changed = (new_faction != zone_announce_faction)
+
+	if(!tier_changed && !faction_changed)
 		return
 	zone_announce_level = new_level
 	zone_announce_mission = new_mission
+	zone_announce_faction = new_faction
 	if(quiet_baseline && new_level == ZONE_NULLSEC)
 		return
-	switch(new_level)
-		if(ZONE_HIGHSEC)
-			to_chat(src, FONT_LARGE(SPAN_COLOR("#54c556", "You are entering a highsec area! Piracy and combat is outlawed, Hub law is enforced.")))
-		if(ZONE_MEDSEC)
-			to_chat(src, FONT_LARGE(SPAN_COLOR("#e8bb4a", "You are entering a medsec area! Piracy is outlawed, factions enforce their own laws.")))
-		else
-			to_chat(src, FONT_LARGE(SPAN_COLOR("#e04545", "You are entering a nullsec area! Hub and faction laws are not enforced here.")))
-			if(new_mission)
-				to_chat(src, FONT_LARGE(SPAN_COLOR("#e04545", "This area cannot be captured by any faction, and piracy beacons may not be installed.")))
+
+	if(tier_changed)
+		var/play_vox = !isdeaf(src) && (client?.prefs.sfx_toggles & ASFX_ANNOUNCER)
+		switch(new_level)
+			if(ZONE_HIGHSEC)
+				to_chat(src, FONT_LARGE(SPAN_COLOR("#54c556", "You are entering a highsec area! Piracy and combat is outlawed, Hub law is enforced.")))
+				if(play_vox)
+					play_announcer_sound(src, 'sound/AI/announcements/zone_highsec.ogg')
+			if(ZONE_MEDSEC)
+				to_chat(src, FONT_LARGE(SPAN_COLOR("#e8bb4a", "You are entering a medsec area! Piracy is outlawed, factions enforce their own laws.")))
+				if(play_vox)
+					play_announcer_sound(src, 'sound/AI/announcements/zone_medsec.ogg')
+			else
+				to_chat(src, FONT_LARGE(SPAN_COLOR("#e04545", "You are entering a nullsec area! Hub and faction laws are not enforced here.")))
+				if(play_vox)
+					play_announcer_sound(src, 'sound/AI/announcements/zone_nullsec.ogg')
+				if(new_mission)
+					to_chat(src, FONT_LARGE(SPAN_COLOR("#e04545", "This area cannot be captured by any faction, and piracy beacons may not be installed.")))
+
+	if(owner && owner.faction_uid)
+		to_chat(src, SPAN_NOTICE("This sector is under [get_faction_name(owner.faction_uid)] control."))
+
+/// Re-evaluates check_zone_announce() for every client-attached mob
+/// currently on z. Needed whenever z's cached tier changes programmatically
+/// (faction beacon grant/revoke) rather than by a mob's own movement -- a
+/// traveling ship's marker moves on the overmap grid while every mob aboard
+/// never actually changes turf, so their own Moved() never fires from ship
+/// travel alone.
+/proc/zone_security_recheck_mobs_on_z(z)
+	if(!z)
+		return
+	for(var/mob/M in GLOB.player_list)
+		if(GET_Z(M) == z)
+			M.check_zone_announce(force_faction_check = TRUE)
 
 /mob/Moved(atom/old_loc, movement_dir, forced, list/old_locs)
 	. = ..()

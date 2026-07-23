@@ -48,6 +48,7 @@
 
 	use_overmap = TRUE
 	num_exoplanets = 0
+	disable_exoplanets = TRUE
 	overmap_size = 50
 	overmap_event_areas = 69
 	guaranteed_overmap_events = list(/datum/overmap_event/meteor = 12)

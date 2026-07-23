@@ -14,6 +14,10 @@
 #define CHANNEL_INSTRUMENTS 1012
 #define CHANNEL_MOB_SOUNDS 1011
 #define CHANNEL_AMBIENT_PLAYLIST 1010
+/// Shared channel for every ASFX_ANNOUNCER-gated AI voice line (autosave,
+/// zone security, raiding toggle, engine power) -- see play_announcer_sound()
+/// (announce.dm), which queues on this channel so lines can't overlap.
+#define CHANNEL_ANNOUNCER 1009
 
 /// Default range of a sound.
 #define SOUND_RANGE 17
@@ -31,7 +35,7 @@
 //THIS SHOULD ALWAYS BE THE LOWEST ONE!
 //KEEP IT UPDATED
 
-#define CHANNEL_HIGHEST_AVAILABLE 1010
+#define CHANNEL_HIGHEST_AVAILABLE 1008
 
 #define MAX_INSTRUMENT_CHANNELS (128 * 6)
 

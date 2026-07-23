@@ -67,6 +67,22 @@
 	var/thrust_limit = 1  // Global thrust limit for all engines, 0..1
 	var/halted = 0        // Admin halt or other stop.
 
+	/// Whether the ambient engine hum is currently considered "on" for this
+	/// ship -- diffed each _update_engine_hum() sweep to detect on/off
+	/// transitions (for the one-shot startup/shutdown stinger) independent of
+	/// the continuous per-mob hum loop bookkeeping below.
+	var/engine_hum_active = FALSE
+	/// Mobs currently hearing this ship's hum loop -- reconciled every sweep
+	/// against who's actually still on the ship's Z(s) with the preference on,
+	/// so someone who leaves (or turns the preference off) gets it stopped,
+	/// and someone who arrives while engines are already on gets it started.
+	var/list/engine_hum_listeners = list()
+	/// world.time of the next _update_engine_hum() sweep -- throttled well
+	/// below the ship's own process() cadence since this does a
+	/// GLOB.player_list scan, same throttling rationale as
+	/// FACTION_BEACON_SWEEP_INTERVAL (faction_beacon.dm).
+	var/next_engine_hum_check = 0
+
 	comms_support = TRUE
 
 	var/list/colors = list() // Pick a color from this list on init.
@@ -229,6 +245,12 @@
 
 	last_burn = world.time
 
+	// Same ship-wide thruster cue combat_turn()/turn_ship() already broadcast
+	// for rolls/turns -- Burn/Forward never had one of its own.
+	for(var/mob/living/L in GLOB.living_mob_list)
+		if(L.z in map_z)
+			L.playsound_local(soundin = 'sound/machines/thruster.ogg', vol = 50)
+
 	// Get our "Alpha" value as the ship's desired acceleration (change in Velocity)
 	var/acceleration = min(get_burn_acceleration(), accel_limit)
 
@@ -243,6 +265,7 @@
 
 /obj/effect/overmap/visitable/ship/process()
 	..()
+	_update_engine_hum()
 	if(!halted && !is_still())
 		var/list/deltas = list(0,0)
 		for(var/i = 1 to 2)
@@ -262,6 +285,85 @@
 			Move(newloc)
 			handle_wraparound()
 	sensor_visibility = min(round(base_sensor_visibility + get_speed_sensor_increase(), 1), 100)
+
+/// How close (in tiles) a mob needs to be to the engine console to hear the
+/// ASFX_ANNOUNCER "engines powered on/off" voice line -- unlike the
+/// mechanical hum/stinger (ASFX_ENGINE_HUM, whole-Z), this one is meant to
+/// emit from the console itself, not the entire ship.
+#define ENGINE_ANNOUNCER_RANGE 7
+
+/// Detects engine on/off transitions and reconciles the per-mob ambient
+/// engine hum against who's currently on this ship's Z(s) -- see the
+/// engine_hum_active/engine_hum_listeners/next_engine_hum_check var docs
+/// above for the reasoning. Also fires the ASFX_ANNOUNCER-gated "engines
+/// powered on/off" AI voice line on the same transition, localized to the
+/// engine console's own position (see _announce_engine_power() below) --
+/// independently gated from ASFX_ENGINE_HUM (mechanical hum/stinger), since
+/// they're two separate preferences with two different delivery scopes.
+/// Called every process() tick; self-throttles.
+/obj/effect/overmap/visitable/ship/proc/_update_engine_hum()
+	if(world.time < next_engine_hum_check)
+		return
+	next_engine_hum_check = world.time + 3 SECONDS
+
+	var/any_on = FALSE
+	for(var/datum/ship_engine/E in engines)
+		if(E.is_on())
+			any_on = TRUE
+			break
+
+	var/transitioned_on = any_on && !engine_hum_active
+	var/transitioned_off = !any_on && engine_hum_active
+
+	if(transitioned_on || transitioned_off)
+		// Let the mechanical startup/shutdown stinger (below) land first --
+		// the AI confirmation voice line follows a beat later instead of
+		// talking over it.
+		addtimer(CALLBACK(src, PROC_REF(_announce_engine_power), transitioned_on), 1.5 SECONDS)
+
+	var/list/current_listeners = list()
+	if(any_on || transitioned_off)
+		for(var/mob/M in GLOB.player_list)
+			if(!M.client || M.ear_deaf || !(GET_Z(M) in map_z))
+				continue
+
+			if(!(M.client.prefs.sfx_toggles & ASFX_ENGINE_HUM))
+				continue
+
+			if(transitioned_on)
+				M << sound('sound/machines/engine_startup.ogg', volume = 50)
+			else if(transitioned_off)
+				M << sound('sound/machines/engine_shutdown.ogg', volume = 50)
+
+			if(any_on)
+				current_listeners += M
+	engine_hum_active = any_on
+
+	for(var/mob/M in current_listeners)
+		if(!(M in engine_hum_listeners))
+			M << sound('sound/machines/engine_hum_loop.ogg', repeat = 1, volume = 10, channel = CHANNEL_MACHINERY)
+	for(var/mob/M in engine_hum_listeners)
+		if(!(M in current_listeners))
+			M << sound(null, channel = CHANNEL_MACHINERY)
+	engine_hum_listeners = current_listeners
+
+/// Plays the "engines powered on/off" AI voice line, localized to the
+/// engine control console's own turf -- only mobs near the console (not the
+/// whole ship, unlike engine_startup/shutdown/hum above) with ASFX_ANNOUNCER
+/// enabled hear it. No-ops if this ship has no engine console.
+/obj/effect/overmap/visitable/ship/proc/_announce_engine_power(powering_on)
+	var/obj/structure/machinery/computer/ship/engines/console = locate(/obj/structure/machinery/computer/ship/engines) in consoles
+	if(!console)
+		return
+	var/sound_file = powering_on ? 'sound/AI/announcements/engines_powered_on.ogg' : 'sound/AI/announcements/engines_powered_off.ogg'
+	for(var/mob/M in GLOB.player_list)
+		if(!M.client || M.ear_deaf || GET_Z(M) != GET_Z(console))
+			continue
+		if(get_dist(M, console) > ENGINE_ANNOUNCER_RANGE)
+			continue
+		if(!(M.client.prefs.sfx_toggles & ASFX_ANNOUNCER))
+			continue
+		play_announcer_sound(M, sound_file, 50)
 
 /obj/effect/overmap/visitable/ship/update_icon()
 	pixel_x = position[1] * (world.icon_size/2)
