@@ -44,7 +44,7 @@ GLOBAL_LIST_EMPTY(cargo_export_prices)
 		_cargoExportsSeedDefaults()
 
 	var/datum/db_query/query = SSdbcore.NewQuery(
-		"SELECT type_path, price FROM ss13_cargo_exports WHERE map_path = :mp",
+		"SELECT type_path, price, label, is_illegal FROM ss13_cargo_exports WHERE map_path = :mp",
 		list("mp" = "[SSatlas.current_map.path]")
 	)
 	query.Execute()
@@ -52,7 +52,7 @@ GLOBAL_LIST_EMPTY(cargo_export_prices)
 		qdel(query)
 		return
 	while(query.NextRow())
-		GLOB.cargo_export_prices[query.item[1]] = text2num(query.item[2])
+		GLOB.cargo_export_prices[query.item[1]] = list("price" = text2num(query.item[2]), "label" = query.item[3], "illegal" = text2num(query.item[4]) ? TRUE : FALSE)
 	qdel(query)
 	log_subsystem_persistence_info("Cargo exports: loaded [length(GLOB.cargo_export_prices)] priced export type(s).")
 
@@ -89,6 +89,14 @@ GLOBAL_LIST_EMPTY(cargo_export_prices)
  * Resolves the export price for an item: exact type match, then walks up
  * the type hierarchy for the nearest configured parent type, else the flat
  * base price -- every item is sellable, not just a fixed catalog.
+ *
+ * An entry flagged illegal only actually pays its configured price while an
+ * operational piracy beacon (code/game/objects/structures/machinery/piracy_beacon.dm)
+ * is present on thing's own current Z -- otherwise it quietly falls back to
+ * the normal base price, same as an unlisted item. This is the single choke
+ * point every real export path (cargo shuttle, export scanner, Cargo Exports
+ * Terminal, Cargo Control) already shares, so the rule applies everywhere
+ * automatically with no other call site needing to know about it.
  */
 /proc/get_cargo_export_price(atom/movable/thing)
 	if(!thing)
@@ -96,7 +104,10 @@ GLOBAL_LIST_EMPTY(cargo_export_prices)
 	var/t = thing.type
 	while(t)
 		if("[t]" in GLOB.cargo_export_prices)
-			return GLOB.cargo_export_prices["[t]"]
+			var/list/entry = GLOB.cargo_export_prices["[t]"]
+			if(entry["illegal"] && !piracy_beacon_active_on_z(GET_Z(thing)))
+				return CARGO_EXPORT_BASE_PRICE
+			return entry["price"]
 		t = type2parent(t)
 	return CARGO_EXPORT_BASE_PRICE
 
@@ -104,7 +115,7 @@ GLOBAL_LIST_EMPTY(cargo_export_prices)
  * Sets (or clears, if price is null) the export price for a type path,
  * persists it, and updates the live cache immediately.
  */
-/proc/set_cargo_export_price(type_path, price, label)
+/proc/set_cargo_export_price(type_path, price, label, illegal = FALSE)
 	if(!SSpersistence.databaseCheckConnection("set_cargo_export_price"))
 		return FALSE
 	var/tp = "[type_path]"
@@ -114,21 +125,25 @@ GLOBAL_LIST_EMPTY(cargo_export_prices)
 			list("tp" = tp, "mp" = "[SSatlas.current_map.path]")
 		)
 		delq.Execute()
-		SSpersistence.databaseCheckQueryResult(delq, "set_cargo_export_price delete")
+		var/delete_ok = SSpersistence.databaseCheckQueryResult(delq, "set_cargo_export_price delete")
 		qdel(delq)
+		if(!delete_ok)
+			return FALSE
 		GLOB.cargo_export_prices -= tp
 		return TRUE
 
 	var/datum/db_query/q = SSdbcore.NewQuery(
-		{"INSERT INTO ss13_cargo_exports (map_path, type_path, price, label)
-		VALUES (:mp, :tp, :price, :label)
-		ON DUPLICATE KEY UPDATE price = VALUES(price), label = VALUES(label)"},
-		list("mp" = "[SSatlas.current_map.path]", "tp" = tp, "price" = price, "label" = label)
+		{"INSERT INTO ss13_cargo_exports (map_path, type_path, price, label, is_illegal)
+		VALUES (:mp, :tp, :price, :label, :illegal)
+		ON DUPLICATE KEY UPDATE price = VALUES(price), label = VALUES(label), is_illegal = VALUES(is_illegal)"},
+		list("mp" = "[SSatlas.current_map.path]", "tp" = tp, "price" = price, "label" = label, "illegal" = illegal ? 1 : 0)
 	)
 	q.Execute()
-	SSpersistence.databaseCheckQueryResult(q, "set_cargo_export_price")
+	var/update_ok = SSpersistence.databaseCheckQueryResult(q, "set_cargo_export_price")
 	qdel(q)
-	GLOB.cargo_export_prices[tp] = price
+	if(!update_ok)
+		return FALSE
+	GLOB.cargo_export_prices[tp] = list("price" = price, "label" = label, "illegal" = illegal ? TRUE : FALSE)
 	return TRUE
 
 // ============================================================
@@ -160,13 +175,17 @@ GLOBAL_LIST_EMPTY(cargo_export_prices)
 			if(!path || !ispath(path, /obj))
 				to_chat(usr, SPAN_WARNING("'[typed_path]' is not a valid /obj type path."))
 				continue
-			var/price = tgui_input_number(usr, "Export price for [typed_path] (credits):", "Manage Cargo Exports", GLOB.cargo_export_prices["[path]"] || CARGO_EXPORT_BASE_PRICE, 1000000, 0)
+			var/price = tgui_input_number(usr, "Export price for [typed_path] (credits):", "Manage Cargo Exports", GLOB.cargo_export_prices["[path]"]?["price"] || CARGO_EXPORT_BASE_PRICE, 1000000, 0)
 			if(isnull(price))
 				continue
 			var/label = tgui_input_text(usr, "Display label (optional):", "Manage Cargo Exports", "", max_length = 64)
-			if(set_cargo_export_price(path, price, label != "" ? label : null))
-				log_and_message_admins("set cargo export price of '[path]' to [price] cr", usr)
-				to_chat(usr, SPAN_GOOD("'[path]' now sells for [price] cr."))
+			var/illegal_choice = tgui_alert(usr, "Normal export, or illegal/black-market (only sells at this price with an operational piracy beacon active on that Z -- otherwise falls back to the base price)?", "Manage Cargo Exports", list("Normal", "Illegal", "Cancel"))
+			if(!illegal_choice || illegal_choice == "Cancel")
+				continue
+			var/illegal = (illegal_choice == "Illegal")
+			if(set_cargo_export_price(path, price, label != "" ? label : null, illegal))
+				log_and_message_admins("set cargo export price of '[path]' to [price] cr[illegal ? " (illegal/black-market)" : ""]", usr)
+				to_chat(usr, SPAN_GOOD("'[path]' now sells for [price] cr[illegal ? " -- illegal, requires an active piracy beacon" : ""]."))
 			else
 				to_chat(usr, SPAN_WARNING("Failed to save -- database error."))
 
@@ -176,7 +195,7 @@ GLOBAL_LIST_EMPTY(cargo_export_prices)
 				continue
 			var/list/remove_choices = list()
 			for(var/tp in GLOB.cargo_export_prices)
-				remove_choices["[GLOB.cargo_export_prices[tp]] cr: [tp]"] = tp
+				remove_choices["[GLOB.cargo_export_prices[tp]["price"]] cr: [tp]"] = tp
 			var/remove_pick = tgui_input_list(usr, "Remove which export price? (reverts to the base price)", "Manage Cargo Exports", remove_choices)
 			if(!remove_pick)
 				continue
@@ -218,5 +237,6 @@ GLOBAL_LIST_EMPTY(cargo_export_prices)
 				continue
 			var/msg = "<b>Cargo export prices:</b>\n"
 			for(var/tp in GLOB.cargo_export_prices)
-				msg += "  [tp]: [GLOB.cargo_export_prices[tp]] cr\n"
+				var/list/entry = GLOB.cargo_export_prices[tp]
+				msg += "  [tp]: [entry["price"]] cr[entry["label"] ? " (label: [entry["label"]])" : ""][entry["illegal"] ? " (ILLEGAL)" : ""]\n"
 			to_chat(usr, SPAN_NOTICE(msg))

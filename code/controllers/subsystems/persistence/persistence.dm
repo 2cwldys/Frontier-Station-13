@@ -700,6 +700,12 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/stock_market_e)
 		log_subsystem_persistence_panic("Unhandled exception during stock market initialization: [stock_market_e]")
 
+	log_subsystem_persistence_info("Starting faction shareholders initialization...")
+	try
+		factionShareholdersInitialize()
+	catch(var/exception/faction_shareholders_e)
+		log_subsystem_persistence_panic("Unhandled exception during faction shareholders initialization: [faction_shareholders_e]")
+
 	log_subsystem_persistence_info("Starting faction research initialization...")
 	try
 		factionResearchInitialize()

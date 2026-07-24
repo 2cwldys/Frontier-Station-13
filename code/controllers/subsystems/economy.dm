@@ -282,6 +282,25 @@ SUBSYSTEM_DEF(economy)
 			return M
 	return
 
+/// Finds a player's personal account for ONE SPECIFIC character (ckey +
+/// owner_name) -- unlike get_account_by_ckey(), which returns whichever
+/// account under that ckey happens to be first in the list. Accounts are
+/// fundamentally per-character (ss13_money_accounts is keyed (ckey,
+/// char_name), see persistence_economy.dm's restoreAccountFromPersistence()),
+/// so anything that spends/displays a balance on behalf of the character the
+/// player is actively controlling -- not "the player" in the abstract --
+/// must use this, or a ckey with two characters can end up spending from (or
+/// displaying) the wrong one's account.
+/datum/controller/subsystem/economy/proc/get_account_by_ckey_and_name(var/ckey, var/char_name)
+	RETURN_TYPE(/datum/money_account)
+	if(!ckey || !char_name)
+		return
+	for(var/account_key in all_money_accounts)
+		var/datum/money_account/M = all_money_accounts[account_key]
+		if(M.ckey == ckey && M.owner_name == char_name)
+			return M
+	return
+
 //gets a departmental account by name
 /datum/controller/subsystem/economy/proc/get_department_account(var/department)
 	RETURN_TYPE(/datum/money_account)

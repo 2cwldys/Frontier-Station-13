@@ -168,7 +168,13 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 				T.overlays -= T.zone_border_overlay
 			var/image/I = image(icon = T.icon, icon_state = T.icon_state, loc = T)
 			I.color = tier_color
-			I.alpha = 190
+			// Beacon-claimed medsec/highsec territory only ever reaches here
+			// (a beacon's guaranteed_security_tier is never nullsec) -- bumped
+			// to match the same tier pair's already-bright value used by the
+			// no-beacon admin-set case below (line ~213), since this was
+			// noticeably dimmer/darker for no real reason. Nullsec's own fill
+			// (a separate, deliberately dimmer case below) is untouched.
+			I.alpha = 225
 			T.overlays += I
 			T.zone_border_overlay = I
 			T.zone_border_tier = B.guaranteed_security_tier
@@ -183,7 +189,10 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 		if(istype(center) && !center.zone_shield_overlay)
 			var/image/shield = image('icons/hud/security_shield.png', loc = center)
 			shield.color = (B.guaranteed_security_tier == ZONE_HIGHSEC) ? "#54c556" : "#e8bb4a"
-			shield.alpha = 150
+			// Medsec/highsec only (same reasoning as the territory fill above) --
+			// brightened from 150 (too dark/washed-out per feedback) while still
+			// short of fully opaque, keeping some of the underlying tile visible.
+			shield.alpha = 200
 			center.overlays += shield
 			center.zone_shield_overlay = shield
 			GLOB.zone_security_bordered_turfs |= center

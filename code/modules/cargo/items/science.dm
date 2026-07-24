@@ -1,3 +1,15 @@
+/singleton/cargo_item/lace_storage_vault
+	category = "science"
+	name = "lace storage vault"
+	supplier = "Hub"
+	description = "A secure server rack for preserving extracted neural laces and the consciousness patterns within them. Wrench to secure once positioned."
+	price = 5000
+	items = list(
+		/obj/structure/machinery/lace_storage/crate
+	)
+	access = 0
+	container_type = "crate"
+
 /singleton/cargo_item/stokcubebox
 	category = "science"
 	name = "stok cube box"

@@ -1049,9 +1049,14 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	if(!SSpersistence.databaseCheckConnection("persistence_pin_site_at_z"))
 		return FALSE
 
+	// Matches the DB's actual unique key (template_name, overmap_x, overmap_y)
+	// -- V103__multi_instance_pinned_sites.sql -- not just template+map, so a
+	// second site sharing a template at a DIFFERENT position (two factions
+	// each claiming their own instance, say) doesn't silently no-op here
+	// instead of actually getting pinned.
 	var/datum/db_query/check = SSdbcore.NewQuery(
-		"SELECT id FROM ss13_persistent_away_sites WHERE template_name = :tn AND map_path = :mp",
-		list("tn" = here_template.id, "mp" = "[SSatlas.current_map.path]")
+		"SELECT id FROM ss13_persistent_away_sites WHERE template_name = :tn AND map_path = :mp AND overmap_x = :ox AND overmap_y = :oy",
+		list("tn" = here_template.id, "mp" = "[SSatlas.current_map.path]", "ox" = (here_marker ? here_marker.start_x : 0), "oy" = (here_marker ? here_marker.start_y : 0))
 	)
 	check.Execute()
 	var/already_pinned = check.NextRow()
@@ -1238,13 +1243,17 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			if(!istype(here_template, /datum/map_template/ruin/away_site))
 				to_chat(usr, SPAN_WARNING("Z=[usr.z] was not loaded from an away-site template -- stand on the site you want to pin."))
 				continue
+			// Matches the DB's actual unique key (template_name, overmap_x,
+			// overmap_y) -- multiple pinned instances of the same template are
+			// allowed at different positions, only a literal duplicate at the
+			// exact same coordinates isn't.
 			var/already_pinned = FALSE
 			for(var/list/row in rows)
-				if(row["template"] == here_template.id)
+				if(row["template"] == here_template.id && row["om_x"] == here_marker.start_x && row["om_y"] == here_marker.start_y)
 					already_pinned = TRUE
 					break
 			if(already_pinned)
-				to_chat(usr, SPAN_WARNING("'[here_template.id]' is already pinned."))
+				to_chat(usr, SPAN_WARNING("'[here_template.id]' is already pinned at this exact position."))
 				continue
 			var/pin_label = tgui_input_text(usr, "Label for this site (optional):", "Pin Site", "", max_length = 128)
 			// The site's base z this session (lowest of its connected z's)
@@ -1281,11 +1290,17 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			log_and_message_admins("pinned overmap site '[here_template.id]' for persistence[pin_label ? " ([pin_label])" : ""]", usr)
 
 		else if(action == "Pin From Template List")
+			// A template is only unpickable while it has a PENDING pin still
+			// sitting at the placeholder (0,0)/unspawned position -- two
+			// simultaneously-pending pins of the same template would collide
+			// there. Once a pinned row has actually spawned once,
+			// build_pinned_away_sites() overwrites its coordinates with its
+			// real position, freeing the template up for another instance.
 			var/list/pinnable = list()
 			for(var/site_id in SSmapping.away_sites_templates)
 				var/id_taken = FALSE
 				for(var/list/row in rows)
-					if(row["template"] == site_id)
+					if(row["template"] == site_id && !row["om_x"] && !row["om_y"] && !row["last_z"])
 						id_taken = TRUE
 						break
 				if(!id_taken)
@@ -2333,34 +2348,11 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 		var/confirm = tgui_alert(usr, "Permanently delete faction '[get_faction_name(chosen_uid)]' ([chosen_uid]) and all its jobs/data? This cannot be undone.", "Confirm Delete", list("Delete", "Cancel"))
 		if(confirm != "Delete") return
 
-		if(!SSpersistence.databaseCheckConnection("remove_faction"))
+		if(!SSpersistence.removeFactionCompletely(chosen_uid, usr))
 			to_chat(usr, SPAN_WARNING("DB connection failed."))
 			return
 
-		// CASCADE in DB handles faction_accounts and faction_jobs via foreign key
-		var/datum/db_query/q = SSdbcore.NewQuery(
-			"DELETE FROM ss13_factions WHERE uid = :uid",
-			list("uid" = chosen_uid)
-		)
-		q.Execute()
-		SSpersistence.databaseCheckQueryResult(q, "remove_faction delete")
-		qdel(q)
-
-		// Remove from in-memory caches
-		GLOB.persistence_faction_cache      -= chosen_uid
-		GLOB.persistence_faction_jobs_cache -= chosen_uid
-
-		// Revoke this faction's bearer master card, if it has one -- same
-		// revoke-by-scan idiom dispense_faction_id uses for superseded
-		// personal IDs (card.dm)
-		for(var/obj/item/card/id/faction_master/old_master in world)
-			if(!old_master.revoked && normalize_faction_uid(old_master.employer_faction) == chosen_uid)
-				old_master.revoked = TRUE
-				old_master.access = list()
-				old_master.update_name()
-
 		to_chat(usr, SPAN_GOOD("Faction '[chosen_uid]' removed."))
-		log_and_message_admins("removed faction '[chosen_uid]'", usr)
 
 	feedback_add_details("admin_verb", "MFA")
 
@@ -2676,7 +2668,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 		return FALSE
 	// Load members with valid account numbers
 	var/datum/db_query/mq = SSdbcore.NewQuery(
-		"SELECT ckey, job_title, account_number FROM ss13_faction_members WHERE faction_uid = :uid AND account_number > 0",
+		"SELECT ckey, real_name, job_title, account_number FROM ss13_faction_members WHERE faction_uid = :uid AND account_number > 0",
 		list("uid" = faction_uid)
 	)
 	mq.Execute()
@@ -2684,12 +2676,14 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 		qdel(mq)
 		return FALSE
 
+	var/fname = get_faction_name(faction_uid)
 	var/paid = 0
 	var/skipped = 0
 	while(mq.NextRow())
-		var/mkey = mq.item[1]
-		var/mjob  = mq.item[2]
-		var/macct = text2num(mq.item[3]) || 0
+		var/mckey = mq.item[1]
+		var/mreal_name = mq.item[2]
+		var/mjob  = mq.item[3]
+		var/macct = text2num(mq.item[4]) || 0
 		if(!macct || !mjob)
 			skipped++
 			continue
@@ -2697,10 +2691,24 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 		if(pay <= 0)
 			skipped++
 			continue
-		if(!faction_debit(faction_uid, pay, "Payroll to [mkey]"))
+		// Only pay a member who is actively playing this exact character
+		// right now -- ckey alone isn't enough, since the same ckey could be
+		// online on an unrelated character. Same online-mob lookup idiom as
+		// announce_faction_event() above.
+		var/mob/living/carbon/human/online_mob = null
+		for(var/mob/living/carbon/human/H in GLOB.player_list)
+			if(!H.client || H.ckey != mckey || H.real_name != mreal_name)
+				continue
+			online_mob = H
+			break
+		if(!online_mob)
+			skipped++
+			continue
+		if(!faction_debit(faction_uid, pay, "Payroll to [mckey]"))
 			log_game("Faction [faction_uid] payroll: insufficient funds, stopping.")
 			break
-		SSeconomy.charge_to_account(macct, "Faction Payroll", "Salary from [get_faction_name(faction_uid)]", null, pay)
+		SSeconomy.charge_to_account(macct, "Faction Payroll", "Salary from [fname]", null, pay)
+		to_chat(online_mob, SPAN_GOOD("Payroll: you've been paid [pay] credits by [fname]."))
 		paid++
 	qdel(mq)
 
@@ -2717,6 +2725,51 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 		GLOB.persistence_faction_cache[faction_uid]["last_payroll_at"] = world.time
 
 	log_game("Faction [faction_uid] payroll: paid [paid] members, skipped [skipped].")
+	return TRUE
+
+/// Permanently deletes a faction: DB row (cascades to ss13_faction_accounts/
+/// ss13_faction_jobs via foreign key), both in-memory caches, and revokes any
+/// outstanding bearer master card. Shared by the admin "Remove Faction"
+/// branch (manage_faction_account(), user set) and the automatic stock-
+/// exchange bankruptcy path (stockMarketRevokeFaction(),
+/// persistence_stock_market.dm, user null) -- a faction that goes bankrupt
+/// while listed on the exchange doesn't just lose its territory (see
+/// _power_down_faction_beacons_on_bankruptcy(), faction_beacon.dm), it
+/// ceases to exist entirely and would have to be founded again from
+/// scratch via the normal petition process (start_founding, faction_manage.dm).
+/// Returns TRUE on success.
+/datum/controller/subsystem/persistence/proc/removeFactionCompletely(faction_uid, mob/user)
+	faction_uid = normalize_faction_uid(faction_uid)
+	if(!faction_uid || !islist(GLOB.persistence_faction_cache) || !(faction_uid in GLOB.persistence_faction_cache))
+		return FALSE
+	if(!databaseCheckConnection("removeFactionCompletely"))
+		return FALSE
+
+	var/fname = get_faction_name(faction_uid)
+
+	// CASCADE in DB handles faction_accounts and faction_jobs via foreign key
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"DELETE FROM ss13_factions WHERE uid = :uid",
+		list("uid" = faction_uid)
+	)
+	q.Execute()
+	databaseCheckQueryResult(q, "removeFactionCompletely delete")
+	qdel(q)
+
+	// Remove from in-memory caches
+	GLOB.persistence_faction_cache      -= faction_uid
+	GLOB.persistence_faction_jobs_cache -= faction_uid
+
+	// Revoke this faction's bearer master card, if it has one -- same
+	// revoke-by-scan idiom dispense_faction_id uses for superseded personal
+	// IDs (card.dm)
+	for(var/obj/item/card/id/faction_master/old_master in world)
+		if(!old_master.revoked && normalize_faction_uid(old_master.employer_faction) == faction_uid)
+			old_master.revoked = TRUE
+			old_master.access = list()
+			old_master.update_name()
+
+	log_and_message_admins("removed faction '[faction_uid]' ([fname])[user ? "" : " -- stock exchange bankruptcy, faction dissolved"]", user)
 	return TRUE
 
 // ============================================================

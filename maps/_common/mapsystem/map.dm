@@ -347,6 +347,20 @@
 	for (var/client/C)
 		++players
 
+	// Pinned sites were already spawned above (build_pinned_away_sites()) and
+	// are excluded from re-selection (the `if(site_id in pinned_ids)` check
+	// above) -- but that alone doesn't stop the RNG from ALSO spending a full
+	// fresh budget on top of them every boot. Deduct their cost here so a
+	// pinned restore counts toward this boot's total instead of being pure
+	// bonus content layered over it.
+	for(var/site_id in pinned_ids)
+		var/datum/map_template/ruin/away_site/pinned_site = SSmapping.away_sites_templates[site_id]
+		if(!pinned_site)
+			continue
+		points -= pinned_site.spawn_cost
+		players -= pinned_site.player_cost
+		shippoints -= pinned_site.ship_cost
+
 	for (var/datum/map_template/ruin/away_site/site in guaranteed)
 		var/list/costs = resolve_site_selection(site, selected, available, unavailable, by_type)
 		points -= costs[1]

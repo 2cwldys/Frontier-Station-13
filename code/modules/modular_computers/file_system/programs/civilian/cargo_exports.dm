@@ -83,12 +83,23 @@
 	// Exports, persistence_cargo_exports.dm) that get_cargo_export_price()
 	// really charges from, not the legacy /datum/export system (dead code --
 	// see persistence_cargo_exports.dm:3-8). Anything not listed here still
-	// sells, at the flat base price (export_base_price below).
+	// sells, at the flat base price (export_base_price below). Illegal
+	// entries are left out of this reference list entirely unless an
+	// operational piracy beacon is present on THIS console's own Z -- mirrors
+	// Cargo Order's can_order_syndicate_uplink() catalog filter exactly
+	// (cargo_order.dm). The actual sale price is separately gated the same
+	// way inside get_cargo_export_price() itself, so this is purely a "don't
+	// even show it as sellable right now" display filter.
+	var/console_z = computer ? GET_Z(computer) : 0
+	var/beacon_active = piracy_beacon_active_on_z(console_z)
 	var/list/catalog = list()
 	for(var/tp in GLOB.cargo_export_prices)
+		var/list/entry = GLOB.cargo_export_prices[tp]
+		if(entry["illegal"] && !beacon_active)
+			continue
 		var/path = text2path(tp)
-		var/display_name = (path && initial(path:name)) ? initial(path:name) : tp
-		catalog += list(list("name" = display_name, "price" = GLOB.cargo_export_prices[tp]))
+		var/display_name = entry["label"] || ((path && initial(path:name)) ? initial(path:name) : tp)
+		catalog += list(list("name" = display_name, "price" = entry["price"]))
 	data["export_catalog"] = catalog
 	data["export_base_price"] = CARGO_EXPORT_BASE_PRICE
 

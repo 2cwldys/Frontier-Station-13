@@ -55,6 +55,11 @@ type FoundingPetition = {
   already_supported: BooleanLike;
 };
 
+type Shareholder = {
+  char_name: string;
+  percent: number;
+};
+
 type FactionData = {
   faction_uid: string | null;
   faction_name: string | null;
@@ -75,6 +80,12 @@ type FactionData = {
   faction_creation_enabled: BooleanLike;
   founding_required: number;
   petitions: FoundingPetition[];
+  stock_listed: BooleanLike;
+  stock_ticker: string | null;
+  stock_player_shares: number;
+  is_ceo: BooleanLike;
+  shareholders: Shareholder[];
+  shareholder_total_percent: number;
 };
 
 // Global program feature -- available from ANY console regardless of that
@@ -187,6 +198,12 @@ export const FactionManagement = (props) => {
     faction_creation_enabled,
     founding_required,
     petitions,
+    stock_listed,
+    stock_ticker,
+    stock_player_shares,
+    is_ceo,
+    shareholders,
+    shareholder_total_percent,
   } = data;
   const [colorPick, setColorPick] = useState(color ?? '#ffffff');
 
@@ -250,7 +267,18 @@ export const FactionManagement = (props) => {
     <NtosWindow resizable width={650} height={700}>
       <NtosWindow.Content scrollable>
         {/* Account Section */}
-        <Section title={`${faction_name ?? faction_uid} — Account`}>
+        <Section
+          title={
+            <>
+              {faction_name ?? faction_uid} — Account
+              {!!is_ceo && (
+                <Box as="span" ml={1} color="good" bold>
+                  (CEO)
+                </Box>
+              )}
+            </>
+          }
+        >
           <LabeledList>
             <LabeledList.Item label="Balance">
               {`${balance ?? 0} credits`}
@@ -305,6 +333,16 @@ export const FactionManagement = (props) => {
                 </>
               )}
             </LabeledList.Item>
+            <LabeledList.Item label="Stock Exchange">
+              {stock_listed ? (
+                <>
+                  Listed as <Box as="span" bold>{stock_ticker}</Box> --{' '}
+                  {stock_player_shares} share(s) held by investors
+                </>
+              ) : (
+                'Not listed'
+              )}
+            </LabeledList.Item>
           </LabeledList>
           {canManage && (
             <Box mt={1}>
@@ -315,6 +353,38 @@ export const FactionManagement = (props) => {
               >
                 Pay Members Now
               </Button>
+              {stock_listed ? (
+                <>
+                  <Button
+                    icon="hand-holding-usd"
+                    color="good"
+                    ml={1}
+                    tooltip="Distributes credits from the faction treasury to every current shareholder, split by their exact percent of the company. Always leaves at least 1% of the treasury behind."
+                    onClick={() => act('pay_dividends')}
+                  >
+                    Pay Dividends
+                  </Button>
+                  <Button
+                    icon="file-contract"
+                    color="average"
+                    ml={1}
+                    tooltip="Prints a share certificate offering a set percentage of the company (optionally for a price) -- swiping an ID against it accepts the stake, diluting every current shareholder proportionally."
+                    onClick={() => act('print_share_certificate')}
+                  >
+                    Print Share Certificate
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  icon="chart-line"
+                  color="average"
+                  ml={1}
+                  tooltip="Lists this faction on the Idris stock exchange -- real players can then buy/sell stock tied directly to the faction treasury, and you become the company's first shareholder at 100%. If the treasury runs dry, every stockholder is force-liquidated and the faction is dissolved entirely. Cannot be undone by faction command; only an admin can revoke it afterward."
+                  onClick={() => act('list_on_exchange')}
+                >
+                  List on Stock Exchange
+                </Button>
+              )}
               <Button
                 icon="user"
                 color="caution"
@@ -526,6 +596,40 @@ export const FactionManagement = (props) => {
             </Table>
           )}
         </Section>
+
+        {/* Shareholders Section -- only exists once listed on the exchange */}
+        {!!stock_listed && (
+          <Section
+            title="Shareholders"
+            buttons={
+              <Box color="label">
+                {shareholder_total_percent}% allocated
+              </Box>
+            }
+          >
+            {!shareholders || shareholders.length === 0 ? (
+              <Box italic color="label">
+                No shareholders yet.
+              </Box>
+            ) : (
+              <Table>
+                <Table.Row header>
+                  <Table.Cell>Name</Table.Cell>
+                  <Table.Cell>Percent</Table.Cell>
+                </Table.Row>
+                {shareholders
+                  .slice()
+                  .sort((a, b) => b.percent - a.percent)
+                  .map((sh) => (
+                    <Table.Row key={sh.char_name}>
+                      <Table.Cell bold>{sh.char_name}</Table.Cell>
+                      <Table.Cell>{sh.percent}%</Table.Cell>
+                    </Table.Row>
+                  ))}
+              </Table>
+            )}
+          </Section>
+        )}
 
         {/* Transaction History */}
         {data.transactions?.length > 0 && (

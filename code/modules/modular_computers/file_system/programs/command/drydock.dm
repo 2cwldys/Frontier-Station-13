@@ -57,7 +57,7 @@
 
 	// Shown in the Market tab so a purchase's affordability is visible without
 	// needing to check an ATM or the cargo console first.
-	var/datum/money_account/personal_account = SSeconomy.get_account_by_ckey(user.ckey)
+	var/datum/money_account/personal_account = SSeconomy.get_account_by_ckey_and_name(user.ckey, user.real_name)
 	data["personal_balance"] = personal_account ? personal_account.money : null
 	data["faction_balance"] = own_faction ? get_faction_account_balance(own_faction) : null
 

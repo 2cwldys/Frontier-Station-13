@@ -147,6 +147,24 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 				return B
 	return null
 
+/// Powers off every active faction beacon belonging to faction_uid -- called
+/// only when that faction is force-delisted from the stock exchange due to
+/// insolvency (stockMarketRevokeFaction(), user null), never on an admin-
+/// initiated revoke for any other reason (a manual revoke leaves the
+/// faction's own territory alone). _power_down() already does exactly what
+/// bankruptcy should mean here: releases the Z claim, drops persistence-save,
+/// reverts the security tier, and un-networks every object/area this beacon
+/// had swept -- so its former territory (and everything tagged on it) goes
+/// back to fully unassigned, same as if command had powered it down
+/// themselves.
+/proc/_power_down_faction_beacons_on_bankruptcy(faction_uid)
+	if(!faction_uid)
+		return
+	for(var/obj/structure/machinery/faction_beacon/B in world)
+		if(QDELETED(B) || B.faction_uid != faction_uid || !B.powered)
+			continue
+		B._power_down(null, "faction bankrupt -- stock exchange listing revoked")
+
 /obj/structure/machinery/faction_beacon/Initialize(mapload)
 	. = ..()
 	spark_system = bind_spark(src, 5)

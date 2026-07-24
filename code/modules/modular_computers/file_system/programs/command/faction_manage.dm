@@ -23,6 +23,13 @@
 // also needs them, for the founding sweep) is #included earlier in the
 // .dme than this file.
 
+/// "Pay Dividends" can never distribute more than this fraction of the
+/// treasury's current balance -- always leaves at least 1% behind so a
+/// dividend payout can never itself re-bankrupt the company (confirmed with
+/// the user -- simpler than a fixed-credit reserve and scales with any
+/// faction's actual wealth).
+#define FACTION_DIVIDEND_MAX_FRACTION 0.99
+
 /datum/computer_file/program/faction_manage
 	filename = "faction_manage"
 	filedesc = "Faction Management Terminal"
@@ -36,6 +43,15 @@
 	size = 4
 	color = LIGHT_COLOR_BLUE
 	tgui_id = "FactionManagement"
+	// Without this, "List on Stock Exchange" (and the Pay Dividends/Print
+	// Share Certificate buttons that replace it) can go stale: if the
+	// faction gets listed via a different session/console while this one's
+	// already open, this window keeps showing the old button, clickable,
+	// until something else forces a refresh -- server-side list_on_exchange
+	// already refuses a double-listing, but the button itself should reflect
+	// reality promptly instead of looking usable when it isn't. Same fix,
+	// same reasoning as cargo_exports.dm's own ui_auto_update.
+	ui_auto_update = TRUE
 
 	/// Which founding petition tap_consent() canvasses for -- set via the
 	/// "select_tap_target" action, since founding is no longer tied to this
@@ -90,7 +106,16 @@
 		return data
 
 	var/op_rank = get_effective_faction_rank(user, net)
+	// Whoever holds the single highest (or tied-highest) granted shareholder
+	// percentage is this faction's "owner and CEO" -- full command-rank
+	// access, computed live every call, never persisted as an actual job/
+	// rank row. Never downgrades an existing rank-2 job holder or admin, and
+	// doesn't require the CEO to already be a registered member.
+	var/is_ceo = is_faction_ceo(net, user.ckey, user.real_name)
+	if(op_rank < 2 && is_ceo)
+		op_rank = 2
 	data["op_rank"] = op_rank  // -1 = non-member, 0+ = member rank, 99 = admin
+	data["is_ceo"] = is_ceo
 
 	if(op_rank >= 1)
 		var/raw_balance = get_faction_account_balance(net)
@@ -122,6 +147,26 @@
 		var/last_pay_tick = fp_cache ? (fp_cache["last_payroll_at"] || 0) : 0
 		data["last_payroll"] = last_pay_tick > 0 ? max(0, world.time - last_pay_tick) : 0
 		data["auto_payroll"] = get_faction_auto_payroll(net)
+
+		// Stock exchange listing status -- gates "List on Stock Exchange"
+		// (hidden/disabled once already listed) and "Pay Dividends" (only
+		// shown once listed) in the TGUI. See get_faction_stock_company()
+		// (persistence_stock_market.dm).
+		var/datum/stock_company/fm_stock = get_faction_stock_company(net)
+		data["stock_listed"] = !isnull(fm_stock)
+		data["stock_ticker"] = fm_stock ? fm_stock.ticker : null
+		data["stock_player_shares"] = fm_stock ? stock_market_total_player_shares(fm_stock.company_id) : 0
+
+		// Shareholders -- percentage-of-company equity, distinct from the
+		// stockholders above. Only ever non-empty once listed (see
+		// "list_on_exchange"'s 100%-seed and "print_share_certificate").
+		var/list/shareholders_out = list()
+		var/list/fm_shareholders = GLOB.persistence_faction_shareholders_cache[net]
+		if(islist(fm_shareholders))
+			for(var/list/sh in fm_shareholders)
+				shareholders_out += list(list("char_name" = sh["char_name"], "percent" = sh["percent"]))
+		data["shareholders"] = shareholders_out
+		data["shareholder_total_percent"] = faction_shareholder_total_percent(net)
 
 		// Transaction history (last 20)
 		var/list/tx_out = list()
@@ -196,6 +241,11 @@
 		data["is_founder"]        = FALSE
 		data["master_card_lost"]  = FALSE
 		data["color"]             = null
+		data["stock_listed"]        = FALSE
+		data["stock_ticker"]        = null
+		data["stock_player_shares"] = 0
+		data["shareholders"]              = list()
+		data["shareholder_total_percent"] = 0
 
 	return data
 
@@ -239,6 +289,10 @@
 	// when net is null (get_effective_faction_rank() itself guards on
 	// !faction_uid), so nothing downstream needs its own null-net guard.
 	var/op_rank = get_effective_faction_rank(user, net)
+	// Shareholder-majority CEO -- see the matching bump in ui_data() for the
+	// full rationale. Recomputed live every action, never persisted.
+	if(op_rank < 2 && is_faction_ceo(net, user.ckey, user.real_name))
+		op_rank = 2
 
 	switch(action)
 		// ---- Start Founding Petition ------------------------------------------
@@ -634,6 +688,144 @@
 			to_chat(user, SPAN_GOOD("Payroll mode set to [new_state ? "Automatic" : "Manual"] for [get_faction_name(net)]."))
 			. = TRUE
 
+		// ---- List on Stock Exchange -------------------------------------------
+		// Opens this faction's own real stock listing -- distinct from the
+		// AI-simulated companies (stock_market.dm/persistence_stock_market.dm):
+		// price tracks the faction's OWN treasury balance per share, trades
+		// move real credits into/out of that treasury, and a bankrupt
+		// (balance <= 0) listing auto-revokes (stockMarketRevokeFaction(),
+		// force-liquidating every holder, and powering down this faction's
+		// beacons -- see _power_down_faction_beacons_on_bankruptcy(),
+		// faction_beacon.dm) even if nobody's watching. There is no
+		// self-service unlist once listed -- only an admin can revoke it from
+		// here on (the Stock Market program's "Revoke Faction Business Status").
+		if("list_on_exchange")
+			if(op_rank < 2) return
+			if(get_faction_stock_company(net))
+				to_chat(user, SPAN_WARNING("[get_faction_name(net)] is already listed on the exchange."))
+				return
+			var/confirm = tgui_alert(user, "List [get_faction_name(net)] on the Idris stock exchange? Real players will be able to buy/sell stock tied directly to the faction's own treasury -- trades move real credits in and out, and the treasury running dry force-liquidates every stockholder AND powers down every faction beacon (and dissolves the faction entirely). This cannot be undone by faction command -- only an admin can revoke the listing afterward. You'll also become the company's first shareholder, holding 100%.", "List on Stock Exchange", list("List", "Cancel"))
+			if(confirm != "List") return
+			var/refusal = SSpersistence.stockMarketListFaction(net, user)
+			if(refusal)
+				to_chat(user, SPAN_WARNING(refusal))
+				return
+			// Seeds the acting user as the company's first shareholder at
+			// 100% -- see persistence_faction_shareholders.dm. Every
+			// certificate issued from here on proportionally dilutes this
+			// (and every other current) stake rather than adding on top of
+			// an "unallocated" pool -- the cap table always sums to 100%.
+			SSpersistence.factionGrantShareholder(net, user.ckey, user.real_name, 100, "Faction Listing", null)
+			to_chat(user, SPAN_GOOD("[get_faction_name(net)] is now listed on the Idris stock exchange. You are its first shareholder, holding 100%."))
+			log_game("[key_name(user)] listed faction '[net]' on the stock exchange via faction_manage, seeded as its 100% shareholder.")
+			. = TRUE
+
+			// ---- Print Share Certificate --------------------------------------------
+			// Prints a physical /obj/item/paper/share_certificate (share_certificate.dm)
+			// offering a set percentage of the faction's equity, optionally for a
+			// price -- swiping an ID card against it (try_redeem()) grants the
+			// stake, proportionally diluting every existing shareholder
+			// (factionGrantShareholder(), persistence_faction_shareholders.dm).
+			// Dilution/validity is only actually checked and applied at
+			// redemption time -- printing itself commits nothing.
+			if("print_share_certificate")
+				if(op_rank < 2) return
+				if(!get_faction_stock_company(net))
+					to_chat(user, SPAN_WARNING("[get_faction_name(net)] must be listed on the stock exchange before you can offer shares."))
+					return
+				var/available = faction_shareholder_total_percent(net)
+				if(available <= 0)
+					to_chat(user, SPAN_WARNING("[get_faction_name(net)] has no allocated equity to offer shares from yet."))
+					return
+				var/sc_percent = tgui_input_number(user, "Percentage of the company to offer (this will proportionally dilute every current shareholder, including you) -- currently allocated: [available]%:", "Print Share Certificate", min(5, available - 0.01), available - 0.01, 0.01, round_value = FALSE)
+				if(isnull(sc_percent) || sc_percent <= 0) return
+				var/sc_price = tgui_input_number(user, "Credits the recipient must pay to accept this stake (0 for a free grant):", "Print Share Certificate", 0, 1000000, 0)
+				if(isnull(sc_price)) return
+				var/obj/item/paper/share_certificate/SC = new(get_turf(computer))
+				SC.faction_uid = net
+				SC.percent = sc_percent
+				SC.price = sc_price
+				SC.issued_by_name = user.real_name || key_name(user)
+				user.put_in_hands(SC)
+				to_chat(user, SPAN_GOOD("Printed a [sc_percent]% share certificate[sc_price > 0 ? " (price: [sc_price] cr)" : " (free grant)"] for [get_faction_name(net)]."))
+				log_game("[key_name(user)] printed a [sc_percent]% share certificate (price [sc_price]) for faction '[net]' via faction_manage.")
+				. = TRUE
+
+		// ---- Pay Dividends -----------------------------------------------------
+		// Distributes credits straight out of the faction treasury to every
+		// current SHAREHOLDER (persistence_faction_shareholders.dm) of this
+		// faction's OWN stock listing, split by their raw percent -- the
+		// payout counterpart to the treasury-backed pricing model
+		// (sync_price_to_treasury(), stock_market.dm) that already makes the
+		// share price itself track the faction's success. Distinct from the
+		// per-share "stockholders" traded on the open exchange, which this no
+		// longer pays. Strict percentage (confirmed with the user): each
+		// shareholder gets exactly dividend_pool * percent / 100 -- computed
+		// from live holdings first, then debited once for exactly the sum
+		// actually paid out, rather than debiting the requested amount up
+		// front and risking rounding leakage no one actually received.
+		if("pay_dividends")
+			if(op_rank < 2) return
+			var/datum/stock_company/div_company = get_faction_stock_company(net)
+			if(!div_company)
+				to_chat(user, SPAN_WARNING("[get_faction_name(net)] isn't listed on the stock exchange."))
+				return
+			var/list/div_shareholders = GLOB.persistence_faction_shareholders_cache[net]
+			if(!islist(div_shareholders) || !length(div_shareholders))
+				to_chat(user, SPAN_WARNING("[get_faction_name(net)] has no shareholders to pay out to."))
+				return
+			var/div_balance = get_faction_account_balance(net) || 0
+			if(div_balance <= 0)
+				to_chat(user, SPAN_WARNING("[get_faction_name(net)]'s treasury is empty."))
+				return
+			// A dividend can never drain more than FACTION_DIVIDEND_MAX_FRACTION
+			// of the treasury -- at least 1% always survives the payout, so
+			// dividends alone can never re-bankrupt the company.
+			var/div_max = round(div_balance * FACTION_DIVIDEND_MAX_FRACTION)
+			if(div_max <= 0)
+				to_chat(user, SPAN_WARNING("[get_faction_name(net)]'s treasury is too low to pay a dividend right now."))
+				return
+			var/div_amount = tgui_input_number(user, "Dividend pool to distribute -- each shareholder receives exactly their own percent of this amount. (Treasury: [div_balance] cr, at least 1% must remain)", "Pay Dividends", min(1000, div_max), div_max, 1)
+			if(isnull(div_amount) || div_amount <= 0)
+				return
+
+			var/list/div_payouts = list()
+			var/div_paid_total = 0
+			for(var/list/sh in div_shareholders)
+				var/h_payout = round(div_amount * sh["percent"] / 100)
+				if(h_payout <= 0)
+					continue
+				div_payouts += list(list("ckey" = sh["ckey"], "char_name" = sh["char_name"], "amount" = h_payout, "percent" = sh["percent"]))
+				div_paid_total += h_payout
+
+			if(div_paid_total <= 0)
+				to_chat(user, SPAN_WARNING("That amount is too small to distribute across current shareholder percentages."))
+				return
+			// Re-check against a fresh balance -- some time (the tgui_input_number
+			// prompt) has passed since div_balance was read above.
+			if(div_paid_total > round((get_faction_account_balance(net) || 0) * FACTION_DIVIDEND_MAX_FRACTION))
+				to_chat(user, SPAN_WARNING("The treasury balance changed -- that would leave less than 1% in reserve. Try a smaller amount."))
+				return
+			if(!faction_debit(net, div_paid_total, "Dividend payout by [key_name(user)]"))
+				to_chat(user, SPAN_WARNING("Insufficient funds -- the treasury balance changed. Try a smaller amount."))
+				return
+
+			var/div_paid_holders = 0
+			for(var/list/p in div_payouts)
+				var/datum/money_account/h_acc = SSeconomy.get_account_by_ckey_and_name(p["ckey"], p["char_name"])
+				if(h_acc)
+					h_acc.adjust_money(p["amount"])
+				div_paid_holders++
+				var/client/h_client = GLOB.directory[p["ckey"]]
+				if(h_client)
+					to_chat(h_client, SPAN_GOOD("You received a dividend payout of [p["amount"]] credits ([p["percent"]]% stake) from [get_faction_name(net)]."))
+
+			div_company.sync_price_to_treasury()
+
+			to_chat(user, SPAN_GOOD("Paid out [div_paid_total] credits in dividends to [div_paid_holders] shareholder(s)."))
+			log_and_message_admins("[key_name(user)] paid out [div_paid_total] cr in dividends to [div_paid_holders] shareholder(s) of [get_faction_name(net)]'s stock listing.", user)
+			. = TRUE
+
 		// ---- Set Faction Color -----------------------------------------------
 		// Tints any clothing/equipment currently tagged to this faction with
 		// the faction tagger, immediately and everywhere (worn, stored, on the
@@ -789,8 +981,8 @@
 		// first -- nobody, admins included, can mint a second valid card
 		// while the current one is still out there and unrevoked.
 		if("print_master_card")
-			if(op_rank != 99 && user.ckey != get_faction_founder_ckey(net))
-				to_chat(user, SPAN_WARNING("Only [get_faction_name(net)]'s original founder (or an admin) can print a replacement master card."))
+			if(op_rank != 99 && user.ckey != get_faction_founder_ckey(net) && !is_faction_ceo(net, user.ckey, user.real_name))
+				to_chat(user, SPAN_WARNING("Only [get_faction_name(net)]'s original founder, its majority shareholder, or an admin can print a replacement master card."))
 				return
 			if(!get_faction_master_card_lost(net))
 				to_chat(user, SPAN_WARNING("The current master card hasn't been reported lost -- use Panic Purge first if it's been compromised."))

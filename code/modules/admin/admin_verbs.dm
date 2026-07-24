@@ -203,6 +203,7 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/give_faction_id,
 	/datum/admins/proc/toggle_faction_creation,
 	/datum/admins/proc/toggle_faction_raiding,
+	/datum/admins/proc/manage_stock_market,
 	/datum/admins/proc/toggle_zlevel_persistence,
 	/datum/admins/proc/manage_manual_save_list,
 	/datum/admins/proc/manage_persistent_overmap_sites,
