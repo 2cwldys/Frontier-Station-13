@@ -47,6 +47,30 @@ GLOBAL_LIST_EMPTY(persistence_faction_shareholders_cache)
 			total += h["percent"]
 	return total
 
+/**
+ * Wipes every equity shareholder stake for faction_uid -- called by
+ * stockMarketRevokeFaction() (persistence_stock_market.dm) when a faction's
+ * stock exchange listing is revoked. Previously only the tradable
+ * ss13_stock_holdings were cleared on revoke; this separate equity cap table
+ * (seeded 100% to whoever listed the faction, diluted by share certificates)
+ * was left untouched, so is_faction_ceo() kept finding the old majority
+ * holder and "(CEO)" kept showing in Faction Management after a revoke --
+ * contradicting this file's own is_faction_ceo() doc comment, which already
+ * assumed FALSE "if this faction has no shareholders yet (never listed, or
+ * delisted/dissolved)".
+ */
+/datum/controller/subsystem/persistence/proc/factionClearShareholders(faction_uid)
+	GLOB.persistence_faction_shareholders_cache -= faction_uid
+	if(!databaseCheckConnection("factionClearShareholders"))
+		return
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"DELETE FROM ss13_faction_shareholders WHERE faction_uid = :uid",
+		list("uid" = faction_uid)
+	)
+	q.Execute()
+	databaseCheckQueryResult(q, "factionClearShareholders")
+	qdel(q)
+
 /// This (ckey, char_name)'s existing stake in faction_uid, or null.
 /proc/faction_shareholder_get(faction_uid, ckey, char_name)
 	var/list/held = GLOB.persistence_faction_shareholders_cache[faction_uid]

@@ -254,6 +254,12 @@ GLOBAL_LIST_EMPTY(persistence_stock_holdings_cache)
 	databaseCheckQueryResult(cq, "stockMarketRevokeFaction delete company")
 	qdel(cq)
 
+	// Separate equity cap table (persistence_faction_shareholders.dm) --
+	// distinct from the ss13_stock_holdings just cleared above, and never
+	// touched by this proc before, which left the old majority/CEO stake
+	// stale (still findable by is_faction_ceo()) even after a full revoke.
+	SSpersistence.factionClearShareholders(C.faction_uid)
+
 	SSstock_market.companies -= "[company_id]"
 	// log_and_message_admins() itself prefixes "EVENT" instead of a key_name
 	// when user is null (the automatic insolvency path) -- no need to build
