@@ -400,14 +400,14 @@ GLOBAL_LIST_EMPTY(persistence_stock_holdings_cache)
 		return
 
 	if(action == "Revoke Faction Business Status")
-		var/confirm = tgui_alert(usr, "Revoke '[C.ticker]'s stock exchange listing? Every current holder is bought out at [C.current_price] cr/share from [get_faction_name(C.faction_uid)]'s treasury, and the listing is permanently removed. This cannot be undone.", "Revoke Faction Business Status", list("Revoke", "Cancel"))
+		var/confirm = tgui_alert(usr, "Revoke '[C.ticker]'s stock exchange listing? Every current holder is bought out at [C.current_price] cr/share from [get_faction_name(C.faction_uid)]'s treasury. This only removes the stock exchange listing itself -- [get_faction_name(C.faction_uid)] as a faction (its treasury, jobs, beacons, and territory) is completely untouched, and it can be re-listed on the exchange again later. The listing removal itself cannot be undone.", "Revoke Faction Business Status", list("Revoke", "Cancel"))
 		if(confirm != "Revoke")
 			return
 		var/reason = SSpersistence.stockMarketRevokeFaction(C.company_id, usr)
 		if(reason)
 			to_chat(usr, SPAN_WARNING(reason))
 		else
-			to_chat(usr, SPAN_GOOD("'[C.ticker]' delisted."))
+			to_chat(usr, SPAN_GOOD("'[C.ticker]' delisted -- [get_faction_name(C.faction_uid)] itself is untouched and can be re-listed later."))
 		return
 
 	var/old_price = C.current_price
