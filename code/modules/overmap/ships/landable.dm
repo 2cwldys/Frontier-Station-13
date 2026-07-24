@@ -71,6 +71,15 @@
 /obj/effect/overmap/visitable/ship/landable/populate_sector_objects()
 	..()
 	var/datum/shuttle/shuttle_datum = SSshuttle.shuttles[shuttle]
+	if(!shuttle_datum)
+		// Shuttle datum construction (initialize_shuttles(), shuttle.dm) is
+		// supposed to always precede this proc (see its own doc comment,
+		// sectors.dm) but evidently isn't airtight for a dynamically-loaded
+		// retrieve -- retry shortly instead of crashing through
+		// on_landing()/dock-link setup and the visitor-landmark loop below.
+		stack_trace("populate_sector_objects: shuttle datum for '[shuttle]' not yet registered on [src] ([type]), retrying shortly.")
+		addtimer(CALLBACK(src, PROC_REF(populate_sector_objects)), 2 SECONDS)
+		return
 	if(use_mapped_z_levels)
 		var/obj/effect/shuttle_landmark/ship/ship_landmark = shuttle_datum.current_location
 		if(!istype(ship_landmark))

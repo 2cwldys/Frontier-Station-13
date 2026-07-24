@@ -18,7 +18,9 @@
 	var/datum/db_query/q = SSdbcore.NewQuery(
 		{"INSERT IGNORE INTO ss13_removed_structures (map_path, type, x, y, z)
 		VALUES (:mp, :type, :x, :y, :z)"},
-		list("mp" = "[SSatlas.current_map.path]", "type" = "[type]", "x" = T.x, "y" = T.y, "z" = T.z)
+		// Deployed ship Zs tombstone under their ship scope instead of the
+		// map path -- see persistence_ship_interiors.dm.
+		list("mp" = persistence_scope_for_z(T.z), "type" = "[type]", "x" = T.x, "y" = T.y, "z" = T.z)
 	)
 	q.Execute()
 	. = databaseCheckQueryResult(q, "saveStructureRemovalAt")
@@ -32,10 +34,47 @@
 		return
 	var/datum/db_query/q = SSdbcore.NewQuery(
 		"DELETE FROM ss13_removed_structures WHERE map_path = :mp AND type = :type AND x = :x AND y = :y AND z = :z",
-		list("mp" = "[SSatlas.current_map.path]", "type" = "[S.type]", "x" = T.x, "y" = T.y, "z" = T.z)
+		list("mp" = persistence_scope_for_z(T.z), "type" = "[S.type]", "x" = T.x, "y" = T.y, "z" = T.z)
 	)
 	q.Execute()
 	qdel(q)
+
+/**
+ * Apply saved ship-scoped removal tombstones to a freshly loaded ship Z --
+ * qdels each map-placed structure the ship's crew removed in a previous
+ * deployment, so it doesn't respawn with the template.
+ */
+/datum/controller/subsystem/persistence/proc/removedStructuresApplyZ(z, scope)
+	if(!databaseCheckConnection("removedStructuresApplyZ"))
+		return
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"SELECT type, x, y FROM ss13_removed_structures WHERE map_path = :mp AND z = :z",
+		list("mp" = scope, "z" = z)
+	)
+	q.Execute()
+	if(!databaseCheckQueryResult(q, "removedStructuresApplyZ"))
+		qdel(q)
+		return
+	var/removed = 0
+	while(q.NextRow())
+		var/typepath = text2path(q.item[1])
+		if(!typepath)
+			continue
+		if(ispath(typepath, /obj/structure))
+			var/obj/structure/probe = typepath
+			if(initial(probe.persistence_never_tombstone))
+				continue
+		var/turf/T = locate(text2num(q.item[2]), text2num(q.item[3]), z)
+		if(!T)
+			continue
+		for(var/obj/structure/S in T)
+			if(S.type == typepath && S.persistence_was_mapload)
+				qdel(S)
+				removed++
+				break
+		CHECK_TICK
+	qdel(q)
+	log_subsystem_persistence_info("Removed structures: Applied [removed] ship tombstones to z=[z] ([scope]).")
 
 /datum/controller/subsystem/persistence/proc/removedStructuresInitialize()
 	PRIVATE_PROC(TRUE)

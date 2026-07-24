@@ -71,15 +71,6 @@
 	if(climbable)
 		.["climbable"] = "It can be climbed on, either by dragging your mob onto it or middle-clicking it."
 
-/obj/structure/attackby(obj/item/attacking_item, mob/user, params)
-	. = ..()
-	if(user?.a_intent == I_HURT && maxhealth)
-		user.do_attack_animation(src)
-		user.setClickCooldown(DEFAULT_ATTACK_COOLDOWN)
-		add_damage(attacking_item.force, attacking_item.damage_flags(), attacking_item.damtype, attacking_item.armor_penetration, attacking_item)
-		if(hitsound)
-			playsound(user, hitsound, attacking_item.get_clamped_volume())
-
 /obj/structure/attack_hand(mob/living/user)
 	if((user.mutations & HULK) && !(user.isSynthetic()) && !(isvaurca(user)))
 		user.say(pick("RAAAAAAAARGH!!!", "HNNNNNNNNNGGGGGGH!!!", "GWAAAAAAAARRRHHH!!!", "NNNNNNNNGGGGGGGGHH!!!", "AAAAAAARRRGH!!!" ))

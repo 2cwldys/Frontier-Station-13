@@ -22,6 +22,32 @@
 
 	// Instantiate all remaining entries based of their type
 	// Assign persistence related vars found in /obj, apply content and add to live tracking list.
+	objectsInstantiateRows(persistent_data)
+
+	try
+		for(var/obj/structure/ladder/L in world)
+			if(!(L.allowed_directions & DOWN)) continue
+			if(L.target_down) continue
+			var/turf/LT = get_turf(L)
+			if(!LT) continue
+			var/turf/below = GET_TURF_BELOW(LT)
+			if(!below) continue
+			for(var/obj/structure/ladder/BL in below)
+				if(BL.allowed_directions & UP)
+					L.target_down = BL
+					BL.target_up = L
+					break
+	catch(var/exception/ladder_e)
+		log_subsystem_persistence_error("Persistent objects: ladder relink pass failed: [ladder_e]")
+
+/**
+ * Instantiate a list of fetched persistent-object rows into the world and
+ * register them for tracking. Shared by the boot restore (objectsInitialize())
+ * and the per-ship-Z apply (objectsApplyZ()). Returns the count instantiated.
+ */
+/datum/controller/subsystem/persistence/proc/objectsInstantiateRows(list/persistent_data)
+	PRIVATE_PROC(TRUE)
+	var/instantiated = 0
 	for (var/data in persistent_data)
 		CHECK_TICK
 		try
@@ -53,38 +79,109 @@
 				else
 					instance.forceMove(spawn_turf)
 			else
-				instance = new typepath(spawn_turf)
-				if(!instance || QDELETED(instance))
-					var/obj/existing = null
-					for(var/obj/O in spawn_turf)
-						if(O.type == typepath) { existing = O; break }
-					if(existing)
-						existing.persistent_objects_track_id = text2num(data["id"])
-						objectsRegisterTrack(existing, data["author_ckey"])
-					else
-						objectsDatabaseExpireEntry(data["id"])
-					continue
+				// Reuse an already-existing, untracked (persistent_objects_track_id
+				// == 0) instance of this exact type at the saved position instead
+				// of always minting a new one -- a freshly-loaded ship template
+				// re-spawns its own authored decor (e.g. an ashtray) on every
+				// retrieve BEFORE this runs, and without this check the saved row
+				// mints a second, independent instance alongside it. At the next
+				// stash, the untracked original gets its own fresh DB row
+				// (objectsFinalizeZ()'s create-branch) while the restored one
+				// updates in place -- one extra instance AND one extra row every
+				// single stash/retrieve cycle, compounding indefinitely. Mirrors
+				// the /obj/structure/lattice special case above, generalized to
+				// every type. The track_id == 0 check specifically prevents this
+				// row from "stealing" an instance a PRIOR row in this same batch
+				// already claimed.
+				var/obj/existing = null
+				for(var/obj/O in spawn_turf)
+					if(O.type == typepath && O.persistent_objects_track_id == 0)
+						existing = O
+						break
+				if(existing)
+					instance = existing
+				else
+					instance = new typepath(spawn_turf)
+					if(!instance || QDELETED(instance))
+						var/obj/existing_after_fail = null
+						for(var/obj/O in spawn_turf)
+							if(O.type == typepath) { existing_after_fail = O; break }
+						if(existing_after_fail)
+							existing_after_fail.persistent_objects_track_id = text2num(data["id"])
+							objectsRegisterTrack(existing_after_fail, data["author_ckey"])
+						else
+							objectsDatabaseExpireEntry(data["id"])
+						continue
 			instance.persistent_objects_track_id = data["id"]
 			objectsApplyTrackContent(instance, data["content"], data["x"], data["y"], data["z"])
 			objectsRegisterTrack(instance, data["author_ckey"])
+			instantiated++
 		catch(var/exception/e)
 			log_subsystem_persistence_error("Persistent objects: Failed to instantiate [data["type"]] (id=[data["id"]]): [e]")
+	return instantiated
 
-	try
-		for(var/obj/structure/ladder/L in world)
-			if(!(L.allowed_directions & DOWN)) continue
-			if(L.target_down) continue
-			var/turf/LT = get_turf(L)
-			if(!LT) continue
-			var/turf/below = GET_TURF_BELOW(LT)
-			if(!below) continue
-			for(var/obj/structure/ladder/BL in below)
-				if(BL.allowed_directions & UP)
-					L.target_down = BL
-					BL.target_up = L
-					break
-	catch(var/exception/ladder_e)
-		log_subsystem_persistence_error("Persistent objects: ladder relink pass failed: [ladder_e]")
+/**
+ * Apply saved ship-scoped tracked objects to a freshly loaded ship Z. Rows
+ * were already remapped to this z by remapShipRows(); recreated tracks rejoin
+ * GLOB.persistence_object_track_register so future saves keep tracking them.
+ */
+/datum/controller/subsystem/persistence/proc/objectsApplyZ(z, scope)
+	var/list/scope_rows = objectsDatabaseGetActiveEntries(scope)
+	if(!islist(scope_rows) || !length(scope_rows))
+		return
+	var/instantiated = objectsInstantiateRows(scope_rows)
+	log_subsystem_persistence_info("Persistent objects: Applied [instantiated] ship tracked objects to z=[z] ([scope]).")
+
+/**
+ * Per-Z tracked-object save for a deployed ship Z. Mirrors objectsFinalize()'s
+ * add/update/expire contract, restricted to this ship's scope:
+ * - tracked objects currently on z are created/updated (their rows key under
+ *   the ship scope via the object's own turf)
+ * - scope rows whose object no longer exists anywhere are expired
+ * - scope rows whose object still exists but has moved OFF the ship are
+ *   updated in place, which migrates the row back to the object's current
+ *   scope (so carrying an item off a ship doesn't strand or expire its row)
+ */
+/datum/controller/subsystem/persistence/proc/objectsFinalizeZ(z, scope)
+	// Fetch BEFORE the add pass, mirroring objectsFinalize() -- rows created
+	// below must not be visible to this cycle's expire diff.
+	var/list/scope_rows = objectsDatabaseGetActiveEntries(scope)
+
+	var/created = 0
+	var/updated = 0
+	var/expired = 0
+
+	for (var/obj/track as anything in GLOB.persistence_object_track_register)
+		CHECK_TICK
+		var/turf/T = get_turf(track)
+		if(!T || T.z != z)
+			continue
+		if(isitem(track) && !isturf(track.loc))
+			objectsDeregisterTrack(track)
+			continue
+		if (track.persistent_objects_track_id == 0)
+			objectsDatabaseAddEntry(track)
+			created++
+		else
+			objectsDatabaseUpdateEntry(track)
+			updated++
+
+	for (var/record in scope_rows)
+		CHECK_TICK
+		var/obj/found_track = null
+		for (var/obj/candidate as anything in GLOB.persistence_object_track_register)
+			if (record["id"] == candidate.persistent_objects_track_id)
+				found_track = candidate
+				break
+		if(!found_track)
+			objectsDatabaseExpireEntry(record["id"])
+			expired++
+		else
+			var/turf/T = get_turf(found_track)
+			if(!T || T.z != z)
+				objectsDatabaseUpdateEntry(found_track)
+
+	log_subsystem_persistence_info("Persistent objects: Ship z=[z] ([scope]): created [created], updated [updated], expired [expired] tracks.")
 
 /**
  * Finalize persistent object tracking.
@@ -113,7 +210,16 @@
 	var/expired = 0
 
 	// Get already stored data before saving new tracks so we can compare what has been updated or removed during the round.
+	// Deployed ship scopes are included so ship-borne tracks update/expire in
+	// the same diff (a stashed ship's scope is NOT registered, so its saved
+	// interior rows stay untouched by this pass -- that's load-bearing).
 	var/list/existing_data = objectsDatabaseGetActiveEntries()
+	if(!islist(existing_data))
+		existing_data = list()
+	for(var/ship_z in GLOB.persistence_ship_z)
+		var/list/ship_rows = objectsDatabaseGetActiveEntries(GLOB.persistence_ship_z[ship_z])
+		if(islist(ship_rows))
+			existing_data += ship_rows
 
 	for (var/obj/track as anything in GLOB.persistence_object_track_register)
 		CHECK_TICK
@@ -217,7 +323,7 @@
 // ============================================================
 
 /obj/structure/closet/persistent_objects_get_content()
-	var/list/content = list("opened" = opened)
+	var/list/content = list("opened" = opened, "broken" = broken, "locked" = locked)
 	var/list/items = list()
 	for(var/obj/item/I in src.contents)
 		items += list(serializePersistentItem(I))
@@ -236,9 +342,106 @@
 		for(var/list/item_data in content["items"])
 			if(islist(item_data))
 				deserializePersistentItem(item_data, src)
-	// Restore open/closed state
+	// Restore open/closed state -- set vars directly, NOT via open()/close()
+	// which call dump_contents() and eject the items we just restored inside.
 	if(!isnull(content["opened"]))
-		if(content["opened"] && !opened)
-			open(TRUE)
-		else if(!content["opened"] && opened)
-			close(TRUE)
+		opened = content["opened"] ? TRUE : FALSE
+		if(!opened)
+			density = TRUE
+		else if(!dense_when_open)
+			density = FALSE
+	if(!isnull(content["broken"]))
+		broken = content["broken"] ? TRUE : FALSE
+	if(!isnull(content["locked"]))
+		locked = content["locked"] ? TRUE : FALSE
+	update_icon()
+
+// ============================================================
+// COSMETIC COLOR -- these item types roll a random `color` in Initialize()
+// with no persistence hook, so a saved instance gets a fresh random reroll
+// every restore. Save/restore the roll the same way CABLE does above; their
+// own decorative overlays (where they have one) are added with RESET_COLOR
+// and don't depend on `color`, so restoring the var alone is sufficient --
+// no update_icon()/overlay rebuild needed.
+// ============================================================
+
+/obj/item/screwdriver/persistent_objects_get_content()
+	. = ..()
+	if(color)
+		.["color"] = color
+
+/obj/item/screwdriver/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(islist(content) && content["color"])
+		color = content["color"]
+
+/obj/item/wirecutters/persistent_objects_get_content()
+	. = ..()
+	if(color)
+		.["color"] = color
+
+/obj/item/wirecutters/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(islist(content) && content["color"])
+		color = content["color"]
+
+/obj/item/sleeping_bag/persistent_objects_get_content()
+	. = ..()
+	if(color)
+		.["color"] = color
+
+/obj/item/sleeping_bag/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(islist(content) && content["color"])
+		color = content["color"]
+
+/obj/item/clothing/mask/smokable/ecig/util/persistent_objects_get_content()
+	. = ..()
+	if(color)
+		.["color"] = color
+
+/obj/item/clothing/mask/smokable/ecig/util/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(islist(content) && content["color"])
+		color = content["color"]
+
+/obj/item/handcuffs/cable/persistent_objects_get_content()
+	. = ..()
+	if(color)
+		.["color"] = color
+
+/obj/item/handcuffs/cable/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(islist(content) && content["color"])
+		color = content["color"]
+
+/obj/item/toy/balloon/color/persistent_objects_get_content()
+	. = ..()
+	if(color)
+		.["color"] = color
+
+/obj/item/toy/balloon/color/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(islist(content) && content["color"])
+		color = content["color"]
+
+// ============================================================
+// MACHETE -- the random handle color tints a separate overlay image, not
+// the item's own `color` var, so it needs its own captured var and an
+// overlay rebuild on restore (ClearOverlays() first, since Initialize()
+// already added one with a different random pick before restore runs).
+// ============================================================
+
+/obj/item/material/hatchet/machete/persistent_objects_get_content()
+	. = ..()
+	if(handle_color)
+		.["handle_color"] = handle_color
+
+/obj/item/material/hatchet/machete/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(islist(content) && content["handle_color"])
+		handle_color = content["handle_color"]
+		ClearOverlays()
+		var/image/I = image(icon, icon_state = "machete_handle")
+		I.color = handle_color
+		AddOverlays(I)

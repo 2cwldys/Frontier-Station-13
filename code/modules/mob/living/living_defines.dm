@@ -12,6 +12,14 @@
 	var/hallucination = 0
 	/// Used by the resist verb, likely used to prevent players from bypassing next_move by logging in/out.
 	var/last_special = 0
+	/// world.time this mob last dealt or received real combat damage --
+	/// checked by Personal Travel's post-combat lockout (see in_recent_combat()
+	/// below, and code/modules/modular_computers/file_system/programs/generic/personal_travel.dm).
+	/// Defaults far in the past (not 0) so in_recent_combat()'s
+	/// world.time - last_combat_time math can't false-positive during the
+	/// first PERSONAL_TRAVEL_COMBAT_LOCKOUT of server uptime, when world.time
+	/// itself hasn't yet grown past the lockout window.
+	var/last_combat_time = -PERSONAL_TRAVEL_COMBAT_LOCKOUT
 
 	var/t_phoron = null
 	var/t_oxygen = null

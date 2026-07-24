@@ -39,6 +39,21 @@
 		if(DAMAGE_RADIATION)
 			apply_radiation(damage)
 
+	// Personal Travel's combat lockout is player-vs-player only. Melee is
+	// stamped at item_attack.dm's attack() (both user and target_mob are
+	// directly available there); this handles the ranged/projectile case,
+	// since a bullet's used_weapon is the /obj/projectile itself, which
+	// tracks its own firer. Both sides must have a client (an NPC/wildlife
+	// shooter or victim doesn't count) and must be different mobs
+	// (shooting yourself, e.g. a ricochet, doesn't count either).
+	if(istype(used_weapon, /obj/projectile))
+		var/obj/projectile/proj = used_weapon
+		if(ismob(proj.firer) && client && proj.firer != src)
+			var/mob/living/shooter = proj.firer
+			if(shooter.client)
+				last_combat_time = world.time
+				shooter.last_combat_time = world.time
+
 	updatehealth()
 	return TRUE
 

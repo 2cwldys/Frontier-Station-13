@@ -725,6 +725,10 @@ ABSTRACT_TYPE(/obj/item/clothing/mask/smokable)
 	throwforce = 4
 	obj_flags = OBJ_FLAG_CONDUCTABLE
 	slot_flags = SLOT_BELT
+	// Lets a dropped lighter persist as trash (items.dm's try_make_persistent_trash()) --
+	// otherwise it's never registered for tracking at all, so nothing about it
+	// (including /random's own randomized color below) has any chance to survive a restart.
+	persistency_considered_trash = TRUE
 	attack_verb = list("burnt", "singed")
 	var/base_state
 	var/activation_sound = list(
@@ -932,6 +936,22 @@ ABSTRACT_TYPE(/obj/item/clothing/mask/smokable)
 	icon_state = "lighter-[pick("r","c","y","g")]"
 	item_state = icon_state
 	base_state = icon_state
+
+/// Without this, a restored instance re-runs Initialize() above and rerolls
+/// a fresh (likely different) color -- nothing about the curated persistence
+/// whitelist otherwise knows this type has any runtime-randomized state.
+/obj/item/flame/lighter/random/persistent_objects_get_content()
+	var/list/content = ..()
+	content["base_state"] = base_state
+	return content
+
+/obj/item/flame/lighter/random/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content) || !content["base_state"])
+		return
+	base_state = content["base_state"]
+	icon_state = base_state
+	item_state = base_state
 
 /obj/item/flame/lighter/update_icon()
 	if(lit)

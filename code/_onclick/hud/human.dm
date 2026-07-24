@@ -37,6 +37,13 @@
 		target.zone_indicator = new /atom/movable/screen/zone_security_indicator(null, target)
 		hud_elements |= target.zone_indicator
 
+		// ── Exit Eye View (beneath the shield) ────────────────────────────────
+		// Deliberately NOT added to hud_elements -- it must not be part of the
+		// default client.screen rebuild below, only ever shown/hidden directly
+		// by drydock_pick_anchor's begin()/Destroy() while a turf-pick is
+		// actually in progress (telepad_drydock_boarding.dm).
+		target.eye_view_cancel_button = new /atom/movable/screen/exit_eye_view()
+
 	// ── Gear slots ────────────────────────────────────────────────────────────
 	var/has_hidden_gear
 	for(var/gear_slot in hud_data.gear)
@@ -116,6 +123,12 @@
 		src.adding += using
 		move_intent = using
 
+	// ── Freelook (face-the-mouse toggle) ─────────────────────────────────────
+	using = new /atom/movable/screen/freelook_toggle()
+	using.icon = target.freelook_active ? 'icons/hud/mob/screen/look_active.png' : 'icons/hud/mob/screen/look_inactive.png'
+	src.adding += using
+	freelook_toggle = using
+
 	// ── Attack intent — uses dark_original.dmi to preserve green/yellow/red colors ──
 	if(hud_data.has_a_intent)
 		using = new /atom/movable/screen()
@@ -187,6 +200,26 @@
 		mymob.internals = new /atom/movable/screen/internals()
 		hud_elements |= mymob.internals
 
+	// ── Hunger/thirst (status_hunger.dmi -- dark.dmi never got matching
+	// sprites ported for these during the Serenity rework, so this keeps the
+	// old icon file rather than the new unified one) ─────────────────────────
+	if(hud_data.has_nutrition)
+		mymob.nutrition_icon = new /atom/movable/screen/food()
+		mymob.nutrition_icon.icon = 'icons/hud/mob/status_hunger.dmi'
+		mymob.nutrition_icon.pixel_w = 8
+		mymob.nutrition_icon.icon_state = "nutrition0"
+		mymob.nutrition_icon.name = "nutrition"
+		mymob.nutrition_icon.screen_loc = ui_nutrition
+		hud_elements |= mymob.nutrition_icon
+
+	if(hud_data.has_hydration)
+		mymob.hydration_icon = new /atom/movable/screen/thirst()
+		mymob.hydration_icon.icon = 'icons/hud/mob/status_hunger.dmi'
+		mymob.hydration_icon.icon_state = "thirst0"
+		mymob.hydration_icon.name = "thirst"
+		mymob.hydration_icon.screen_loc = ui_nutrition
+		hud_elements |= mymob.hydration_icon
+
 	// ── Character doll (zone selector) — visible with puppet_new.dmi ─────────
 	mymob.zone_sel = new /atom/movable/screen/zone_sel(null)
 	mymob.zone_sel.icon = 'icons/hud/mob/puppet_new.dmi'
@@ -250,6 +283,9 @@
 
 		if(H.client.prefs.toggles_secondary & VIGNETTE)
 			H.apply_vignette()
+
+		if(H.client.prefs.toggles_secondary & CRT_SCANLINES)
+			H.apply_crt_scanlines()
 
 
 /mob/living/carbon/human/verb/toggle_hotkey_verbs()

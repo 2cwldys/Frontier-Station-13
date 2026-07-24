@@ -22,6 +22,12 @@
 	/// Unused?
 	var/player_cost = 0
 
+	/// Auto-despawns this site once every asteroid floor turf's resources are
+	/// depleted and no living player/neural lace remains on its Z, then
+	/// respawns a replacement elsewhere after ASTEROID_RESPAWN_DELAY. See
+	/// _check_asteroid_depletion_and_despawn() (persistence_factions.dm).
+	var/auto_despawn_when_depleted = FALSE
+
 	/**
 	 * This ruin can only spawn in the sectors in this list
 	 *

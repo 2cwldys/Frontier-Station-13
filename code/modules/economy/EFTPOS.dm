@@ -135,7 +135,7 @@
 						E.worth -= transaction_amount
 						if(istype(E, /obj/item/spacecash/ewallet/persistent_charge_card))
 							log_and_message_admins("[E] used for a transaction at [src] with amount [transaction_amount]. Remaining balance: [E.worth]", user, get_turf(src))
-						linked_account.money += transaction_amount
+						linked_account.adjust_money(transaction_amount)
 
 						//create entry in the EFTPOS linked account transaction log
 						var/datum/transaction/T = new()

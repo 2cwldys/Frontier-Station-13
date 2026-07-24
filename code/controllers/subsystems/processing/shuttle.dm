@@ -16,6 +16,12 @@ SUBSYSTEM_DEF(shuttle)
 	var/list/shuttle_areas = list()              //All the areas of all shuttles.
 
 	var/list/lonely_shuttle_computers = list()   //shuttle computers that haven't been attached to their shuttles yet
+	/// computer/ship (Nav/Sensors/Helm) consoles that lost the init-order race
+	/// against their own ship's overmap marker registering itself -- retried
+	/// from /obj/effect/overmap/visitable/Initialize() (sectors.dm) once the
+	/// marker actually registers. Same shape as lonely_shuttle_computers above,
+	/// just for the other console family (which had no retry path at all before).
+	var/list/lonely_ship_computers = list()
 
 	var/list/landmarks_awaiting_sector = list()  //Stores automatic landmarks that are waiting for a sector to finish loading.
 	var/list/landmarks_still_needed = list()     //Stores landmark_tags that need to be assigned to the sector (landmark_tag = sector) when registered.
@@ -65,6 +71,7 @@ SUBSYSTEM_DEF(shuttle)
 	if(block_queue)
 		return
 	initialize_shuttles()
+	initialize_lonely_ship_computers()
 	initialize_sectors()
 	initialize_entrypoints()
 	initialize_ship_weapons()
@@ -82,6 +89,18 @@ SUBSYSTEM_DEF(shuttle)
 		if(SW.linked)
 			LAZYADD(SW.linked.ship_weapons, SW)
 	weapons_to_initialize.Cut()
+
+/// Retries computer/ship (Nav/Sensors/Helm) consoles that lost the
+/// init-order race against their own ship's shuttle datum -- the marker's
+/// own Initialize() retry (sectors.dm) runs as part of init_atoms(), i.e.
+/// BEFORE initialize_shuttles() above has actually constructed the shuttle
+/// datum, so it's subject to the identical race it's trying to fix and can
+/// leave a console lonely forever with no further retry. This runs right
+/// after initialize_shuttles(), same shape as initialize_ship_weapons().
+/datum/controller/subsystem/shuttle/proc/initialize_lonely_ship_computers()
+	for(var/obj/structure/machinery/computer/ship/SC as anything in lonely_ship_computers)
+		if(SC.sync_linked())
+			lonely_ship_computers -= SC
 
 /datum/controller/subsystem/shuttle/proc/initialize_shuttles()
 	var/list/shuttles_made = list()

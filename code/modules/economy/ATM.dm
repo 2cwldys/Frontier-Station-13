@@ -113,7 +113,7 @@
 				return
 			var/obj/item/spacecash/cash = attacking_item
 			//consume the money
-			authenticated_account.money += cash.worth
+			authenticated_account.adjust_money(cash.worth)
 			playsound(loc, SFX_PRINT, 50, 1)
 
 			//create a transaction log entry
@@ -198,7 +198,7 @@
 					var/transfer_purpose = params["purpose"]
 					if(SSeconomy.charge_to_account(target_account_number, authenticated_account.owner_name, transfer_purpose, machine_id, transfer_amount))
 						to_chat(usr, SPAN_NOTICE("[icon2html(src, usr)] Funds transfer successful."))
-						authenticated_account.money -= transfer_amount
+						authenticated_account.adjust_money(-transfer_amount)
 
 						//create an entry in the account transaction log
 						var/datum/transaction/T = new()
@@ -272,7 +272,7 @@
 					playsound(src, 'sound/machines/chime.ogg', 50, 1)
 
 					//remove the money
-					authenticated_account.money -= amount
+					authenticated_account.adjust_money(-amount)
 
 					//	spawn_money(amount,src.loc)
 					spawn_ewallet(amount,src.loc,usr)
@@ -300,7 +300,7 @@
 					playsound(src, 'sound/machines/chime.ogg', 50, 1)
 
 					//remove the money
-					authenticated_account.money -= amount
+					authenticated_account.adjust_money(-amount)
 
 					spawn_money(amount,src.loc,usr)
 					intent_message(MACHINE_SOUND)
@@ -328,7 +328,7 @@
 				else if(amount > authenticated_account.money)
 					to_chat(usr, SPAN_WARNING("[icon2html(src, usr)] Insufficient personal funds."))
 				else
-					authenticated_account.money -= amount
+					authenticated_account.adjust_money(-amount)
 					faction_credit(fuid, amount, "ATM deposit by [authenticated_account.owner_name] on terminal [machine_id]")
 					playsound(src, 'sound/machines/chime.ogg', 50, 1)
 					to_chat(usr, SPAN_NOTICE("[icon2html(src, usr)] Deposited [amount] credits to [get_faction_name(fuid)] account."))
@@ -360,7 +360,7 @@
 					else if(!faction_debit(fuid, amount, "ATM withdrawal by [authenticated_account.owner_name] on terminal [machine_id]"))
 						to_chat(usr, SPAN_WARNING("[icon2html(src, usr)] Insufficient faction funds."))
 					else
-						authenticated_account.money += amount
+						authenticated_account.adjust_money(amount)
 						playsound(src, 'sound/machines/chime.ogg', 50, 1)
 						to_chat(usr, SPAN_NOTICE("[icon2html(src, usr)] Withdrew [amount] credits from [get_faction_name(fuid)] account."))
 

@@ -47,14 +47,15 @@
 	command_spawn_message = "Welcome to the Frontier!"
 
 	use_overmap = TRUE
-	num_exoplanets = 3
-	overmap_size = 35
-	overmap_event_areas = 34
-	guaranteed_overmap_events = list(/datum/overmap_event/meteor = 6)
+	num_exoplanets = 0
+	disable_exoplanets = TRUE
+	overmap_size = 50
+	overmap_event_areas = 69
+	guaranteed_overmap_events = list(/datum/overmap_event/meteor = 12)
 	planet_size = list(255,255)
 
-	away_site_budget = 3
-	away_ship_budget = 3
+	away_site_budget = 4
+	away_ship_budget = 0
 	away_variance = 1
 
 	station_networks = list(

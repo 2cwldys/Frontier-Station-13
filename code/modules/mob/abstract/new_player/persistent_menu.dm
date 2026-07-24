@@ -28,6 +28,12 @@
 		catch(var/exception/menu_e)
 			log_debug("persistent_menu: ui open failed: [menu_e]")
 		opening = FALSE
+		// If Play was clicked while this open() was suspended in ui_data()'s
+		// blocking DB query, close_uis() (from PersistentAutoSpawn()) ran too
+		// early to see this not-yet-registered UI. Catch it here instead --
+		// control only returns to us after registration has actually happened.
+		if(spawning && ui)
+			ui.close()
 
 /datum/persistent_menu/ui_data(mob/user)
 	var/list/data = list()
@@ -67,6 +73,10 @@
 
 	switch(action)
 		if("play")
+			// Cheap double-click guard -- a rapid second click before ui.close()
+			// visually removes the button could otherwise call
+			// PersistentAutoSpawn() twice on the same new_player mob.
+			if(spawning) return TRUE
 			// Defense-in-depth: the frontend already greys the Play button out
 			// for these same conditions (ui_data()'s enter_allowed/persistence_ready),
 			// but never trust client-side disabling alone -- a bypassed/replayed

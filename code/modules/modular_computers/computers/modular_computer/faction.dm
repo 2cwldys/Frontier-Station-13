@@ -17,11 +17,16 @@
 GLOBAL_LIST_INIT(modcomp_factory_default_programs, list("computerconfig", "clientmanager", "pai_access_lock"))
 
 /obj/item/modular_computer/persistent_objects_get_content()
-	var/list/content = list()
+	var/list/content = ..() // picks up base /obj/item wear_durability/wear_broken
 	if(persistent_network)
 		content["persistent_network"] = persistent_network
 	if(faction_shackled)
 		content["faction_shackled"] = TRUE
+	if(personal_ckey)
+		content["personal_ckey"] = personal_ckey
+		content["personal_char_name"] = personal_char_name
+	if(crew_tagged)
+		content["crew_tagged"] = TRUE
 	var/list/programs = modcomp_save_programs()
 	if(length(programs))
 		content["programs"] = programs
@@ -45,6 +50,11 @@ GLOBAL_LIST_INIT(modcomp_factory_default_programs, list("computerconfig", "clien
 		persistent_network = normalize_faction_uid(content["persistent_network"]) || ""
 	if("faction_shackled" in content)
 		faction_shackled = !!content["faction_shackled"]
+	if("personal_ckey" in content)
+		personal_ckey = content["personal_ckey"]
+		personal_char_name = content["personal_char_name"]
+	if("crew_tagged" in content)
+		crew_tagged = !!content["crew_tagged"]
 	if("programs" in content)
 		modcomp_restore_programs(content["programs"])
 	if(islist(content["stored_id"]) && card_slot && !card_slot.stored_card)

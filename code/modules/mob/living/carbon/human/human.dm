@@ -917,6 +917,18 @@
 			to_chat(src, SPAN_WARNING("You're not close enough to [target] anymore."))
 			return
 
+		// Sexual subset closed to Diona/IPC in both directions -- see
+		// immune_to_sexual_intimate_interactions() (intimate_interactions.dm).
+		// Re-checked here (not just at menu-generation time) so a stale menu
+		// or hand-crafted href can't bypass it.
+		if(href_list["intimate_action"] in list("supergrab", "superhug", "throatfuck", "suck", "slapass"))
+			if(immune_to_sexual_intimate_interactions())
+				to_chat(src, SPAN_WARNING("You aren't built for that."))
+				return
+			if(target.immune_to_sexual_intimate_interactions())
+				to_chat(src, SPAN_WARNING("[target] isn't built for that."))
+				return
+
 		switch(href_list["intimate_action"])
 			if("hug")
 				visible_message(SPAN_NOTICE("[src] hugs [target]."))

@@ -46,7 +46,9 @@
 	skill_requirements = alist(ROBOTICS_SKILL_COMPONENT = SKILL_LEVEL_TRAINED)
 
 /singleton/surgery_step/robotics/face/synthskin/can_use(mob/living/user, mob/living/carbon/human/target, target_zone, obj/item/tool)
-	return ..() && target.op_stage.face == FACE_NORMAL && target.get_species() == SPECIES_IPC_SHELL
+	// Android is the same "synthskin over a machine chassis" concept as
+	// Shell, so it gets the same reveal-the-robot-underneath surgery.
+	return ..() && target.op_stage.face == FACE_NORMAL && (target.get_species() == SPECIES_IPC_SHELL || target.get_species() == SPECIES_ANDROID)
 
 /singleton/surgery_step/robotics/face/synthskin/begin_step(mob/user, mob/living/carbon/human/target, target_zone, obj/item/tool)
 	user.visible_message("[user] starts to cut open [target]'s synthskin face and neck with \the [tool].", \

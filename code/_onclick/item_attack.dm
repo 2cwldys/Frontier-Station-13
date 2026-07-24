@@ -61,10 +61,21 @@ This calls [atom/proc/tool_act], among others.
 
 	if((user?.a_intent == I_HURT) && !(attacking_item.item_flags & ITEM_FLAG_NO_BLUDGEON))
 		if(attacking_item.force && should_use_health && maxhealth)
+			if(attacking_item.wear_broken)
+				to_chat(user, SPAN_WARNING("\The [attacking_item] is broken and can't be used to attack."))
+				return TRUE
+			// Highsec zone protection: give attackers a clear refusal here
+			// (the add_damage master gate would zero the damage silently).
+			if(zone_damage_protected(get_turf(src), user))
+				to_chat(user, SPAN_WARNING("\The [src] is protected by SCC security regulations -- it resists the attack."))
+				return TRUE
 			user.setClickCooldown(DEFAULT_ATTACK_COOLDOWN)
 			user.do_attack_animation(src)
 			visible_message(SPAN_DANGER("[user] [pick(attacking_item.attack_verb)] \the [src]!"))
 			add_damage(attacking_item.force, attacking_item.damage_flags(), attacking_item.damtype, attacking_item.armor_penetration, attacking_item)
+			// Same wear trigger /obj/item/attack() fires on mob hits -- without
+			// this, melee vs objects never degrades the weapon at all.
+			SEND_SIGNAL(attacking_item, COMSIG_ITEM_MELEE_HIT)
 			if(hitsound)
 				playsound(src, hitsound, attacking_item.get_clamped_volume(), 1, falloff_distance = 0)
 			else
@@ -130,6 +141,10 @@ This calls [atom/proc/tool_act], among others.
  * * target_zone - The target zone aimed at, **THIS DIFFERS FROM TG WHERE IT TAKES THE CLICK PARAMS**
  */
 /obj/item/proc/attack(mob/living/target_mob, mob/living/user, target_zone = BP_CHEST)
+	if(wear_broken)
+		to_chat(user, SPAN_WARNING("\The [src] is broken and can't be used to attack."))
+		return
+
 	var/signal_return = SEND_SIGNAL(src, COMSIG_ITEM_ATTACK, target_mob, user) || SEND_SIGNAL(user, COMSIG_MOB_ITEM_ATTACK, target_mob, user)
 	if(signal_return & COMPONENT_CANCEL_ATTACK_CHAIN)
 		return TRUE
@@ -160,6 +175,15 @@ This calls [atom/proc/tool_act], among others.
 		hit_zone = victim.resolve_item_attack(src, user, target_zone)
 		if(hit_zone)
 			apply_hit_effect(victim, user, hit_zone)
+			SEND_SIGNAL(src, COMSIG_ITEM_MELEE_HIT)
+			// Personal Travel's combat lockout is player-vs-player only --
+			// both sides need a client (an NPC/wildlife melee hit doesn't
+			// count) and must be different mobs (self-harm doesn't count
+			// either). Ranged/projectile hits are stamped separately in
+			// apply_damage() (damage_procs.dm).
+			if(user.client && victim.client && user != victim)
+				user.last_combat_time = world.time
+				victim.last_combat_time = world.time
 
 	// Null hitzone means a miss.
 	if(hit_zone)

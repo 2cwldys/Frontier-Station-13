@@ -49,6 +49,12 @@ SUBSYSTEM_DEF(cargo)
 	var/list/exports_list = list()
 	var/list/bounties_list = list()
 
+	// Generic DB-priced export totals for the current sale cycle -- see
+	// get_cargo_export_price() (persistence_cargo_exports.dm). Replaces the
+	// old per-/datum/export total_cost/total_amount accumulation.
+	var/generic_export_total = 0
+	var/list/generic_export_lines = list()
+
 /datum/controller/subsystem/cargo/Recover()
 	src.shuttle = SScargo.shuttle
 	src.cargo_items = SScargo.cargo_items
@@ -289,7 +295,15 @@ SUBSYSTEM_DEF(cargo)
 /// Faction instancing: an order belongs to the network of the console that
 /// submitted it. Returns TRUE when the order's network matches the given one
 /// (both normalized; null/empty means the station's network-less queue).
+/// A personal or crew order never matches here at all -- both are
+/// auto-approved and delivered synchronously at submission (see
+/// "submit_order", cargo_order.dm), so neither ever sits in any shared
+/// cargo-officer queue for this to even be asked about; this only guards the
+/// rare fallback window where delivery didn't succeed instantly and it's
+/// waiting on the automatic per-tick retry (process(), below) instead.
 /datum/controller/subsystem/cargo/proc/order_network_matches(datum/cargo_order/co, network)
+	if(co.personal_ckey || co.crew_shuttle_id)
+		return FALSE
 	return normalize_faction_uid(co.delivery_network || "") == normalize_faction_uid(network || "")
 
 // Gets the orders based on their status (submitted, approved, shipped).
@@ -515,6 +529,8 @@ SUBSYSTEM_DEF(cargo)
 	var/matched_bounty = FALSE
 	var/sold_atoms = ""
 
+	reset_generic_export_totals()
+
 	for(var/area/subarea in shuttle.shuttle_area)
 		for(var/atom/movable/AM in subarea)
 			if(bounty_ship_item_and_contents(AM, dry_run = FALSE))
@@ -528,15 +544,9 @@ SUBSYSTEM_DEF(cargo)
 	if(matched_bounty)
 		msg += "Bounty items received. An update has been sent to all bounty consoles.\n"
 
-	for(var/a in exports_list)
-		var/datum/export/E = a
-		var/export_text = E.total_printout()
-		if(!export_text)
-			continue
-
-		msg += export_text + "\n"
-		current_shipment.shipment_cost_sell += E.total_cost
-		E.export_end()
+	if(generic_export_total)
+		msg += "[generic_export_total]₵: Received[sold_atoms]\n"
+		current_shipment.shipment_cost_sell += generic_export_total
 
 	charge_cargo("Shipment #[current_shipment.shipment_num] - Income", -current_shipment.shipment_cost_sell)
 	current_shipment.message = msg
@@ -601,6 +611,22 @@ SUBSYSTEM_DEF(cargo)
 				current_shipment.orders.Add(co) // tracked in the shipment, but NOT added to shipment_cost_purchase (operations does not pay)
 				continue
 			if(co.status == "rejected") // faction could not pay -- do not fall back to billing operations
+				continue
+
+		// Personal orders already paid at submission time -- just needs routing.
+		if(co.personal_ckey)
+			if(deliver_personal_order(co))
+				current_shipment.orders.Add(co) // tracked in the shipment, operations doesn't pay for this either
+				continue
+
+		// Crew orders bill the ship owner's account at delivery time (like a
+		// faction order, not a personal one -- see deliver_crew_order()) and
+		// land on their ship's own crew-tagged telepad.
+		if(co.crew_shuttle_id)
+			if(deliver_crew_order(co))
+				current_shipment.orders.Add(co) // tracked in the shipment, operations doesn't pay for this either
+				continue
+			if(co.status == "rejected") // ship owner could not pay -- do not fall back to billing operations
 				continue
 
 		// Check if theres space to place the order.
@@ -674,7 +700,16 @@ SUBSYSTEM_DEF(cargo)
 		log_subsystem_cargo("Warning: order [co.order_id] delivery_network '[co.delivery_network]' not in faction cache -- falling back to shuttle.")
 		return FALSE
 
-	var/turf/telepad_turf = persistence_find_cargo_telepad(co.delivery_network)
+	var/turf/telepad_turf
+	// Prefer the explicit pad the player chose in the ordering UI, as long as
+	// it's still a valid delivery target for this order's network -- it may
+	// have been re-tagged, deconstructed, or deactivated since the order was
+	// placed. Falls back to the arbitrary first-match lookup otherwise,
+	// exactly as if no choice had been made.
+	if(co.delivery_telepad && !QDELETED(co.delivery_telepad) && co.delivery_telepad.accepts_cargo && co.delivery_telepad.persistent_spawn && co.delivery_telepad.z && normalize_faction_uid(co.delivery_telepad.persistent_network) == co.delivery_network)
+		telepad_turf = get_turf(co.delivery_telepad)
+	if(!telepad_turf)
+		telepad_turf = persistence_find_cargo_telepad(co.delivery_network)
 	if(!telepad_turf)
 		log_subsystem_cargo("Warning: order [co.order_id] found no delivery-enabled telepad for '[co.delivery_network]' -- falling back to shuttle.")
 		return FALSE
@@ -703,6 +738,114 @@ SUBSYSTEM_DEF(cargo)
 
 	persistence_telepad_deliver(list(crate), telepad_turf)
 	log_subsystem_cargo("Order [co.order_id] delivered via telepad to '[co.delivery_network]' at ([telepad_turf.x],[telepad_turf.y],[telepad_turf.z]).")
+	return TRUE
+
+/**
+ * Personal-order counterpart to deliver_faction_order() -- delivers via that
+ * character's own personally-tagged cargo telepad. Unlike a faction order,
+ * payment already happened at submission time ("submit_order" in
+ * cargo_order.dm) while the ordering character's own ID card was physically
+ * in the console -- there's no reliable way to resolve an arbitrary
+ * (ckey, char_name)'s bank account asynchronously at delivery time the way
+ * faction_debit() can for a faction (factions always exist in
+ * GLOB.persistence_faction_cache; an offline character's account does not).
+ * So this only handles routing -- TRUE when the crate landed, FALSE when no
+ * telepad resolves (caller falls back to the shuttle).
+ */
+/datum/controller/subsystem/cargo/proc/deliver_personal_order(datum/cargo_order/co)
+	if(!co || !co.personal_ckey)
+		return FALSE
+
+	var/turf/telepad_turf
+	if(co.delivery_telepad && !QDELETED(co.delivery_telepad) && co.delivery_telepad.accepts_cargo && co.delivery_telepad.persistent_spawn && co.delivery_telepad.z && co.delivery_telepad.personal_ckey == co.personal_ckey && co.delivery_telepad.personal_char_name == co.personal_char_name)
+		telepad_turf = get_turf(co.delivery_telepad)
+	if(!telepad_turf)
+		telepad_turf = persistence_find_personal_cargo_telepad(co.personal_ckey, co.personal_char_name)
+	if(!telepad_turf)
+		log_subsystem_cargo("Warning: order [co.order_id] found no delivery-enabled personal telepad for '[co.personal_char_name]' -- falling back to shuttle.")
+		return FALSE
+
+	var/obj/structure/machinery/telepad_cargo/dest_pad = locate() in telepad_turf
+	if(dest_pad && !dest_pad.accepts_cargo)
+		log_subsystem_cargo("Warning: order [co.order_id] resolved a non-cargo pad ([dest_pad]) at ([telepad_turf.x],[telepad_turf.y],[telepad_turf.z]) -- refusing, falling back to shuttle.")
+		return FALSE
+
+	co.set_shipped()
+
+	var/obj/crate = spawn_order_crate(co, telepad_turf)
+
+	co.set_delivered(co.personal_char_name, 0)
+
+	persistence_telepad_deliver(list(crate), telepad_turf)
+	log_subsystem_cargo("Order [co.order_id] delivered via personal telepad to '[co.personal_char_name]' at ([telepad_turf.x],[telepad_turf.y],[telepad_turf.z]).")
+	return TRUE
+
+/**
+ * Crew-order counterpart to deliver_faction_order()/deliver_personal_order() --
+ * delivers via the submitting ship's own crew-tagged cargo telepad, billing
+ * the ship OWNER's account (DS.owner_account_number, captured once at
+ * purchase -- persistence_shuttles.dm) rather than whoever is physically
+ * operating the console. Unlike a personal order, payment is NOT taken at
+ * submission -- the owner's account number is a stable identifier that
+ * resolves regardless of whether the owner is online, so this can bill at
+ * delivery time exactly like a faction order does (faction_debit()), instead
+ * of needing the operator's own ID card in hand. Returns TRUE when the crate
+ * landed and payment succeeded. Returns FALSE (order left unpaid, caller may
+ * retry later) when no telepad resolves yet; sets the order "rejected"
+ * (caller must NOT fall back to billing operations) when the ship has no
+ * linked owner account or that account can't cover the cost.
+ */
+/datum/controller/subsystem/cargo/proc/deliver_crew_order(datum/cargo_order/co)
+	if(!co || !co.crew_shuttle_id)
+		return FALSE
+
+	var/datum/drydock_ship/DS = GLOB.drydock_ships["[co.crew_shuttle_id]"]
+	if(!DS)
+		log_subsystem_cargo("Warning: order [co.order_id] crew_shuttle_id=[co.crew_shuttle_id] has no matching ship -- falling back to shuttle.")
+		return FALSE
+
+	var/turf/telepad_turf
+	if(co.delivery_telepad && !QDELETED(co.delivery_telepad) && co.delivery_telepad.accepts_cargo && co.delivery_telepad.persistent_spawn && co.delivery_telepad.z && co.delivery_telepad.crew_tagged)
+		var/datum/drydock_ship/pad_ship = _drydock_ship_at(co.delivery_telepad.z)
+		if(pad_ship == DS)
+			telepad_turf = get_turf(co.delivery_telepad)
+	if(!telepad_turf)
+		telepad_turf = persistence_find_crew_cargo_telepad(co.crew_shuttle_id)
+	if(!telepad_turf)
+		log_subsystem_cargo("Warning: order [co.order_id] found no delivery-enabled crew telepad for shuttle_id=[co.crew_shuttle_id] -- falling back to shuttle.")
+		return FALSE
+
+	var/obj/structure/machinery/telepad_cargo/dest_pad = locate() in telepad_turf
+	if(dest_pad && !dest_pad.accepts_cargo)
+		log_subsystem_cargo("Warning: order [co.order_id] resolved a non-cargo pad ([dest_pad]) at ([telepad_turf.x],[telepad_turf.y],[telepad_turf.z]) -- refusing, falling back to shuttle.")
+		return FALSE
+
+	if(!DS.owner_account_number)
+		co.status = "rejected"
+		log_subsystem_cargo("Order [co.order_id] rejected: ship #[co.crew_shuttle_id] has no linked owner account on file.")
+		return FALSE
+	var/datum/money_account/owner_acc = SSeconomy.get_account(DS.owner_account_number)
+	// Full customer price (item cost + crate/handling/shipment fees), not the
+	// bare item cost a faction account pays -- a crew order should cost the
+	// owner exactly what ordering from their own personal-tagged console
+	// would (cargo_order.dm's submit_order charges get_value(0) there too),
+	// since it's billed as if the owner placed it themselves.
+	var/crew_order_cost = co.get_value(0)
+	if(!owner_acc || owner_acc.money < crew_order_cost)
+		co.status = "rejected"
+		log_subsystem_cargo("Order [co.order_id] rejected: ship #[co.crew_shuttle_id]'s owner account has insufficient funds.")
+		return FALSE
+	owner_acc.adjust_money(-crew_order_cost)
+
+	co.set_shipped()
+	co.set_paid(DS.display_name(), 0, "crew:[co.crew_shuttle_id]")
+
+	var/obj/crate = spawn_order_crate(co, telepad_turf)
+
+	co.set_delivered(DS.display_name(), 0)
+
+	persistence_telepad_deliver(list(crate), telepad_turf)
+	log_subsystem_cargo("Order [co.order_id] delivered via crew telepad to ship #[co.crew_shuttle_id] at ([telepad_turf.x],[telepad_turf.y],[telepad_turf.z]), billed to owner account [DS.owner_account_number].")
 	return TRUE
 
 /// Dumps the cargo orders to the database when the round ends.

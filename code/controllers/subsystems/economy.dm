@@ -185,7 +185,7 @@ SUBSYSTEM_DEF(economy)
 /datum/controller/subsystem/economy/proc/charge_to_account(var/attempt_account_number, var/source_name, var/purpose, var/terminal_id, var/amount)
 	var/datum/money_account/D = get_account(attempt_account_number)
 	if(D && !D.suspended)
-		D.money += amount
+		D.adjust_money(amount)
 
 		//create a transaction log entry
 		var/datum/transaction/T = new()
@@ -269,6 +269,38 @@ SUBSYSTEM_DEF(economy)
 		return all_money_accounts["[account_number]"]
 	return
 
+/// Finds a player's personal account by ckey, regardless of which character
+/// they're currently playing -- used to pay bounty/mission rewards to the
+/// right player rather than a specific account number.
+/datum/controller/subsystem/economy/proc/get_account_by_ckey(var/ckey)
+	RETURN_TYPE(/datum/money_account)
+	if(!ckey)
+		return
+	for(var/account_key in all_money_accounts)
+		var/datum/money_account/M = all_money_accounts[account_key]
+		if(M.ckey == ckey)
+			return M
+	return
+
+/// Finds a player's personal account for ONE SPECIFIC character (ckey +
+/// owner_name) -- unlike get_account_by_ckey(), which returns whichever
+/// account under that ckey happens to be first in the list. Accounts are
+/// fundamentally per-character (ss13_money_accounts is keyed (ckey,
+/// char_name), see persistence_economy.dm's restoreAccountFromPersistence()),
+/// so anything that spends/displays a balance on behalf of the character the
+/// player is actively controlling -- not "the player" in the abstract --
+/// must use this, or a ckey with two characters can end up spending from (or
+/// displaying) the wrong one's account.
+/datum/controller/subsystem/economy/proc/get_account_by_ckey_and_name(var/ckey, var/char_name)
+	RETURN_TYPE(/datum/money_account)
+	if(!ckey || !char_name)
+		return
+	for(var/account_key in all_money_accounts)
+		var/datum/money_account/M = all_money_accounts[account_key]
+		if(M.ckey == ckey && M.owner_name == char_name)
+			return M
+	return
+
 //gets a departmental account by name
 /datum/controller/subsystem/economy/proc/get_department_account(var/department)
 	RETURN_TYPE(/datum/money_account)
@@ -318,6 +350,13 @@ SUBSYSTEM_DEF(economy)
 							//1 - require manual login / account number and pin
 							//2 - require card and manual login
 	var/ckey = null			// owning player ckey, set for player accounts to enable persistence
+
+/// Adjusts the balance by delta (positive = credit, negative = debit) and
+/// immediately persists the new balance -- the personal-account analog of
+/// faction_debit()/faction_credit(), which already do this for factions.
+/datum/money_account/proc/adjust_money(delta)
+	money += delta
+	SSpersistence.economySaveAccountNow(src)
 
 /datum/transaction
 	var/target_name = ""

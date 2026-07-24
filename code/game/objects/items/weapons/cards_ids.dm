@@ -126,6 +126,7 @@
 	overlay_state = "id"
 	drop_sound = 'sound/items/drop/id_card.ogg'
 	pickup_sound = 'sound/items/pickup/id_card.ogg'
+	degrades_with_use = FALSE
 
 	var/list/access = list()
 	/// The name registered_name on the card.
@@ -165,6 +166,11 @@
 	var/iff_faction = IFF_DEFAULT
 	/// If TRUE this card has been revoked (replaced by a new card). Access readers reject revoked cards.
 	var/revoked = FALSE
+	/// TRUE for a faction's single bearer master card (see faction_master
+	/// subtype below) -- not tied to any ckey. Checked directly by
+	/// airlock.dm's allowed() and get_effective_faction_rank() to bypass the
+	/// normal per-member lookups entirely.
+	var/is_faction_master = FALSE
 
 /obj/item/card/id/mechanics_hints(mob/user, distance, is_adjacent)
 	. += ..()
@@ -566,6 +572,28 @@
 /obj/item/card/id/captains_spare/New()
 	access = get_all_station_access()
 	..()
+
+/*
+ * Faction Master Card -- a bearer card for a self-founded faction, spawned
+ * automatically when a founding petition succeeds (faction_manage.dm). Not
+ * registered to any ckey, mirroring captains_spare above. Its power comes
+ * entirely from is_faction_master, not from a static access list: full
+ * bypass on that faction's req_access_faction airlocks (airlock.dm's
+ * allowed()) and command rank on that faction's own command programs
+ * (get_effective_faction_rank(), persistence_factions.dm) -- see
+ * GetFactionAccess() below for why a normal access list can't grant either
+ * of those on its own.
+ */
+/obj/item/card/id/faction_master
+	name = "faction master card"
+	desc = "A bearer master identification card for a faction -- not registered to any one person. Grants unrestricted command access to its faction's infrastructure. There is only ever one. Guard it carefully."
+	is_faction_master = TRUE
+
+/obj/item/card/id/faction_master/update_name()
+	if(revoked)
+		name = "REVOKED"
+		return
+	name = "[get_faction_name(employer_faction)] Master Card"
 
 /obj/item/card/id/merchant
 	name = "merchant identification card"

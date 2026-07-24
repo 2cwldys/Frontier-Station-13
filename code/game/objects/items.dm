@@ -1,3 +1,13 @@
+/// Passive wear for worn (not held) clothing/backpacks -- much slower than
+/// active tool/gun use, since it represents ambient "worn and tear" rather
+/// than hard use. 1 point per 20 minutes actually worn.
+#define WEAR_TIME_DECAY_INTERVAL 20 MINUTES
+#define WEAR_TIME_DECAY_AMOUNT 1
+/// Additional wear applied to body-slot armor/clothing when it actually
+/// blocks a hit, scaled by how much was blocked (0-1). A full block costs
+/// this much; a partial block costs proportionally less.
+#define WEAR_ARMOR_DECAY_PER_BLOCK 2
+
 /obj/item
 	name = "item"
 	icon = 'icons/obj/items.dmi'
@@ -6,6 +16,25 @@
 	blocks_emissive = EMISSIVE_BLOCK_GENERIC
 	/// Generic hit sound
 	hitsound = SFX_SWING_HIT
+
+	/// Applies to every tool (anything with tool_behaviour set) and every
+	/// gun automatically via COMSIG_ITEM_TOOL_ACTED/COMSIG_GUN_FIRED --
+	/// those signals only ever fire from tool_act()/handle_post_fire(), so
+	/// this is a no-op dead registration on anything that's neither. Set
+	/// FALSE on a specific item to exempt it (e.g. an event/admin weapon).
+	var/degrades_with_use = TRUE
+	var/wear_durability = 100
+	var/wear_max_durability = 100
+	/// How much durability a single successful use costs. Tune per item --
+	/// junk/improvised gear should burn through this much faster than
+	/// well-made gear.
+	var/durability_per_use = 1
+	/// TRUE once wear_durability hits 0 -- refuses further tool/gun use until repaired.
+	var/wear_broken = FALSE
+	/// world.time of the next passive time-worn decay tick -- see
+	/// equipped()/dropped()/process() below. Only ticks while genuinely worn
+	/// in a clothing/back slot (not held in hand).
+	var/next_wear_tick = 0
 
 	/// This saves our blood splatter overlay, which will be processed not to go over the edges of the sprite
 	var/image/blood_overlay
@@ -263,6 +292,20 @@
 	if (tool_behaviour)
 		LOAD_TOOL_QUALITIES(src, alist(tool_behavior = tool_quality), toolComp)
 
+	if(degrades_with_use)
+		RegisterSignal(src, COMSIG_ITEM_TOOL_ACTED, PROC_REF(on_tool_acted))
+		RegisterSignal(src, COMSIG_ITEM_MELEE_HIT, PROC_REF(on_melee_hit))
+		if(istype(src, /obj/item/gun))
+			RegisterSignal(src, COMSIG_GUN_FIRED, PROC_REF(on_gun_fired))
+		// Freshly-created items (admin spawn, cargo orders, procedural loot,
+		// anything NOT part of the original compiled map) get a randomized
+		// starting condition for variety -- never bad enough to be broken.
+		// Restored items are unaffected: persistent_objects_apply_content()
+		// runs after Initialize() and overwrites this with the real saved
+		// value whenever one exists.
+		if(!mapload)
+			wear_durability = round(wear_max_durability * (rand(25, 100) / 100))
+
 /obj/item/Destroy()
 	if(ismob(loc))
 		var/mob/m = loc
@@ -511,6 +554,9 @@
 	user?.update_equipment_speed_mods()
 	try_make_persistent_trash()
 
+	if(degrades_with_use)
+		STOP_PROCESSING(SSprocessing, src)
+
 /obj/item/pipe_eject(var/direction)
 	SHOULD_CALL_PARENT(TRUE)
 	..()
@@ -646,6 +692,12 @@
 
 	user.update_equipment_speed_mods()
 
+	// Passive time-worn decay only while genuinely worn in a clothing/back
+	// slot -- slot_flags_enumeration has no entry for the hand slots, so
+	// holding an item in your active hand never starts this.
+	if(degrades_with_use && (slot in GLOB.slot_flags_enumeration))
+		START_PROCESSING(SSprocessing, src)
+
 /obj/item/proc/check_equipped(var/mob/user, var/slot, var/assisted_equip = FALSE)
 	return TRUE
 
@@ -681,6 +733,13 @@ GLOBAL_LIST_INIT(slot_flags_enumeration, list(
 /obj/item/proc/mob_can_equip(mob/M, slot, disable_warning = FALSE, bypass_blocked_check = FALSE, is_overlay_check = FALSE)
 	if(!slot) return 0
 	if(!M) return 0
+
+	// A worn-out clothing/back item can't be put back on once removed --
+	// holding it in hand is still fine, only the real worn slots are gated.
+	if(degrades_with_use && wear_broken && ("[slot]" in GLOB.slot_flags_enumeration))
+		if(!disable_warning)
+			to_chat(M, SPAN_WARNING("\The [src] is too worn out to wear -- it needs to be repaired first."))
+		return 0
 
 	if(!ishuman(M)) return 0
 
@@ -1236,6 +1295,11 @@ modules/mob/living/carbon/human/life.dm if you die, you will be zoomed out.
 	if(delay >= MIN_TOOL_SOUND_DELAY)
 		play_tool_sound(target, volume)
 
+	// Wear was originally wired to COMSIG_ITEM_TOOL_ACTED, which nothing in
+	// this fork ever sends (the modern tool_act() pipeline has no
+	// implementations) -- apply it here instead, the one chokepoint every
+	// delayed/checked tool action shares. No-ops for degrades_with_use=FALSE.
+	degrade_durability(durability_per_use)
 	return TRUE
 
 // Called before use_tool if there is a delay, or by use_tool if there isn't.
@@ -1245,7 +1309,130 @@ modules/mob/living/carbon/human/life.dm if you die, you will be zoomed out.
 
 // A check called by tool_start_check once, and by use_tool on every tick of delay.
 /obj/item/proc/tool_use_check(mob/living/user, amount)
+	if(wear_broken)
+		to_chat(user, SPAN_WARNING("\The [src] is broken and can't be used like that."))
+		return FALSE
 	return TRUE
+
+/// Passive time-worn decay -- only reached while actually registered with
+/// SSprocessing, which equipped()/dropped() above only do for clothing/back
+/// slots on a degrades_with_use item. Subtypes with their own process()
+/// (e.g. weldingtool's fuel handling) must chain via ..() for this to run.
+/obj/item/process()
+	if(world.time < next_wear_tick)
+		return
+	next_wear_tick = world.time + WEAR_TIME_DECAY_INTERVAL
+	degrade_durability(WEAR_TIME_DECAY_AMOUNT)
+
+/// Reduces wear_durability by amount (no-op unless degrades_with_use),
+/// breaking the item once it bottoms out. See items.dm's degrades_with_use
+/// var block for the opt-out flag, and on_tool_acted()/on_gun_fired() below
+/// for what actually calls this.
+/obj/item/proc/degrade_durability(amount)
+	if(!degrades_with_use || wear_broken)
+		return
+	wear_durability = max(0, wear_durability - amount)
+	if(wear_durability <= 0 && !wear_broken)
+		wear_broken = TRUE
+		playsound(src, 'sound/effects/snap.ogg', 30, TRUE)
+		visible_message(SPAN_WARNING("\The [src] gives out."))
+
+/// COMSIG_ITEM_TOOL_ACTED handler -- registered in Initialize() only for
+/// degrades_with_use items. Signal args: (source=this tool, target atom,
+/// user, tool_type, act_result) -- see atom_tool_acts.dm:134.
+/obj/item/proc/on_tool_acted(datum/source, atom/target, mob/user, tool_type, act_result)
+	SIGNAL_HANDLER
+	if(act_result)
+		degrade_durability(durability_per_use)
+
+/// COMSIG_ITEM_MELEE_HIT handler -- registered in Initialize() only for
+/// degrades_with_use items. Sent from /obj/item/proc/attack() (item_attack.dm)
+/// right after a hit successfully lands.
+/obj/item/proc/on_melee_hit(datum/source)
+	SIGNAL_HANDLER
+	degrade_durability(durability_per_use)
+
+/// Wear-tier examine text -- same convention already used by
+/// laser_components/capacitor (modular/laser_base.dm), reused here rather
+/// than inventing a new examine hook.
+/obj/item/condition_hints(mob/user, distance, is_adjacent)
+	. = ..()
+	if(!degrades_with_use || distance > 1)
+		return
+	var/ratio = wear_durability / wear_max_durability
+	var/wear_text
+	if(wear_broken)
+		wear_text = SPAN_DANGER("It's broken and unusable.")
+	else if(ratio <= 0.2)
+		wear_text = SPAN_DANGER("It's falling apart.")
+	else if(ratio <= 0.4)
+		wear_text = SPAN_WARNING("It's showing serious wear.")
+	else if(ratio <= 0.7)
+		wear_text = SPAN_NOTICE("It has some minor wear.")
+	else
+		wear_text = SPAN_NOTICE("It's in pristine condition.")
+	// Slight shadow + font bump so wear condition stands out from plain
+	// examine text in goon chat, without overriding the SPAN_* severity color.
+	. += "<span style='text-shadow: 0 1px 2px rgba(0,0,0,0.6); font-size: 1.05em;'>[wear_text]</span>"
+
+/// Repairs a worn item with a roll of tape -- Aurora's closest existing
+/// analog to an "adhesive quality" repair item, already consumed the same
+/// way (single-use, qdel on use) by rods.dm and the improvised pipe gun.
+/obj/item/attackby(obj/item/attacking_item, mob/user, params)
+	if(degrades_with_use && istype(attacking_item, /obj/item/tape_roll))
+		if(wear_broken)
+			to_chat(user, SPAN_WARNING("\The [src] is beyond repair."))
+			return TRUE
+		if(wear_durability >= wear_max_durability)
+			to_chat(user, SPAN_WARNING("\The [src] doesn't need repairing."))
+			return TRUE
+		wear_durability = wear_max_durability
+		user.visible_message(SPAN_NOTICE("[user] patches up \the [src] with [attacking_item]."), \
+			SPAN_NOTICE("You patch \the [src] back to full condition."))
+		qdel(attacking_item)
+		return TRUE
+	return ..()
+
+/// Fully persists wear state across restarts -- same two-proc override
+/// pattern already proven on a carried item (not a machine) by
+/// /obj/item/tank (weapons/tanks/tanks.dm), walked generically for every
+/// item by serializePersistentItem() (persistence_mobs.dm).
+/obj/item/persistent_objects_get_content()
+	. = ..()
+	if(degrades_with_use)
+		.["wear_durability"] = wear_durability
+		.["wear_broken"] = wear_broken
+
+/obj/item/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(degrades_with_use && islist(content))
+		if(!isnull(content["wear_durability"]))
+			wear_durability = between(0, text2num(content["wear_durability"]), wear_max_durability)
+		if(!isnull(content["wear_broken"]))
+			wear_broken = !!content["wear_broken"]
+
+#ifdef TESTING
+/// Debug-only, compiled out entirely unless TESTING is defined
+/// (code/__DEFINES/global.dm) -- lets a tester force a specific durability
+/// value from the right-click menu instead of grinding out real uses.
+/obj/item/verb/debug_set_durability()
+	set name = "Debug: Set Durability"
+	set category = "Debug"
+	set src in view(1)
+
+	if(!check_rights(R_ADMIN))
+		return
+	if(!degrades_with_use)
+		to_chat(usr, SPAN_WARNING("\The [src] doesn't use the durability system."))
+		return
+
+	var/new_value = tgui_input_number(usr, "Set durability (0 to [wear_max_durability]):", "Debug Durability", wear_durability, wear_max_durability, 0)
+	if(isnull(new_value))
+		return
+	wear_durability = new_value
+	wear_broken = (wear_durability <= 0)
+	to_chat(usr, SPAN_NOTICE("\The [src] durability set to [wear_durability]/[wear_max_durability][wear_broken ? " (broken)" : ""]."))
+#endif
 
 /// Plays item's usesound, if any
 /obj/item/proc/play_tool_sound(atom/target, volume=null) // null, so default value of this proc won't override default value of the playsound.

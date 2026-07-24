@@ -48,6 +48,29 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 		if(ZONE_MEDSEC)  return "medsec"
 	return "nullsec"
 
+/// TRUE when damage/destruction at this turf is blocked by highsec zone
+/// protection (station anti-grief -- the CentCom-indestructibility idea
+/// generalized to any HIGHSEC z). Admins bypass when a user context is
+/// supplied; so do Hub-faction members carrying engineering access (real
+/// engineering work shouldn't need an admin). Contextless damage
+/// (explosions, fire, subsystem-driven) is always blocked in highsec.
+/proc/zone_damage_protected(turf/T, mob/user)
+	if(!T || zone_security_get(T.z) != ZONE_HIGHSEC)
+		return FALSE
+	if(user && (check_rights(R_ADMIN, 0, user) || zone_engineering_exempt(user)))
+		return FALSE
+	return TRUE
+
+/// TRUE if z belongs to an asteroid exoplanet body (any variant) -- covers
+/// romanovich/ice/dumas/ytizi/chanterel/burzsia/etc, all subtypes of one
+/// base type. Asteroids can still passively fall within a nearby beacon's
+/// claimed security radius (that's zone_security_get()/_apply_security_
+/// radius_grant(), unaffected) -- this only blocks a beacon being planted
+/// directly on the asteroid itself.
+/proc/is_asteroid_zone(z)
+	var/obj/effect/overmap/visitable/sector = GLOB.map_sectors["[z]"]
+	return istype(sector, /obj/effect/overmap/visitable/sector/exoplanet/barren/asteroid)
+
 /**
  * Load zone rows from the database into the in-memory map, then paint the
  * overmap markers. Called from SSpersistence.Initialize().
@@ -145,7 +168,13 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 				T.overlays -= T.zone_border_overlay
 			var/image/I = image(icon = T.icon, icon_state = T.icon_state, loc = T)
 			I.color = tier_color
-			I.alpha = 190
+			// Beacon-claimed medsec/highsec territory only ever reaches here
+			// (a beacon's guaranteed_security_tier is never nullsec) -- bumped
+			// to match the same tier pair's already-bright value used by the
+			// no-beacon admin-set case below (line ~213), since this was
+			// noticeably dimmer/darker for no real reason. Nullsec's own fill
+			// (a separate, deliberately dimmer case below) is untouched.
+			I.alpha = 225
 			T.overlays += I
 			T.zone_border_overlay = I
 			T.zone_border_tier = B.guaranteed_security_tier
@@ -160,7 +189,10 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 		if(istype(center) && !center.zone_shield_overlay)
 			var/image/shield = image('icons/hud/security_shield.png', loc = center)
 			shield.color = (B.guaranteed_security_tier == ZONE_HIGHSEC) ? "#54c556" : "#e8bb4a"
-			shield.alpha = 150
+			// Medsec/highsec only (same reasoning as the territory fill above) --
+			// brightened from 150 (too dark/washed-out per feedback) while still
+			// short of fully opaque, keeping some of the underlying tile visible.
+			shield.alpha = 200
 			center.overlays += shield
 			center.zone_shield_overlay = shield
 			GLOB.zone_security_bordered_turfs |= center
@@ -209,32 +241,108 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 /// step after ANY missed transition self-corrects and announces.
 /mob/var/zone_announce_level = -1
 
-/// Announce when this mob's current zone level differs from the last one
-/// announced. quiet_baseline suppresses the message and just records the
-/// level (used at login so every fresh join doesn't print a banner).
-/mob/proc/check_zone_announce(quiet_baseline = FALSE)
+/// Whether the last announced zone was a Z a live mission is currently
+/// using (is_active_mission_sector(), persistence_missions.dm -- covers
+/// both auto-generated sectors and a dynamic/admin-placed site a mission is
+/// reusing) -- tracked alongside zone_announce_level so moving directly
+/// between two nullsec Zs (plain nullsec <-> a mission sector, no
+/// highsec/medsec Z in between) still re-announces, since the tier alone
+/// wouldn't change.
+/mob/var/zone_announce_mission = FALSE
+
+/// Last faction_uid announced as controlling this mob's zone (null = none/
+/// nullsec). Tracked separately from zone_announce_level so a same-tier
+/// handoff between two different factions' beacon radii still re-prints the
+/// "sector is under X control" line, without re-printing the whole
+/// zone-entry banner (that stays gated on tier/mission only).
+/mob/var/zone_announce_faction = null
+
+/// Announce when this mob's current zone level (or mission-sector status, or
+/// controlling faction) differs from the last one announced. quiet_baseline
+/// suppresses the message and just records the state (used at login so every
+/// fresh join doesn't print a banner). force_faction_check makes the
+/// (potentially expensive, see get_owning_faction_beacon()) owner lookup run
+/// even when the tier didn't change -- set by zone_security_recheck_mobs_on_z()
+/// for beacon-driven state changes; left FALSE for ordinary movement-driven
+/// calls so walking around does not pay that cost on every step.
+/mob/proc/check_zone_announce(quiet_baseline = FALSE, force_faction_check = FALSE)
 	if(!client)
 		return
 	// Pregame lobby mobs sit on a real station z but aren't "in" the world --
 	// never announce (nor set the baseline; the spawned body announces fresh)
 	if(istype(src, /mob/abstract/new_player))
 		return
+	// Admins flying around in aghost aren't "really" in whatever zone they're
+	// passing through -- never announce (nor track state; their own body's
+	// tracking is a separate mob instance, unaffected either way).
+	if(isobserver(src))
+		var/mob/abstract/ghost/observer/O = src
+		if(O.admin_ghosted)
+			return
 	var/nz = GET_Z(src)
 	if(!nz)
 		return
 	var/new_level = zone_security_get(nz)
-	if(new_level == zone_announce_level)
+	var/new_mission = is_active_mission_sector(nz)
+	var/tier_changed = (new_level != zone_announce_level) || (new_mission != zone_announce_mission)
+
+	// Owner lookup is skipped on ordinary movement-driven calls where the
+	// tier didn't change -- get_owning_faction_beacon() falls back to an
+	// O(active beacons) world scan for any non-station (radius-covered) Z,
+	// and crew walking around inside a stationary ship fire Moved() every
+	// step even when the ship itself never moves on the overmap. Only worth
+	// paying that cost when the tier changed (already free -- same call was
+	// always made below in that case) or when force_faction_check requests
+	// it (beacon-sweep-driven notification, bounded by sweep cadence).
+	var/obj/structure/machinery/faction_beacon/owner
+	var/new_faction = zone_announce_faction
+	var/faction_changed = FALSE
+	if(tier_changed || force_faction_check)
+		owner = (new_level != ZONE_NULLSEC) ? get_owning_faction_beacon(nz) : null
+		new_faction = (owner && owner.faction_uid) ? owner.faction_uid : null
+		faction_changed = (new_faction != zone_announce_faction)
+
+	if(!tier_changed && !faction_changed)
 		return
 	zone_announce_level = new_level
+	zone_announce_mission = new_mission
+	zone_announce_faction = new_faction
 	if(quiet_baseline && new_level == ZONE_NULLSEC)
 		return
-	switch(new_level)
-		if(ZONE_HIGHSEC)
-			to_chat(src, FONT_LARGE(SPAN_COLOR("#54c556", "You are entering a highsec area! Piracy and combat is outlawed, Hub law is enforced.")))
-		if(ZONE_MEDSEC)
-			to_chat(src, FONT_LARGE(SPAN_COLOR("#e8bb4a", "You are entering a medsec area! Piracy is outlawed, factions enforce their own laws.")))
-		else
-			to_chat(src, FONT_LARGE(SPAN_COLOR("#e04545", "You are entering a nullsec area! Hub and faction laws are not enforced here.")))
+
+	if(tier_changed)
+		var/play_vox = !isdeaf(src) && (client?.prefs.sfx_toggles & ASFX_ANNOUNCER)
+		switch(new_level)
+			if(ZONE_HIGHSEC)
+				to_chat(src, FONT_LARGE(SPAN_COLOR("#54c556", "You are entering a highsec area! Piracy and combat is outlawed, Hub law is enforced.")))
+				if(play_vox)
+					play_announcer_sound(src, 'sound/AI/announcements/zone_highsec.ogg')
+			if(ZONE_MEDSEC)
+				to_chat(src, FONT_LARGE(SPAN_COLOR("#e8bb4a", "You are entering a medsec area! Piracy is outlawed, factions enforce their own laws.")))
+				if(play_vox)
+					play_announcer_sound(src, 'sound/AI/announcements/zone_medsec.ogg')
+			else
+				to_chat(src, FONT_LARGE(SPAN_COLOR("#e04545", "You are entering a nullsec area! Hub and faction laws are not enforced here.")))
+				if(play_vox)
+					play_announcer_sound(src, 'sound/AI/announcements/zone_nullsec.ogg')
+				if(new_mission)
+					to_chat(src, FONT_LARGE(SPAN_COLOR("#e04545", "This area cannot be captured by any faction, and piracy beacons may not be installed.")))
+
+	if(owner && owner.faction_uid)
+		to_chat(src, SPAN_NOTICE("This sector is under [get_faction_name(owner.faction_uid)] control."))
+
+/// Re-evaluates check_zone_announce() for every client-attached mob
+/// currently on z. Needed whenever z's cached tier changes programmatically
+/// (faction beacon grant/revoke) rather than by a mob's own movement -- a
+/// traveling ship's marker moves on the overmap grid while every mob aboard
+/// never actually changes turf, so their own Moved() never fires from ship
+/// travel alone.
+/proc/zone_security_recheck_mobs_on_z(z)
+	if(!z)
+		return
+	for(var/mob/M in GLOB.player_list)
+		if(GET_Z(M) == z)
+			M.check_zone_announce(force_faction_check = TRUE)
 
 /mob/Moved(atom/old_loc, movement_dir, forced, list/old_locs)
 	. = ..()
@@ -256,6 +364,45 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 	if(!get_faction_member(H.ckey, "hub"))
 		return FALSE
 	return TRUE
+
+/**
+ * TRUE for Hub-faction members carrying engineering access -- they can
+ * perform real engineering work (repairs, construction, demolition) on
+ * highsec structures without needing admin rights.
+ */
+/proc/zone_engineering_exempt(mob/M)
+	if(!M || !ishuman(M) || !M.ckey)
+		return FALSE
+	var/mob/living/carbon/human/H = M
+	var/obj/item/card/id/I = H.GetIdCard()
+	if(!I || !(ACCESS_ENGINE in I.access))
+		return FALSE
+	if(!get_faction_member(H.ckey, "hub"))
+		return FALSE
+	return TRUE
+
+/**
+ * Live security tier for a position on the OVERMAP grid: the highest
+ * guaranteed_security_tier among active, powered faction beacons whose own
+ * sector is within security_radius of the tile, else ZONE_NULLSEC.
+ * Needed because zone_security_get(z) is stale for a MOVING ship -- its Z
+ * tier is set once at creation and only ever raised by the beacon sweep
+ * (_apply_security_radius_grant(), faction_beacon.dm), never lowered when
+ * it flies back out of coverage. Beacon walk mirrors
+ * _overmap_tile_hazard_excluded() (overmap/events/event.dm).
+ */
+/proc/zone_security_overmap_tier(turf/overmap_tile)
+	. = ZONE_NULLSEC
+	if(!overmap_tile)
+		return
+	for(var/obj/structure/machinery/faction_beacon/B in world)
+		if(QDELETED(B) || !B.active || !B.powered || B.security_radius <= 0)
+			continue
+		if(B.guaranteed_security_tier <= .)
+			continue
+		var/obj/effect/overmap/visitable/beacon_sector = GLOB.map_sectors["[GET_Z(B)]"]
+		if(istype(beacon_sector) && get_dist(overmap_tile, beacon_sector) <= B.security_radius)
+			. = B.guaranteed_security_tier
 
 /**
  * Record a highsec offense (called from admin_attack_log()): escalates to
@@ -357,23 +504,29 @@ GLOBAL_LIST_EMPTY(hub_distress_last_called)
 		CHECK_TICK
 
 /**
- * Find a security telepad for the given faction network.
- * Priority: faction telepad -> public telepad -> null.
- * Mirrors persistence_find_cargo_telepad().
+ * Find every security telepad for the given faction network.
+ * Priority: faction telepads -> public telepads -> empty list. Returns
+ * every match within whichever tier wins (never mixes tiers) so a caller
+ * with more than one candidate can offer a choice instead of always
+ * landing on the first one iteration happens to find.
  */
-/proc/persistence_find_security_telepad(network = null)
+/proc/persistence_find_security_telepads(network = null)
 	network = normalize_faction_uid(network)
+	var/list/faction_pads = list()
 	if(network)
 		for(var/obj/structure/machinery/telepad_security/pad in world)
 			if(!pad.z) continue
 			if(!pad.persistent_spawn) continue
 			if(normalize_faction_uid(pad.persistent_network) == network)
-				return get_turf(pad)
+				faction_pads += pad
+	if(length(faction_pads))
+		return faction_pads
+	var/list/public_pads = list()
 	for(var/obj/structure/machinery/telepad_security/pad in world)
 		if(!pad.z) continue
 		if(lowertext(pad.persistent_network) == "public" && pad.persistent_spawn)
-			return get_turf(pad)
-	return null
+			public_pads += pad
+	return public_pads
 
 /// Admin verb: jump your aghost onto the overmap chart to inspect sector
 /// markers (zone outlines, pinned-site names/icons) in action.

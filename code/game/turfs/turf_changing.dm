@@ -9,7 +9,12 @@
 // Removes all signs of lattice on the pos of the turf -Donkieyo
 /turf/proc/RemoveLattice()
 	var/obj/structure/lattice/L = locate(/obj/structure/lattice, src)
-	if(L)
+	// Catwalk grates legitimately sit ON floors -- only the bare support
+	// lattice is consumed by building a floor over it. Without this check,
+	// the persistence turf restore (turfsInitialize -> ChangeTurf ->
+	// RemoveLattice on simulated floors) silently deleted every mapped
+	// catwalk grate on each boot.
+	if(L && !istype(L, /obj/structure/lattice/catwalk))
 		qdel(L)
 
 // Called after turf replaces old one

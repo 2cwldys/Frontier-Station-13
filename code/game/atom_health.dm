@@ -15,6 +15,14 @@
 /atom/proc/add_damage(damage, damage_flags, damage_type, armor_penetration, obj/weapon)
 	if(!damage || !maxhealth || (damage < 1) || !should_use_health)
 		return FALSE
+	// Highsec zone protection: one gate here covers every health-tracked
+	// atom (walls' damage funnel, structures, machinery, windows, doors).
+	// `usr` carries the admin exemption for direct interactions (the
+	// clicking admin IS usr); subsystem-driven damage (explosions, fires)
+	// has null/stale usr and is treated as contextless -> blocked, which
+	// is the intended anti-grief behavior.
+	if(zone_damage_protected(get_turf(src), usr))
+		return FALSE
 
 	var/datum/component/armor/armor = GetComponent(/datum/component/armor)
 	if(armor)

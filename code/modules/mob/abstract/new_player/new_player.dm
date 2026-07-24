@@ -528,7 +528,7 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 				var/obj/structure/machinery/cryopod/spawn_pod = persistence_find_saved_cryopod(ckey_lower, H.real_name)
 				if(!spawn_pod)
 					var/rejoiner_faction = GLOB.config.sql_enabled ? persistence_get_player_faction(ckey_lower) : null
-					spawn_pod = persistence_find_available_cryopod(rejoiner_faction)
+					spawn_pod = persistence_find_available_cryopod(rejoiner_faction, ckey_lower, H.real_name)
 				// If they were stored inside a pod, detach them from it cleanly
 				// before waking (they may be re-inserted into spawn_pod below).
 				if(istype(H.loc, /obj/structure/machinery/cryopod))
@@ -646,6 +646,22 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		if(saved_char_state == "dead_body")
 			restoring_dead_body = TRUE
 
+	// Resolve the cryopod choice NOW, while src (the lobby mob) still owns the
+	// client -- create_character() below is what transfers key/client onto the
+	// new mob and places it at GLOB.newplayer_start, so waiting until after
+	// that to show the picker means the player is already a live, clickable,
+	// movable body in the world for however long they take to answer.
+	// random_players mode randomizes real_name inside create_character()
+	// itself, so identity isn't knowable yet in that one case -- falls through
+	// to the post-creation call further down instead.
+	var/obj/structure/machinery/cryopod/pre_chosen_spawn_pod
+	if(!restoring_dead_body && !SSticker.random_players)
+		var/pending_char_name = selected_char || client.prefs.real_name
+		var/pending_faction = GLOB.config.sql_enabled ? persistence_get_player_faction(ckey_lower) : null
+		pre_chosen_spawn_pod = persistence_prompt_cryopod_choice(src, ckey_lower, pending_char_name, pending_faction)
+		if(QDELETED(src))
+			return
+
 	// ── Load this character's full SQL data into prefs before spawning ──────
 	// create_character() uses client.prefs to build appearance/species/DNA.
 	// Loading by character ID ensures the correct character's data is used,
@@ -713,7 +729,19 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 
 	// ── Lock character preferences on first spawn (by specific character ID) ────
 	// Targets only the character being spawned, not all unspawned characters by ckey.
+	var/is_first_ever_spawn = FALSE
 	if(client.prefs.current_character && GLOB.config.sql_saves && SSdbcore.Connect())
+		// Read before the lock flips it -- this is the only way to know whether
+		// this specific character has ever spawned before, to gate the one-time
+		// starter PDA grant below.
+		var/datum/db_query/spawnedq = SSdbcore.NewQuery(
+			"SELECT first_spawned_at FROM ss13_characters WHERE id = :id AND deleted_at IS NULL",
+			list("id" = client.prefs.current_character))
+		spawnedq.Execute()
+		if(spawnedq.NextRow())
+			is_first_ever_spawn = isnull(spawnedq.item[1])
+		qdel(spawnedq)
+
 		var/datum/db_query/fq = SSdbcore.NewQuery(
 			{"UPDATE ss13_characters SET first_spawned_at = NOW()
 			WHERE id = :id AND deleted_at IS NULL AND first_spawned_at IS NULL"},
@@ -776,6 +804,14 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		character.update_body()
 		character.regenerate_icons()
 
+	// Starter PDA -- this server's spawn flow bypasses job/outfit equip
+	// entirely (see create_character()'s own doc comment), so a genuinely
+	// new character has nothing at all, including no way to reach any
+	// console/PDA program. Granted exactly once, gated on the same
+	// first-spawn-ever flag used to lock character preferences above.
+	if(is_first_ever_spawn)
+		character.equip_or_collect(new /obj/item/modular_computer/handheld/pda(character), slot_wear_id)
+
 	// Neural lace — wire up any lace restored by health persistence, or install fresh if preference is on
 	var/obj/item/organ/internal/neural_lace/existing_lace = null
 	for(var/obj/item/organ/internal/neural_lace/L in character.internal_organs)
@@ -825,12 +861,21 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		qdel(src)
 		return
 
+	// Cryopod choice was already resolved above, before this mob existed, so
+	// the player was never placed in the world with a decision still
+	// pending. random_players is the one mode where identity wasn't knowable
+	// yet at that point -- resolve it here instead, same as before this fix.
+	var/spawner_faction = GLOB.config.sql_enabled ? persistence_get_player_faction(ckey_lower) : null
+	var/obj/structure/machinery/cryopod/spawn_pod = pre_chosen_spawn_pod
+	if(!spawn_pod && SSticker.random_players)
+		spawn_pod = persistence_prompt_cryopod_choice(character, ckey_lower, character.real_name, spawner_faction)
+
 	// Wake inside the character's last-used cryopod when still valid, else
 	// faction pods -> public pods, any free working pod as last resort
-	var/obj/structure/machinery/cryopod/spawn_pod = persistence_find_saved_cryopod(ckey_lower, character.real_name)
 	if(!spawn_pod)
-		var/spawner_faction = GLOB.config.sql_enabled ? persistence_get_player_faction(ckey_lower) : null
-		spawn_pod = persistence_find_available_cryopod(spawner_faction)
+		spawn_pod = persistence_find_saved_cryopod(ckey_lower, character.real_name)
+	if(!spawn_pod)
+		spawn_pod = persistence_find_available_cryopod(spawner_faction, ckey_lower, character.real_name)
 	if(!spawn_pod)
 		for(var/obj/structure/machinery/cryopod/pod in world)
 			if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore)) continue

@@ -99,6 +99,53 @@
 		log_say("[key_name(usr)] has made \a [announcement_type]: [message_title] - [message] - [announcer]")
 		message_admins("[key_name_admin(usr)] has made \a [announcement_type].", 1)
 
+/// Plays sound to every non-deaf client with the announcer voice preference
+/// enabled -- mirrors the exact gating Announce() uses above, for to_world()
+/// broadcasts (e.g. persistence save notices) that have no sound support of
+/// their own.
+/proc/play_announcer_voice_to_all(sound_path)
+	for(var/mob/M in GLOB.player_list)
+		if(isnewplayer(M) || isdeaf(M))
+			continue
+		if(M.client?.prefs.sfx_toggles & ASFX_ANNOUNCER)
+			play_announcer_sound(M, sound_path)
+
+/client/var/list/announcer_queue = list()
+/client/var/announcer_free_at = 0
+
+/// Single entry point for every ASFX_ANNOUNCER-gated voice line. Plays
+/// immediately on the shared CHANNEL_ANNOUNCER if free, otherwise queues --
+/// prevents two announcer lines from overlapping for the same listener.
+/// Callers keep doing their own ASFX_ANNOUNCER/ear_deaf gating beforehand;
+/// this only owns delivery + queuing. Durations come from
+/// announcer_sound_durations (_announcer_sound_durations.dm, auto-generated
+/// by scripts/voicegen/build_bookended_lines.py) -- falls back to a safe
+/// default if a sound was added to a call site before the manifest was
+/// regenerated for it.
+/proc/play_announcer_sound(mob/M, sound_path, volume = 50)
+	if(!M.client)
+		return
+	var/duration = GLOB.announcer_sound_durations["[sound_path]"] || 3 SECONDS
+	if(M.client.announcer_free_at <= world.time)
+		M << sound(sound_path, volume = volume, channel = CHANNEL_ANNOUNCER)
+		M.client.announcer_free_at = world.time + duration
+		addtimer(CALLBACK(M.client, TYPE_PROC_REF(/client, _dispatch_next_announcer_sound)), duration)
+	else
+		LAZYADD(M.client.announcer_queue, list(list(sound_path, volume)))
+
+/// Pops and plays the next queued announcer sound for this client, if any --
+/// scheduled by play_announcer_sound() to fire exactly when the previously
+/// playing line's duration elapses.
+/client/proc/_dispatch_next_announcer_sound()
+	if(!LAZYLEN(announcer_queue))
+		return
+	var/list/next = announcer_queue[1]
+	announcer_queue.Cut(1, 2)
+	var/duration = GLOB.announcer_sound_durations["[next[1]]"] || 3 SECONDS
+	mob << sound(next[1], volume = next[2], channel = CHANNEL_ANNOUNCER)
+	announcer_free_at = world.time + duration
+	addtimer(CALLBACK(src, TYPE_PROC_REF(/client, _dispatch_next_announcer_sound)), duration)
+
 /proc/GetNameAndAssignmentFromId(var/obj/item/card/id/I)
 	if(!I)
 		return "Unknown"

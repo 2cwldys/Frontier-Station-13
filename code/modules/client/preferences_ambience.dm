@@ -114,6 +114,24 @@ GLOBAL_LIST_INIT(sfx_toggles, list(
 		to_chat(src, SPAN_INFO("You will now hear ambient sounds from consoles."))
 	else
 		to_chat(src, SPAN_INFO("You will no longer hear ambient sounds from consoles."))
+
+/client/verb/toggle_announcer_voice()
+	set name = "Toggle Announcer Voice"
+	set category = "Preferences.Sound"
+	set desc = "Toggles hearing the AI announcer voice lines (autosave, zone security)"
+
+	prefs.sfx_toggles ^= ASFX_ANNOUNCER
+	prefs.save_preferences()
+	to_chat(src, SPAN_INFO("You will [(prefs.sfx_toggles & ASFX_ANNOUNCER) ? "now" : "no longer"] hear the AI announcer voice."))
+
+/client/verb/toggle_engine_hum()
+	set name = "Toggle Engine Hum SFX"
+	set category = "Preferences.Sound"
+	set desc = "Toggles hearing ambient ship engine sounds (hum, startup, shutdown)"
+
+	prefs.sfx_toggles ^= ASFX_ENGINE_HUM
+	prefs.save_preferences()
+	to_chat(src, SPAN_INFO("You will [(prefs.sfx_toggles & ASFX_ENGINE_HUM) ? "now" : "no longer"] hear ship engine sounds."))
 //
 // SFX Toggles
 //

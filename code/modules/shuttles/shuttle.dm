@@ -138,6 +138,9 @@
 			var/fwooshed = 0
 			destination.deploy_landing_indicators(src)
 			while (world.time < arrive_time)
+				if(moving_status == SHUTTLE_IDLE)
+					destination.clear_landing_indicators()
+					return //someone force-recalled us mid-flight
 				if(!fwooshed && (arrive_time - world.time) < 100)
 					fwooshed = 1
 					playsound(destination, sound_landing, 50, 20)

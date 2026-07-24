@@ -5,6 +5,12 @@
 	power_channel = AREA_USAGE_ENVIRON
 	/// If set, access is resolved via faction member records for this faction UID rather than the flat access list.
 	var/req_access_faction = ""
+	/// If TRUE, this door only opens for the drydock ship crew (owner + crew_ckeys)
+	/// of whichever ship currently occupies this Z -- resolved dynamically via
+	/// _drydock_crew_check() (telepad_drydock_boarding.dm), not a stored
+	/// identity. Mutually exclusive with req_access_faction -- see
+	/// crew_tagger_set() (persistence_faction_tagger.dm).
+	var/crew_tagged = FALSE
 
 	explosion_resistance = 10
 	autoclose = TRUE
@@ -1781,6 +1787,8 @@ About the new airlock wires panel:
 			update_icon()
 		return TRUE
 	else if(attacking_item.tool_behaviour == TOOL_SCREWDRIVER)
+		if(!attacking_item.tool_use_check(user, 0))
+			return TRUE
 		if (src.p_open)
 			if (stat & BROKEN)
 				to_chat(user, SPAN_WARNING("The panel is broken and cannot be closed."))
@@ -1791,6 +1799,7 @@ About the new airlock wires panel:
 			src.p_open = TRUE
 			to_chat(user, SPAN_NOTICE("You carefully unscrew the panel on \the [src]"))
 		src.update_icon()
+		attacking_item.degrade_durability(attacking_item.durability_per_use)
 		return TRUE
 	else if(attacking_item.tool_behaviour == TOOL_WIRECUTTER)
 		return src.attack_hand(user)
@@ -1842,9 +1851,13 @@ About the new airlock wires panel:
 						to_chat(user, SPAN_NOTICE("The hydraulic strength easily overcomes the resistance of the airlock's motors opening the way ahead!"))
 						open(1)
 				else
-					open(1)
+					if(attacking_item.tool_use_check(user, 0))
+						open(1)
+						attacking_item.degrade_durability(attacking_item.durability_per_use)
 			else
-				close(1)
+				if(attacking_item.tool_use_check(user, 0))
+					close(1)
+					attacking_item.degrade_durability(attacking_item.durability_per_use)
 		return TRUE
 	else if(istype(attacking_item, /obj/item/material/twohanded/fireaxe))
 		if(locked && user.a_intent != I_HURT)
@@ -2172,11 +2185,15 @@ About the new airlock wires panel:
 	lock(1)
 
 /obj/structure/machinery/door/airlock/allowed(mob/M)
+	if(crew_tagged)
+		return check_rights(R_ADMIN, 0, M) || _drydock_crew_check(M, GET_Z(src))
 	if(req_access_faction == "public")
 		return TRUE // admin-declared fully open -- bypasses normal req_access/req_one_access too, not just the faction gate
 	if(req_access_faction)
 		var/obj/item/card/id/I = M ? M.GetIdCard() : null
 		if(!I) return FALSE
+		if(I.is_faction_master && !I.revoked && normalize_faction_uid(I.employer_faction) == req_access_faction)
+			return TRUE // faction master card -- full bypass, no code-matching needed
 		var/list/faction_access = I.GetFactionAccess(req_access_faction, M)
 		if(isnull(faction_access))
 			return FALSE // not a member of this faction at all

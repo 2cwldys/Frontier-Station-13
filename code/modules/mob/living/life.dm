@@ -144,6 +144,7 @@
 		var/viewflags = machine.check_eye(src)
 		if(viewflags < 0)
 			reset_view(null, 0)
+			unset_machine() // dead view session -- a stale ref would re-veto every tick (see human handle_vision)
 		else if(viewflags)
 			set_sight(viewflags)
 	else if(eyeobj)

@@ -28,7 +28,7 @@
 /datum/trader/ship/unique/syndicate
 	name = "Cyndie Kate"
 	origin = "Cloaked ship"
-	allowed_space_sectors = list(SECTOR_ROMANOVICH, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE, SECTOR_BADLANDS)
+	allowed_space_sectors = list(SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE, SECTOR_BADLANDS)
 
 	possible_wanted_items = list (
 		/obj/item/gun/energy/captain                 = TRADER_THIS_TYPE,
@@ -77,7 +77,7 @@
 /datum/trader/ship/unique/severance
 	name = "Unknown"
 	origin = "SGS Severance"
-	allowed_space_sectors = list(SECTOR_ROMANOVICH, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE, SECTOR_BADLANDS)
+	allowed_space_sectors = list(SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE, SECTOR_BADLANDS)
 
 	possible_wanted_items = list(
 		/obj/item/reagent_containers/food/snacks/human      = TRADER_SUBTYPES_ONLY,

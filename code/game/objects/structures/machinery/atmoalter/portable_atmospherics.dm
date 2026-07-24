@@ -18,6 +18,14 @@
 	QDEL_NULL(holding)
 	return ..()
 
+/obj/structure/machinery/portable_atmospherics/Exited(atom/movable/gone, direction)
+	. = ..()
+	if(gone == holding)
+		if(istype(gone, /obj/item/tank))
+			var/obj/item/tank/T = gone
+			T.update_icon()
+		holding = null
+
 /obj/structure/machinery/portable_atmospherics/Initialize()
 	. = ..()
 

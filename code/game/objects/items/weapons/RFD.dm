@@ -158,7 +158,7 @@ ABSTRACT_TYPE(/obj/item/rfd)
  * Adds a fancy ammo counter.
  */
 /obj/item/rfd/update_icon()
-	CutOverlays()
+	ClearOverlays()
 
 	var/ratio = 0
 	/// 30 is the hardcoded max capacity of the RFD

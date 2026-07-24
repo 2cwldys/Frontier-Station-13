@@ -5,7 +5,7 @@
 	prefix = "away_site/romanovich/"
 	suffix = "grand_romanovich.dmm"
 
-	sectors = list(SECTOR_ROMANOVICH)
+	sectors = list(SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER)
 	spawn_weight = 1
 	ship_cost = 2
 	id = "grand_romanovich"

@@ -77,6 +77,53 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 	log_subsystem_persistence_info("Turfs: Restored [loaded] changed turfs for map [SSatlas.current_map.path].")
 
 /**
+ * Apply saved ship-scoped turf rows to a freshly loaded ship Z. Same
+ * restore mechanics as turfsInitialize(), but querying by ship scope
+ * (rows were just remapped to this z by remapShipRows()) and skipping the
+ * z-exclusion gates -- the caller owns the z and wants it applied. Rows
+ * whose coordinates no longer match the hull (template edited between
+ * sessions) skip harmlessly.
+ */
+/datum/controller/subsystem/persistence/proc/turfsApplyZ(z, scope)
+	if(!databaseCheckConnection("turfsApplyZ"))
+		return
+	var/datum/db_query/query = SSdbcore.NewQuery(
+		"SELECT x, y, turf_type, base_type, content FROM ss13_worldstate_turfs WHERE map_path = :map_path AND z = :z",
+		list("map_path" = scope, "z" = z)
+	)
+	query.Execute()
+	if(!databaseCheckQueryResult(query, "turfsApplyZ"))
+		qdel(query)
+		return
+	var/loaded = 0
+	while(query.NextRow())
+		var/tx = text2num(query.item[1])
+		var/ty = text2num(query.item[2])
+		var/turf_type = text2path(query.item[3])
+		var/base_type = text2path(query.item[4])
+		var/content_json = query.item[5]
+		if(!turf_type)
+			continue
+		var/turf/T = locate(tx, ty, z)
+		if(!istype(T))
+			continue
+		try
+			var/list/content = json_decode(content_json)
+			if(!content)
+				continue
+			T.ChangeTurf(turf_type)
+			if(base_type)
+				T.baseturf = base_type
+			turfsApplyContent(T, content)
+		catch(var/exception/e)
+			log_subsystem_persistence_error("Turfs: Failed to apply ship turf at ([tx],[ty],[z]) for [scope]: [e]")
+			continue
+		loaded++
+		CHECK_TICK
+	qdel(query)
+	log_subsystem_persistence_info("Turfs: Applied [loaded] ship turfs to z=[z] ([scope]).")
+
+/**
  * Apply saved content vars to a turf after type change.
  */
 /datum/controller/subsystem/persistence/proc/turfsApplyContent(turf/T, list/content)
@@ -102,51 +149,78 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 		W.update_icon()
 
 /**
- * Save all structurally changed turfs to the database at round end.
- * Full world scan  compares every simulated floor and wall against its base state.
- * Called from SSpersistence.Shutdown() and forceSaveAll().
+ * Examine one simulated turf and append its save outcome to the shared
+ * collections: an upsert row string (keyed under persistence_scope_for_z(),
+ * so deployed ship Zs write under their ship scope -- see
+ * persistence_ship_interiors.dm), or a delete coordinate bucketed by scope
+ * for turfs that have reverted to default. Shared by the full-world sweep
+ * (turfsFinalize()) and the per-ship-Z save (turfsFinalizeZ()).
  */
-/datum/controller/subsystem/persistence/proc/turfsFinalize()
+/datum/controller/subsystem/persistence/proc/_turfsCollectOne(turf/simulated/T, list/upsert_rows, list/delete_by_scope)
 	PRIVATE_PROC(TRUE)
-
-	if(!databaseCheckConnection("turfsFinalize"))
+	if((T.z in GLOB.persistence_zlevel_skip) || is_mining_level(T.z) || persistence_z_manual_blocked(T.z))
 		return
+	if(persistence_area_excluded(T))
+		return
+	var/scope_escaped = replacetext(persistence_scope_for_z(T.z), "'", "''")
 
-	var/list/upsert_rows   = list()
-	var/list/delete_coords = list()
-	var/map_path    = "[SSatlas.current_map.path]"
-	var/map_escaped = replacetext(map_path, "'", "''")
-
-	for(var/turf/simulated/floor/F in world)
-		CHECK_TICK
-		if((F.z in GLOB.persistence_zlevel_skip) || is_mining_level(F.z) || persistence_z_manual_blocked(F.z)) continue
+	if(istype(T, /turf/simulated/floor))
+		var/turf/simulated/floor/F = T
 		if(!F.broken && !F.burnt && !F.color && F.type == F.baseturf)
-			delete_coords += "([F.x],[F.y],[F.z])"
-			continue
+			if(!(scope_escaped in delete_by_scope))
+				delete_by_scope[scope_escaped] = list()
+			delete_by_scope[scope_escaped] += "([F.x],[F.y],[F.z])"
+			return
 		var/content_json = replacetext(json_encode(list("broken"=F.broken,"burnt"=F.burnt,"color"=F.color)), "'", "''")
 		var/type_str = replacetext("[F.type]", "'", "''")
 		var/base_str = replacetext("[F.baseturf]", "'", "''")
-		upsert_rows += "('[map_escaped]',[F.x],[F.y],[F.z],'[type_str]','[base_str]','[content_json]',NOW())"
+		upsert_rows += "('[scope_escaped]',[F.x],[F.y],[F.z],'[type_str]','[base_str]','[content_json]',NOW())"
+		return
 
-	for(var/turf/simulated/wall/W in world)
-		CHECK_TICK
-		if((W.z in GLOB.persistence_zlevel_skip) || is_mining_level(W.z) || persistence_z_manual_blocked(W.z)) continue
+	if(istype(T, /turf/simulated/wall))
+		var/turf/simulated/wall/W = T
 		if(W.type == W.baseturf && W.health >= W.maxhealth)
-			delete_coords += "([W.x],[W.y],[W.z])"
-			continue
+			if(!(scope_escaped in delete_by_scope))
+				delete_by_scope[scope_escaped] = list()
+			delete_by_scope[scope_escaped] += "([W.x],[W.y],[W.z])"
+			return
 		var/mat_name   = W.material ? replacetext(W.material.name, "'", "''") : null
 		var/reinf_name = W.reinf_material ? replacetext(W.reinf_material.name, "'", "''") : null
-		var/content_json = "'[replacetext(json_encode(list("material"=mat_name,"reinf_material"=reinf_name,"health"=W.health,"construction_stage"=W.construction_stage)), "'", "''")]'"
-		var/type_str = replacetext("[W.type]", "'", "''")
-		var/base_str = replacetext("[W.baseturf]", "'", "''")
-		upsert_rows += "('[map_escaped]',[W.x],[W.y],[W.z],'[type_str]','[base_str]',[content_json],NOW())"
+		var/wall_json = replacetext(json_encode(list("material"=mat_name,"reinf_material"=reinf_name,"health"=W.health,"construction_stage"=W.construction_stage)), "'", "''")
+		var/wtype_str = replacetext("[W.type]", "'", "''")
+		var/wbase_str = replacetext("[W.baseturf]", "'", "''")
+		upsert_rows += "('[scope_escaped]',[W.x],[W.y],[W.z],'[wtype_str]','[wbase_str]','[wall_json]',NOW())"
+		return
 
-	if(length(delete_coords))
+	// Other simulated turfs (catwalks etc.) -- saved type-only when changed.
+	if(T.type == T.baseturf)
+		return
+	var/has_lattice = FALSE
+	for(var/obj/structure/lattice/L in T)
+		has_lattice = TRUE
+		break
+	if(has_lattice)
+		return
+	var/otype_str = replacetext("[T.type]", "'", "''")
+	var/obase_str = replacetext("[T.baseturf]", "'", "''")
+	upsert_rows += "('[scope_escaped]',[T.x],[T.y],[T.z],'[otype_str]','[obase_str]','{}',NOW())"
+
+/**
+ * Flush collected turf rows: one default-reversion DELETE per scope, then
+ * chunked bulk upserts. Shared by turfsFinalize() and turfsFinalizeZ().
+ */
+/datum/controller/subsystem/persistence/proc/_turfsFlush(list/upsert_rows, list/delete_by_scope)
+	PRIVATE_PROC(TRUE)
+	for(var/scope_escaped in delete_by_scope)
+		var/list/coords = delete_by_scope[scope_escaped]
+		if(!length(coords))
+			continue
 		var/datum/db_query/wipe_defaults = SSdbcore.NewQuery(
-			"DELETE FROM ss13_worldstate_turfs WHERE map_path = '[map_escaped]' AND (x,y,z) IN ([delete_coords.Join(",")])"
+			"DELETE FROM ss13_worldstate_turfs WHERE map_path = '[scope_escaped]' AND (x,y,z) IN ([coords.Join(",")])"
 		)
 		wipe_defaults.Execute()
 		qdel(wipe_defaults)
+		CHECK_TICK
 
 	var/saved = length(upsert_rows)
 	if(saved)
@@ -161,36 +235,41 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 			databaseCheckQueryResult(bulk, "turfsFinalize bulk insert")
 			qdel(bulk)
 			CHECK_TICK
+	return saved
 
-	upsert_rows = list()
+/**
+ * Save all structurally changed turfs to the database at round end.
+ * Full world scan  compares every simulated floor and wall against its base state.
+ * Called from SSpersistence.Shutdown() and forceSaveAll().
+ */
+/datum/controller/subsystem/persistence/proc/turfsFinalize()
+	PRIVATE_PROC(TRUE)
+
+	if(!databaseCheckConnection("turfsFinalize"))
+		return
+
+	var/list/upsert_rows     = list()
+	var/list/delete_by_scope = list()
+
 	for(var/turf/simulated/T in world)
 		CHECK_TICK
-		if((T.z in GLOB.persistence_zlevel_skip) || is_mining_level(T.z) || persistence_z_manual_blocked(T.z)) continue
-		if(istype(T, /turf/simulated/floor) || istype(T, /turf/simulated/wall))
-			continue
-		if(T.type == T.baseturf)
-			continue
-		var/has_lattice = FALSE
-		for(var/obj/structure/lattice/L in T)
-			has_lattice = TRUE; break
-		if(has_lattice)
-			continue
-		var/type_str = replacetext("[T.type]", "'", "''")
-		var/base_str = replacetext("[T.baseturf]", "'", "''")
-		upsert_rows += "('[map_escaped]',[T.x],[T.y],[T.z],'[type_str]','[base_str]','{}',NOW())"
+		_turfsCollectOne(T, upsert_rows, delete_by_scope)
 
-	saved = length(upsert_rows)
-	if(saved)
-		var/chunk_size3 = 200
-		for(var/i3 = 1 to saved step chunk_size3)
-			var/end3 = min(i3 + chunk_size3 - 1, saved)
-			var/list/chunk3 = upsert_rows.Copy(i3, end3 + 1)
-			var/datum/db_query/bulk3 = SSdbcore.NewQuery(
-				"INSERT INTO ss13_worldstate_turfs (map_path,x,y,z,turf_type,base_type,content,saved_at) VALUES [chunk3.Join(",")] ON DUPLICATE KEY UPDATE turf_type=VALUES(turf_type),base_type=VALUES(base_type),content=VALUES(content),saved_at=NOW()"
-			)
-			bulk3.Execute()
-			databaseCheckQueryResult(bulk3, "turfsFinalize third-pass")
-			qdel(bulk3)
-			CHECK_TICK
-
+	var/saved = _turfsFlush(upsert_rows, delete_by_scope)
 	log_subsystem_persistence_info("Turfs: Saved [saved] changed turfs for map [SSatlas.current_map.path].")
+
+/**
+ * Per-Z turf save for a deployed ship Z -- same collector/flush as the world
+ * sweep, restricted to one z. Caller must still have the z registered in
+ * GLOB.persistence_ship_z so rows key under the ship scope.
+ */
+/datum/controller/subsystem/persistence/proc/turfsFinalizeZ(z)
+	if(!databaseCheckConnection("turfsFinalizeZ"))
+		return
+	var/list/upsert_rows     = list()
+	var/list/delete_by_scope = list()
+	for(var/turf/simulated/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+		CHECK_TICK
+		_turfsCollectOne(T, upsert_rows, delete_by_scope)
+	var/saved = _turfsFlush(upsert_rows, delete_by_scope)
+	log_subsystem_persistence_info("Turfs: Saved [saved] changed turfs for z=[z] ([persistence_scope_for_z(z)]).")

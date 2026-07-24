@@ -190,6 +190,8 @@
 //Damage
 
 /turf/simulated/wall/melt(var/do_message = TRUE)
+	if(zone_damage_protected(src))
+		return
 	if(!can_melt())
 		return
 
@@ -222,6 +224,10 @@
 	return ..()
 
 /turf/simulated/wall/proc/dismantle_wall(var/devastated, var/explode, var/no_product, var/no_change = FALSE)
+	// Highsec zone protection -- final endpoint for tool deconstruction,
+	// on_death, and explosions alike (see zone_damage_protected).
+	if(zone_damage_protected(src))
+		return
 	if (!no_change)	// No change is TRUE when this is called by destroy.
 		playsound(src, 'sound/items/Welder.ogg', 100, 1)
 
@@ -248,6 +254,8 @@
 		ChangeTurf(under_turf)
 
 /turf/simulated/wall/ex_act(severity)
+	if(zone_damage_protected(src))
+		return
 	switch(severity)
 		if(1.0)
 			src.ChangeTurf(baseturf)
@@ -297,6 +305,8 @@
 	return total_radiation
 
 /turf/simulated/wall/proc/burn(temperature)
+	if(zone_damage_protected(src))
+		return
 	if(material.combustion_effect(src, temperature, 0.7))
 		spawn(2)
 			new /obj/structure/girder(src)

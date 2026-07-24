@@ -38,6 +38,28 @@ type FactionMember = {
   rank: number;
 };
 
+type FactionIdPurge = {
+  issued_by: string;
+  revoked_count: number;
+  member_count: number;
+  when: string;
+};
+
+type FoundingPetition = {
+  target_uid: string;
+  founder_name: string;
+  faction_name: string;
+  abbreviation: string;
+  supporter_count: number;
+  is_founder: BooleanLike;
+  already_supported: BooleanLike;
+};
+
+type Shareholder = {
+  char_name: string;
+  percent: number;
+};
+
 type FactionData = {
   faction_uid: string | null;
   faction_name: string | null;
@@ -45,11 +67,110 @@ type FactionData = {
   op_rank: number; // -2 = not linked, -1 = non-member, 0+ = rank, 99 = admin
   balance: number | null;
   last_payroll: number;
+  auto_payroll: BooleanLike;
   jobs: FactionJob[];
   known_factions: KnownFaction[];
   transactions: FactionTransaction[];
   members: FactionMember[];
   cards_epoch: number;
+  id_purges: FactionIdPurge[];
+  is_founder: BooleanLike;
+  master_card_lost: BooleanLike;
+  color: string | null;
+  faction_creation_enabled: BooleanLike;
+  founding_required: number;
+  petitions: FoundingPetition[];
+  stock_listed: BooleanLike;
+  stock_ticker: string | null;
+  stock_player_shares: number;
+  is_ceo: BooleanLike;
+  shareholders: Shareholder[];
+  shareholder_total_percent: number;
+};
+
+// Global program feature -- available from ANY console regardless of that
+// console's own shackle/registration state. Rendered in every branch below.
+const FoundingSection = (props: {
+  faction_creation_enabled: BooleanLike;
+  founding_required: number;
+  petitions: FoundingPetition[];
+}) => {
+  const { act } = useBackend<FactionData>();
+  const { faction_creation_enabled, founding_required, petitions } = props;
+  return (
+    <Section title="Found a New Faction">
+      {!faction_creation_enabled && (
+        <NoticeBox danger>
+          Faction founding is currently disabled by administrators.
+        </NoticeBox>
+      )}
+      <Box mt={1}>
+        <Button
+          icon="plus"
+          color="good"
+          disabled={!faction_creation_enabled}
+          tooltip="Starts a founding petition for 100,000 credits from your own bank account (charged only once other players consent). You become its first command-rank member."
+          onClick={() => act('start_founding')}
+        >
+          Start Founding Petition (100,000 cr)
+        </Button>
+      </Box>
+      {petitions.length > 0 && (
+        <Table mt={1}>
+          <Table.Row header>
+            <Table.Cell>Faction</Table.Cell>
+            <Table.Cell>Founder</Table.Cell>
+            <Table.Cell>Support</Table.Cell>
+            <Table.Cell />
+          </Table.Row>
+          {petitions.map((p) => (
+            <Table.Row key={p.target_uid}>
+              <Table.Cell bold>
+                {p.faction_name} ({p.abbreviation})
+              </Table.Cell>
+              <Table.Cell color="label">{p.founder_name}</Table.Cell>
+              <Table.Cell>
+                {p.supporter_count}/{founding_required}
+              </Table.Cell>
+              <Table.Cell>
+                {p.is_founder ? (
+                  <Box italic color="label">
+                    You started this
+                  </Box>
+                ) : p.already_supported ? (
+                  <Box color="good">Supported</Box>
+                ) : (
+                  <>
+                    <Button
+                      compact
+                      icon="thumbs-up"
+                      color="good"
+                      onClick={() =>
+                        act('support_founding', { target_uid: p.target_uid })
+                      }
+                    >
+                      Support
+                    </Button>
+                    <Button
+                      compact
+                      icon="hand-pointer"
+                      onClick={() =>
+                        act('select_tap_target', {
+                          target_uid: p.target_uid,
+                        })
+                      }
+                    >
+                      Canvas via tap
+                    </Button>
+                  </>
+                )}
+              </Table.Cell>
+            </Table.Row>
+          ))}
+        </Table>
+      )}
+    </Section>
+  );
 };
 
 const RANK_LABELS = ['Crew', 'Officer', 'Command'];
@@ -66,52 +187,59 @@ export const FactionManagement = (props) => {
     op_rank,
     balance,
     last_payroll,
+    auto_payroll,
     jobs,
     known_factions,
     members,
     cards_epoch,
+    is_founder,
+    master_card_lost,
+    color,
+    faction_creation_enabled,
+    founding_required,
+    petitions,
+    stock_listed,
+    stock_ticker,
+    stock_player_shares,
+    is_ceo,
+    shareholders,
+    shareholder_total_percent,
   } = data;
+  const [colorPick, setColorPick] = useState(color ?? '#ffffff');
+
+  const foundingSection = (
+    <FoundingSection
+      faction_creation_enabled={faction_creation_enabled}
+      founding_required={founding_required}
+      petitions={petitions ?? []}
+    />
+  );
 
   if (!faction_uid) {
     return (
-      <NtosWindow width={500} height={300}>
-        <NtosWindow.Content>
+      <NtosWindow width={500} height={480}>
+        <NtosWindow.Content scrollable>
           <NoticeBox>
-            This console is not linked to a faction. Use &quot;Link to
-            Faction&quot; on the computer to claim it.
+            This console is not linked to a faction. Use a faction tagger
+            tool on the computer to shackle it to a network, or found a new
+            faction below regardless of this console's own state.
           </NoticeBox>
+          {foundingSection}
         </NtosWindow.Content>
       </NtosWindow>
     );
   }
 
-  // Faction UID set but not yet registered in DB — offer creation to command rank
+  // Faction UID set but not yet registered in DB.
   if (!faction_registered) {
     return (
-      <NtosWindow width={500} height={350}>
-        <NtosWindow.Content>
-          <Section title={`${faction_uid} — Unregistered`}>
-            <NoticeBox>
-              The network &quot;{faction_uid}&quot; has not been registered as a
-              faction yet.
-            </NoticeBox>
-            {op_rank >= 2 && (
-              <Box mt={1}>
-                <Button
-                  icon="plus"
-                  color="good"
-                  onClick={() => act('create_faction')}
-                >
-                  Create Faction &quot;{faction_uid}&quot;
-                </Button>
-              </Box>
-            )}
-            {op_rank < 2 && op_rank >= -1 && (
-              <Box italic color="label" mt={1}>
-                Contact a command-rank member to register this faction.
-              </Box>
-            )}
-          </Section>
+      <NtosWindow width={500} height={480}>
+        <NtosWindow.Content scrollable>
+          <NoticeBox>
+            The network &quot;{faction_uid}&quot; has not been registered as
+            a faction yet.
+          </NoticeBox>
+          {foundingSection}
         </NtosWindow.Content>
       </NtosWindow>
     );
@@ -119,14 +247,15 @@ export const FactionManagement = (props) => {
 
   if (op_rank < 1) {
     return (
-      <NtosWindow width={500} height={300}>
-        <NtosWindow.Content>
+      <NtosWindow width={500} height={480}>
+        <NtosWindow.Content scrollable>
           <Section title={faction_name ?? faction_uid}>
             <NoticeBox>
               You are not a member of {faction_name ?? faction_uid} or do not
               have officer access.
             </NoticeBox>
           </Section>
+          {foundingSection}
         </NtosWindow.Content>
       </NtosWindow>
     );
@@ -138,7 +267,18 @@ export const FactionManagement = (props) => {
     <NtosWindow resizable width={650} height={700}>
       <NtosWindow.Content scrollable>
         {/* Account Section */}
-        <Section title={`${faction_name ?? faction_uid} — Account`}>
+        <Section
+          title={
+            <>
+              {faction_name ?? faction_uid} — Account
+              {!!is_ceo && (
+                <Box as="span" ml={1} color="good" bold>
+                  (CEO)
+                </Box>
+              )}
+            </>
+          }
+        >
           <LabeledList>
             <LabeledList.Item label="Balance">
               {`${balance ?? 0} credits`}
@@ -147,6 +287,61 @@ export const FactionManagement = (props) => {
               {last_payroll > 0
                 ? `${Math.floor(last_payroll / 600)} min ago`
                 : 'Not yet this session'}
+            </LabeledList.Item>
+            <LabeledList.Item label="Payroll Mode">
+              {auto_payroll ? 'Automatic (every autosave)' : 'Manual only'}
+              {canManage && (
+                <Button
+                  ml={1}
+                  icon="toggle-on"
+                  onClick={() => act('toggle_auto_payroll')}
+                >
+                  Switch to {auto_payroll ? 'Manual' : 'Automatic'}
+                </Button>
+              )}
+            </LabeledList.Item>
+            <LabeledList.Item label="Faction Color">
+              <Box
+                inline
+                mr={1}
+                style={{
+                  display: 'inline-block',
+                  width: '16px',
+                  height: '16px',
+                  verticalAlign: 'middle',
+                  backgroundColor: color ?? '#ffffff',
+                  border: '1px solid #666666',
+                }}
+              />
+              {color ?? 'Not set'}
+              {canManage && (
+                <>
+                  <input
+                    type="color"
+                    value={colorPick}
+                    onChange={(e) => setColorPick(e.target.value)}
+                    style={{ marginLeft: '8px', verticalAlign: 'middle' }}
+                  />
+                  <Button
+                    ml={1}
+                    icon="paint-roller"
+                    tooltip="Tints any clothing/equipment currently tagged to this faction with the faction tagger, immediately."
+                    onClick={() => act('set_faction_color', { color: colorPick })}
+                  >
+                    Set
+                  </Button>
+                </>
+              )}
+            </LabeledList.Item>
+            <LabeledList.Item label="Stock Exchange">
+              {stock_listed ? (
+                <>
+                  Listed as <Box as="span" bold>{stock_ticker}</Box> --{' '}
+                  {stock_player_shares} share(s) held by investors
+                </>
+              ) : (
+                'Not listed'
+              )}
             </LabeledList.Item>
           </LabeledList>
           {canManage && (
@@ -158,6 +353,38 @@ export const FactionManagement = (props) => {
               >
                 Pay Members Now
               </Button>
+              {stock_listed ? (
+                <>
+                  <Button
+                    icon="hand-holding-usd"
+                    color="good"
+                    ml={1}
+                    tooltip="Distributes credits from the faction treasury to every current shareholder, split by their exact percent of the company. Always leaves at least 1% of the treasury behind."
+                    onClick={() => act('pay_dividends')}
+                  >
+                    Pay Dividends
+                  </Button>
+                  <Button
+                    icon="file-contract"
+                    color="average"
+                    ml={1}
+                    tooltip="Prints a share certificate offering a set percentage of the company (optionally for a price) -- swiping an ID against it accepts the stake, diluting every current shareholder proportionally."
+                    onClick={() => act('print_share_certificate')}
+                  >
+                    Print Share Certificate
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  icon="chart-line"
+                  color="average"
+                  ml={1}
+                  tooltip="Lists this faction on the Idris stock exchange -- real players can then buy/sell stock tied directly to the faction treasury, and you become the company's first shareholder at 100%. If the treasury runs dry, every stockholder is force-liquidated and the faction is dissolved entirely. Cannot be undone by faction command; only an admin can revoke it afterward."
+                  onClick={() => act('list_on_exchange')}
+                >
+                  List on Stock Exchange
+                </Button>
+              )}
               <Button
                 icon="user"
                 color="caution"
@@ -184,6 +411,17 @@ export const FactionManagement = (props) => {
               >
                 Invalidate All Charge Cards
               </Button>
+              {(!!is_founder || op_rank === 99) && !!master_card_lost && (
+                <Button
+                  icon="id-card"
+                  color="good"
+                  ml={1}
+                  tooltip="Prints a replacement faction master card. Only available to the original founder (or an admin), and only while the current one is reported lost (Panic Purge)."
+                  onClick={() => act('print_master_card')}
+                >
+                  Print Master Card
+                </Button>
+              )}
             </Box>
           )}
           {canManage && known_factions.length > 0 && (
@@ -300,7 +538,21 @@ export const FactionManagement = (props) => {
         </Section>
 
         {/* Members Section */}
-        <Section title="Faction Members">
+        <Section
+          title="Faction Members"
+          buttons={
+            canManage && (
+              <Button
+                color="bad"
+                icon="skull-crossbones"
+                tooltip="Revokes EVERY ID card this faction has ever issued, live or offline, except your own. Cannot be undone."
+                onClick={() => act('panic_purge_ids')}
+              >
+                Panic Purge IDs
+              </Button>
+            )
+          }
+        >
           {!members || members.length === 0 ? (
             <Box italic color="label">
               No registered members found.
@@ -345,6 +597,40 @@ export const FactionManagement = (props) => {
           )}
         </Section>
 
+        {/* Shareholders Section -- only exists once listed on the exchange */}
+        {!!stock_listed && (
+          <Section
+            title="Shareholders"
+            buttons={
+              <Box color="label">
+                {shareholder_total_percent}% allocated
+              </Box>
+            }
+          >
+            {!shareholders || shareholders.length === 0 ? (
+              <Box italic color="label">
+                No shareholders yet.
+              </Box>
+            ) : (
+              <Table>
+                <Table.Row header>
+                  <Table.Cell>Name</Table.Cell>
+                  <Table.Cell>Percent</Table.Cell>
+                </Table.Row>
+                {shareholders
+                  .slice()
+                  .sort((a, b) => b.percent - a.percent)
+                  .map((sh) => (
+                    <Table.Row key={sh.char_name}>
+                      <Table.Cell bold>{sh.char_name}</Table.Cell>
+                      <Table.Cell>{sh.percent}%</Table.Cell>
+                    </Table.Row>
+                  ))}
+              </Table>
+            )}
+          </Section>
+        )}
+
         {/* Transaction History */}
         {data.transactions?.length > 0 && (
           <Section title="Transaction History">
@@ -370,6 +656,30 @@ export const FactionManagement = (props) => {
             </Table>
           </Section>
         )}
+
+        {/* Panic Purge Audit Trail */}
+        {data.id_purges?.length > 0 && (
+          <Section title="ID Purge History">
+            <Table>
+              <Table.Row header>
+                <Table.Cell>Issued By</Table.Cell>
+                <Table.Cell>Revoked</Table.Cell>
+                <Table.Cell>Members</Table.Cell>
+                <Table.Cell>Time</Table.Cell>
+              </Table.Row>
+              {(data.id_purges ?? []).map((purge, i) => (
+                <Table.Row key={i}>
+                  <Table.Cell bold>{purge.issued_by}</Table.Cell>
+                  <Table.Cell color="bad">{purge.revoked_count}</Table.Cell>
+                  <Table.Cell color="label">{purge.member_count}</Table.Cell>
+                  <Table.Cell color="label">{purge.when}</Table.Cell>
+                </Table.Row>
+              ))}
+            </Table>
+          </Section>
+        )}
+
+        {foundingSection}
       </NtosWindow.Content>
     </NtosWindow>
   );

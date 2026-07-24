@@ -76,6 +76,15 @@ GLOBAL_LIST_INIT(throat_fuck_pops, list(
 	'honk/sound/interactions/bj10.ogg',
 	'honk/sound/interactions/bj11.ogg'))
 
+/// TRUE for species without conventional human reproductive anatomy (Diona,
+/// IPC/synthetic frames) -- exempts them from the sexual subset of the
+/// intimate interaction menu (Mount/Fuck/Throat fuck/Suck/Slap ass) and the
+/// Masturbate verb, in both directions (as initiator or target). The
+/// non-sexual social gestures sharing the same menu (hug, handshake, wave,
+/// etc.) are unaffected -- those don't depend on human anatomy.
+/mob/living/carbon/human/proc/immune_to_sexual_intimate_interactions()
+	return isipc(src) || is_diona()
+
 /mob/living/carbon/human/mouse_drop_receive(atom/dropped, mob/user, params)
 	if(!GLOB.config.intimate_interactions_allowed)
 		return
@@ -118,11 +127,15 @@ GLOBAL_LIST_INIT(throat_fuck_pops, list(
 
 /mob/living/carbon/human/proc/open_intimate_menu(mob/living/carbon/human/user)
 	var/dat = "<b>Interact with [src]:</b><br/><br/>"
-	dat += "<a href='byond://?src=[REF(user)];intimate_action=supergrab;intimate_target=[REF(src)]'>Mount</a><br/>"
-	dat += "<a href='byond://?src=[REF(user)];intimate_action=superhug;intimate_target=[REF(src)]'>Fuck</a><br/>"
-	dat += "<a href='byond://?src=[REF(user)];intimate_action=throatfuck;intimate_target=[REF(src)]'>Throat fuck</a><br/>"
-	dat += "<a href='byond://?src=[REF(user)];intimate_action=suck;intimate_target=[REF(src)]'>Suck</a><br/>"
-	dat += "<a href='byond://?src=[REF(user)];intimate_action=slapass;intimate_target=[REF(src)]'>Slap ass</a><br/>"
+	// Sexual subset skipped entirely if either party is a Diona/IPC -- see
+	// immune_to_sexual_intimate_interactions(). The non-sexual gestures below
+	// stay available regardless of species.
+	if(!user.immune_to_sexual_intimate_interactions() && !immune_to_sexual_intimate_interactions())
+		dat += "<a href='byond://?src=[REF(user)];intimate_action=supergrab;intimate_target=[REF(src)]'>Mount</a><br/>"
+		dat += "<a href='byond://?src=[REF(user)];intimate_action=superhug;intimate_target=[REF(src)]'>Fuck</a><br/>"
+		dat += "<a href='byond://?src=[REF(user)];intimate_action=throatfuck;intimate_target=[REF(src)]'>Throat fuck</a><br/>"
+		dat += "<a href='byond://?src=[REF(user)];intimate_action=suck;intimate_target=[REF(src)]'>Suck</a><br/>"
+		dat += "<a href='byond://?src=[REF(user)];intimate_action=slapass;intimate_target=[REF(src)]'>Slap ass</a><br/>"
 	dat += "<a href='byond://?src=[REF(user)];intimate_action=hug;intimate_target=[REF(src)]'>Hug</a><br/>"
 	dat += "<a href='byond://?src=[REF(user)];intimate_action=handshake;intimate_target=[REF(src)]'>Shake hands</a><br/>"
 	dat += "<a href='byond://?src=[REF(user)];intimate_action=wave;intimate_target=[REF(src)]'>Wave</a><br/>"
@@ -512,6 +525,9 @@ GLOBAL_LIST_INIT(throat_fuck_pops, list(
 		return
 	if(!client || !(client.prefs.toggles_secondary & INTIMATE_INTERACTIONS_ENABLED))
 		to_chat(src, SPAN_WARNING("You need to enable the 'Toggle Intimate Interactions' preference before you can do this."))
+		return
+	if(immune_to_sexual_intimate_interactions())
+		to_chat(src, SPAN_WARNING("Your body isn't built for that."))
 		return
 	if(stat || restrained())
 		return

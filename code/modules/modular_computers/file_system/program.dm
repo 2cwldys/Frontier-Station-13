@@ -48,6 +48,12 @@ ABSTRACT_TYPE(/datum/computer_file/program)
 	/// Optional, if above is set to TRUE checks for specific function of NTNet (currently NTNET_SOFTWAREDOWNLOAD, NTNET_PEERTOPEER, NTNET_SYSTEMCONTROL and NTNET_COMMUNICATION)
 	var/requires_ntnet_feature = FALSE
 
+	/// Whether losing NTNet mid-run should hard-kill this program (event_networkfailure()).
+	/// Most requires_ntnet programs have no graceful way to handle a drop and should keep
+	/// crashing on one -- but a program with its own pause/resume logic (see ntnetdownload's
+	/// process_tick()) can opt out and just ride out the gap instead of losing all progress.
+	var/network_failure_is_fatal = TRUE
+
 	/// NTNet status, updated every tick by computer running this program. Don't use this for checks if NTNet works, computers do that. Use this for calculations, etc.
 	var/ntnet_status = TRUE
 
@@ -81,7 +87,7 @@ ABSTRACT_TYPE(/datum/computer_file/program)
 	var/tgui_id
 
 	/// Theme of this TGUI interface
-	var/tgui_theme = "scc"
+	var/tgui_theme = "ntos_darkmode"
 
 	/// If this TGUI should autoupdate or not.
 	var/ui_auto_update = TRUE							// Path to nanomodule, make sure to set this if implementing new program.
@@ -196,8 +202,13 @@ ABSTRACT_TYPE(/datum/computer_file/program)
 	return FALSE
 
 /// Allows active programs to preserve non-standard user views, such as camera monitors.
+/// FALSE (0) = "not my view session, no opinion" -- handle_vision (life.dm)
+/// treats any NEGATIVE return as "cancel the view every tick", which is only
+/// correct for a program-owned session gone invalid (camera monitor overrides
+/// this with its own -1 for that case). A stale mob `machine` ref polling a
+/// default -1 here used to yank unrelated sector views back to the mob.
 /datum/computer_file/program/proc/check_eye(mob/user)
-	return -1
+	return FALSE
 
 /// Allows active programs to grant equipment vision while controlling the user's view.
 /datum/computer_file/program/proc/grants_equipment_vision(mob/user)

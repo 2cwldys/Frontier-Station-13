@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Box, Button, NoticeBox, NumberInput, Section } from 'tgui-core/components';
 import type { BooleanLike } from 'tgui-core/react';
 import { useBackend } from '../backend';
@@ -14,6 +15,12 @@ type FactionBeaconData = {
   can_configure: BooleanLike;
   refusal_reason: string | null;
   security_radius: number;
+  fuel_credits: number;
+  max_fuel_credits: number;
+  requires_fuel: BooleanLike;
+  site_name: string | null;
+  public_territory: BooleanLike;
+  faction_raiding_enabled: BooleanLike;
 };
 
 export const FactionBeacon = (props) => {
@@ -29,9 +36,19 @@ export const FactionBeacon = (props) => {
     can_configure,
     refusal_reason,
     security_radius,
+    fuel_credits,
+    max_fuel_credits,
+    requires_fuel,
+    site_name,
+    public_territory,
+    faction_raiding_enabled,
   } = data;
+  const [withdrawAmount, setWithdrawAmount] = useState(0);
 
   const canTogglePower = anchored && (!locked || is_admin) && can_configure;
+  const fuelRatio = max_fuel_credits > 0 ? fuel_credits / max_fuel_credits : 0;
+  const fuelColor =
+    fuelRatio > 0.66 ? 'good' : fuelRatio > 0.33 ? 'average' : 'bad';
 
   let disabledReason = '';
   if (!anchored) {
@@ -43,8 +60,8 @@ export const FactionBeacon = (props) => {
   }
 
   return (
-    <Window width={420} height={340} title="Faction Beacon">
-      <Window.Content>
+    <Window width={420} height={requires_fuel ? 500 : 340} title="Faction Beacon">
+      <Window.Content scrollable>
         <Section title="Status">
           <Box mb={1}>
             Network:{' '}
@@ -82,8 +99,36 @@ export const FactionBeacon = (props) => {
               {active ? 'Yes' : 'No'}
             </Box>
           </Box>
+          <Box mb={1}>
+            Territory:{' '}
+            <Box inline bold color={public_territory ? 'average' : 'good'}>
+              {public_territory ? 'Public' : 'Private'}
+            </Box>
+            {!public_territory && !!faction_raiding_enabled && (
+              <Box inline color="label">
+                {' '}
+                (no effect right now -- raiding is enabled server-wide)
+              </Box>
+            )}
+          </Box>
           {!active && !!refusal_reason && (
             <NoticeBox>Not active: {refusal_reason}.</NoticeBox>
+          )}
+          {!!site_name && (
+            <Box mb={1}>
+              Site:{' '}
+              <Box inline bold>
+                {site_name}
+              </Box>{' '}
+              <Button
+                icon="pen"
+                disabled={!can_configure}
+                tooltip={disabledReason || undefined}
+                onClick={() => act('rename_site')}
+              >
+                Rename Site
+              </Button>
+            </Box>
           )}
           <Box mt={1}>
             <Button
@@ -95,8 +140,54 @@ export const FactionBeacon = (props) => {
             >
               {powered ? 'Power Off' : 'Power On'}
             </Button>
+            <Button
+              icon="unlock"
+              color={public_territory ? 'average' : 'good'}
+              disabled={!can_configure}
+              tooltip={
+                can_configure
+                  ? 'Public territory lets non-members enter regardless of the admin faction raiding toggle. Private is subject to it like any other claimed territory.'
+                  : 'You need command access in this faction.'
+              }
+              onClick={() => act('toggle_public_territory')}
+            >
+              Make Territory {public_territory ? 'Private' : 'Public'}
+            </Button>
           </Box>
         </Section>
+        {!!requires_fuel && (
+          <Section title="Fuel Reserve">
+            <Box mb={1}>
+              Reserve:{' '}
+              <Box inline bold color={fuelColor}>
+                {fuel_credits} / {max_fuel_credits} cr
+              </Box>
+            </Box>
+            <Box color="label" mb={1}>
+              Insert credit chips (not charge cards) to add fuel. Drains
+              slowly while powered -- an empty reserve auto-powers the beacon
+              off.
+            </Box>
+            <NumberInput
+              value={withdrawAmount}
+              minValue={0}
+              maxValue={fuel_credits}
+              onChange={(value) => setWithdrawAmount(value)}
+            />
+            <Button
+              icon="money-bill-wave"
+              color="average"
+              ml={1}
+              disabled={!canTogglePower || withdrawAmount <= 0}
+              onClick={() => {
+                act('withdraw', { amount: withdrawAmount });
+                setWithdrawAmount(0);
+              }}
+            >
+              Withdraw
+            </Button>
+          </Section>
+        )}
         {!!is_admin && (
           <Section title="Admin: Force-Set Faction">
             <Button.Input

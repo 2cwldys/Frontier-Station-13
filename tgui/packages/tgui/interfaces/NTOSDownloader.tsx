@@ -9,6 +9,7 @@ import {
   Stack,
 } from 'tgui-core/components';
 import { toFixed } from 'tgui-core/math';
+import type { BooleanLike } from 'tgui-core/react';
 import { useBackend } from '../backend';
 import { NtosWindow } from '../layouts';
 
@@ -35,6 +36,7 @@ type NTOSDownloaderData = {
   speed: number;
   active_download: string;
   queue: NTOSDownload[];
+  no_signal: BooleanLike;
 };
 
 const AvailableDownloads = (props) => {
@@ -84,7 +86,7 @@ const AvailableDownloads = (props) => {
 
 const DownloadQueue = (props) => {
   const { act, data } = useBackend<NTOSDownloaderData>();
-  const { queue_size, speed, queue, active_download } = data;
+  const { queue_size, speed, queue, active_download, no_signal } = data;
   return (
     <Stack fill vertical>
       <Section
@@ -96,6 +98,12 @@ const DownloadQueue = (props) => {
         backgroundColor={'#111'}
         fitted
       >
+        {!!no_signal && (
+          <Box mx={4} mt={1} bold color="bad">
+            No NTNet signal -- downloads are paused until the connection
+            returns.
+          </Box>
+        )}
         {queue.map((prg) => {
           return (
             <Section
@@ -115,9 +123,16 @@ const DownloadQueue = (props) => {
                 mb={2}
                 mt={1}
                 value={prg.progress / prg.size}
-                color={prg.filename === active_download ? 'good' : 'label'}
+                color={
+                  no_signal
+                    ? 'bad'
+                    : prg.filename === active_download
+                      ? 'good'
+                      : 'label'
+                }
               >
-                {prg.progress} GQ of {prg.size} GQ ({speed} GQps)
+                {prg.progress} GQ of {prg.size} GQ{' '}
+                {no_signal ? '(stalled -- no signal)' : `(${speed} GQps)`}
               </ProgressBar>
             </Section>
           );

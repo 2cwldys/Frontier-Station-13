@@ -85,6 +85,9 @@
 	var/tool_type = tool.tool_behaviour
 	if(!tool_type)
 		return NONE
+	if(tool.wear_broken)
+		to_chat(user, SPAN_WARNING("\The [tool] is broken and can't be used like that."))
+		return NONE
 
 	var/is_alt_clicking = text2num(LAZYACCESS(modifiers, ALT_CLICK))
 	var/is_left_clicking = !is_alt_clicking

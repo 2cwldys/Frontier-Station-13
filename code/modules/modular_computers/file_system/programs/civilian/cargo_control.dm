@@ -152,8 +152,11 @@
 				var/message = co.set_approved(GetNameAndAssignmentFromId(I), usr.character_id)
 				if(message)
 					status_message = message
-				// Tag order for faction telepad delivery if this console has a network configured
-				if(computer && computer.persistent_network && !co.delivery_network)
+				// Tag order for faction telepad delivery if this console has a network configured.
+				// Never overwrite a personal order's routing -- it already paid at
+				// submission time, and re-tagging it here would misroute it into
+				// deliver_faction_order() below for a second (faction) charge.
+				if(computer && computer.persistent_network && !co.delivery_network && !co.personal_ckey)
 					co.delivery_network = computer.persistent_network
 				// Faction orders deliver instantly via the telepad -- no supply
 				// shuttle needed (shuttle-less maps have no other delivery path).
@@ -164,6 +167,13 @@
 						status_message = "Order [co.order_id] rejected: the faction account could not cover [co.price] credits."
 					else
 						status_message = "Order [co.order_id] approved, but no delivery-enabled telepad was found for '[co.delivery_network]'."
+				// Personal orders (already paid at submission) deliver instantly
+				// via the character's own tagged telepad the same way.
+				else if(co.personal_ckey && co.status == "approved")
+					if(SScargo.deliver_personal_order(co))
+						status_message = "Order [co.order_id] approved and delivered to [co.personal_char_name]'s personal telepad."
+					else
+						status_message = "Order [co.order_id] approved, but no delivery-enabled personal telepad was found for [co.personal_char_name]."
 			return TRUE
 
 		//Reject a order

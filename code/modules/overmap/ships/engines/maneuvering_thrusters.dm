@@ -78,6 +78,7 @@
 	))
 
 /obj/structure/machinery/maneuvering_engine/proc/burn(var/power_modifier = 1)
+	playsound(loc, 'sound/machines/thruster.ogg', (50 * thrust_limit * power_modifier), FALSE, world.view * 4, 0.1)
 	. = thrust_limit * generated_thrust * power_modifier
 
 /obj/structure/machinery/maneuvering_engine/proc/get_thrust()

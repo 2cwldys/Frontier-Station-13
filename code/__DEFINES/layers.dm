@@ -200,6 +200,9 @@
 	/// anything else in this plane.
 	#define VIGNETTE_LAYER 0.5
 	#define FULLSCREEN_LAYER 1
+	/// Preference-gated CRT scanline roll -- above the base fullscreen
+	/// effects but below the decorative border, so the border frames it.
+	#define CRT_SCANLINES_LAYER 1.1
 	/// Decorative game window border -- above film grain/vignette, but below
 	/// CHILLED_LAYER so the cryo cold effect always stays visible over it.
 	/// Still on FULLSCREEN_PLANE so it stays below HUD_PLANE and can never

@@ -6,8 +6,9 @@
 	suffix = "overgrown_mining_station.dmm"
 
 	sectors = list(ALL_TAU_CETI_SECTORS)
-	spawn_weight = 1
+	spawn_weight = 3
 	spawn_cost = 2
+	auto_despawn_when_depleted = TRUE
 	id = "overgrown_mining_station"
 
 	unit_test_groups = list(1)

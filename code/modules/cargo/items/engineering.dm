@@ -1,45 +1,43 @@
 // ---- Shuttle Construction ----
 
-/singleton/cargo_item/shuttle_core
+/singleton/cargo_item/ntnet_relay
 	category = "engineering"
-	name = "shuttle core"
+	name = "NTNet quantum relay"
 	supplier = "Hub"
-	description = "A modular flight core. Place inside a hull structure, then activate to register the area as a persistent shuttle. Requires wrenching in place."
-	price = 2500
+	description = "A quantum relay for NTNet coverage. Wrench to secure after placement. At least one powered, undamaged relay must exist for any NTNet-dependent PDA or console program to function."
+	price = 25000
 	items = list(
-		/obj/structure/machinery/shuttle_core
+		/obj/structure/machinery/ntnet_relay/crate
 	)
 	access = 0
 	container_type = "crate"
 
-/singleton/cargo_item/docking_beacon
+/singleton/cargo_item/drydock_boarding_pad
 	category = "engineering"
-	name = "docking beacon"
+	name = "drydock boarding pad"
 	supplier = "Hub"
-	description = "Establishes a docking port at its installed location. Wrench to anchor and activate. Shuttles can navigate to any registered beacon."
-	price = 800
+	description = "Boards you onto one of your currently deployed drydock ships, at its navigation console. A retrieved ship has no walkable connection to anywhere -- this is the only way aboard (disembarking, once docked at a beacon, is a verb usable from anywhere on the ship, no pad needed)."
+	price = 1500
 	items = list(
-		/obj/structure/machinery/docking_beacon
-	)
-	access = 0
-	container_type = "crate"
-	groupable = TRUE
-
-/singleton/cargo_item/docking_beacon_3pack
-	category = "engineering"
-	name = "docking beacons (3-pack)"
-	supplier = "Hub"
-	description = "Three docking beacons. Establish multiple docking ports across different locations."
-	price = 2100
-	items = list(
-		/obj/structure/machinery/docking_beacon,
-		/obj/structure/machinery/docking_beacon,
-		/obj/structure/machinery/docking_beacon
+		/obj/structure/machinery/telepad_cargo/drydock_boarding
 	)
 	access = 0
 	container_type = "crate"
 
 // ---- End Shuttle Construction ----
+
+/singleton/cargo_item/travel_pad
+	category = "engineering"
+	name = "travel pad"
+	supplier = "Hub"
+	description = "A tuned telepad that links to any other travel pad sharing its access code, letting you step directly between them. Click it after placement to set an access code -- no faction or officer access needed."
+	price = 1500
+	items = list(
+		/obj/structure/machinery/telepad_cargo/travel
+	)
+	access = 0
+	container_type = "crate"
+	groupable = TRUE
 
 /singleton/cargo_item/glasssheets
 	category = "engineering"
@@ -545,6 +543,20 @@
 	groupable = TRUE
 	spawn_amount = 1
 
+/singleton/cargo_item/infinitepowercell
+	category = "engineering"
+	name = "infinite-capacity power cell"
+	supplier = "Hub"
+	description = "A theoretically impossible power cell that never depletes. Use with extreme discretion."
+	price = 50000
+	items = list(
+		/obj/item/cell/infinite
+	)
+	access = 0
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
 /singleton/cargo_item/powercell
 	category = "engineering"
 	name = "power cell"
@@ -911,6 +923,24 @@
 	groupable = TRUE
 	spawn_amount = 1
 
+/singleton/cargo_item/smesconstructioncrate
+	category = "engineering"
+	name = "SMES construction crate"
+	supplier = "Hub"
+	description = "Everything needed to build a superconducting magnetic energy storage (SMES) unit from scratch: steel for the frame, cable, a circuit board, and a magnetic coil."
+	price = 1200
+	items = list(
+		/obj/item/stack/material/steel/full,
+		/obj/item/stack/cable_coil,
+		/obj/item/stack/cable_coil,
+		/obj/item/circuitboard/smes,
+		/obj/item/smes_coil
+	)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
 /singleton/cargo_item/telecommunications_crate
 	category = "engineering"
 	name = "Telecommunications Crate"
@@ -919,10 +949,16 @@
 	price = 3500
 	items = list(
 		/obj/item/circuitboard/telecomms/receiver,
+		/obj/item/circuitboard/telecomms/hub,
 		/obj/item/circuitboard/telecomms/bus,
 		/obj/item/circuitboard/telecomms/processor,
+		/obj/item/circuitboard/telecomms/server,
 		/obj/item/circuitboard/telecomms/broadcaster,
 		/obj/item/stack/cable_coil,
+		/obj/item/stock_parts/manipulator,
+		/obj/item/stock_parts/manipulator,
+		/obj/item/stock_parts/manipulator,
+		/obj/item/stock_parts/manipulator,
 		/obj/item/stock_parts/manipulator,
 		/obj/item/stock_parts/manipulator,
 		/obj/item/stock_parts/manipulator,
@@ -936,6 +972,9 @@
 		/obj/item/stock_parts/micro_laser/high,
 		/obj/item/stock_parts/micro_laser/high,
 		/obj/item/stock_parts/micro_laser/high,
+		/obj/item/stock_parts/subspace/filter,
+		/obj/item/stock_parts/subspace/filter,
+		/obj/item/stock_parts/subspace/filter,
 		/obj/item/stock_parts/subspace/filter,
 		/obj/item/stock_parts/subspace/filter,
 		/obj/item/stock_parts/subspace/filter,

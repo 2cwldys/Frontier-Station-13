@@ -261,6 +261,80 @@
 	force_skintone = TRUE
 	robotize_type = PROSTHETIC_SYNTHSKIN
 
+/////////////////
+//Android limbs//
+/////////////////
+// Same fields as Shell's limbs above (synthskin over a support-frame
+// chassis) -- a sibling of /ipc, not nested under /ipc/shell, so Android
+// and Shell stay independently tunable.
+
+/obj/item/organ/external/head/ipc/android
+	dislocated = -1
+	can_intake_reagents = 0
+	encased = "support frame"
+	force_skintone = TRUE
+	robotize_type = PROSTHETIC_SYNTHSKIN
+
+/obj/item/organ/external/chest/ipc/android
+	dislocated = -1
+	encased = "support frame"
+	force_skintone = TRUE
+	robotize_type = PROSTHETIC_SYNTHSKIN
+
+/obj/item/organ/external/groin/ipc/android
+	dislocated = -1
+	encased = "support frame"
+	force_skintone = TRUE
+	robotize_type = PROSTHETIC_SYNTHSKIN
+
+/obj/item/organ/external/arm/ipc/android
+	dislocated = -1
+	encased = "support frame"
+	force_skintone = TRUE
+	robotize_type = PROSTHETIC_SYNTHSKIN
+
+/obj/item/organ/external/arm/right/ipc/android
+	dislocated = -1
+	encased = "support frame"
+	force_skintone = TRUE
+	robotize_type = PROSTHETIC_SYNTHSKIN
+
+/obj/item/organ/external/leg/ipc/android
+	dislocated = -1
+	encased = "support frame"
+	force_skintone = TRUE
+	robotize_type = PROSTHETIC_SYNTHSKIN
+
+/obj/item/organ/external/leg/right/ipc/android
+	dislocated = -1
+	encased = "support frame"
+	force_skintone = TRUE
+	robotize_type = PROSTHETIC_SYNTHSKIN
+
+/obj/item/organ/external/foot/ipc/android
+	dislocated = -1
+	encased = "support frame"
+	force_skintone = TRUE
+	robotize_type = PROSTHETIC_SYNTHSKIN
+
+/obj/item/organ/external/foot/right/ipc/android
+	dislocated = -1
+	encased = "support frame"
+	force_skintone = TRUE
+	robotize_type = PROSTHETIC_SYNTHSKIN
+
+/obj/item/organ/external/hand/ipc/android
+	dislocated = -1
+	encased = "support frame"
+	force_skintone = TRUE
+	robotize_type = PROSTHETIC_SYNTHSKIN
+
+/obj/item/organ/external/hand/right/ipc/android
+	dislocated = -1
+	encased = "support frame"
+	force_skintone = TRUE
+	robotize_type = PROSTHETIC_SYNTHSKIN
+
 //unbranded
 
 /obj/item/organ/external/head/ipc/unbranded

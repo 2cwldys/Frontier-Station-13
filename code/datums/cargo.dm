@@ -27,6 +27,10 @@
 	var/tracking_code = null //Use this code with the order ID to get details about the order
 	var/reason = null //Reason for the order
 	var/delivery_network = null // If set, deliver via faction telepad instead of supply ship
+	var/obj/structure/machinery/telepad_cargo/delivery_telepad = null // Explicit pad choice when the network has more than one; null falls back to persistence_find_cargo_telepad()
+	var/personal_ckey = null // If set (mutually exclusive with delivery_network), deliver via that character's personal telepad, billed to their personal account
+	var/personal_char_name = null // Paired with personal_ckey -- see modular_computer's own var of the same name
+	var/crew_shuttle_id = null // If set (mutually exclusive with delivery_network/personal_ckey), deliver via that drydock ship's crew-tagged telepad, billed to the ship owner's account (see deliver_crew_order(), cargo.dm)
 
 //Gets the tracking code for the order. Generates one if it does not exist already
 /datum/cargo_order/proc/get_tracking_code()

@@ -259,7 +259,7 @@
 	possible_origins = list("NKAMV Rredouane", "NKAMV Kaltir", "NKAMV Plasteel Maiden", "NKAMV Her Majesty's Chosen", "NKAMV Ancestry", "NKAMV Harr'nrr")
 	trade_flags = TRADER_MONEY
 
-	allowed_space_sectors = list(SECTOR_ROMANOVICH, SECTOR_TAU_CETI, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE, SECTOR_BADLANDS, SECTOR_SRANDMARR)
+	allowed_space_sectors = list(SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER, SECTOR_TAU_CETI, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE, SECTOR_BADLANDS, SECTOR_SRANDMARR)
 
 	possible_trading_items = list(
 		/obj/item/clothing/suit/storage/toggle/tajaran            = TRADER_THIS_TYPE,

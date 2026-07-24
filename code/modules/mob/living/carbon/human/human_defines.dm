@@ -6,6 +6,9 @@
 	var/atom/movable/screen/fov_mask
 	var/atom/movable/screen/fov_mask_two
 
+	// Freelook (face-the-mouse) toggle
+	var/freelook_active = FALSE
+
 	// Film grain screen object
 	var/atom/movable/screen/film_grain
 
@@ -129,6 +132,10 @@
 
 	// Top-right security zone shield (green/yellow/red by zone)
 	var/atom/movable/screen/zone_indicator = null
+
+	// Beneath the shield -- only shown during an active away-site turf-pick
+	// (Personal Travel leap / drydock Exit Ship), see drydock_pick_anchor
+	var/atom/movable/screen/exit_eye_view/eye_view_cancel_button = null
 
 	// Post-cryo chill effect: movement_delay() adds a tally while world.time is below this
 	var/chilled_until = 0

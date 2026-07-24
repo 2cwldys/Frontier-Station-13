@@ -12,8 +12,27 @@
  * Adding a new type: just set worldstate_vars on the type. No loop edits required.
  */
 
-/// Cache of worldstate data keyed by "[typepath]|[x]|[y]|[z]"
+/// Cache of worldstate data keyed by "[typepath]|[x]|[y]|[z]", or
+/// "[typepath]|site:[template_id]|[x]|[y]" for machines on a pinned away
+/// site -- see worldstate_pinned_site_key() below.
 GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
+
+/// For a pinned away-site's Z, returns that site's own template id -- a
+/// stable identifier across boots, unlike the Z number itself (pinned
+/// sites are Z-allocated by sequential append in build_pinned_away_sites(),
+/// so the same site can land on a different Z every boot -- confirmed by
+/// the rename-site code's own last_z staleness handling in
+/// persistence_factions.dm). Returns null for anything else (ordinary
+/// station Z's, or a template-loaded-but-unpinned Z like a drydock ship/
+/// corvette -- those are already fully excluded from worldstate by
+/// persistence_z_excluded() before this ever runs, and unlike a pinned
+/// site, more than one live instance of the same template can exist at
+/// once for those, so template id alone wouldn't be a safe key there).
+/proc/worldstate_pinned_site_key(z)
+	if(!(z in GLOB.persistence_pinned_site_z))
+		return null
+	var/datum/map_template/T = GLOB.map_templates["[z]"]
+	return T ? T.id : null
 
 // =====================================================================
 // BASE PROCS  declarative var list drives automatic save/restore
@@ -74,8 +93,20 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	var/loaded = 0
 	while(query.NextRow())
 		CHECK_TICK
-		var/cache_key = "[query.item[1]]|[query.item[2]]|[query.item[3]]|[query.item[4]]"
-		GLOB.persistence_worldstate_cache[cache_key] = query.item[5]
+		var/db_type = query.item[1]
+		var/db_x = query.item[2]
+		var/db_y = query.item[3]
+		var/db_z = query.item[4]
+		var/db_content = query.item[5]
+		var/cache_key = "[db_type]|[db_x]|[db_y]|[db_z]"
+		// A row saved while its site was pinned carries its own stable
+		// site key in the content -- prefer that over the raw z it was
+		// saved under, since a pinned site's z isn't stable across boots
+		// (see worldstate_pinned_site_key() above).
+		var/list/parsed = json_decode(db_content)
+		if(islist(parsed) && parsed["__worldstate_site"])
+			cache_key = "[db_type]|site:[parsed["__worldstate_site"]]|[db_x]|[db_y]"
+		GLOB.persistence_worldstate_cache[cache_key] = db_content
 		loaded++
 
 	qdel(query)
@@ -197,13 +228,15 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		var/turf/T = get_turf(S)
 		if(!T || !T.z)
 			return 0
-		var/cache_key = "[S.type]|[T.x]|[T.y]|[T.z]"
+		var/site_key = worldstate_pinned_site_key(T.z)
+		var/cache_key = site_key ? "[S.type]|site:[site_key]|[T.x]|[T.y]" : "[S.type]|[T.x]|[T.y]|[T.z]"
 		var/json = GLOB.persistence_worldstate_cache[cache_key]
 		if(!json)
 			return 0
 		var/list/content = json_decode(json)
 		if(!islist(content))
 			return 0
+		content -= "__worldstate_site"
 		S.worldstate_apply_content(content)
 		return 1
 	catch(var/exception/e)
@@ -239,15 +272,21 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	var/saved = 0
 
 	for(var/obj/structure/S in world)
+		CHECK_TICK
 		if(persistence_z_excluded(S.z)) continue
+		if(persistence_area_excluded(S)) continue
 		saved += worldstateSaveOneMachine(S)
 
 	for(var/obj/item/radio/intercom/IC in world)
+		CHECK_TICK
 		if(persistence_z_excluded(IC.z)) continue
+		if(persistence_area_excluded(IC)) continue
 		saved += worldstateSaveOneMachine(IC)
 
 	for(var/obj/item/modular_computer/MC in world)
+		CHECK_TICK
 		if(persistence_z_excluded(MC.z)) continue
+		if(persistence_area_excluded(MC)) continue
 		saved += worldstateSaveOneMachine(MC)
 
 	var/datum/db_query/delete_stale = SSdbcore.NewQuery(
@@ -258,7 +297,120 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	databaseCheckQueryResult(delete_stale, "worldstateFinalize delete stale")
 	qdel(delete_stale)
 
+	// The sweep above also re-saved every deployed ship Z's machines under
+	// their ship scopes (persistence_ship_interiors.dm) -- run the same
+	// destroyed-object cutoff per scope so ship rows don't accumulate.
+	for(var/ship_z in GLOB.persistence_ship_z)
+		var/datum/db_query/ship_stale = SSdbcore.NewQuery(
+			"DELETE FROM ss13_worldstate_objects WHERE saved_at < :cutoff AND map_path = :map_path",
+			list("cutoff" = cutoff, "map_path" = GLOB.persistence_ship_z[ship_z])
+		)
+		ship_stale.Execute()
+		databaseCheckQueryResult(ship_stale, "worldstateFinalize ship scope delete stale")
+		qdel(ship_stale)
+
 	log_subsystem_persistence_info("Worldstate: Saved state for [saved] machines.")
+
+/**
+ * Per-Z machinery save for a deployed ship Z -- same save/cutoff contract as
+ * worldstateFinalize(), restricted to one z. Caller must still have the z
+ * registered in GLOB.persistence_ship_z so rows key under the ship scope.
+ */
+/datum/controller/subsystem/persistence/proc/worldstateFinalizeZ(z, scope)
+	if(!databaseCheckConnection("worldstateFinalizeZ"))
+		return
+
+	var/datum/db_query/clock = SSdbcore.NewQuery("SELECT NOW(6)")
+	clock.Execute()
+	var/cutoff
+	if(databaseCheckQueryResult(clock, "worldstateFinalizeZ clock") && clock.NextRow())
+		cutoff = clock.item[1]
+	qdel(clock)
+	if(!cutoff)
+		return
+
+	var/saved = 0
+	for(var/obj/structure/S in world)
+		if(S.z != z) continue
+		if(persistence_area_excluded(S)) continue
+		saved += worldstateSaveOneMachine(S)
+	for(var/obj/item/radio/intercom/IC in world)
+		if(IC.z != z) continue
+		if(persistence_area_excluded(IC)) continue
+		saved += worldstateSaveOneMachine(IC)
+	for(var/obj/item/modular_computer/MC in world)
+		if(MC.z != z) continue
+		if(persistence_area_excluded(MC)) continue
+		saved += worldstateSaveOneMachine(MC)
+
+	var/datum/db_query/delete_stale = SSdbcore.NewQuery(
+		"DELETE FROM ss13_worldstate_objects WHERE saved_at < :cutoff AND map_path = :map_path",
+		list("cutoff" = cutoff, "map_path" = scope)
+	)
+	delete_stale.Execute()
+	databaseCheckQueryResult(delete_stale, "worldstateFinalizeZ delete stale")
+	qdel(delete_stale)
+	log_subsystem_persistence_info("Worldstate: Saved [saved] ship machines for z=[z] ([scope]).")
+
+/**
+ * Apply saved ship-scoped machinery rows to a freshly loaded ship Z. Queries
+ * fresh (rows were just remapped to this z by remapShipRows()) rather than
+ * touching the boot cache, and matches machines by (type, x, y) on the z.
+ */
+/datum/controller/subsystem/persistence/proc/worldstateApplyZ(z, scope)
+	if(!databaseCheckConnection("worldstateApplyZ"))
+		return
+	var/datum/db_query/query = SSdbcore.NewQuery(
+		"SELECT type, x, y, content FROM ss13_worldstate_objects WHERE map_path = :map_path AND z = :z",
+		list("map_path" = scope, "z" = z)
+	)
+	query.Execute()
+	if(!databaseCheckQueryResult(query, "worldstateApplyZ"))
+		qdel(query)
+		return
+	var/list/rows_by_key = list()
+	while(query.NextRow())
+		CHECK_TICK
+		rows_by_key["[query.item[1]]|[query.item[2]]|[query.item[3]]"] = query.item[4]
+	qdel(query)
+	if(!length(rows_by_key))
+		return
+
+	var/applied = 0
+	for(var/obj/structure/S in world)
+		CHECK_TICK
+		if(S.z != z) continue
+		applied += _worldstateApplyRowTo(S, rows_by_key)
+	for(var/obj/item/radio/intercom/IC in world)
+		CHECK_TICK
+		if(IC.z != z) continue
+		applied += _worldstateApplyRowTo(IC, rows_by_key)
+	for(var/obj/item/modular_computer/MC in world)
+		CHECK_TICK
+		if(MC.z != z) continue
+		applied += _worldstateApplyRowTo(MC, rows_by_key)
+	log_subsystem_persistence_info("Worldstate: Applied [applied] ship machine states to z=[z] ([scope]).")
+
+/// Match one machine against a (type|x|y)-keyed row set and apply its saved
+/// content. Returns 1 if applied, 0 otherwise.
+/datum/controller/subsystem/persistence/proc/_worldstateApplyRowTo(atom/movable/S, list/rows_by_key)
+	PRIVATE_PROC(TRUE)
+	try
+		var/turf/T = get_turf(S)
+		if(!T)
+			return 0
+		var/json = rows_by_key["[S.type]|[T.x]|[T.y]"]
+		if(!json)
+			return 0
+		var/list/content = json_decode(json)
+		if(!islist(content))
+			return 0
+		content -= "__worldstate_site"
+		S.worldstate_apply_content(content)
+		return 1
+	catch(var/exception/e)
+		log_subsystem_persistence_error("Worldstate: Failed to apply ship content to [S] at [get_turf(S)]: [e]")
+		return 0
 
 /**
  * Serialize one machine and INSERT/UPDATE its row in the database.
@@ -275,12 +427,21 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		var/list/content = S.worldstate_get_content()
 		if(!islist(content) || !length(content))
 			return 0
+		// A pinned site's z isn't stable across boots -- embed the site's
+		// own stable template id in the saved content so worldstateInitialize()
+		// can match this row back up regardless of which z the site lands
+		// on next boot (see worldstate_pinned_site_key() above).
+		var/site_key = worldstate_pinned_site_key(T.z)
+		if(site_key)
+			content["__worldstate_site"] = site_key
 		insert = SSdbcore.NewQuery(
 			"INSERT INTO ss13_worldstate_objects (map_path, type, x, y, z, content, saved_at) \
 			 VALUES (:map_path, :type, :x, :y, :z, :content, NOW()) \
 			 ON DUPLICATE KEY UPDATE content=VALUES(content), saved_at=NOW()",
 			list(
-				"map_path" = SSatlas.current_map.path,
+				// Deployed ship Zs key under their ship scope instead of the
+				// map path -- see persistence_ship_interiors.dm.
+				"map_path" = persistence_scope_for_z(T.z),
 				"type"    = "[S.type]",
 				"x"       = T.x,
 				"y"       = T.y,
@@ -312,14 +473,14 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 // ------- Machinery -------
 
 /obj/structure/machinery/telepad_cargo
-	worldstate_vars = list("persistent_network", "persistent_spawn", "faction_shackled")
+	worldstate_vars = list("persistent_network", "persistent_spawn", "faction_shackled", "personal_ckey", "personal_char_name", "crew_tagged")
 
 // Full override instead of worldstate_vars -- also saves/restores downloaded
 // software via the shared helpers in modular_computer/faction.dm, so a
 // stationary shackled computer keeps its installed programs across restarts
 // the same way a dynamically-tracked one does via persistent_objects_*_content().
 /obj/item/modular_computer/worldstate_get_content()
-	var/list/content = list("persistent_network" = persistent_network, "faction_shackled" = faction_shackled)
+	var/list/content = list("persistent_network" = persistent_network, "faction_shackled" = faction_shackled, "personal_ckey" = personal_ckey, "personal_char_name" = personal_char_name, "crew_tagged" = crew_tagged, "computer_emagged" = computer_emagged)
 	var/list/programs = modcomp_save_programs()
 	if(length(programs))
 		content["programs"] = json_encode(programs)
@@ -330,11 +491,19 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		persistent_network = normalize_faction_uid(content["persistent_network"]) || ""
 	if(!isnull(content["faction_shackled"]))
 		faction_shackled = content["faction_shackled"]
+	if(!isnull(content["personal_ckey"]))
+		personal_ckey = content["personal_ckey"]
+	if(!isnull(content["personal_char_name"]))
+		personal_char_name = content["personal_char_name"]
+	if(!isnull(content["crew_tagged"]))
+		crew_tagged = content["crew_tagged"]
+	if(!isnull(content["computer_emagged"]))
+		computer_emagged = content["computer_emagged"]
 	if(content["programs"])
 		modcomp_restore_programs(json_decode(content["programs"]))
 
 /obj/structure/machinery/door/airlock
-	worldstate_vars = list("name", "welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access", "id_tag", "frequency")
+	worldstate_vars = list("name", "welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access", "id_tag", "frequency", "crew_tagged", "emagged")
 
 /obj/structure/machinery/door/airlock/worldstate_get_content()
 	var/list/content = ..()
@@ -520,16 +689,16 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	worldstate_vars = list("detecting", "working")
 
 /obj/structure/machinery/suit_cycler
-	worldstate_vars = list("locked", "safeties", "radiation_level", "target_department", "target_species")
+	worldstate_vars = list("locked", "safeties", "radiation_level", "target_department", "target_species", "emagged")
 
 /obj/structure/machinery/porta_turret
-	worldstate_vars = list("enabled", "lethal", "locked", "check_arrest", "check_records", "check_weapons", "check_access", "check_wildlife", "check_synth", "target_borgs", "auto_repair", "persistent_network", "turret_faction_target_mode")
+	worldstate_vars = list("enabled", "lethal", "locked", "check_arrest", "check_records", "check_weapons", "check_access", "check_wildlife", "check_synth", "target_borgs", "auto_repair", "persistent_network", "turret_faction_target_mode", "emagged")
 
 /obj/structure/machinery/disposal
 	worldstate_vars = list("is_on", "can_flush")
 
 /obj/structure/machinery/turret_control
-	worldstate_vars = list("enabled", "lethal", "locked", "check_arrest", "check_records", "check_weapons", "check_access", "check_wildlife", "check_synth", "target_borgs")
+	worldstate_vars = list("enabled", "lethal", "locked", "check_arrest", "check_records", "check_weapons", "check_access", "check_wildlife", "check_synth", "target_borgs", "emagged", "ailock")
 
 /obj/structure/machinery/atmospherics/unary/cryo_cell
 	worldstate_vars = list("on", "temperature_warning_threshold", "temperature_danger_threshold")
@@ -544,7 +713,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	worldstate_vars = list("target_temperature", "should_heat", "slow_mode")
 
 /obj/structure/machinery/biogenerator
-	worldstate_vars = list("points", "build_eff", "eat_eff", "processing_time_divisor")
+	worldstate_vars = list("points", "build_eff", "eat_eff", "processing_time_divisor", "emagged")
 
 /obj/structure/machinery/stasis_bed
 	worldstate_vars = list("stasis_enabled", "stasis_can_toggle")
@@ -586,7 +755,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	worldstate_vars = list("mode", "target_temperature", "breach_detection", "locked", "aidisabled", "highpower", "frequency")
 
 /obj/structure/machinery/power/portgen/basic
-	worldstate_vars = list("active", "open", "power_output", "sheets", "sheet_left", "anchored")
+	worldstate_vars = list("active", "open", "power_output", "sheets", "sheet_left", "anchored", "emagged")
 
 /obj/structure/machinery/power/portgen/basic/worldstate_apply_content(list/content)
 	. = ..()
@@ -623,8 +792,18 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	content["autoflag"]   = autoflag
 	content["aidisabled"] = aidisabled
 	content["locked"]     = locked
+	// hacker (var/mob/living/silicon/ai) deliberately NOT persisted -- a live
+	// mob reference can't survive a JSON round-trip through worldstate the
+	// way a plain boolean/number can (the AI it names may not even exist in
+	// a future session). infected is what actually matters for behavior
+	// (which IPC gets hacked next); losing the "who did it" attribution on
+	// restart is an acceptable tradeoff for not storing a dangling reference.
+	content["emagged"]    = emagged
+	content["infected"]   = infected
 	if(cell)
-		content["cell_charge"] = cell.charge
+		content["cell_type"]      = "[cell.type]"
+		content["cell_charge"]    = cell.charge
+		content["cell_maxcharge"] = cell.maxcharge
 	return content
 
 /obj/structure/machinery/power/apc/worldstate_apply_content(list/content)
@@ -641,8 +820,18 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	if(!isnull(content["autoflag"]))   autoflag   = content["autoflag"]
 	if(!isnull(content["aidisabled"])) aidisabled = content["aidisabled"]
 	if(!isnull(content["locked"]))     locked     = content["locked"]
+	if(!isnull(content["emagged"]))    emagged    = content["emagged"]
+	if(!isnull(content["infected"]))   infected   = content["infected"]
+	if(content["cell_type"])
+		var/celltype = text2path(content["cell_type"])
+		if(celltype && (!cell || cell.type != celltype))
+			if(cell)
+				qdel(cell)
+			cell = new celltype(src)
 	if(cell && !isnull(content["cell_charge"]))
 		cell.charge = text2num(content["cell_charge"])
+	if(cell && !isnull(content["cell_maxcharge"]))
+		cell.maxcharge = text2num(content["cell_maxcharge"])
 	update_icon()
 
 // ------- Camera (network is a list) -------
@@ -677,9 +866,9 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 // ------- Cryopod (null guard for unconfigured pods) -------
 
 /obj/structure/machinery/cryopod/worldstate_get_content()
-	if(!persistent_network)
+	if(!persistent_network && !personal_ckey && !crew_tagged)
 		return null
-	return list("persistent_network" = persistent_network, "persistent_spawn" = persistent_spawn)
+	return list("persistent_network" = persistent_network, "persistent_spawn" = persistent_spawn, "personal_ckey" = personal_ckey, "personal_char_name" = personal_char_name, "crew_tagged" = crew_tagged)
 
 /obj/structure/machinery/cryopod/worldstate_apply_content(list/content)
 	// Only apply non-empty network strings  don't let a stale empty DB value wipe the "public" default
@@ -687,6 +876,12 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		persistent_network = normalize_faction_uid(content["persistent_network"])
 	if(!isnull(content["persistent_spawn"]))
 		persistent_spawn = content["persistent_spawn"]
+	if(!isnull(content["personal_ckey"]))
+		personal_ckey = content["personal_ckey"]
+	if(!isnull(content["crew_tagged"]))
+		crew_tagged = content["crew_tagged"]
+	if(!isnull(content["personal_char_name"]))
+		personal_char_name = content["personal_char_name"]
 
 // ------- Conveyor switch (needs update() not update_icon()) -------
 

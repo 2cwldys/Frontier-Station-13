@@ -11,6 +11,13 @@
 /// Whitelist Players admin verb.
 GLOBAL_LIST_EMPTY(persistence_join_whitelist)
 
+/// Whether the join whitelist is enforced at all. Admin-toggled via the
+/// Whitelist Players verb's "Toggle" option, DB-persisted
+/// (ss13_join_whitelist_toggle, V085) -- same mechanism as
+/// GLOB.faction_creation_enabled. Default ON preserves the original
+/// always-enforced behavior.
+GLOBAL_VAR_INIT(persistence_join_whitelist_enabled, TRUE)
+
 /**
  * Load the whitelist into the cache.
  * Called from SSpersistence.Initialize() before players can join.
@@ -33,10 +40,36 @@ GLOBAL_LIST_EMPTY(persistence_join_whitelist)
 	qdel(query)
 	log_subsystem_persistence_info("Whitelist: Loaded [length(GLOB.persistence_join_whitelist)] whitelisted ckey(s).")
 
+	try
+		var/datum/db_query/tq = SSdbcore.NewQuery("SELECT enabled FROM ss13_join_whitelist_toggle WHERE id = 1", list())
+		tq.Execute()
+		if(databaseCheckQueryResult(tq, "whitelistInitialize toggle") && tq.NextRow())
+			GLOB.persistence_join_whitelist_enabled = text2num(tq.item[1])
+		qdel(tq)
+	catch(var/exception/toggle_e)
+		log_subsystem_persistence_error("Whitelist: failed to load whitelist toggle: [toggle_e]")
+	log_subsystem_persistence_info("Whitelist: enforcement is [GLOB.persistence_join_whitelist_enabled ? "ON" : "OFF"].")
+
+/// Sets + persists whether the join whitelist is enforced at all.
+/datum/controller/subsystem/persistence/proc/setJoinWhitelistEnabled(enabled)
+	GLOB.persistence_join_whitelist_enabled = enabled
+	if(!databaseCheckConnection("setJoinWhitelistEnabled"))
+		return
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"INSERT INTO ss13_join_whitelist_toggle (id, enabled) VALUES (1, :enabled) ON DUPLICATE KEY UPDATE enabled = VALUES(enabled)",
+		list("enabled" = enabled ? 1 : 0)
+	)
+	q.Execute()
+	databaseCheckQueryResult(q, "setJoinWhitelistEnabled")
+	qdel(q)
+
 /// TRUE when the ckey may join. Inert (always TRUE) without SQL, since the
 /// whitelist can't be managed or loaded then anyway.
 /proc/persistence_is_whitelisted(target_ckey)
 	if(!GLOB.config.sql_enabled)
+		return TRUE
+	// Enforcement toggled off entirely (Whitelist Players verb -> Toggle).
+	if(!GLOB.persistence_join_whitelist_enabled)
 		return TRUE
 	target_ckey = ckey(target_ckey)
 	if(!target_ckey)
@@ -99,9 +132,18 @@ GLOBAL_LIST_EMPTY(persistence_join_whitelist)
 		return
 
 	while(usr && usr.client)
-		var/choice = tgui_input_list(usr, "Join whitelist ([length(GLOB.persistence_join_whitelist)] ckey\s):", "Whitelist Players", list("Add ckey", "Remove ckey", "View whitelist", "Done"))
+		var/toggle_label = "Toggle whitelist (currently [GLOB.persistence_join_whitelist_enabled ? "ON" : "OFF"])"
+		var/choice = tgui_input_list(usr, "Join whitelist ([length(GLOB.persistence_join_whitelist)] ckey\s, enforcement [GLOB.persistence_join_whitelist_enabled ? "ON" : "OFF"]):", "Whitelist Players", list("Add ckey", "Remove ckey", "View whitelist", toggle_label, "Done"))
 		if(!choice || choice == "Done")
 			return
+
+		if(choice == toggle_label)
+			var/new_state = !GLOB.persistence_join_whitelist_enabled
+			if(tgui_alert(usr, "Join whitelist enforcement is currently [GLOB.persistence_join_whitelist_enabled ? "ENABLED" : "DISABLED"]. [new_state ? "Enable" : "Disable"] it?", "Toggle Whitelist", list("Yes", "No")) != "Yes")
+				continue
+			SSpersistence.setJoinWhitelistEnabled(new_state)
+			log_and_message_admins("[new_state ? "enabled" : "disabled"] join whitelist enforcement.", usr)
+			continue
 
 		switch(choice)
 			if("Add ckey")

@@ -68,6 +68,11 @@
 		sql_report_death(src)
 		SSticker.mode.check_win()
 
+	// Bounty payout -- unconditional on game mode, and read here (not later)
+	// since lastattacker is cleared on Destroy(), which hasn't run yet.
+	if(lastattacker)
+		check_bounty_kill(src, lastattacker)
+
 	if(wearing_rig?.ai_override_enabled)
 		wearing_rig.notify_ai(SPAN_DANGER("Warning: user death event. Mobility control passed to integrated intelligence system."))
 

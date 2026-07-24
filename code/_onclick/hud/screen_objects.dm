@@ -89,6 +89,13 @@
 	if(SSpersistence.save_in_progress)
 		// world.time-driven so the dots alternate each second with no extra state
 		label = "SAVING [(world.time % 20) < 10 ? ".." : "..."]"
+	else if((GLOB.drydock_op_active || length(GLOB.drydock_op_queue)) && (SSpersistence.next_fire - world.time) <= (1 MINUTE))
+		// The autosave is inside its drydock-deferral window (fire() re-arms
+		// next_fire +1 minute per retry while a stash/retrieve runs) -- say
+		// so instead of showing a countdown that silently keeps resetting.
+		// The <= 1 MINUTE guard keeps an ordinary stash long before the next
+		// save from falsely flipping this label.
+		label = "SAVE PAUSED FOR DRYDOCK"
 	else if(SSpersistence.autosave_paused)
 		label = "AUTOSAVE PAUSED"
 	else
@@ -161,6 +168,27 @@
 	to_chat(usr, SPAN_COLOR("#54c556", "  HIGHSEC (green) -- piracy and combat outlawed: Hub law enforced, violent offenses alert Hub security."))
 	to_chat(usr, SPAN_COLOR("#e8bb4a", "  MEDSEC (yellow) -- piracy outlawed: factions enforce their own laws."))
 	to_chat(usr, SPAN_COLOR("#e04545", "  NULLSEC (red) -- no laws enforced: piracy unchecked."))
+	return TRUE
+
+/// "Exit Eye View" -- fixed just beneath the security shield, but only
+/// shown while a turf-pick (Personal Travel leap / drydock Exit Ship) is
+/// actually in progress; drydock_pick_anchor's begin()/Destroy() add and
+/// remove it from client.screen directly (telepad_drydock_boarding.dm).
+/// Not shown for Sector View, which already has its own toggle.
+/atom/movable/screen/exit_eye_view
+	name = "exit eye view"
+	desc = "Cancel your current landing-spot selection."
+	icon = 'icons/hud/exit_eye_view.png'
+	icon_state = ""
+	screen_loc = "EAST:-6,NORTH:-40"
+	mouse_opacity = MOUSE_OPACITY_OPAQUE
+
+/atom/movable/screen/exit_eye_view/Click(location, control, params)
+	if(!usr)
+		return TRUE
+	if(istype(usr.machine, /obj/effect/drydock_pick_anchor))
+		var/obj/effect/drydock_pick_anchor/anchor = usr.machine
+		anchor.cancel(usr)
 	return TRUE
 
 /client/verb/toggle_zone_shield()
@@ -742,11 +770,72 @@
 
 #undef BLACKLIST_SPECIES_RUNNING
 
+/atom/movable/screen/freelook_toggle
+	name = "freelook"
+	icon = 'icons/hud/mob/screen/look_inactive.png'
+	screen_loc = "EAST-4:22,SOUTH:5"
+
+/atom/movable/screen/freelook_toggle/Click(location, control, params)
+	if(!usr)
+		return TRUE
+	var/mob/living/carbon/human/H = usr
+	if(!istype(H))
+		return TRUE
+	H.toggle_freelook()
+	return TRUE
+
+/// Shared by the HUD icon's Click() above and the "L" hotkey-mode keybind
+/// (freelook_toggle_hotkey(), same file) so both toggle paths stay in sync
+/// -- flips freelook_active, clears any locked facing_dir on disable, and
+/// refreshes the HUD icon directly (hud_used.freelook_toggle) since only
+/// the icon's own Click() had been doing that until now.
+/mob/living/carbon/human/proc/toggle_freelook()
+	freelook_active = !freelook_active
+	if(!freelook_active)
+		facing_dir = null
+	if(hud_used?.freelook_toggle)
+		hud_used.freelook_toggle.icon = freelook_active ? 'icons/hud/mob/screen/look_active.png' : 'icons/hud/mob/screen/look_inactive.png'
+
+/// Hotkey-mode-only keybind (see interface/skin.dmf's "hotkeymode" macro set,
+/// "L" -> "freelook-toggle") -- hidden so it never shows in the verb panel.
+/mob/living/carbon/human/verb/freelook_toggle_hotkey()
+	set hidden = TRUE
+	set name = "freelook-toggle"
+	toggle_freelook()
+
 /// Hand slots are special to handle the handcuffs overlay
 /atom/movable/screen/inventory/hand
+	// A HUD screen object sits on no turf, so base_mouse_drop_handler()'s
+	// Adjacent() gate (drag_drop.dm) would silently discard every drop onto a
+	// hand slot without this. mouse_drop_receive() below re-establishes the
+	// safety this waives, by requiring the dragged item to already be held in
+	// one of the dragging player's OWN hands.
+	interaction_flags_atom = INTERACT_ATOM_MOUSEDROP_IGNORE_ADJACENT
 	var/image/handcuff_overlay
 	var/image/disabled_hand_overlay
 	var/image/removed_hand_overlay
+
+/// Drag a held gun onto the opposite hand slot to move it into that hand.
+/// Refuses if the destination hand is already occupied. Scoped to guns as
+/// requested -- energy weapons are /obj/item/gun/energy, so they're covered;
+/// dropping the istype() check below would allow any held item.
+/atom/movable/screen/inventory/hand/mouse_drop_receive(atom/dropped, mob/user, params)
+	var/obj/item/I = dropped
+	if(!istype(I))
+		return
+	var/mob/living/carbon/human/H = user
+	if(!istype(H))
+		return
+	// Only ever act on the dragging player's own HUD.
+	if(!hud || hud.mymob != H)
+		return
+	// Security-critical: the adjacency check is bypassed above, so without
+	// this an item anywhere in the world could be dragged straight into a hand.
+	if(I != H.l_hand && I != H.r_hand)
+		return
+	if(!istype(I, /obj/item/gun))
+		return
+	H.move_held_item_to_hand(I, slot_id)
 
 /atom/movable/screen/inventory/hand/update_icon()
 	..()

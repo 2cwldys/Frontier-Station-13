@@ -92,6 +92,10 @@
 			var/area/A = get_area(src)
 			if(A && (A.area_flags & AREA_FLAG_INDESTRUCTIBLE_TURFS))
 				return
+			// Highsec zone protection (admin-exempt via user context).
+			if(zone_damage_protected(src, user))
+				to_chat(user, SPAN_WARNING("\The [src] is protected by SCC security regulations -- it resists all tampering."))
+				return
 			if(broken || burnt)
 				playsound(src, 'sound/items/crowbar_tile.ogg', 80, 1)
 				visible_message(SPAN_NOTICE("[user] has begun prying off the damaged plating."))

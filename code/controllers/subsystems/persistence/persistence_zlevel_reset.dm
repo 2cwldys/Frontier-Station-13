@@ -126,15 +126,159 @@
 /// all) -- is currently on z. Hard-blocks destructive Z-level admin actions.
 /proc/zlevel_has_players(z)
 	for(var/mob/M in GLOB.mob_list)
+		CHECK_TICK
 		if(M.z == z && (M.client || M.ckey))
 			return TRUE
 	for(var/obj/item/organ/internal/neural_lace/L in world)
+		CHECK_TICK
 		if(!length(L.registered_ckey))
 			continue
 		var/turf/T = get_turf(L)
 		if(T && T.z == z)
 			return TRUE
 	return FALSE
+
+/**
+ * The actual reset engine, extracted from the "Reset Z-Level" admin verb so
+ * other callers (the corvette Stash flow, persistence_corvettes.dm) can
+ * invoke the same wipe/revert logic without duplicating it. No
+ * confirmation, no player-presence check, no chat/log output -- callers own
+ * all of that themselves (see reset_zlevel() below for the admin-facing
+ * wrapper, and corvetteStash() for the other caller).
+ *
+ * Returns an assoc list of counts: respawned, machinery_reset,
+ * dynamic_removed, floor_items_removed, turfs_reverted. Returns null if the
+ * DB connection check fails.
+ */
+/datum/controller/subsystem/persistence/proc/resetZLevelContent(z)
+	if(!databaseCheckConnection("resetZLevelContent"))
+		return null
+
+	var/map_path = "[SSatlas.current_map.path]"
+	var/respawned = 0
+	var/machinery_reset = 0
+	var/dynamic_removed = 0
+	var/floor_items_removed = 0
+	var/turfs_reverted = 0
+
+	// 1. Respawn structures destroyed in a previous session (removed-structures tombstones)
+	var/datum/db_query/rq = SSdbcore.NewQuery(
+		"SELECT type, x, y FROM ss13_removed_structures WHERE z = :z AND map_path = :mp",
+		list("z" = z, "mp" = map_path)
+	)
+	rq.Execute()
+	if(databaseCheckQueryResult(rq, "resetZLevelContent removed_structures select"))
+		while(rq.NextRow())
+			var/typepath = text2path(rq.item[1])
+			if(!typepath)
+				continue
+			var/turf/T = locate(text2num(rq.item[2]), text2num(rq.item[3]), z)
+			if(!T)
+				continue
+			var/obj/structure/new_instance = new typepath(T)
+			clearStructureRemoval(new_instance)
+			respawned++
+	qdel(rq)
+
+	// 2. Reset currently-existing map-placed structures to fresh compiled defaults.
+	// Snapshot (type, turf) pairs first -- can't qdel while iterating turf contents.
+	var/list/existing_structures = list()
+	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+		for(var/obj/structure/S in T)
+			if(S.persistence_was_mapload)
+				existing_structures += list(list("type" = S.type, "turf" = T))
+		CHECK_TICK
+	for(var/list/entry in existing_structures)
+		var/turf/T = entry["turf"]
+		var/old_type = entry["type"]
+		for(var/obj/structure/S in T)
+			if(S.type == old_type && S.persistence_was_mapload)
+				qdel(S)
+				break
+		var/obj/structure/new_instance = new old_type(T)
+		clearStructureRemoval(new_instance)
+		machinery_reset++
+
+	// 3. Remove dynamic/player-placed persistent-tracked content on this z
+	var/list/tracked_to_remove = list()
+	for(var/obj/track as anything in GLOB.persistence_object_track_register)
+		var/turf/T = get_turf(track)
+		if(T && T.z == z)
+			tracked_to_remove += track
+		CHECK_TICK
+	for(var/obj/track in tracked_to_remove)
+		qdel(track)
+		dynamic_removed++
+	var/datum/db_query/dpq = SSdbcore.NewQuery(
+		"DELETE FROM ss13_persistent_objects WHERE z = :z AND map_path = :mp",
+		list("z" = z, "mp" = map_path)
+	)
+	dpq.Execute()
+	databaseCheckQueryResult(dpq, "resetZLevelContent persistent_objects delete")
+	qdel(dpq)
+
+	// 4. Clear loose floor items on this z (mirrors floorItemsInitialize's wipe criteria).
+	// Snapshot first -- can't qdel while iterating turf contents.
+	var/list/floor_items_to_remove = list()
+	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+		for(var/obj/item/I in T)
+			if(I.persistent_objects_track_id != 0)
+				continue
+			if(I in GLOB.persistence_object_track_register)
+				continue
+			if(istype(I, /obj/item/ammo_casing))
+				continue
+			floor_items_to_remove += I
+		CHECK_TICK
+	for(var/obj/item/I in floor_items_to_remove)
+		qdel(I)
+		floor_items_removed++
+	var/datum/db_query/dfq = SSdbcore.NewQuery(
+		"DELETE FROM ss13_floor_items WHERE z = :z AND map_path = :mp",
+		list("z" = z, "mp" = map_path)
+	)
+	dfq.Execute()
+	databaseCheckQueryResult(dfq, "resetZLevelContent floor_items delete")
+	qdel(dfq)
+
+	// 5. Revert turfs to their baseturf (same mechanism as persistence_templates.dm)
+	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+		if(T.type != T.baseturf)
+			T.ChangeTurf(T.baseturf)
+			turfs_reverted++
+		CHECK_TICK
+	var/datum/db_query/dtq = SSdbcore.NewQuery(
+		"DELETE FROM ss13_worldstate_turfs WHERE z = :z AND map_path = :mp",
+		list("z" = z, "mp" = map_path)
+	)
+	dtq.Execute()
+	databaseCheckQueryResult(dtq, "resetZLevelContent worldstate_turfs delete")
+	qdel(dtq)
+
+	// 6. Clear remaining worldstate/atmos DB rows for this z
+	var/datum/db_query/dwq = SSdbcore.NewQuery(
+		"DELETE FROM ss13_worldstate_objects WHERE z = :z AND map_path = :mp",
+		list("z" = z, "mp" = map_path)
+	)
+	dwq.Execute()
+	databaseCheckQueryResult(dwq, "resetZLevelContent worldstate_objects delete")
+	qdel(dwq)
+
+	var/datum/db_query/daq = SSdbcore.NewQuery(
+		"DELETE FROM ss13_atmos_zones WHERE rep_z = :z AND map_path = :mp",
+		list("z" = z, "mp" = map_path)
+	)
+	daq.Execute()
+	databaseCheckQueryResult(daq, "resetZLevelContent atmos_zones delete")
+	qdel(daq)
+
+	return list(
+		"respawned" = respawned,
+		"machinery_reset" = machinery_reset,
+		"dynamic_removed" = dynamic_removed,
+		"floor_items_removed" = floor_items_removed,
+		"turfs_reverted" = turfs_reverted,
+	)
 
 /datum/admins/proc/reset_zlevel()
 	set name = "Reset Z-Level"
@@ -162,128 +306,11 @@
 	if(confirm != "Reset")
 		return
 
-	if(!SSpersistence.databaseCheckConnection("reset_zlevel"))
+	var/list/result = SSpersistence.resetZLevelContent(z_pick)
+	if(!result)
 		to_chat(usr, SPAN_WARNING("Database connection failed."))
 		return
 
-	var/map_path = "[SSatlas.current_map.path]"
-	var/respawned = 0
-	var/machinery_reset = 0
-	var/dynamic_removed = 0
-	var/floor_items_removed = 0
-	var/turfs_reverted = 0
-
-	// 1. Respawn structures destroyed in a previous session (removed-structures tombstones)
-	var/datum/db_query/rq = SSdbcore.NewQuery(
-		"SELECT type, x, y FROM ss13_removed_structures WHERE z = :z AND map_path = :mp",
-		list("z" = z_pick, "mp" = map_path)
-	)
-	rq.Execute()
-	if(SSpersistence.databaseCheckQueryResult(rq, "reset_zlevel removed_structures select"))
-		while(rq.NextRow())
-			var/typepath = text2path(rq.item[1])
-			if(!typepath)
-				continue
-			var/turf/T = locate(text2num(rq.item[2]), text2num(rq.item[3]), z_pick)
-			if(!T)
-				continue
-			var/obj/structure/new_instance = new typepath(T)
-			SSpersistence.clearStructureRemoval(new_instance)
-			respawned++
-	qdel(rq)
-
-	// 2. Reset currently-existing map-placed structures to fresh compiled defaults.
-	// Snapshot (type, turf) pairs first -- can't qdel while iterating turf contents.
-	var/list/existing_structures = list()
-	for(var/turf/T in block(locate(1, 1, z_pick), locate(world.maxx, world.maxy, z_pick)))
-		for(var/obj/structure/S in T)
-			if(S.persistence_was_mapload)
-				existing_structures += list(list("type" = S.type, "turf" = T))
-		CHECK_TICK
-	for(var/list/entry in existing_structures)
-		var/turf/T = entry["turf"]
-		var/old_type = entry["type"]
-		for(var/obj/structure/S in T)
-			if(S.type == old_type && S.persistence_was_mapload)
-				qdel(S)
-				break
-		var/obj/structure/new_instance = new old_type(T)
-		SSpersistence.clearStructureRemoval(new_instance)
-		machinery_reset++
-
-	// 3. Remove dynamic/player-placed persistent-tracked content on this z
-	var/list/tracked_to_remove = list()
-	for(var/obj/track as anything in GLOB.persistence_object_track_register)
-		var/turf/T = get_turf(track)
-		if(T && T.z == z_pick)
-			tracked_to_remove += track
-		CHECK_TICK
-	for(var/obj/track in tracked_to_remove)
-		qdel(track)
-		dynamic_removed++
-	var/datum/db_query/dpq = SSdbcore.NewQuery(
-		"DELETE FROM ss13_persistent_objects WHERE z = :z AND map_path = :mp",
-		list("z" = z_pick, "mp" = map_path)
-	)
-	dpq.Execute()
-	SSpersistence.databaseCheckQueryResult(dpq, "reset_zlevel persistent_objects delete")
-	qdel(dpq)
-
-	// 4. Clear loose floor items on this z (mirrors floorItemsInitialize's wipe criteria).
-	// Snapshot first -- can't qdel while iterating turf contents.
-	var/list/floor_items_to_remove = list()
-	for(var/turf/T in block(locate(1, 1, z_pick), locate(world.maxx, world.maxy, z_pick)))
-		for(var/obj/item/I in T)
-			if(I.persistent_objects_track_id != 0)
-				continue
-			if(I in GLOB.persistence_object_track_register)
-				continue
-			if(istype(I, /obj/item/ammo_casing))
-				continue
-			floor_items_to_remove += I
-		CHECK_TICK
-	for(var/obj/item/I in floor_items_to_remove)
-		qdel(I)
-		floor_items_removed++
-	var/datum/db_query/dfq = SSdbcore.NewQuery(
-		"DELETE FROM ss13_floor_items WHERE z = :z AND map_path = :mp",
-		list("z" = z_pick, "mp" = map_path)
-	)
-	dfq.Execute()
-	SSpersistence.databaseCheckQueryResult(dfq, "reset_zlevel floor_items delete")
-	qdel(dfq)
-
-	// 5. Revert turfs to their baseturf (same mechanism as persistence_templates.dm)
-	for(var/turf/T in block(locate(1, 1, z_pick), locate(world.maxx, world.maxy, z_pick)))
-		if(T.type != T.baseturf)
-			T.ChangeTurf(T.baseturf)
-			turfs_reverted++
-		CHECK_TICK
-	var/datum/db_query/dtq = SSdbcore.NewQuery(
-		"DELETE FROM ss13_worldstate_turfs WHERE z = :z AND map_path = :mp",
-		list("z" = z_pick, "mp" = map_path)
-	)
-	dtq.Execute()
-	SSpersistence.databaseCheckQueryResult(dtq, "reset_zlevel worldstate_turfs delete")
-	qdel(dtq)
-
-	// 6. Clear remaining worldstate/atmos DB rows for this z
-	var/datum/db_query/dwq = SSdbcore.NewQuery(
-		"DELETE FROM ss13_worldstate_objects WHERE z = :z AND map_path = :mp",
-		list("z" = z_pick, "mp" = map_path)
-	)
-	dwq.Execute()
-	SSpersistence.databaseCheckQueryResult(dwq, "reset_zlevel worldstate_objects delete")
-	qdel(dwq)
-
-	var/datum/db_query/daq = SSdbcore.NewQuery(
-		"DELETE FROM ss13_atmos_zones WHERE rep_z = :z AND map_path = :mp",
-		list("z" = z_pick, "mp" = map_path)
-	)
-	daq.Execute()
-	SSpersistence.databaseCheckQueryResult(daq, "reset_zlevel atmos_zones delete")
-	qdel(daq)
-
-	var/summary = "Reset Z=[z_pick] ([level_name]): [respawned] structure(s) respawned, [machinery_reset] machine(s) reset to defaults, [dynamic_removed] dynamic object(s) removed, [floor_items_removed] floor item(s) cleared, [turfs_reverted] turf(s) reverted. Atmos DB rows cleared (live gas state untouched)."
+	var/summary = "Reset Z=[z_pick] ([level_name]): [result["respawned"]] structure(s) respawned, [result["machinery_reset"]] machine(s) reset to defaults, [result["dynamic_removed"]] dynamic object(s) removed, [result["floor_items_removed"]] floor item(s) cleared, [result["turfs_reverted"]] turf(s) reverted. Atmos DB rows cleared (live gas state untouched)."
 	to_chat(usr, SPAN_GOOD(summary))
 	log_admin("[key_name(usr)] reset z-level [z_pick] ([level_name]) via reset_zlevel(). [summary]")

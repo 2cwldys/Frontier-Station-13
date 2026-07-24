@@ -217,6 +217,7 @@
 		if(machine)
 			if(machine.check_eye(src) < 1)
 				reset_view(null)
+				unset_machine() // dead view session -- a stale ref would re-veto every tick (see human handle_vision)
 		else
 			if(!client?.adminobs)
 				reset_view(null)

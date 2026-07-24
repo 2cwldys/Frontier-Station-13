@@ -148,6 +148,11 @@
 	var/rogue_drone_destroyed_message = "Icarus drone control registers disappointment at the loss of the drones, but the survivors have been recovered."
 
 	var/num_exoplanets = 0
+	/// When TRUE, build_exoplanets() does nothing at all -- no random exoplanets,
+	/// no guaranteed ones either. Unlike num_exoplanets (which only zeroes the
+	/// random budget and leaves a sector's guaranteed_exoplanets untouched),
+	/// this is an explicit "no exoplanets on this map, period" override.
+	var/disable_exoplanets = FALSE
 	///Dimensions of planet zlevel, defaults to world size. Due to how maps are generated, must be (2^n+1) e.g. 17,33,65,129 etc. Map will just round up to those if set to anything other.
 	var/list/planet_size
 	var/min_offmap_players = 0
@@ -211,6 +216,8 @@
 
 /datum/map/proc/build_exoplanets()
 	if(!use_overmap)
+		return
+	if(disable_exoplanets)
 		return
 
 	if(!GLOB.config.exoplanets["enable_loading"])
@@ -335,10 +342,24 @@
 
 	var/points = isnum(GLOB.config.awaysites["away_site_budget"]) ? (GLOB.config.awaysites["away_site_budget"]) : (rand(away_site_budget, away_site_budget + away_variance))
 	var/players = -min_offmap_players
-	var/shippoints = isnum(GLOB.config.awaysites["away_ship_budget"]) ? (GLOB.config.awaysites["away_ship_budget"]) : (rand(away_ship_budget, away_ship_budget + away_variance))
+	var/shippoints = isnum(GLOB.config.awaysites["away_ship_budget"]) ? (GLOB.config.awaysites["away_ship_budget"]) : (away_ship_budget ? rand(away_ship_budget, away_ship_budget + away_variance) : 0)
 	var/totalbudget = shippoints + points
 	for (var/client/C)
 		++players
+
+	// Pinned sites were already spawned above (build_pinned_away_sites()) and
+	// are excluded from re-selection (the `if(site_id in pinned_ids)` check
+	// above) -- but that alone doesn't stop the RNG from ALSO spending a full
+	// fresh budget on top of them every boot. Deduct their cost here so a
+	// pinned restore counts toward this boot's total instead of being pure
+	// bonus content layered over it.
+	for(var/site_id in pinned_ids)
+		var/datum/map_template/ruin/away_site/pinned_site = SSmapping.away_sites_templates[site_id]
+		if(!pinned_site)
+			continue
+		points -= pinned_site.spawn_cost
+		players -= pinned_site.player_cost
+		shippoints -= pinned_site.ship_cost
 
 	for (var/datum/map_template/ruin/away_site/site in guaranteed)
 		var/list/costs = resolve_site_selection(site, selected, available, unavailable, by_type)
@@ -360,11 +381,24 @@
 	log_admin("Finished selecting away sites ([english_list(selected)]) for [totalbudget - (points + shippoints)] cost of [totalbudget] budget.")
 
 	for(var/datum/map_template/template in selected)
+		var/z_before = world.maxz
 		var/bounds = template.load_new_z()
 		if(bounds)
 			log_admin("Loaded away site [template]!")
+			if(istype(template, /datum/map_template/ruin/away_site))
+				var/datum/map_template/ruin/away_site/site = template
+				if(site.auto_despawn_when_depleted)
+					_register_auto_despawn_asteroid(z_before + 1, site.id)
 		else
 			log_admin("Failed loading away site [template]!")
+
+	// zoneSecurityInitialize()'s one-time boot repaint (SSpersistence.Initialize(),
+	// init_order -10) runs BEFORE away sites are loaded here (SSmapping.Initialize(),
+	// init_order -2) -- every site placed above (pinned respawns and this RNG pool)
+	// registers into GLOB.map_sectors too late to have been painted, and nothing else
+	// ever repaints them unless an unrelated later zone/beacon event happens to. One
+	// more repaint here, after every site for the round actually exists, closes that gap.
+	zone_security_update_overmap()
 #endif
 
 /**

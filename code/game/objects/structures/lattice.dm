@@ -9,6 +9,11 @@
 	w_class = WEIGHT_CLASS_NORMAL
 	layer = ABOVE_TILE_LAYER
 	obj_flags = OBJ_FLAG_MOVES_UNSUPPORTED
+	// The persistence cycle churns turfs (turfsInitialize/resetZLevelContent
+	// ChangeTurf), and a floor ChangeTurf destroys lattices via
+	// RemoveLattice() -- mapped lattices/catwalks must never be recorded in
+	// the removal ledger by that churn, or they get re-deleted every boot.
+	persistence_never_tombstone = TRUE
 	smoothing_flags = SMOOTH_MORE
 	canSmoothWith = list(
 		/obj/structure/lattice,

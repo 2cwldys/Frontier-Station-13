@@ -16,7 +16,15 @@
 	. = 0
 	for(var/armor in armors)
 		var/datum/component/armor/armor_datum = armor
-		. = 1 - (1 - .) * (1 - armor_datum.get_blocked(damage_type, damage_flags, armor_pen, damage)) // multiply the amount we let through
+		var/this_blocked = armor_datum.get_blocked(damage_type, damage_flags, armor_pen, damage)
+		. = 1 - (1 - .) * (1 - this_blocked) // multiply the amount we let through
+		// Wears down the piece of armor/clothing that actually did the
+		// blocking, proportional to how much it blocked. Only fires for
+		// armor attached to a worn item -- innate/natural armor has no
+		// parent item to wear down.
+		if(this_blocked > 0 && isitem(armor_datum.parent))
+			var/obj/item/worn_item = armor_datum.parent
+			worn_item.degrade_durability(WEAR_ARMOR_DECAY_PER_BLOCK * this_blocked)
 	. = min(1, .)
 
 /mob/living/proc/get_armors_by_zone(def_zone, damage_type, damage_flags)

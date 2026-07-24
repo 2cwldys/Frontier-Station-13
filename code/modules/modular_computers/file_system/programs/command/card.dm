@@ -215,6 +215,21 @@
 				var/assign_id_net = computer ? normalize_faction_uid(computer.persistent_network) : ""
 				if(assign_id_net)
 					id_card.employer_faction = assign_id_net
+					// See print_replacement/do_print_replacement's identical fix --
+					// this action only stamped employer_faction, it never
+					// registered the person as an actual faction member, so
+					// GetFactionAccess()/can_configure_faction_shackle() (both
+					// ckey-based) always saw them as a non-member no matter how
+					// much generic access the card had. Skip if already a member
+					// so a routine job reassignment never resets an existing
+					// officer/command rank back to 0.
+					var/assign_owner_ckey = null
+					for(var/mob/living/carbon/human/H in GLOB.human_mob_list)
+						if(H.real_name == id_card.registered_name && H.ckey)
+							assign_owner_ckey = H.ckey
+							break
+					if(assign_owner_ckey && !get_faction_member(assign_owner_ckey, assign_id_net))
+						SSpersistence.factionRegisterMember(assign_owner_ckey, id_card.registered_name, assign_id_net, id_card.assignment, 0)
 
 				SSrecords.reset_manifest()
 				callHook("reassign_employee", list(id_card))
@@ -257,6 +272,17 @@
 			var/repl_net = computer ? normalize_faction_uid(computer.persistent_network) : ""
 			if(repl_net)
 				new_card.employer_faction = repl_net
+				// A replacement card only STAMPS employer_faction -- it never
+				// registered the person as an actual faction member, so
+				// GetFactionAccess()/can_configure_faction_shackle() (both
+				// resolved by ckey, not anything on the card) always saw them
+				// as a non-member and refused faction-tagged doors/the beacon
+				// no matter how much generic access the card had. Register
+				// them now if they aren't already a member -- skip entirely
+				// if they are, so an existing officer/command rank is never
+				// silently reset back to 0 by a routine card reprint.
+				if(!get_faction_member(user.ckey, repl_net))
+					SSpersistence.factionRegisterMember(user.ckey, user.real_name, repl_net, new_card.assignment, 0)
 			new_card.update_name()
 
 			// Re-apply access for the job
@@ -272,6 +298,15 @@
 			// Biometric imprint
 			if(istype(user, /mob/living/carbon/human))
 				var/mob/living/carbon/human/H = user
+				// The console's faction (set by the faction tagger / beacon) IS
+				// this ID's employer, so make it the holder's employer too.
+				// set_id_info() below copies the human's employer_faction onto
+				// the card -- as do its ~15 other callers -- so syncing the mob
+				// here is what keeps card, mob and crew records agreeing,
+				// instead of the card being silently stamped back to the
+				// character's prefs faction on the next call.
+				if(repl_net)
+					H.employer_faction = repl_net
 				H.set_id_info(new_card)
 
 			// Get or create personal bank account
@@ -376,6 +411,10 @@
 			new_card.update_name()
 			if(istype(user, /mob/living/carbon/human))
 				var/mob/living/carbon/human/H = user
+				// See print_replacement above -- the console's faction is the
+				// employer, so sync the mob before set_id_info() copies it.
+				if(disp_net)
+					H.employer_faction = disp_net
 				H.set_id_info(new_card)
 			user.put_in_hands(new_card)
 			// Register member record in DB and save account number for payroll
@@ -509,6 +548,14 @@
 	var/verb_repl_net = computer ? normalize_faction_uid(computer.persistent_network) : ""
 	if(verb_repl_net)
 		new_card.employer_faction = verb_repl_net
+		// See print_replacement's identical fix -- a replacement card only
+		// stamps employer_faction, it never registered the person as an
+		// actual faction member, so GetFactionAccess()/
+		// can_configure_faction_shackle() (both ckey-based) always saw them
+		// as a non-member. Skip if already a member so a routine reprint
+		// never resets an existing officer/command rank back to 0.
+		if(!get_faction_member(user.ckey, verb_repl_net))
+			SSpersistence.factionRegisterMember(user.ckey, user.real_name, verb_repl_net, new_card.assignment, 0)
 	new_card.update_name()
 
 	var/datum/job/jobdatum
@@ -522,6 +569,10 @@
 
 	if(istype(user, /mob/living/carbon/human))
 		var/mob/living/carbon/human/H = user
+		// See print_replacement above -- the console's faction is the employer,
+		// so sync the mob before set_id_info() copies it.
+		if(verb_repl_net)
+			H.employer_faction = verb_repl_net
 		H.set_id_info(new_card)
 
 	// Link existing bank account -- only mint a new one if the player has none anywhere

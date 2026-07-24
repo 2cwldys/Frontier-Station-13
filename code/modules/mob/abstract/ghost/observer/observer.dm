@@ -171,12 +171,17 @@ Works together with spawning an observer, noted above.
 		C.images += target.hud_list[SPECIALROLE_HUD]
 	return 1
 
-/mob/proc/ghostize(var/can_reenter_corpse = TRUE, var/should_set_timer = TRUE)
+/mob/proc/ghostize(var/can_reenter_corpse = TRUE, var/should_set_timer = TRUE, var/admin_ghosted = FALSE)
 	if(ckey)
 		CutOverlays(image('icons/effects/effects.dmi', "zzz_glow")) // not very efficient but ghostize isn't called /too/ often.
 		var/mob/abstract/ghost/observer/ghost = new(src, src)	//Transfer safety to observer spawning proc.
 		ghost.can_reenter_corpse = can_reenter_corpse
 		ghost.timeofdeath = src.stat == DEAD ? src.timeofdeath : world.time
+		ghost.admin_ghosted = admin_ghosted // must be set before the ckey
+		                                    // assignment below -- that line
+		                                    // synchronously triggers Login()/
+		                                    // LateLogin()'s check_zone_announce(),
+		                                    // which needs to see this already set.
 
 		ghost.ckey = ckey
 		ghost.initialise_postkey(should_set_timer)

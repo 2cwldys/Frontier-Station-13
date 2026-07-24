@@ -505,6 +505,51 @@ This saves us from having to call add_fingerprint() any time something is put in
 	var/hand_to_equip_to = hand ? slot_r_hand : slot_l_hand
 	return equip_to_slot_if_possible(item_to_equip, hand_to_equip_to, disable_warning = set_disable_warning)
 
+/**
+ * Moves an ALREADY-HELD item from one of our hands into the other, without it
+ * ever leaving us -- the item object is never dropped, destroyed or recreated,
+ * so a gun keeps its chambered round, cell, fire selector etc. and no trigger
+ * or attack code path runs.
+ *
+ * Refuses if the destination hand is occupied. That also covers a wielded
+ * two-handed gun for free: wielding puts an offhand item in the other hand,
+ * so the destination reads as full.
+ *
+ * Driven by the hand-slot drag handler (screen_objects.dm). Returns TRUE if
+ * the item actually moved.
+ */
+/mob/living/carbon/human/proc/move_held_item_to_hand(obj/item/I, target_slot)
+	if(!istype(I) || (target_slot != slot_l_hand && target_slot != slot_r_hand))
+		return FALSE
+	if(I != l_hand && I != r_hand)
+		return FALSE // not actually held by us
+
+	var/obj/item/occupant = (target_slot == slot_l_hand) ? l_hand : r_hand
+	if(occupant == I)
+		return FALSE // already in that hand, nothing to do
+	if(occupant)
+		to_chat(src, SPAN_WARNING("Your [(target_slot == slot_l_hand) ? "left" : "right"] hand is full."))
+		return FALSE
+	if(!canUnEquip(I))
+		to_chat(src, SPAN_WARNING("You can't move \the [I] right now."))
+		return FALSE
+
+	// prepare_for_slotmove() clears the SOURCE hand var (via u_equip) and
+	// detaches the item from the screen. Required: equip_to_slot() only ever
+	// sets the DESTINATION hand, so equipping straight across would leave both
+	// l_hand and r_hand pointing at the same object.
+	if(!prepare_for_slotmove(I))
+		to_chat(src, SPAN_WARNING("You can't move \the [I] right now."))
+		return FALSE
+
+	if(!equip_to_slot_if_possible(I, target_slot, disable_warning = TRUE))
+		// Failsafe -- the item is already detached from its old hand by this
+		// point, so make sure it can never be stranded in limbo (loc == src
+		// but held in no slot).
+		put_in_hands(I)
+		return FALSE
+	return TRUE
+
 /mob/living/carbon/human/put_in_hands(obj/item/item_to_equip)
 	if(QDELETED(item_to_equip) || !istype(item_to_equip))
 		return FALSE

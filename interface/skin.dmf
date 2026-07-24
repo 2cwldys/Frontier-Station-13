@@ -659,6 +659,9 @@ macro "hotkeymode"
   elem
     name = "R"
     command = "throw_intent_toggle"
+  elem
+    name = "L"
+    command = "freelook-toggle"
 
 
 macro "borgmacro"
@@ -924,13 +927,14 @@ window "mainwindow"
 		size = 640x440
 		anchor1 = 0,0
 		anchor2 = 100,100
-		background-color = #0d1b33
+		background-color = #111111
 		border = none
+		saved-params = "splitter"
 		left = "mapwindow"
 		right = "info_and_buttons"
 		is-vert = true
 		splitter = 60
-		show-splitter = false
+		show-splitter = true
 	elem "asset_cache_browser"
 		type = BROWSER
 		pos = 0,0
@@ -1003,7 +1007,7 @@ window "info_and_buttons"
 	elem "info_button_child"
 		type = CHILD
 		pos = 0,0
-		size = 640x477
+		size = 640x480
 		anchor1 = 0,0
 		anchor2 = 100,100
 		background-color = #0d1b33
@@ -1115,11 +1119,11 @@ window "infowindow"
 		background-color = #0d1b33
 	elem "info"
 		type = CHILD
-		pos = 0,5
+		pos = 0,0
 		size = 640x475
 		anchor1 = 0,0
 		anchor2 = 100,100
-		background-color = #0d1b33
+		background-color = #111111
 		border = none
 		saved-params = "splitter"
 		left = "statwindow"
@@ -1180,6 +1184,7 @@ window "input_and_buttons"
 		anchor2 = -1,-1
 		saved-params = "pos;size;is-minimized;is-maximized"
 		is-pane = true
+		background-color = #0d1b33
 	elem "input_buttons_child"
 		type = CHILD
 		pos = 0,0
@@ -1202,7 +1207,7 @@ window "inputwindow"
 		size = 520x25
 		anchor1 = -1,-1
 		anchor2 = -1,-1
-		background-color = none
+		background-color = #0d1b33
 		saved-params = "pos;size;is-minimized;is-maximized"
 		is-pane = true
 	elem "input"
@@ -1227,6 +1232,7 @@ window "inputbuttons"
 		anchor2 = 100,100
 		saved-params = "pos;size;is-minimized;is-maximized"
 		is-pane = true
+		background-color = #0d1b33
 	elem "saybutton"
 		type = BUTTON
 		pos = 0,0
@@ -1396,7 +1402,7 @@ window "statwindow"
 window "tgui_say"
 	elem "tgui_say"
 		type = MAIN
-		pos = 848,500
+		pos = 848,504
 		size = 380x30
 		is-visible = false
 		saved-params = ""
@@ -1407,5 +1413,5 @@ window "tgui_say"
 		pos = 0,0
 		size = 380x30
 		anchor1 = 0,0
-		anchor2 = 0,0
+		anchor2 = 100,100
 		saved-params = ""

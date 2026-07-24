@@ -2009,7 +2009,7 @@
 /turf/simulated/floor/tiled/white/airless,
 /area/wrecked_nt_ship)
 "Vr" = (
-/obj/effect/overmap/visitable/wrecked_nt_ship,
+/obj/effect/overmap/visitable/sector/wrecked_nt_ship,
 /obj/effect/decal/cleanable/dirt,
 /turf/simulated/floor/airless,
 /area/wrecked_nt_ship)

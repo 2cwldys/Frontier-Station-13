@@ -19,6 +19,11 @@
 	size = 2
 	requires_ntnet = TRUE
 	requires_ntnet_feature = NTNET_SOFTWAREDOWNLOAD
+	// process_tick() below already pauses gracefully on lost signal (speed
+	// drops to 0, last_update resets, download_queue's progress is untouched)
+	// -- don't let the generic requires_ntnet crash-on-disconnect path kill
+	// the whole program and wipe the queue over a momentary blip.
+	network_failure_is_fatal = FALSE
 	available_on_ntnet = 0
 	ui_header = "downloader_finished.gif"
 	tgui_id = "NTOSDownloader"
@@ -56,6 +61,10 @@
 	data["queue_size"] = queue_size
 	data["speed"] = speed
 	data["active_download"] = active_download
+	// process_tick() derives download speed purely from ntnet_status -- at 0
+	// the queue sits at 0% indefinitely with no other outward sign, which
+	// reads as a broken device rather than "the network is down". Surface it.
+	data["no_signal"] = !ntnet_status
 	data["queue"] = list()
 	for(var/name in download_queue)
 		var/datum/computer_file/program/PRG = download_files[name]
@@ -94,6 +103,16 @@
 	// Attempting to download antag only program, but without having emagged computer. No.
 	if(PRG.available_on_syndinet && !computer_emagged)
 		return FALSE
+
+	// This program instance is shared by anyone using this device -- without
+	// this guard, a second concurrent/stale request for a filename already
+	// in download_queue re-adds it: stomping its progress back to 0 (line
+	// below) and double-counting its size into queue_size, which then never
+	// gets fully un-counted (cancel/finish only subtract once), wedging the
+	// queue's capacity checks and its "anything queued" early-out forever.
+	if(PRG.filename in download_queue)
+		to_chat(user, SPAN_WARNING("[PRG.filedesc] is already queued for download."))
+		return TRUE
 
 	if(!hard_drive.can_store_file(queue_size + PRG.size))
 		to_chat(user, SPAN_WARNING("You can't download this program as queued items exceed hard drive capacity."))

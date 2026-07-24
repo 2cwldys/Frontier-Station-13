@@ -12,6 +12,7 @@
 	throw_speed = 1
 	throw_range = 2
 	w_class = WEIGHT_CLASS_SMALL
+	degrades_with_use = FALSE // currency -- doesn't wear out, same as /obj/item/card/id
 	var/access = list()
 	access = ACCESS_CRATE_CASH
 	var/worth = 0

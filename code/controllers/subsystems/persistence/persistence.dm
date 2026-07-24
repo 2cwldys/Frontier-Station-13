@@ -12,6 +12,20 @@
 /// Set to TRUE once SSpersistence.Initialize() fully completes  gates PersistentAutoSpawn().
 GLOBAL_VAR_INIT(persistence_ready, FALSE)
 
+/// Whether players can self-service found new factions via faction_manage.dm's
+/// "start_founding" action. Admin-toggled (toggle_faction_creation(),
+/// persistence_factions.dm), persists across restarts via ss13_faction_creation_toggle.
+GLOBAL_VAR_INIT(faction_creation_enabled, TRUE)
+
+/// Whether non-members may enter a claimed faction's own Z-level(s) at all
+/// (the Hub's own highsec beacon is always exempt). Default ON. Admin-toggled
+/// (toggle_faction_raiding(), persistence_factions.dm), persists across
+/// restarts via ss13_faction_raiding_toggle. Enforced in
+/// _drydock_pick_access_mode()/_drydock_pick_turf_valid()
+/// (telepad_drydock_boarding.dm), the shared gate behind Personal Travel's
+/// leap and drydock boarding/disembark.
+GLOBAL_VAR_INIT(faction_raiding_enabled, TRUE)
+
 /// Z levels whose numbers appear in this list are SKIPPED by turf/object/worldstate persistence.
 /// Populated from ss13_zlevel_persistence WHERE enabled = 0 at startup.
 /// Empty by default = all Z levels persist.
@@ -38,6 +52,11 @@ GLOBAL_LIST_EMPTY(persistence_pinned_site_z)
 /// opt-in per z-level, using the same DB-backed list the verb manages.
 /// Pinned away-site z's are never blocked (their z is derived, not listed).
 /proc/persistence_z_manual_blocked(z)
+	// Deployed player-ship Zs save like pinned sites do, regardless of the
+	// manual allow list -- their content rows are ship-scoped, not map-scoped
+	// (see persistence_ship_interiors.dm).
+	if(GLOB.persistence_ship_z["[z]"])
+		return FALSE
 	if(z in GLOB.persistence_pinned_site_z)
 		return FALSE
 	return GLOB.config.manual_area_save && !(z in GLOB.persistence_zlevel_allow)
@@ -49,7 +68,19 @@ GLOBAL_LIST_EMPTY(persistence_pinned_site_z)
 /// onto at runtime. Admin-pinned persistent away sites bypass ALL of these -- the
 /// pinned check must stay FIRST: pinned sites spawn via load_new_z(), which stamps
 /// them with both the away trait and the template-loaded mark below.
+/// TRUE if this atom is inside a drydock pad -- turf/object persistence must
+/// skip it entirely so a landed (not stashed) shuttle's hull damage, dropped
+/// items, and decals never get autosaved. See docs/shuttlesystem-architecture.md Part 2.
+/proc/persistence_area_excluded(atom/A)
+	var/area/ar = get_area(A)
+	return ar && (ar.area_flags & AREA_FLAG_DRYDOCK_PAD)
+
 /proc/persistence_z_excluded(z)
+	// Deployed player-ship Zs bypass every exclusion below (they carry the
+	// away trait AND the template-loaded mark) -- must stay FIRST, like the
+	// pinned check. See persistence_ship_interiors.dm.
+	if(GLOB.persistence_ship_z["[z]"])
+		return FALSE
 	if(z in GLOB.persistence_pinned_site_z)
 		return FALSE
 	if(persistence_z_manual_blocked(z))
@@ -68,10 +99,20 @@ SUBSYSTEM_DEF(persistence)
 	name = "Persistence"
 	init_order = INIT_ORDER_PERSISTENCE // The order is tied with the init and maploading subsystem.
 	wait = 30 MINUTES // Fires every 30 minutes; saves all persistence data including turfs and atmos.
+	// Without this, the MC schedules the next fire from when THIS one was
+	// due, not when it actually finished -- forceSaveAll() can take 1-2 real
+	// minutes, which would otherwise be silently absorbed into the next
+	// interval instead of the full 30 minutes always separating one
+	// completed save from the next.
+	flags = SS_POST_FIRE_TIMING
 	var/prevent_saving = FALSE // Toggle to prevent saving at round end, changed by toggle_persistence proc, used for admin purposes.
 	var/save_in_progress = FALSE // Set TRUE while a save is running to prevent concurrent saves.
 	var/autosave_paused = FALSE
 	var/autosave_pause_remaining = 0
+	/// TRUE only when _autosave_empty_reconcile() (below) is what caused the
+	/// current pause, never the admin's own "Toggle Autosave Pause" verb --
+	/// so auto-resume can never override a pause the admin explicitly chose.
+	var/autosave_auto_paused = FALSE
 
 /**
  * Subsystem info stub message generation.
@@ -91,10 +132,20 @@ SUBSYSTEM_DEF(persistence)
 	if(save_in_progress)
 		log_subsystem_persistence_warning("Persistence: Periodic save skipped -- save already in progress.")
 		return
+	// Never save mid-stash/retrieve -- a save walking turfs/objects while a
+	// Z-level is being torn down or loaded is how half-state saves happen.
+	// Retry every minute until drydock is fully idle (queue included: a
+	// queued op starts the moment the active one ends). next_fire drives the
+	// HUD "NEXT SAVE" countdown, so the deferral is visible to everyone.
+	if(GLOB.drydock_op_active || length(GLOB.drydock_op_queue))
+		next_fire = world.time + (1 MINUTE)
+		log_subsystem_persistence_info("Persistence: Periodic save deferred -- ship stash/retrieve in progress.")
+		return
 
 	save_in_progress = TRUE
 	log_subsystem_persistence_info("Persistence: Running periodic save.")
-	to_world(SPAN_NOTICE(SPAN_BOLD("Automatic world save in progress. This may take 1-2 minutes.")))
+	to_world(SPAN_NOTICE(SPAN_BOLD("Automatic world save in progress.")))
+	play_announcer_voice_to_all('sound/AI/announcements/autosave_in_progress.ogg')
 
 	try
 		forceSaveAll()
@@ -104,6 +155,58 @@ SUBSYSTEM_DEF(persistence)
 	save_in_progress = FALSE
 	log_subsystem_persistence_info("Persistence: Periodic save complete.")
 	to_world(SPAN_GOOD(SPAN_BOLD("World save complete.")))
+	// ignite() (subsystem.dm) is waitfor=FALSE, and forceSaveAll() really
+	// does sleep across real time (CHECK_TICK) for a save this size -- so
+	// Master's RunQueue() gets control back (and calls update_nextfire())
+	// at the FIRST yield, i.e. essentially when the save STARTED, not when
+	// it finished ~1-2 minutes later. SS_POST_FIRE_TIMING can't fix this on
+	// its own since it's computed at that same premature moment. Setting
+	// next_fire explicitly here, now that the save is actually done, is
+	// what makes the HUD countdown (screen_objects.dm) show a real 30
+	// minutes instead of 30 minutes minus however long the save took.
+	next_fire = world.time + wait
+	// Kick anything that queued behind save_in_progress (the drydock gates
+	// now queue stash/retrieve requests arriving mid-save) -- the normal
+	// drain only runs after another drydock op, never after a save.
+	_drydockProcessNextQueued()
+
+/// TRUE if any mob in the round is alive, has a connected client, and is
+/// actively possessing it right now -- i.e. someone is really playing, not
+/// just an admin ghost/ dead body with a lingering ckey/ lobby client.
+/proc/_any_active_player_character()
+	for(var/mob/M in GLOB.mob_list)
+		if(M.stat != DEAD && M.client)
+			return TRUE
+	return FALSE
+
+/// How often _autosave_empty_reconcile() below re-checks round population.
+#define AUTOSAVE_EMPTY_CHECK_INTERVAL 1 MINUTE
+
+/// Starts the recurring "is anyone actually playing" reconciliation --
+/// called once from SSpersistence's own Initialize().
+/proc/_autosave_empty_reconcile_start()
+	addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_autosave_empty_reconcile)), AUTOSAVE_EMPTY_CHECK_INTERVAL, TIMER_LOOP)
+
+/// Auto-pauses the periodic autosave (same visible PAUSED status/mechanism
+/// as the admin's manual "Toggle Autosave Pause" verb) the moment nobody's
+/// actively playing, and auto-resumes it the moment someone is again --
+/// without ever touching or overriding a pause the admin verb itself set
+/// (see autosave_auto_paused's doc comment).
+/proc/_autosave_empty_reconcile()
+	if(SSpersistence.prevent_saving || !GLOB.config.sql_enabled)
+		return
+	var/playing = _any_active_player_character()
+	if(!playing && !SSpersistence.autosave_paused)
+		SSpersistence.autosave_pause_remaining = max(0, SSpersistence.next_fire - world.time)
+		SSpersistence.next_fire = world.time + (999 MINUTES)
+		SSpersistence.autosave_paused = TRUE
+		SSpersistence.autosave_auto_paused = TRUE
+		log_subsystem_persistence_info("Persistence: Autosave auto-paused -- no active player characters.")
+	else if(playing && SSpersistence.autosave_auto_paused)
+		SSpersistence.next_fire = world.time + max(0, SSpersistence.autosave_pause_remaining)
+		SSpersistence.autosave_paused = FALSE
+		SSpersistence.autosave_auto_paused = FALSE
+		log_subsystem_persistence_info("Persistence: Autosave auto-resumed -- a player character is active again.")
 
 /**
  * Helper method to check and log database connection.
@@ -230,8 +333,18 @@ SUBSYSTEM_DEF(persistence)
 		to_chat(usr, SPAN_WARNING("A save is already in progress. Please wait for it to complete before forcing another."))
 		return
 
+	// Mirror fire()'s deferral (persistence.dm) -- a retrieve/stash mid-flight
+	// is a multi-second window where objectsApplyZ()/floorItemsApplyZ() are
+	// still populating a ship's scope; finalizing that same scope here
+	// concurrently would interleave two independent save passes over it and
+	// can produce duplicate rows.
+	if(GLOB.drydock_op_active || length(GLOB.drydock_op_queue))
+		to_chat(usr, SPAN_WARNING("A ship stash/retrieve is in progress. Please wait for it to complete before forcing a save."))
+		return
+
 	SSpersistence.save_in_progress = TRUE
 	to_world(SPAN_NOTICE(SPAN_BOLD("World state save in progress.")))
+	play_announcer_voice_to_all('sound/AI/announcements/autosave_in_progress.ogg')
 	log_and_message_admins("initiated a world persistence save", usr)
 
 	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("1/8")] Saving economy..."))
@@ -256,8 +369,12 @@ SUBSYSTEM_DEF(persistence)
 	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("8/8")] Saving floor items..."))
 	SSpersistence.floorItemsFinalize()
 	SSpersistence.botsFinalize()
+	SSpersistence.subshipSnapshotSaveAllDeployed()
 
 	SSpersistence.save_in_progress = FALSE
+	// Same post-save queue kick as the periodic fire() -- stash/retrieve
+	// requests that arrived during this save are waiting on it.
+	SSpersistence._drydockProcessNextQueued()
 	log_and_message_admins("forced a mid-round persistence save", usr)
 	to_chat(usr, SPAN_GOOD("Persistence save complete."))
 
@@ -319,6 +436,11 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_panic("Unhandled exception during economy persistence finalization: [economy_e]")
 
 	try
+		stockMarketSaveCompanies()
+	catch(var/exception/stock_market_e)
+		log_subsystem_persistence_panic("Unhandled exception during stock market persistence finalization: [stock_market_e]")
+
+	try
 		recordsFinalize()
 	catch(var/exception/records_e)
 		log_subsystem_persistence_panic("Unhandled exception during records persistence finalization: [records_e]")
@@ -332,6 +454,11 @@ SUBSYSTEM_DEF(persistence)
 		factionFinalize()
 	catch(var/exception/faction_e)
 		log_subsystem_persistence_panic("Unhandled exception during faction persistence finalization: [faction_e]")
+
+	try
+		factionFoundingSweep()
+	catch(var/exception/faction_founding_sweep_e)
+		log_subsystem_persistence_panic("Unhandled exception during faction founding sweep: [faction_founding_sweep_e]")
 
 	try
 		factionResearchFinalize()
@@ -393,6 +520,26 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/bots_e)
 		log_subsystem_persistence_panic("Unhandled exception during bot persistence finalization: [bots_e]")
 
+	// Deployed ships are NOT auto-stashed on the periodic save -- their
+	// interiors are already covered by the Finalize sweeps above (ship Zs
+	// are no longer excluded, see persistence_ship_interiors.dm) and their
+	// ledger row persists while deployed, so nothing is lost by leaving them
+	// flying. Just keep the ledger's overmap position current.
+	try
+		shipLedgerPositionSync()
+	catch(var/exception/pos_sync_e)
+		log_subsystem_persistence_panic("Unhandled exception during ship position sync: [pos_sync_e]")
+
+	// Sub-ship snapshots (persistence_shuttles.dm) are a separate, smaller
+	// persistence tier from the Finalize sweeps above -- they don't ride
+	// along for free, so they need their own periodic save here too, or an
+	// ungraceful crash would replenish a sub-ship from whenever it was last
+	// explicitly stashed instead of where it actually was.
+	try
+		subshipSnapshotSaveAllDeployed()
+	catch(var/exception/subship_snapshot_e)
+		log_subsystem_persistence_panic("Unhandled exception during sub-ship snapshot save: [subship_snapshot_e]")
+
 	try
 		shuttleStateFinalize()
 	catch(var/exception/shuttle_e)
@@ -445,6 +592,27 @@ SUBSYSTEM_DEF(persistence)
 		whitelistInitialize()
 	catch(var/exception/wl_e)
 		log_subsystem_persistence_panic("Unhandled exception during join whitelist initialization: [wl_e]")
+
+	log_subsystem_persistence_info("Starting cargo exports initialization...")
+	try
+		cargoExportsInitialize()
+	catch(var/exception/ce_e)
+		log_subsystem_persistence_error("Cargo exports init failed: [ce_e] on [ce_e.file]:[ce_e.line]")
+
+	log_subsystem_persistence_info("Starting bounties initialization...")
+	try
+		bountiesInitialize()
+	catch(var/exception/bt_e)
+		log_subsystem_persistence_error("Bounties init failed: [bt_e] on [bt_e.file]:[bt_e.line]")
+
+	log_subsystem_persistence_info("Starting missions initialization...")
+	try
+		missionsInitialize()
+	catch(var/exception/ms_e)
+		log_subsystem_persistence_error("Missions init failed: [ms_e] on [ms_e.file]:[ms_e.line]")
+
+	// Arms the "is anyone actually playing" autosave auto-pause sweep.
+	_autosave_empty_reconcile_start()
 
 	log_subsystem_persistence_info("Starting area initialization...")
 	try
@@ -507,6 +675,36 @@ SUBSYSTEM_DEF(persistence)
 		factionInitialize()
 	catch(var/exception/faction_e)
 		log_subsystem_persistence_panic("Unhandled exception during faction persistence initialization: [faction_e]")
+
+	log_subsystem_persistence_info("Starting faction founding petition initialization...")
+	try
+		factionFoundingInitialize()
+	catch(var/exception/faction_founding_e)
+		log_subsystem_persistence_panic("Unhandled exception during faction founding petition initialization: [faction_founding_e]")
+
+	log_subsystem_persistence_info("Starting faction creation toggle initialization...")
+	try
+		factionCreationToggleInitialize()
+	catch(var/exception/faction_toggle_e)
+		log_subsystem_persistence_panic("Unhandled exception during faction creation toggle initialization: [faction_toggle_e]")
+
+	log_subsystem_persistence_info("Starting faction raiding toggle initialization...")
+	try
+		factionRaidingToggleInitialize()
+	catch(var/exception/faction_raiding_toggle_e)
+		log_subsystem_persistence_panic("Unhandled exception during faction raiding toggle initialization: [faction_raiding_toggle_e]")
+
+	log_subsystem_persistence_info("Starting stock market initialization...")
+	try
+		stockMarketInitialize()
+	catch(var/exception/stock_market_e)
+		log_subsystem_persistence_panic("Unhandled exception during stock market initialization: [stock_market_e]")
+
+	log_subsystem_persistence_info("Starting faction shareholders initialization...")
+	try
+		factionShareholdersInitialize()
+	catch(var/exception/faction_shareholders_e)
+		log_subsystem_persistence_panic("Unhandled exception during faction shareholders initialization: [faction_shareholders_e]")
 
 	log_subsystem_persistence_info("Starting faction research initialization...")
 	try
@@ -706,6 +904,11 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_panic("Unhandled exception during economy persistence finalization: [economy_e]")
 
 	try
+		stockMarketSaveCompanies()
+	catch(var/exception/stock_market_e)
+		log_subsystem_persistence_panic("Unhandled exception during stock market persistence finalization: [stock_market_e]")
+
+	try
 		recordsFinalize()
 	catch(var/exception/records_e)
 		log_subsystem_persistence_panic("Unhandled exception during records persistence finalization: [records_e]")
@@ -724,6 +927,16 @@ SUBSYSTEM_DEF(persistence)
 		factionResearchFinalize()
 	catch(var/exception/faction_research_e)
 		log_subsystem_persistence_panic("Unhandled exception during faction research persistence finalization: [faction_research_e]")
+
+	try
+		factionChatPrune()
+	catch(var/exception/faction_chat_e)
+		log_subsystem_persistence_panic("Unhandled exception during faction chat pruning: [faction_chat_e]")
+
+	try
+		drydockAutoStashAll()
+	catch(var/exception/drydock_e)
+		log_subsystem_persistence_panic("Unhandled exception during drydock auto-stash: [drydock_e]")
 
 	try
 		shuttleStateFinalize()

@@ -5,7 +5,7 @@
 
 	spawn_weight = 1
 	spawn_cost = 0.5
-	sectors = list(SECTOR_TAU_CETI, SECTOR_ROMANOVICH, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE, SECTOR_BADLANDS)
+	sectors = list(SECTOR_TAU_CETI, SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE, SECTOR_BADLANDS)
 
 	prefix = "desert/desert_oasis/"
 	suffix = "desert_oasis.dmm"
@@ -22,7 +22,7 @@
 
 	spawn_weight = 1
 	spawn_cost = 0.5
-	sectors = list(SECTOR_TAU_CETI, SECTOR_ROMANOVICH, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE, SECTOR_BADLANDS)
+	sectors = list(SECTOR_TAU_CETI, SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE, SECTOR_BADLANDS)
 
 	prefix = "desert/desert_camp/"
 	suffix = "desert_camp.dmm"
@@ -39,7 +39,7 @@
 
 	spawn_weight = 2
 	spawn_cost = 0.5
-	sectors = list(SECTOR_TAU_CETI, SECTOR_ROMANOVICH, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE, SECTOR_BADLANDS)
+	sectors = list(SECTOR_TAU_CETI, SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE, SECTOR_BADLANDS)
 
 	prefix = "desert/smuggler_hideout/"
 	suffix = "smuggler_hideout.dmm"
@@ -56,7 +56,7 @@
 
 	spawn_weight = 1
 	spawn_cost = 1
-	sectors = list(SECTOR_COALITION, SECTOR_ROMANOVICH, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE, SECTOR_BADLANDS, SECTOR_GENERIC)
+	sectors = list(SECTOR_COALITION, SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE, SECTOR_BADLANDS, SECTOR_GENERIC)
 
 	prefix = "desert/desert_comms/"
 	suffix = "desert_comms.dmm"

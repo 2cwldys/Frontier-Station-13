@@ -2,6 +2,14 @@
 	SHOULD_CALL_PARENT(TRUE)
 	SEND_SIGNAL(src, COMSIG_MOB_LOGOUT)
 
+	// A machine UI session cannot survive the client detaching (the TGUI
+	// closes without the ui_status recheck that normally unsets this) --
+	// left set, handle_vision (life.dm) keeps polling the stale machine's
+	// check_eye() every tick after re-entry, and any /atom-default -1
+	// (classic machinery, e.g. shuttle_control consoles) then cancels
+	// unrelated views (sector view) the moment they open.
+	unset_machine()
+
 	//TGUI
 	remove_all_indicators()
 

@@ -36,6 +36,11 @@
 #define SPECIES_IPC_UNBRANDED_REMOTE	"Remote Unbranded Frame"
 #define SPECIES_IPC_PURPOSE_HK		"Hunter-Killer"
 
+// Human-passing, IPC-internals species -- see species/station/ipc/android.dm.
+// Deliberately not added to ALL_IPC_SPECIES (free citizen, not manufacturer/
+// corporate lore) or ALL_HUMAN_SPECIES (not literally SPECIES_HUMAN).
+#define SPECIES_ANDROID				"Android"
+
 #define SPECIES_SLIMEPERSON			"Slime"
 
 #define SPECIES_SKELETON			"Skeleton"

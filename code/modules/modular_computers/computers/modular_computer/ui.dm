@@ -1,4 +1,15 @@
 /obj/item/modular_computer/ui_interact(mob/user, datum/tgui/ui)
+	// Blanket personal lock -- a personally-tagged device is unusable by
+	// anyone but its owner (or an admin), full stop. No program is reachable
+	// without this UI opening, so gating here supersedes every per-program
+	// ACCESS_* check for a locked device (personal_tagger_set(),
+	// persistence_faction_tagger.dm).
+	if(personal_ckey && !check_rights(R_ADMIN, 0, user) && (user.ckey != personal_ckey || user.real_name != personal_char_name))
+		to_chat(user, SPAN_WARNING("\The [src] flashes: \"ACCESS DENIED -- personally locked.\""))
+		return
+	if(crew_tagged && !check_rights(R_ADMIN, 0, user) && !_drydock_crew_check(user, GET_Z(src)))
+		to_chat(user, SPAN_WARNING("\The [src] flashes: \"ACCESS DENIED -- crew only.\""))
+		return
 	ui = SStgui.try_update_ui(user, src, ui)
 	if(ui && (!screen_on || !enabled || !computer_use_power()))
 		ui.close()
@@ -41,7 +52,7 @@
 	data["PC_showbatteryicon"] = !!battery_module
 	data["PC_batterypercent"] = battery_module ? "[round(battery_module.battery.percent())] %" : null
 	data["PC_apclinkicon"] = (tesla_link?.enabled && apc_powered) ? "charging.gif" : ""
-	data["PC_device_theme"] = active_program ? active_program.tgui_theme : "scc"
+	data["PC_device_theme"] = active_program ? active_program.tgui_theme : "ntos_darkmode"
 	data["PC_ntneticon"] = get_ntnet_status_icon()
 	data["PC_stationtime"] = worldtime2text()
 	data["PC_stationdate"] = "[time2text(world.realtime, "DDD, Month DD")], [GLOB.game_year]"
@@ -212,7 +223,11 @@
 /obj/item/modular_computer/check_eye(mob/user)
 	if(active_program)
 		return active_program.check_eye(user)
-	return ..()
+	// FALSE, not ..() (/atom's -1): a computer with no running program
+	// grants no view and should have no opinion -- -1 makes a stale
+	// mob `machine` ref cancel unrelated views every tick (see
+	// program.dm's check_eye note).
+	return FALSE
 
 /obj/item/modular_computer/grants_equipment_vision(mob/user)
 	if(active_program)

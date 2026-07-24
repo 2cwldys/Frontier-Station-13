@@ -137,6 +137,13 @@
 		var/list/coords = list()
 		var/first_z = 0
 		for(var/turf/T in A.contents)
+			// Deployed ship Zs are saved separately, keyed to their own ship
+			// scope (areasFinalizeZ()/areasApplyZ() below, called from
+			// shipInteriorSave()/shipInteriorApply()) -- skip them here so a
+			// ship's blueprint areas never get written twice under the wrong
+			// (plain map) scope, which would misapply after Z-pool reuse.
+			if(GLOB.persistence_ship_z["[T.z]"])
+				continue
 			if((T.z in GLOB.persistence_zlevel_skip) || is_mining_level(T.z) || persistence_z_manual_blocked(T.z))
 				continue
 			if(!first_z)
@@ -167,3 +174,139 @@
 			CHECK_TICK
 
 	log_subsystem_persistence_info("Areas: Saved [saved] blueprint-created areas for map [SSatlas.current_map.path].")
+
+/**
+ * Per-ship sibling of areasFinalize() above -- captures blueprint-created
+ * areas whose turfs live on this one ship z, wiping and reinserting only
+ * this ship's own scope-keyed rows. Called by shipInteriorSave()
+ * (persistence_ship_interiors.dm) instead of the whole-map sweep, which
+ * deliberately skips ship Zs (see the skip check added to the loop above) now
+ * that they're handled here under their own "ship:d:<id>" scope key.
+ */
+/datum/controller/subsystem/persistence/proc/areasFinalizeZ(z, scope)
+	PRIVATE_PROC(TRUE)
+	if(!databaseCheckConnection("areasFinalizeZ"))
+		return FALSE
+
+	var/scope_escaped = replacetext(scope, "'", "''")
+
+	var/datum/db_query/wipe = SSdbcore.NewQuery(
+		"DELETE FROM ss13_persistent_areas WHERE map_path = :mp",
+		list("mp" = scope)
+	)
+	wipe.Execute()
+	databaseCheckQueryResult(wipe, "areasFinalizeZ wipe")
+	qdel(wipe)
+
+	var/list/upsert_rows = list()
+	var/saved = 0
+	for(var/area/A in GLOB.areas)
+		CHECK_TICK
+		if(!A.is_blueprint_area)
+			continue
+
+		var/list/coords = list()
+		for(var/turf/T in A.contents)
+			if(T.z != z)
+				continue
+			coords += list(list(T.x, T.y, T.z))
+
+		if(!length(coords))
+			continue
+
+		var/name_str = replacetext(A.name, "'", "''")
+		var/type_str = replacetext("[A.type]", "'", "''")
+		var/turfs_json = replacetext(json_encode(coords), "'", "''")
+		var/network_str = A.persistent_network ? replacetext(A.persistent_network, "'", "''") : ""
+		upsert_rows += "('[scope_escaped]',[z],'[name_str]','[type_str]','[turfs_json]','[network_str]',NOW())"
+		saved++
+
+	if(length(upsert_rows))
+		var/datum/db_query/bulk = SSdbcore.NewQuery(
+			"INSERT INTO ss13_persistent_areas (map_path,z,name,area_type,turfs,persistent_network,saved_at) VALUES [upsert_rows.Join(",")]"
+		)
+		bulk.Execute()
+		databaseCheckQueryResult(bulk, "areasFinalizeZ bulk insert")
+		qdel(bulk)
+
+	log_subsystem_persistence_info("Ship interiors: saved [saved] blueprint-created area(s) for scope [scope].")
+	return TRUE
+
+/**
+ * Per-ship sibling of areasInitialize() above -- restores blueprint-created
+ * areas onto a freshly template-loaded ship z. Unlike every other ship-scoped
+ * table, z here is embedded per-coordinate inside each row's turfs JSON
+ * rather than a plain column, so there's no separate remapShipRows() entry
+ * for this table (persistence_ship_interiors.dm) -- the remap happens inline
+ * below by locating each saved (x,y) on the ship's CURRENT live z instead of
+ * whatever z the row was saved under. Called by shipInteriorApply().
+ */
+/datum/controller/subsystem/persistence/proc/areasApplyZ(z, scope)
+	PRIVATE_PROC(TRUE)
+	if(!databaseCheckConnection("areasApplyZ"))
+		return FALSE
+
+	var/datum/db_query/query = SSdbcore.NewQuery(
+		"SELECT name, area_type, turfs, persistent_network FROM ss13_persistent_areas WHERE map_path = :mp",
+		list("mp" = scope)
+	)
+	query.Execute()
+	if(!databaseCheckQueryResult(query, "areasApplyZ"))
+		qdel(query)
+		return FALSE
+
+	var/restored = 0
+	while(query.NextRow())
+		try
+			var/area_name = query.item[1]
+			var/area_type = text2path(query.item[2])
+			var/list/coords = json_decode(query.item[3])
+			var/network = query.item[4]
+
+			if(!area_type || !ispath(area_type, /area))
+				area_type = /area
+			if(!islist(coords) || !length(coords))
+				continue
+
+			var/area/A = new area_type()
+			A.name = area_name
+			A.is_blueprint_area = TRUE
+			A.power_equip = FALSE
+			A.power_light = FALSE
+			A.power_environ = FALSE
+			A.always_unpowered = FALSE
+			if(network)
+				A.persistent_network = network
+
+			var/moved = 0
+			for(var/list/triple in coords)
+				if(!islist(triple) || length(triple) < 3)
+					continue
+				var/tx = triple[1]
+				var/ty = triple[2]
+				// Saved tz (triple[3]) reflects whatever z this ship last lived
+				// on -- ignored on purpose, always remap onto the new live z
+				// (same reasoning as remapShipRows()'s plain-column UPDATE).
+				var/turf/T = locate(tx, ty, z)
+				if(!istype(T))
+					continue
+				var/area/current = T.loc
+				if(!current)
+					continue
+				if(!current.is_blueprint_area && !(current.area_flags & AREA_FLAG_IS_BACKGROUND))
+					continue
+				T.change_area(T.loc, A)
+				moved++
+
+			if(!moved)
+				qdel(A)
+				continue
+
+			restored++
+			CHECK_TICK
+		catch(var/exception/e)
+			log_subsystem_persistence_error("Ship interiors: failed to restore a saved blueprint area for scope [scope]: [e]")
+
+	qdel(query)
+	log_subsystem_persistence_info("Ship interiors: restored [restored] blueprint-created area(s) for scope [scope] at z=[z].")
+	return TRUE

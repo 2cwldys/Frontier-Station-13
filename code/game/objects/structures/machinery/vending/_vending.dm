@@ -615,7 +615,7 @@
 		// Okay to move the money at this point
 
 		// debit money from the purchaser's account
-		customer_account.money -= currently_vending.price
+		customer_account.adjust_money(-currently_vending.price)
 
 		// create entry in the purchaser's account log
 		var/datum/transaction/T = new()
@@ -643,7 +643,7 @@
  */
 /obj/structure/machinery/vending/proc/credit_purchase(var/target as text)
 	var/datum/money_account/vendor_account = SSeconomy.get_department_account("Vendor")
-	vendor_account.money += currently_vending.price
+	vendor_account.adjust_money(currently_vending.price)
 
 	var/datum/transaction/T = new()
 	T.target_name = target

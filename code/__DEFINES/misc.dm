@@ -63,6 +63,7 @@
 // audible, so preference rows saved before this flag existed default to ON.
 #define MUTE_MUTTERING BITFLAG(12)
 #define VIGNETTE BITFLAG(13)
+#define CRT_SCANLINES BITFLAG(14)
 
 #define TOGGLES_DEFAULT (SOUND_ADMINHELP | SOUND_MIDI | CHAT_OOC | CHAT_DEAD | CHAT_GHOSTEARS | CHAT_GHOSTSIGHT | CHAT_PRAYER | CHAT_RADIO | CHAT_ATTACKLOGS | CHAT_LOOC | CHAT_GHOSTLOOC)
 
@@ -80,8 +81,10 @@
 #define ASFX_MUSIC				BITFLAG(9)
 #define ASFX_CONSOLE_AMBIENCE	BITFLAG(10)
 #define ASFX_AMBIENT_PLAYLIST	BITFLAG(11)
+#define ASFX_ANNOUNCER			BITFLAG(12)
+#define ASFX_ENGINE_HUM			BITFLAG(13)
 
-#define ASFX_DEFAULT (ASFX_AMBIENCE | ASFX_FOOTSTEPS | ASFX_VOTE | ASFX_VOX | ASFX_DROPSOUND | ASFX_ARCADE | ASFX_RADIO | ASFX_INSTRUMENT | ASFX_HUM | ASFX_MUSIC | ASFX_CONSOLE_AMBIENCE | ASFX_AMBIENT_PLAYLIST)
+#define ASFX_DEFAULT (ASFX_AMBIENCE | ASFX_FOOTSTEPS | ASFX_VOTE | ASFX_VOX | ASFX_DROPSOUND | ASFX_ARCADE | ASFX_RADIO | ASFX_INSTRUMENT | ASFX_HUM | ASFX_MUSIC | ASFX_CONSOLE_AMBIENCE | ASFX_AMBIENT_PLAYLIST | ASFX_ANNOUNCER | ASFX_ENGINE_HUM)
 
 // For secHUDs and medHUDs and variants. The number is the location of the image on the list hud_list of humans.
 #define      HEALTH_HUD 1 // A simple line reading the pulse.
@@ -139,6 +142,7 @@
 #define AREA_FLAG_INDESTRUCTIBLE_TURFS		BITFLAG(8)	// Marks whether or not turfs in this area can be destroyed by explosions
 #define AREA_FLAG_IS_BACKGROUND				BITFLAG(9)	// Marks whether or not blueprints can create areas on top of this area
 #define AREA_FLAG_PREVENT_PERSISTENT_TRASH	BITFLAG(10)	// Marks whether or not the area allows trash to become persistent in it
+#define AREA_FLAG_DRYDOCK_PAD				BITFLAG(11)	// Marks a drydock landing pad -- turf/object contents are excluded from all persistence sweeps
 
 // Convoluted setup so defines can be supplied by Bay12 main server compile script.
 // Should still work fine for people jamming the icons into their repo.
@@ -205,6 +209,89 @@
 #define PROGRAM_STATIONBOUND (PROGRAM_SILICON_AI | PROGRAM_SILICON_ROBOT)
 #define PROGRAM_ALL_REGULAR (PROGRAM_CONSOLE | PROGRAM_LAPTOP | PROGRAM_TABLET | PROGRAM_WRISTBOUND | PROGRAM_TELESCREEN)
 #define PROGRAM_ALL_HANDHELD (PROGRAM_TABLET | PROGRAM_WRISTBOUND)
+
+// Personal Travel program (code/modules/modular_computers/file_system/programs/generic/personal_travel.dm)
+// -- defined here (loaded early in the .dme) rather than in that file, since
+// living_defines.dm's in_recent_combat() needs PERSONAL_TRAVEL_COMBAT_LOCKOUT
+// and is compiled long before that program file is reached.
+/// How far (overmap tiles, same get_dist() space teleporter.dm already uses
+/// between GLOB.map_sectors markers) an away site/sector can be and still
+/// show up as a Leap destination.
+#define PERSONAL_TRAVEL_LEAP_RANGE 10
+/// Shared cooldown across all three actions -- single-var, per-program-
+/// instance, since each program instance belongs to one PDA/holder, not a
+/// shared machine.
+#define PERSONAL_TRAVEL_COOLDOWN (2 MINUTES + 30 SECONDS)
+/// How long after taking or dealing real combat damage the program refuses
+/// every action -- "can't teleport out of a fight."
+#define PERSONAL_TRAVEL_COMBAT_LOCKOUT 10 MINUTES
+/// Channel time before any travel action actually resolves.
+#define PERSONAL_TRAVEL_SPOOLUP 15 SECONDS
+
+// Drydock ship combat lockout/boarding spool-up
+// (code/controllers/subsystems/persistence/persistence_shuttles.dm,
+// code/modules/telesci/telepad_drydock_boarding.dm) -- defined here
+// alongside the personal travel defines above for the same reason (loaded
+// early, needed by ship.dm's in_recent_combat()).
+/// How long after a ship last fired on or was hit by ship weaponry
+/// (signal_hit()/ship_weapon/fire(), ship.dm/_ship_gun.dm) drydock stash
+/// refuses -- own constant rather than reusing PERSONAL_TRAVEL_COMBAT_LOCKOUT
+/// so the two can be tuned independently.
+#define SHIP_COMBAT_LOCKOUT 10 MINUTES
+/// Normal radius (in overmap tiles) a retrieved ship is placed within of its
+/// target sector -- must stay <= the boarding proximity threshold
+/// (telepad_drydock_boarding.dm) or a ship placed further away than boarding
+/// tolerates would be unboardable from the very spot it was just retrieved
+/// from. See shipPlaceOvermapMarker() (persistence_shuttles.dm).
+#define DRYDOCK_SHIP_PLACEMENT_RADIUS 1
+/// Widened placement radius shipPlaceOvermapMarker() falls back to only if
+/// every tile at DRYDOCK_SHIP_PLACEMENT_RADIUS is hazard-occupied -- every
+/// sector-to-sector boarding-proximity check (not the invite flow's separate
+/// physical inviter-to-target tile check) tolerates up to this same distance
+/// so a ship placed here stays reachable from where it was retrieved.
+#define DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX (DRYDOCK_SHIP_PLACEMENT_RADIUS * 2)
+/// Channel time before a drydock boarding action (pad or program) actually
+/// delivers -- so a fight can't be fled from by instantly teleporting aboard.
+#define DRYDOCK_BOARDING_SPOOLUP 15 SECONDS
+/// Same idea as DRYDOCK_BOARDING_SPOOLUP, but for the "choose landing spot"
+/// disembark option specifically -- own constant since the plain instant
+/// disembark-to-dock path stays undelayed.
+#define DRYDOCK_DISEMBARK_SPOOLUP 15 SECONDS
+/// Extra overmap zoom-out applied on top of world.view for the Sector View
+/// toggle -- matches the Sensors console's own extra_view (sensors.dm).
+#define PERSONAL_TRAVEL_EXTRA_VIEW 4
+/// Same idea, but for the drydock turf-pick eye view (telepad_drydock_boarding.dm)
+/// -- wider than the sector view since a walkable interior needs more visible
+/// area than one overmap icon.
+#define DRYDOCK_PICK_EXTRA_VIEW 10
+/// How long a player has to click a valid turf before the eye-view picker
+/// times out and cancels.
+#define DRYDOCK_PICK_TIMEOUT 60 SECONDS
+/// Turf-pick access modes -- see _drydock_pick_access_mode() (telepad_drydock_boarding.dm).
+#define DRYDOCK_PICK_MODE_OPEN 1
+#define DRYDOCK_PICK_MODE_EXTERIOR_ONLY 2
+/// No turf at all is valid -- faction raiding is disabled and the mob isn't
+/// a member of the claiming (non-Hub) faction.
+#define DRYDOCK_PICK_MODE_BLOCKED 3
+/// Turf-pick anchor states -- see /obj/effect/drydock_pick_anchor (telepad_drydock_boarding.dm).
+#define DRYDOCK_PICK_STATE_WAITING 0
+#define DRYDOCK_PICK_STATE_CONFIRMED 1
+#define DRYDOCK_PICK_STATE_CANCELLED 2
+/// How long a boarding invitation's Accept/Deny popup waits for the invited
+/// player to respond before it's treated as a timeout (see
+/// _drydock_invite_board_core(), telepad_drydock_boarding.dm).
+#define DRYDOCK_INVITE_TIMEOUT 30 SECONDS
+
+/// Personal-account cost to self-register a new faction via
+/// faction_manage.dm's "start_founding" action. Deducted (and becomes the
+/// new faction's starting balance) only once the founding petition
+/// succeeds. Declared here (not in faction_manage.dm) so
+/// persistence_factions.dm, which is #included earlier in the .dme, can
+/// also see it.
+#define FACTION_CREATION_COST 100000
+/// Distinct OTHER ckeys (not the founder) required before a founding
+/// petition auto-finalizes into a real faction.
+#define FACTION_FOUNDING_REQUIRED_SUPPORTERS 10
 
 #define PROGRAM_STATE_DISABLED -1
 #define PROGRAM_STATE_KILLED 0

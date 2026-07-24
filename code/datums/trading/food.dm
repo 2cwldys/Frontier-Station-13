@@ -221,7 +221,7 @@
 	possible_origins = list("Adhomian Delicacies", "Little Rafama Cantina", "The Taste of Home", "Tajaran Home Cuisine", "From Adhomai to Them", "The Cauldron")
 	trade_flags = TRADER_MONEY
 
-	allowed_space_sectors = list(SECTOR_ROMANOVICH, SECTOR_TAU_CETI, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE, SECTOR_BADLANDS, SECTOR_SRANDMARR, SECTOR_NRRAHRAHUL, SECTOR_GAKAL) //only in places with some tajaran presence
+	allowed_space_sectors = list(SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER, SECTOR_TAU_CETI, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE, SECTOR_BADLANDS, SECTOR_SRANDMARR, SECTOR_NRRAHRAHUL, SECTOR_GAKAL) //only in places with some tajaran presence
 
 	possible_trading_items = list(
 		/obj/item/reagent_containers/food/snacks/tajaran_bread               = TRADER_THIS_TYPE,
@@ -285,7 +285,7 @@
 	possible_origins = list("Esteemed Epicureans of Moghes Trading Company", "The Delicacy Deliverer's Guild", "Mo'gunz Merchants")
 	trade_flags = TRADER_MONEY
 
-	allowed_space_sectors = list(SECTOR_ROMANOVICH, SECTOR_TAU_CETI, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE, SECTOR_BADLANDS, SECTOR_GAKAL)
+	allowed_space_sectors = list(SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER, SECTOR_TAU_CETI, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE, SECTOR_BADLANDS, SECTOR_GAKAL)
 
 	possible_trading_items = list(
 		/obj/item/reagent_containers/food/snacks/sliceable/grilled_carp               = TRADER_THIS_TYPE,

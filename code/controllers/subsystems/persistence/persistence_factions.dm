@@ -15,15 +15,24 @@ GLOBAL_LIST_EMPTY(persistence_faction_jobs_cache)
 /// In-memory faction members keyed by "ckey|faction_uid": list("real_name"=...,"job_title"=...,"rank"=N)
 GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 
+/// In-memory founding petitions keyed by faction_uid: list("founder_ckey"=...,
+/// "founder_name"=...,"faction_name"=...,"abbreviation"=...,"supporters"=list of ckeys,
+/// "created_at"=...). Populated by faction_manage.dm's "start_founding" action,
+/// mutated by tap-consent/terminal self-consent, consumed on finalization.
+GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
+
 // ============================================================
 // INITIALIZE
 // ============================================================
 
 /datum/controller/subsystem/persistence/proc/factionInitialize()
 	PRIVATE_PROC(TRUE)
-	GLOB.persistence_faction_cache         = list()
-	GLOB.persistence_faction_jobs_cache    = list()
-	GLOB.persistence_faction_members_cache = list()
+	if(!islist(GLOB.persistence_faction_cache))
+		GLOB.persistence_faction_cache = list()
+	if(!islist(GLOB.persistence_faction_jobs_cache))
+		GLOB.persistence_faction_jobs_cache = list()
+	if(!islist(GLOB.persistence_faction_members_cache))
+		GLOB.persistence_faction_members_cache = list()
 
 	if(!databaseCheckConnection("factionInitialize"))
 		return
@@ -31,23 +40,32 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 	// Load faction info + balances
 	try
 		var/datum/db_query/q = SSdbcore.NewQuery(
-			{"SELECT f.uid, f.name, f.abbreviation, COALESCE(a.balance, 0), COALESCE(a.cards_epoch, 0)
+			{"SELECT f.uid, f.name, f.abbreviation, COALESCE(a.balance, 0), COALESCE(a.cards_epoch, 0), f.founder_ckey, COALESCE(a.master_card_lost, 0), f.color, COALESCE(f.auto_payroll, 1)
 			FROM ss13_factions f
 			LEFT JOIN ss13_faction_accounts a ON a.faction_uid = f.uid"},
 			list()
 		)
 		q.Execute()
 		if(databaseCheckQueryResult(q, "factionInitialize factions"))
+			var/list/loaded = list()
 			while(q.NextRow())
 				// Normalize keys on load -- legacy rows may carry raw display-name uids
-				GLOB.persistence_faction_cache[normalize_faction_uid(q.item[1])] = list(
-					"name"         = q.item[2],
-					"abbreviation" = q.item[3],
-					"balance"      = text2num(q.item[4]) || 0,
-					"cards_epoch"  = text2num(q.item[5]) || 0
+				loaded[normalize_faction_uid(q.item[1])] = list(
+					"name"             = q.item[2],
+					"abbreviation"     = q.item[3],
+					"balance"          = text2num(q.item[4]) || 0,
+					"cards_epoch"      = text2num(q.item[5]) || 0,
+					"founder_ckey"     = q.item[6],
+					"master_card_lost" = !!text2num(q.item[7]),
+					"color"            = q.item[8],
+					"auto_payroll"     = !!text2num(q.item[9])
 				)
+			GLOB.persistence_faction_cache = loaded // only replace on confirmed success
+		else
+			message_admins("Faction load query failed -- factions may be running on stale/empty data. Check DB schema (db_update?).")
 		qdel(q)
 	catch(var/exception/faction_info_e)
+		message_admins("Faction load threw an exception: [faction_info_e] -- factions may be running on stale/empty data.")
 		log_subsystem_persistence_error("Factions: failed to load faction info: [faction_info_e]")
 
 	// Load faction jobs
@@ -58,19 +76,32 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 		)
 		jq.Execute()
 		if(databaseCheckQueryResult(jq, "factionInitialize jobs"))
+			var/list/loaded_jobs = list()
 			while(jq.NextRow())
 				var/fuid = normalize_faction_uid(jq.item[2])
-				if(!(fuid in GLOB.persistence_faction_jobs_cache))
-					GLOB.persistence_faction_jobs_cache[fuid] = list()
-				GLOB.persistence_faction_jobs_cache[fuid] += list(list(
+				if(!(fuid in loaded_jobs))
+					loaded_jobs[fuid] = list()
+				var/list/job_access = list()
+				if(jq.item[4])
+					try
+						var/decoded = json_decode(jq.item[4])
+						if(islist(decoded))
+							job_access = decoded
+					catch(var/exception/access_decode_e)
+						log_subsystem_persistence_error("Factions: bad access_json for job '[jq.item[3]]' in faction '[fuid]' (id [jq.item[1]]): [access_decode_e] -- treating as no access.")
+				loaded_jobs[fuid] += list(list(
 					"id"       = text2num(jq.item[1]),
 					"title"    = jq.item[3],
-					"access"   = jq.item[4] ? json_decode(jq.item[4]) : list(),
+					"access"   = job_access,
 					"pay_rate" = text2num(jq.item[5]) || 500,
 					"rank"     = text2num(jq.item[6]) || 0
 				))
+			GLOB.persistence_faction_jobs_cache = loaded_jobs // only replace on confirmed success
+		else
+			message_admins("Faction jobs load query failed -- faction jobs may be running on stale/empty data. Check DB schema (db_update?).")
 		qdel(jq)
 	catch(var/exception/faction_jobs_e)
+		message_admins("Faction jobs load threw an exception: [faction_jobs_e] -- faction jobs may be running on stale/empty data.")
 		log_subsystem_persistence_error("Factions: failed to load faction jobs: [faction_jobs_e]")
 
 	// Load faction members (include account_number for payroll; column may not exist yet on old DBs)
@@ -81,16 +112,21 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 		)
 		mq.Execute()
 		if(databaseCheckQueryResult(mq, "factionInitialize members"))
+			var/list/loaded_members = list()
 			while(mq.NextRow())
 				var/mkey = "[mq.item[1]]|[normalize_faction_uid(mq.item[2])]"
-				GLOB.persistence_faction_members_cache[mkey] = list(
+				loaded_members[mkey] = list(
 					"real_name"      = mq.item[3],
 					"job_title"      = mq.item[4],
 					"rank"           = text2num(mq.item[5]) || 0,
 					"account_number" = text2num(mq.item[6]) || 0
 				)
+			GLOB.persistence_faction_members_cache = loaded_members // only replace on confirmed success
+		else
+			message_admins("Faction members load query failed -- faction members may be running on stale/empty data. Check DB schema (db_update?).")
 		qdel(mq)
 	catch(var/exception/faction_members_e)
+		message_admins("Faction members load threw an exception: [faction_members_e] -- faction members may be running on stale/empty data.")
 		log_subsystem_persistence_error("Factions: failed to load faction members: [faction_members_e]")
 
 	log_subsystem_persistence_info("Factions: Loaded [length(GLOB.persistence_faction_cache)] factions, [length(GLOB.persistence_faction_members_cache)] members.")
@@ -116,13 +152,328 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 		databaseCheckQueryResult(q, "factionFinalize upsert [uid]")
 		qdel(q)
 
-		// Auto-payroll: check if interval has elapsed (default 3600 seconds = 1 real hour)
-		var/interval = data["payroll_interval"] || 3600
-		var/last_pay = data["last_payroll_at"] || 0
-		if(world.time - last_pay >= interval * 10)  // world.time in deciseconds
+		// Auto-payroll: runs unconditionally on every autosave cycle (every 30
+		// minutes, persistence.dm) for any faction with automatic payroll
+		// enabled -- no interval/timestamp reconciliation needed since the
+		// subsystem itself already guarantees the cadence.
+		if(data["auto_payroll"])
 			factionPayroll(uid)
 
 	log_subsystem_persistence_info("Factions: Saved [length(GLOB.persistence_faction_cache)] faction accounts.")
+
+// ============================================================
+// FOUNDING PETITIONS
+// ============================================================
+
+/datum/controller/subsystem/persistence/proc/factionFoundingInitialize()
+	PRIVATE_PROC(TRUE)
+	GLOB.persistence_faction_founding_petitions = list()
+
+	if(!databaseCheckConnection("factionFoundingInitialize"))
+		return
+
+	try
+		var/datum/db_query/q = SSdbcore.NewQuery(
+			"SELECT faction_uid, founder_ckey, founder_name, faction_name, abbreviation FROM ss13_faction_founding_petitions",
+			list()
+		)
+		q.Execute()
+		if(databaseCheckQueryResult(q, "factionFoundingInitialize petitions"))
+			while(q.NextRow())
+				GLOB.persistence_faction_founding_petitions[q.item[1]] = list(
+					"founder_ckey" = q.item[2],
+					"founder_name" = q.item[3],
+					"faction_name" = q.item[4],
+					"abbreviation" = q.item[5],
+					"supporters"   = list()
+				)
+		qdel(q)
+	catch(var/exception/founding_e)
+		log_subsystem_persistence_error("Factions: failed to load founding petitions: [founding_e]")
+
+	try
+		var/datum/db_query/sq = SSdbcore.NewQuery(
+			"SELECT faction_uid, supporter_ckey FROM ss13_faction_founding_supporters",
+			list()
+		)
+		sq.Execute()
+		if(databaseCheckQueryResult(sq, "factionFoundingInitialize supporters"))
+			while(sq.NextRow())
+				var/list/petition = GLOB.persistence_faction_founding_petitions[sq.item[1]]
+				if(islist(petition))
+					petition["supporters"] += sq.item[2]
+		qdel(sq)
+	catch(var/exception/supporters_e)
+		log_subsystem_persistence_error("Factions: failed to load founding supporters: [supporters_e]")
+
+	log_subsystem_persistence_info("Factions: Loaded [length(GLOB.persistence_faction_founding_petitions)] founding petitions.")
+
+/datum/controller/subsystem/persistence/proc/startFoundingPetition(faction_uid, founder_ckey, founder_name, faction_name, abbreviation)
+	faction_uid = normalize_faction_uid(faction_uid)
+	if(!databaseCheckConnection("startFoundingPetition"))
+		return FALSE
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"INSERT INTO ss13_faction_founding_petitions (faction_uid, founder_ckey, founder_name, faction_name, abbreviation) VALUES (:uid, :ckey, :name, :fname, :abbr)",
+		list("uid" = faction_uid, "ckey" = founder_ckey, "name" = founder_name, "fname" = faction_name, "abbr" = abbreviation)
+	)
+	q.Execute()
+	var/ok = databaseCheckQueryResult(q, "startFoundingPetition")
+	qdel(q)
+	if(ok)
+		GLOB.persistence_faction_founding_petitions[faction_uid] = list(
+			"founder_ckey" = founder_ckey,
+			"founder_name" = founder_name,
+			"faction_name" = faction_name,
+			"abbreviation" = abbreviation,
+			"supporters"   = list()
+		)
+	return ok
+
+/// Returns TRUE only if ckey was newly added -- FALSE if they were already
+/// a supporter (dedup chokepoint, backed by the supporters table's
+/// composite primary key so a race between tap and terminal consent can't
+/// double-count the same ckey).
+/datum/controller/subsystem/persistence/proc/addFoundingSupporter(faction_uid, ckey)
+	faction_uid = normalize_faction_uid(faction_uid)
+	var/list/petition = GLOB.persistence_faction_founding_petitions[faction_uid]
+	if(!islist(petition))
+		return FALSE
+	if(ckey in petition["supporters"])
+		return FALSE
+	if(!databaseCheckConnection("addFoundingSupporter"))
+		return FALSE
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"INSERT INTO ss13_faction_founding_supporters (faction_uid, supporter_ckey) VALUES (:uid, :ckey) ON DUPLICATE KEY UPDATE supported_at = supported_at",
+		list("uid" = faction_uid, "ckey" = ckey)
+	)
+	q.Execute()
+	var/ok = databaseCheckQueryResult(q, "addFoundingSupporter")
+	qdel(q)
+	if(ok)
+		petition["supporters"] += ckey
+	return ok
+
+/datum/controller/subsystem/persistence/proc/cancelFoundingPetition(faction_uid)
+	faction_uid = normalize_faction_uid(faction_uid)
+	if(databaseCheckConnection("cancelFoundingPetition"))
+		var/datum/db_query/q = SSdbcore.NewQuery(
+			"DELETE FROM ss13_faction_founding_petitions WHERE faction_uid = :uid",
+			list("uid" = faction_uid)
+		)
+		q.Execute()
+		databaseCheckQueryResult(q, "cancelFoundingPetition")
+		qdel(q)
+	GLOB.persistence_faction_founding_petitions -= faction_uid
+
+/// Attempts to finalize a founding petition that has already reached its
+/// supporter threshold. Offline-safe: resolves the founder's bank account
+/// purely by ckey (cache first, DB fallback -- same lookup
+/// give_credits_to_player() uses), so this does NOT require the founder to
+/// be connected, let alone looking at a specific terminal. Called
+/// immediately when the threshold is reached (faction_manage.dm's
+/// _try_add_supporter()), opportunistically while the founder has Faction
+/// Management open (ui_data()), and by factionFoundingSweep() below on
+/// every persistence save cycle -- that sweep is what actually closes the
+/// gap where a petition could sit forever if the founder never happened to
+/// reopen the one terminal that started it. Returns TRUE if it actually
+/// created the faction.
+/datum/controller/subsystem/persistence/proc/tryFinalizeFounding(faction_uid)
+	faction_uid = normalize_faction_uid(faction_uid)
+	var/list/petition = GLOB.persistence_faction_founding_petitions[faction_uid]
+	if(!petition)
+		return FALSE
+	if(length(petition["supporters"]) < FACTION_FOUNDING_REQUIRED_SUPPORTERS)
+		return FALSE
+	if(islist(GLOB.persistence_faction_cache) && (faction_uid in GLOB.persistence_faction_cache))
+		cancelFoundingPetition(faction_uid)
+		return FALSE
+
+	var/founder_ckey = petition["founder_ckey"]
+
+	// Resolve the founder's bank account purely by ckey -- cache first, DB
+	// fallback -- same pattern give_credits_to_player() uses. Works whether
+	// or not the founder is currently connected.
+	var/acct_num = 0
+	for(var/cache_key in GLOB.persistence_economy_cache)
+		if(findtext(cache_key, "[founder_ckey]|") == 1)
+			acct_num = GLOB.persistence_economy_cache[cache_key]["account_number"] || 0
+			break
+	if(!acct_num && databaseCheckConnection("tryFinalizeFounding account lookup"))
+		var/datum/db_query/aq = SSdbcore.NewQuery(
+			"SELECT account_number FROM ss13_money_accounts WHERE ckey = :ckey ORDER BY id DESC LIMIT 1",
+			list("ckey" = founder_ckey)
+		)
+		aq.Execute()
+		if(aq.NextRow())
+			acct_num = text2num(aq.item[1]) || 0
+		qdel(aq)
+
+	var/datum/money_account/acc = acct_num ? SSeconomy.get_account(acct_num) : null
+	if(!acc || acc.money < FACTION_CREATION_COST)
+		return FALSE // stays queued -- retried next sweep/poll
+
+	if(!databaseCheckConnection("tryFinalizeFounding"))
+		return FALSE
+
+	SSeconomy.charge_to_account(acct_num, "Faction Founding", "Founded faction '[petition["faction_name"]]'", null, -FACTION_CREATION_COST)
+
+	var/datum/db_query/cf_q1 = SSdbcore.NewQuery(
+		"INSERT INTO ss13_factions (uid, name, abbreviation, is_lore, founder_ckey) VALUES (:uid, :name, :abbr, 0, :founder)",
+		list("uid" = faction_uid, "name" = petition["faction_name"], "abbr" = petition["abbreviation"], "founder" = founder_ckey)
+	)
+	cf_q1.Execute()
+	databaseCheckQueryResult(cf_q1, "tryFinalizeFounding insert")
+	qdel(cf_q1)
+
+	var/datum/db_query/cf_q2 = SSdbcore.NewQuery(
+		"INSERT INTO ss13_faction_accounts (faction_uid, balance) VALUES (:uid, :balance) ON DUPLICATE KEY UPDATE balance = VALUES(balance), saved_at = NOW()",
+		list("uid" = faction_uid, "balance" = FACTION_CREATION_COST)
+	)
+	cf_q2.Execute()
+	databaseCheckQueryResult(cf_q2, "tryFinalizeFounding account")
+	qdel(cf_q2)
+
+	if(!islist(GLOB.persistence_faction_cache))
+		GLOB.persistence_faction_cache = list()
+	GLOB.persistence_faction_cache[faction_uid] = list("name" = petition["faction_name"], "abbreviation" = petition["abbreviation"], "balance" = FACTION_CREATION_COST, "founder_ckey" = founder_ckey, "master_card_lost" = FALSE)
+	if(!islist(GLOB.persistence_faction_jobs_cache))
+		GLOB.persistence_faction_jobs_cache = list()
+	GLOB.persistence_faction_jobs_cache[faction_uid] = list()
+
+	factionRegisterMember(founder_ckey, petition["founder_name"], faction_uid, null, 2)
+
+	// Master card spawn point: the founder's own turf if they're currently
+	// online, else any existing terminal already shackled to this network
+	// (the one that started the petition, if nothing else) -- same
+	// world-scan-by-persistent_network shape persistence_cryo's telepad
+	// delivery lookup already uses.
+	var/client/founder_client = GLOB.directory[founder_ckey]
+	var/mob/founder_mob = founder_client ? founder_client.mob : null
+	var/turf/spawn_turf = founder_mob ? get_turf(founder_mob) : null
+	if(!spawn_turf)
+		for(var/obj/item/modular_computer/MC in world)
+			if(normalize_faction_uid(MC.persistent_network) == faction_uid)
+				spawn_turf = get_turf(MC)
+				break
+	if(spawn_turf)
+		var/obj/item/card/id/faction_master/master_card = new(spawn_turf)
+		master_card.employer_faction = faction_uid
+		master_card.update_name()
+	else
+		message_admins("Faction '[petition["faction_name"]]' ([faction_uid]) founded, but no valid location was found to print its master card -- spawn one manually.")
+
+	if(founder_mob)
+		to_chat(founder_mob, SPAN_GOOD("Founding petition successful! '[petition["faction_name"]]' ([faction_uid]) is now a registered faction with a starting balance of [FACTION_CREATION_COST] credits.[spawn_turf ? " A faction master card has been printed." : ""]"))
+	log_game("Founding petition for '[faction_uid]' ([petition["faction_name"]]) succeeded -- founder [petition["founder_name"]] ([founder_ckey]), [length(petition["supporters"])] supporters, [FACTION_CREATION_COST] credits paid.")
+	message_admins("A founding petition succeeded: '[petition["faction_name"]]' ([faction_uid]), founded by [petition["founder_name"]] ([founder_ckey]) with [length(petition["supporters"])] supporters, paying [FACTION_CREATION_COST] credits.[founder_mob ? " (<a href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[founder_mob.x];Y=[founder_mob.y];Z=[founder_mob.z]'>JMP</a>)" : ""]")
+
+	cancelFoundingPetition(faction_uid)
+	return TRUE
+
+/// Periodic catch-all, called from forceSaveAll() (every persistence save
+/// cycle): sweeps every founding petition that has reached its supporter
+/// threshold and retries finalization. This is the actual fix for the gap
+/// where a finished petition could sit forever unless the founder
+/// specifically reopened the one terminal that started it -- now it
+/// finalizes automatically as soon as they're online (anywhere) with
+/// sufficient funds, no terminal required.
+/datum/controller/subsystem/persistence/proc/factionFoundingSweep()
+	if(!islist(GLOB.persistence_faction_founding_petitions))
+		return
+	for(var/faction_uid in GLOB.persistence_faction_founding_petitions.Copy())
+		var/list/petition = GLOB.persistence_faction_founding_petitions[faction_uid]
+		if(islist(petition) && length(petition["supporters"]) >= FACTION_FOUNDING_REQUIRED_SUPPORTERS)
+			tryFinalizeFounding(faction_uid)
+
+// ============================================================
+// FACTION CREATION TOGGLE
+// ============================================================
+
+/datum/controller/subsystem/persistence/proc/factionCreationToggleInitialize()
+	PRIVATE_PROC(TRUE)
+	if(!databaseCheckConnection("factionCreationToggleInitialize"))
+		return
+	try
+		var/datum/db_query/q = SSdbcore.NewQuery("SELECT enabled FROM ss13_faction_creation_toggle WHERE id = 1", list())
+		q.Execute()
+		if(databaseCheckQueryResult(q, "factionCreationToggleInitialize") && q.NextRow())
+			GLOB.faction_creation_enabled = text2num(q.item[1])
+		qdel(q)
+	catch(var/exception/toggle_e)
+		log_subsystem_persistence_error("Factions: failed to load faction creation toggle: [toggle_e]")
+
+/datum/controller/subsystem/persistence/proc/setFactionCreationEnabled(enabled)
+	GLOB.faction_creation_enabled = enabled
+	if(!databaseCheckConnection("setFactionCreationEnabled"))
+		return
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"INSERT INTO ss13_faction_creation_toggle (id, enabled) VALUES (1, :enabled) ON DUPLICATE KEY UPDATE enabled = VALUES(enabled)",
+		list("enabled" = enabled ? 1 : 0)
+	)
+	q.Execute()
+	databaseCheckQueryResult(q, "setFactionCreationEnabled")
+	qdel(q)
+
+/datum/admins/proc/toggle_faction_creation()
+	set name = "Toggle Faction Creation"
+	set category = "Persistence"
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	var/new_state = !GLOB.faction_creation_enabled
+	if(tgui_alert(usr, "Faction creation is currently [GLOB.faction_creation_enabled ? "ENABLED" : "DISABLED"]. [new_state ? "Enable" : "Disable"] it?", "Toggle Faction Creation", list("Yes", "No")) != "Yes")
+		return
+
+	SSpersistence.setFactionCreationEnabled(new_state)
+	log_and_message_admins("[new_state ? "enabled" : "disabled"] player self-service faction creation.", usr)
+	feedback_add_details("admin_verb", "TFC")
+
+/// Loads the faction raiding toggle from ss13_faction_raiding_toggle at boot.
+/// Mirrors factionCreationToggleInitialize() above.
+/datum/controller/subsystem/persistence/proc/factionRaidingToggleInitialize()
+	if(!databaseCheckConnection("factionRaidingToggleInitialize"))
+		return
+	try
+		var/datum/db_query/q = SSdbcore.NewQuery("SELECT enabled FROM ss13_faction_raiding_toggle WHERE id = 1", list())
+		q.Execute()
+		if(databaseCheckQueryResult(q, "factionRaidingToggleInitialize") && q.NextRow())
+			GLOB.faction_raiding_enabled = text2num(q.item[1])
+		qdel(q)
+	catch(var/exception/toggle_e)
+		log_subsystem_persistence_error("Factions: failed to load faction raiding toggle: [toggle_e]")
+
+/datum/controller/subsystem/persistence/proc/setFactionRaidingEnabled(enabled)
+	GLOB.faction_raiding_enabled = enabled
+	if(!databaseCheckConnection("setFactionRaidingEnabled"))
+		return
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"INSERT INTO ss13_faction_raiding_toggle (id, enabled) VALUES (1, :enabled) ON DUPLICATE KEY UPDATE enabled = VALUES(enabled)",
+		list("enabled" = enabled ? 1 : 0)
+	)
+	q.Execute()
+	databaseCheckQueryResult(q, "setFactionRaidingEnabled")
+	qdel(q)
+
+/// Admin kill-switch: when disabled, non-members are blocked outright from
+/// entering any claimed (non-Hub) faction's own Z-level(s) -- see
+/// _drydock_pick_access_mode()/_drydock_pick_turf_valid()
+/// (telepad_drydock_boarding.dm) for the actual enforcement.
+/datum/admins/proc/toggle_faction_raiding()
+	set name = "Toggle Faction Raiding"
+	set category = "Persistence"
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	var/new_state = !GLOB.faction_raiding_enabled
+	if(tgui_alert(usr, "Faction raiding is currently [GLOB.faction_raiding_enabled ? "ENABLED" : "DISABLED"]. [new_state ? "Enable" : "Disable"] it? Disabling blocks non-members from entering any claimed faction's territory (Hub excluded).", "Toggle Faction Raiding", list("Yes", "No")) != "Yes")
+		return
+
+	SSpersistence.setFactionRaidingEnabled(new_state)
+	to_world(FONT_LARGE(EXAMINE_BLOCK_RED("Faction raiding has been [new_state ? SPAN_WARNING("enabled") : SPAN_GOOD("disabled")] by an administrator.[new_state ? "" : " Non-members can no longer enter claimed faction territory."]")))
+	play_announcer_voice_to_all(new_state ? 'sound/AI/announcements/raiding_allowed.ogg' : 'sound/AI/announcements/raiding_prohibited.ogg')
+	log_and_message_admins("[new_state ? "enabled" : "disabled"] faction raiding.", usr)
 
 // ============================================================
 // ACCOUNT OPERATIONS
@@ -179,6 +530,103 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 		)
 		eq.Execute()
 		qdel(eq)
+	return TRUE
+
+/// The ckey of the faction's original founder, set once at founding and
+/// never reassigned -- null for factions founded before this feature
+/// existed, or created via the admin "create faction" verb (no player
+/// founder). This is the one identity that survives even a full Panic
+/// Purge (faction_manage.dm), gating the founder-only "Print Master Card"
+/// action so a founder can always recover from a lost/compromised card
+/// even if it cost them their own rank-2 access in the process.
+/proc/get_faction_founder_ckey(uid)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return null
+	return GLOB.persistence_faction_cache[uid]["founder_ckey"]
+
+/// Whether a faction's master card is currently considered lost (revoked via
+/// Panic Purge and not yet replaced) -- gates the "Print Master Card" action
+/// so a fresh one can't be minted while the existing one is still presumably
+/// valid and in someone's hands.
+/proc/get_faction_master_card_lost(uid)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return FALSE
+	return !!GLOB.persistence_faction_cache[uid]["master_card_lost"]
+
+/// Sets whether a faction's master card is considered lost, persisting the
+/// flag so it survives a reboot (a compromised master card shouldn't become
+/// valid again just because the server restarted).
+/proc/set_faction_master_card_lost(uid, lost)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return FALSE
+	GLOB.persistence_faction_cache[uid]["master_card_lost"] = lost
+	if(GLOB.config.sql_enabled && SSdbcore.Connect())
+		var/datum/db_query/mq = SSdbcore.NewQuery(
+			{"INSERT INTO ss13_faction_accounts (faction_uid, master_card_lost) VALUES (:uid, :lost)
+			ON DUPLICATE KEY UPDATE master_card_lost = VALUES(master_card_lost), saved_at = NOW()"},
+			list("uid" = uid, "lost" = lost ? 1 : 0)
+		)
+		mq.Execute()
+		qdel(mq)
+	return TRUE
+
+/// A faction's current color (hex string "#rrggbb"), or null if never set.
+/// Used to tint clothing/equipment tagged to this faction with the faction
+/// tagger (persistence_faction_tagger.dm) -- tagged items never store their
+/// own frozen color, they always resolve it live from here.
+/proc/get_faction_color(uid)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return null
+	return GLOB.persistence_faction_cache[uid]["color"]
+
+/// Sets a faction's color, persists it, and immediately re-tints every
+/// currently-tagged /obj/item/clothing in the world (wherever it currently
+/// is -- worn, in a bag, in a locker, on the floor) so "faction color"
+/// always means the CURRENT color, never a stale one from tag time.
+/proc/set_faction_color(uid, new_color)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return FALSE
+	GLOB.persistence_faction_cache[uid]["color"] = new_color
+	if(GLOB.config.sql_enabled && SSdbcore.Connect())
+		var/datum/db_query/cq = SSdbcore.NewQuery(
+			"UPDATE ss13_factions SET color = :color WHERE uid = :uid",
+			list("uid" = uid, "color" = new_color)
+		)
+		cq.Execute()
+		qdel(cq)
+	for(var/obj/item/clothing/C in world)
+		if(C.faction_tag_uid == uid)
+			C.color = new_color
+			C.update_icon()
+			C.update_clothing_icon()
+	return TRUE
+
+/// Whether a faction's payroll runs automatically every autosave cycle
+/// (factionFinalize()) or only via the manual "Pay Members Now" action.
+/// Defaults to TRUE (automatic) if the faction can't be found for any reason.
+/proc/get_faction_auto_payroll(uid)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return TRUE
+	return !!GLOB.persistence_faction_cache[uid]["auto_payroll"]
+
+/proc/set_faction_auto_payroll(uid, enabled)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return FALSE
+	GLOB.persistence_faction_cache[uid]["auto_payroll"] = enabled
+	if(GLOB.config.sql_enabled && SSdbcore.Connect())
+		var/datum/db_query/q = SSdbcore.NewQuery(
+			"UPDATE ss13_factions SET auto_payroll = :val WHERE uid = :uid",
+			list("uid" = uid, "val" = enabled ? 1 : 0)
+		)
+		q.Execute()
+		qdel(q)
 	return TRUE
 
 /// A faction charge card is valid only if it was printed under the faction's
@@ -240,6 +688,20 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 	)
 	bq.Execute()
 	qdel(bq)
+
+/// Prunes faction chat history older than the standard persistence
+/// expiration window. Called from SSpersistence.Shutdown().
+/datum/controller/subsystem/persistence/proc/factionChatPrune()
+	PRIVATE_PROC(TRUE)
+	if(!databaseCheckConnection("factionChatPrune"))
+		return
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"DELETE FROM ss13_faction_chat WHERE sent_at < DATE_SUB(NOW(), INTERVAL :days DAY)",
+		list("days" = PERSISTENT_DEFAULT_EXPIRATION_DAYS)
+	)
+	q.Execute()
+	databaseCheckQueryResult(q, "factionChatPrune")
+	qdel(q)
 
 // ============================================================
 // JOB OPERATIONS
@@ -587,9 +1049,14 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	if(!SSpersistence.databaseCheckConnection("persistence_pin_site_at_z"))
 		return FALSE
 
+	// Matches the DB's actual unique key (template_name, overmap_x, overmap_y)
+	// -- V103__multi_instance_pinned_sites.sql -- not just template+map, so a
+	// second site sharing a template at a DIFFERENT position (two factions
+	// each claiming their own instance, say) doesn't silently no-op here
+	// instead of actually getting pinned.
 	var/datum/db_query/check = SSdbcore.NewQuery(
-		"SELECT id FROM ss13_persistent_away_sites WHERE template_name = :tn AND map_path = :mp",
-		list("tn" = here_template.id, "mp" = "[SSatlas.current_map.path]")
+		"SELECT id FROM ss13_persistent_away_sites WHERE template_name = :tn AND map_path = :mp AND overmap_x = :ox AND overmap_y = :oy",
+		list("tn" = here_template.id, "mp" = "[SSatlas.current_map.path]", "ox" = (here_marker ? here_marker.start_x : 0), "oy" = (here_marker ? here_marker.start_y : 0))
 	)
 	check.Execute()
 	var/already_pinned = check.NextRow()
@@ -624,6 +1091,93 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		GLOB.persistence_zlevel_allow |= nz
 	log_game("Site '[here_template.id]' at z=[base_z] auto-pinned: [notes]")
 	return TRUE
+
+/**
+ * Reverses persistence_pin_site_at_z() -- but only if the site's pin
+ * "notes" exactly match expected_notes, so this can never touch a site
+ * pinned by an admin (or for a different reason) that a faction beacon
+ * merely happened to also be sitting on. Only removes the pin
+ * registration itself (DB row + in-memory lists), matching "Unpin Site"'s
+ * "Keep" option -- doesn't purge any saved persistence rows.
+ */
+/proc/persistence_unpin_site_at_z(z, expected_notes)
+	var/datum/map_template/here_template = GLOB.map_templates["[z]"]
+	if(!istype(here_template, /datum/map_template/ruin/away_site))
+		return FALSE
+	if(!SSpersistence.databaseCheckConnection("persistence_unpin_site_at_z"))
+		return FALSE
+
+	var/datum/db_query/check = SSdbcore.NewQuery(
+		"SELECT id, notes, last_z FROM ss13_persistent_away_sites WHERE template_name = :tn AND map_path = :mp",
+		list("tn" = here_template.id, "mp" = "[SSatlas.current_map.path]")
+	)
+	check.Execute()
+	if(!SSpersistence.databaseCheckQueryResult(check, "persistence_unpin_site_at_z") || !check.NextRow())
+		qdel(check)
+		return FALSE
+	var/row_id = text2num(check.item[1])
+	var/row_notes = check.item[2]
+	var/row_last_z = text2num(check.item[3])
+	qdel(check)
+	if(row_notes != expected_notes)
+		return FALSE // pinned by something else (admin, different reason) -- not ours to touch
+
+	var/datum/db_query/dq = SSdbcore.NewQuery("DELETE FROM ss13_persistent_away_sites WHERE id = :id", list("id" = row_id))
+	dq.Execute()
+	SSpersistence.databaseCheckQueryResult(dq, "persistence_unpin_site_at_z delete")
+	qdel(dq)
+
+	var/obj/effect/overmap/visitable/here_marker = GLOB.map_sectors["[row_last_z]"]
+	var/list/live_zs = list(row_last_z)
+	if(here_marker && length(here_marker.map_z))
+		live_zs = here_marker.map_z.Copy()
+	for(var/nz in live_zs)
+		GLOB.persistence_pinned_site_z -= nz
+		GLOB.persistence_zlevel_allow -= nz
+	log_game("Site '[here_template.id]' at z=[row_last_z] auto-unpinned: [expected_notes] released.")
+	return TRUE
+
+/**
+ * Faction-facing wrapper for the admin "Rename Site" action below: renames
+ * the pinned away site occupying the given z, persisting via
+ * ss13_persistent_away_sites.custom_name (restored every boot by
+ * build_pinned_away_sites(), map.dm). Blank new_name restores the template
+ * default. Returns null on success, or a player-readable refusal reason.
+ * Resolution is by the z's own template id -- the same authoritative lookup
+ * pin/unpin above use -- so unlike the admin verb's last_z path this can
+ * never touch a different site through a stale z number.
+ */
+/proc/persistence_rename_pinned_site_at_z(z, new_name)
+	var/datum/map_template/here_template = GLOB.map_templates["[z]"]
+	if(!istype(here_template, /datum/map_template/ruin/away_site))
+		return "This location is not a renamable away site."
+	if(!SSpersistence.databaseCheckConnection("persistence_rename_pinned_site_at_z"))
+		return "Database connection unavailable."
+
+	var/datum/db_query/check = SSdbcore.NewQuery(
+		"SELECT id FROM ss13_persistent_away_sites WHERE template_name = :tn AND map_path = :mp",
+		list("tn" = here_template.id, "mp" = "[SSatlas.current_map.path]")
+	)
+	check.Execute()
+	var/pinned = check.NextRow()
+	qdel(check)
+	if(!pinned)
+		return "This site is not pinned for persistence -- its name cannot persist."
+
+	var/datum/db_query/rnq = SSdbcore.NewQuery(
+		"UPDATE ss13_persistent_away_sites SET custom_name = :cn WHERE template_name = :tn AND map_path = :mp",
+		list("cn" = (new_name != "" ? new_name : null), "tn" = here_template.id, "mp" = "[SSatlas.current_map.path]")
+	)
+	rnq.Execute()
+	SSpersistence.databaseCheckQueryResult(rnq, "persistence_rename_pinned_site_at_z")
+	qdel(rnq)
+
+	// Live apply -- z is the caller's own current z this session, so this
+	// marker lookup is direct and always the right site.
+	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[z]"]
+	if(istype(marker))
+		marker.name = (new_name != "" ? new_name : initial(marker.name))
+	return null
 
 /// Pin/unpin overmap away sites for persistence (ss13_persistent_away_sites).
 /// A pinned site always spawns, keeps its overmap position, gets a
@@ -676,7 +1230,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			msg += "  #[row["id"]] [row["template"]][row["notes"] ? " ([row["notes"]])" : ""] -- [row["enabled"] ? "ENABLED" : "disabled"], overmap ([row["om_x"]],[row["om_y"]])[appearance_info], [live]\n"
 		to_chat(usr, SPAN_NOTICE(msg))
 
-		var/action = tgui_input_list(usr, "Select action:", "Persistent Overmap Sites", list("Pin Site I'm At", "Pin From Template List", "Rename Site", "Change Icon", "Toggle Enabled", "Unpin Site", "Close"))
+		var/action = tgui_input_list(usr, "Select action:", "Persistent Overmap Sites", list("Pin Site I'm At", "Pin From Template List", "Rename Site", "Change Icon", "Move Site", "Toggle Enabled", "Unpin Site", "Close"))
 		if(!action || action == "Close")
 			return
 
@@ -689,13 +1243,17 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			if(!istype(here_template, /datum/map_template/ruin/away_site))
 				to_chat(usr, SPAN_WARNING("Z=[usr.z] was not loaded from an away-site template -- stand on the site you want to pin."))
 				continue
+			// Matches the DB's actual unique key (template_name, overmap_x,
+			// overmap_y) -- multiple pinned instances of the same template are
+			// allowed at different positions, only a literal duplicate at the
+			// exact same coordinates isn't.
 			var/already_pinned = FALSE
 			for(var/list/row in rows)
-				if(row["template"] == here_template.id)
+				if(row["template"] == here_template.id && row["om_x"] == here_marker.start_x && row["om_y"] == here_marker.start_y)
 					already_pinned = TRUE
 					break
 			if(already_pinned)
-				to_chat(usr, SPAN_WARNING("'[here_template.id]' is already pinned."))
+				to_chat(usr, SPAN_WARNING("'[here_template.id]' is already pinned at this exact position."))
 				continue
 			var/pin_label = tgui_input_text(usr, "Label for this site (optional):", "Pin Site", "", max_length = 128)
 			// The site's base z this session (lowest of its connected z's)
@@ -732,11 +1290,17 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			log_and_message_admins("pinned overmap site '[here_template.id]' for persistence[pin_label ? " ([pin_label])" : ""]", usr)
 
 		else if(action == "Pin From Template List")
+			// A template is only unpickable while it has a PENDING pin still
+			// sitting at the placeholder (0,0)/unspawned position -- two
+			// simultaneously-pending pins of the same template would collide
+			// there. Once a pinned row has actually spawned once,
+			// build_pinned_away_sites() overwrites its coordinates with its
+			// real position, freeing the template up for another instance.
 			var/list/pinnable = list()
 			for(var/site_id in SSmapping.away_sites_templates)
 				var/id_taken = FALSE
 				for(var/list/row in rows)
-					if(row["template"] == site_id)
+					if(row["template"] == site_id && !row["om_x"] && !row["om_y"] && !row["last_z"])
 						id_taken = TRUE
 						break
 				if(!id_taken)
@@ -781,10 +1345,18 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			rnq.Execute()
 			SSpersistence.databaseCheckQueryResult(rnq, "persistent_overmap_sites rename")
 			qdel(rnq)
-			// Apply live if the site is spawned this session
+			// Apply live if the site is spawned this session -- verify the
+			// marker at last_z is actually still THIS site's before trusting
+			// it. last_z can go stale if an earlier-id pinned row failed to
+			// load this boot (template removed, load_new_z() failure):
+			// build_pinned_away_sites()'s sequential-append z allocation
+			// then shifts every later row down, and a later site can land
+			// exactly on the failed row's old z -- without this check that
+			// would rename an unrelated, currently-loaded site's marker.
 			if(rename_row["last_z"] && (rename_row["last_z"] in GLOB.persistence_pinned_site_z))
 				var/obj/effect/overmap/visitable/rename_marker = GLOB.map_sectors["[rename_row["last_z"]]"]
-				if(rename_marker)
+				var/datum/map_template/rename_template = GLOB.map_templates["[rename_row["last_z"]]"]
+				if(rename_marker && rename_template && rename_template.id == rename_row["template"])
 					rename_marker.name = (new_site_name != "" ? new_site_name : initial(rename_marker.name))
 			to_chat(usr, SPAN_GOOD("'[rename_row["template"]]' [new_site_name != "" ? "renamed to '[new_site_name]'" : "name restored to template default"] -- persists across reboots."))
 			log_and_message_admins("[new_site_name != "" ? "renamed pinned overmap site '[rename_row["template"]]' to '[new_site_name]'" : "cleared custom name on pinned overmap site '[rename_row["template"]]'"]", usr)
@@ -821,13 +1393,97 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			to_chat(usr, SPAN_GOOD("'[icon_row["template"]]' overmap icon [new_icon_state ? "set to '[new_icon_state]'" : "restored to template default"] -- persists across reboots."))
 			log_and_message_admins("[new_icon_state ? "set pinned overmap site '[icon_row["template"]]' icon to '[new_icon_state]'" : "cleared custom icon on pinned overmap site '[icon_row["template"]]'"]", usr)
 
+		else if(action == "Move Site")
+			// Lists BOTH pinned sites (from `rows`) and dynamic ones currently
+			// live this session -- Move Site isn't restricted to pinned rows,
+			// unlike every other action here, since relocating a dynamic site
+			// is still meaningful (it just isn't written to the DB).
+			var/list/move_choices = list()
+			for(var/list/row in rows)
+				move_choices["#[row["id"]] [row["template"]][row["custom_name"] ? " ('[row["custom_name"]]')" : ""] (pinned)"] = row
+			for(var/z_key in GLOB.map_sectors)
+				var/z_num = text2num(z_key)
+				if(!z_num || (z_num in GLOB.persistence_pinned_site_z))
+					continue // pinned sites already listed above via their DB row
+				var/datum/map_template/dyn_template = GLOB.map_templates[z_key]
+				if(!istype(dyn_template, /datum/map_template/ruin/away_site))
+					continue
+				var/obj/effect/overmap/visitable/dyn_marker = GLOB.map_sectors[z_key]
+				if(!istype(dyn_marker) || istype(dyn_marker, /obj/effect/overmap/visitable/sector/exoplanet))
+					continue
+				move_choices["[dyn_template.id] (dynamic, z=[z_num])"] = list("dynamic" = TRUE, "z" = z_num, "template" = dyn_template.id)
+			if(!length(move_choices))
+				to_chat(usr, SPAN_WARNING("No movable sites found -- a site must be currently loaded this session to move it."))
+				continue
+			var/move_pick = tgui_input_list(usr, "Move which site?", "Move Site", move_choices)
+			if(!move_pick)
+				continue
+			var/list/move_row = move_choices[move_pick]
+			var/is_dynamic = !!move_row["dynamic"]
+			var/move_z = is_dynamic ? move_row["z"] : move_row["last_z"]
+			var/obj/effect/overmap/visitable/move_marker = GLOB.map_sectors["[move_z]"]
+			if(!istype(move_marker))
+				to_chat(usr, SPAN_WARNING("'[move_row["template"]]' isn't currently loaded -- it must be live this session to move."))
+				continue
+			// Same stale-z guard Rename Site/Change Icon already use -- a pinned
+			// row's last_z can go stale if an earlier row failed to load this
+			// boot, letting a later site land on the failed row's old z.
+			if(!is_dynamic)
+				var/datum/map_template/move_template = GLOB.map_templates["[move_z]"]
+				if(!move_template || move_template.id != move_row["template"])
+					to_chat(usr, SPAN_WARNING("'[move_row["template"]]' isn't actually loaded at z=[move_z] this session (stale record) -- refusing to move a different site."))
+					continue
+
+			var/map_low = OVERMAP_EDGE
+			var/map_high = SSatlas.current_map.overmap_size - OVERMAP_EDGE
+			var/new_x = tgui_input_number(usr, "New overmap X ([map_low]-[map_high]):", "Move Site", move_marker.start_x, map_high, map_low)
+			if(isnull(new_x))
+				continue
+			var/new_y = tgui_input_number(usr, "New overmap Y ([map_low]-[map_high]):", "Move Site", move_marker.start_y, map_high, map_low)
+			if(isnull(new_y))
+				continue
+			new_x = clamp(new_x, map_low, map_high)
+			new_y = clamp(new_y, map_low, map_high)
+
+			var/turf/move_dest = locate(new_x, new_y, SSatlas.current_map.overmap_z)
+			if(!move_dest)
+				to_chat(usr, SPAN_WARNING("No overmap tile at ([new_x],[new_y])."))
+				continue
+			var/obj/effect/overmap/visitable/move_occupant = locate() in move_dest
+			if(move_occupant && move_occupant != move_marker)
+				to_chat(usr, SPAN_WARNING("([new_x],[new_y]) is already occupied by '[move_occupant.name]' -- pick another tile."))
+				continue
+
+			move_marker.start_x = new_x
+			move_marker.start_y = new_y
+			move_marker.forceMove(move_dest)
+
+			if(!is_dynamic)
+				var/datum/db_query/mvq = SSdbcore.NewQuery(
+					"UPDATE ss13_persistent_away_sites SET overmap_x = :ox, overmap_y = :oy WHERE id = :id",
+					list("ox" = new_x, "oy" = new_y, "id" = move_row["id"])
+				)
+				mvq.Execute()
+				SSpersistence.databaseCheckQueryResult(mvq, "persistent_overmap_sites move")
+				qdel(mvq)
+
+			// Immediate re-sync instead of waiting on the next periodic beacon
+			// sweep -- see _apply_security_radius_grant() (faction_beacon.dm).
+			for(var/obj/structure/machinery/faction_beacon/B in world)
+				if(B.active && B.powered)
+					B._apply_security_radius_grant()
+			zone_security_update_overmap()
+
+			to_chat(usr, SPAN_GOOD("Moved '[move_row["template"]]' to overmap ([new_x],[new_y])[is_dynamic ? " (dynamic -- not saved, resets next boot)" : " -- persists across reboots"]."))
+			log_and_message_admins("moved overmap site '[move_row["template"]]' to ([new_x],[new_y])", usr)
+
 		else if(action == "Toggle Enabled")
 			if(!length(rows))
 				to_chat(usr, SPAN_WARNING("No sites are pinned."))
 				continue
 			var/list/toggle_choices = list()
 			for(var/list/row in rows)
-				toggle_choices["#[row["id"]] [row["template"]] ([row["enabled"] ? "ENABLED" : "disabled"])"] = row
+				toggle_choices["#[row["id"]] [row["template"]][row["custom_name"] ? " ('[row["custom_name"]]')" : ""] ([row["enabled"] ? "ENABLED" : "disabled"])"] = row
 			var/toggle_pick = tgui_input_list(usr, "Toggle which pinned site?", "Toggle Enabled", toggle_choices)
 			if(!toggle_pick)
 				continue
@@ -852,7 +1508,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 				continue
 			var/list/unpin_choices = list()
 			for(var/list/row in rows)
-				unpin_choices["#[row["id"]] [row["template"]][row["notes"] ? " ([row["notes"]])" : ""]"] = row
+				unpin_choices["#[row["id"]] [row["template"]][row["custom_name"] ? " ('[row["custom_name"]]')" : ""][row["notes"] ? " ([row["notes"]])" : ""]"] = row
 			var/unpin_pick = tgui_input_list(usr, "Unpin which site? It returns to the dynamic RNG pool next boot.", "Unpin Site", unpin_choices)
 			if(!unpin_pick)
 				continue
@@ -867,13 +1523,252 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			uq.Execute()
 			SSpersistence.databaseCheckQueryResult(uq, "persistent_overmap_sites unpin")
 			qdel(uq)
+			// Same stale-z guard Rename Site/Change Icon already use -- last_z
+			// can point at a DIFFERENT site's z if an earlier row failed to
+			// load this boot and a later site landed on the failed row's old z
+			// (sequential z-allocation in build_pinned_away_sites()). Without
+			// this, purging/evicting by a stale last_z silently destroys an
+			// unrelated, still-live site's saved persistence data.
+			var/datum/map_template/unpin_template = unpin_row["last_z"] ? GLOB.map_templates["[unpin_row["last_z"]]"] : null
+			var/unpin_z_matches = unpin_template && (unpin_template.id == unpin_row["template"])
 			if(purge_choice == "Purge" && unpin_row["last_z"])
-				SSpersistence.purgeZRows(unpin_row["last_z"])
-			if(unpin_row["last_z"] && (unpin_row["last_z"] in GLOB.persistence_pinned_site_z))
+				if(unpin_z_matches)
+					SSpersistence.purgeZRows(unpin_row["last_z"])
+				else
+					to_chat(usr, SPAN_WARNING("z=[unpin_row["last_z"]] no longer matches '[unpin_row["template"]]' this session (stale record) -- skipped purging live data to avoid deleting an unrelated site's saved rows."))
+			if(unpin_row["last_z"] && unpin_z_matches && (unpin_row["last_z"] in GLOB.persistence_pinned_site_z))
 				GLOB.persistence_pinned_site_z -= unpin_row["last_z"]
 				GLOB.persistence_zlevel_allow -= unpin_row["last_z"]
-			to_chat(usr, SPAN_GOOD("Unpinned '[unpin_row["template"]]'[purge_choice == "Purge" ? " and purged its saved rows" : " (saved rows kept)"]. Dynamic again from next boot."))
-			log_and_message_admins("unpinned overmap site '[unpin_row["template"]]'[purge_choice == "Purge" ? " (rows purged)" : ""]", usr)
+			to_chat(usr, SPAN_GOOD("Unpinned '[unpin_row["template"]]'[(purge_choice == "Purge" && unpin_z_matches) ? " and purged its saved rows" : " (saved rows kept)"]. Dynamic again from next boot."))
+			log_and_message_admins("unpinned overmap site '[unpin_row["template"]]'[(purge_choice == "Purge" && unpin_z_matches) ? " (rows purged)" : ""]", usr)
+
+/// Picks a random unoccupied overmap tile -- optionally (avoid_unsecured_zones)
+/// excluding any tile within an active+powered faction beacon's claimed
+/// medsec/highsec security_radius, the same range()-based geometry
+/// zone_security_update_overmap_borders() uses to paint that territory,
+/// checked here proactively at selection time instead of reactively after
+/// spawning. Returns null if no valid tile turns up after a handful of
+/// random attempts.
+/proc/_pick_free_overmap_tile(avoid_unsecured_zones = FALSE)
+	if(!SSatlas.current_map.overmap_z)
+		return null
+	var/map_low = OVERMAP_EDGE
+	var/map_high = SSatlas.current_map.overmap_size - OVERMAP_EDGE
+
+	var/list/secured_sectors = list()
+	if(avoid_unsecured_zones)
+		for(var/obj/structure/machinery/faction_beacon/B in world)
+			CHECK_TICK
+			if(!B.active || !B.powered || B.security_radius <= 0 || B.guaranteed_security_tier < ZONE_MEDSEC)
+				continue
+			var/obj/effect/overmap/visitable/beacon_sector = GLOB.map_sectors["[GET_Z(B)]"]
+			if(istype(beacon_sector))
+				secured_sectors += list(list("sector" = beacon_sector, "radius" = B.security_radius))
+
+	for(var/attempt in 1 to 20)
+		var/turf/candidate = locate(rand(map_low, map_high), rand(map_low, map_high), SSatlas.current_map.overmap_z)
+		if(!candidate)
+			continue
+		if(locate(/obj/effect/overmap/visitable) in candidate)
+			continue
+		var/blocked = FALSE
+		for(var/list/entry in secured_sectors)
+			if(get_dist(candidate, entry["sector"]) <= entry["radius"])
+				blocked = TRUE
+				break
+		if(!blocked)
+			return candidate
+	return null
+
+/**
+ * Core away-site placement logic shared by "Generate Away Site" and the
+ * missions auto-gen system (accept_mission()). If target_tile is given, the
+ * site loads there directly -- the admin-verb path, which already prompted
+ * for and validated a specific tile. If target_tile is null, a free tile is
+ * picked instead (_pick_free_overmap_tile()) -- if avoid_unsecured_zones is
+ * also TRUE (the missions auto-gen path), the search itself excludes every
+ * active beacon's claimed radius up front, so the result is nullsec by
+ * construction rather than spawned-then-checked-then-retried. Returns the
+ * new Z on success, or null (template already loaded without
+ * TEMPLATE_FLAG_ALLOW_DUPLICATES, no overmap, no valid tile found, or the
+ * load itself failed).
+ *
+ * Tries the shared Z reuse pool (GLOB.reusable_z_pool,
+ * persistence_ship_interiors.dm) first via load_into_z() before falling
+ * back to a fresh load_new_z() -- the same mitigation player-ship retrieve
+ * uses, since BYOND can never shrink world.maxz back down. Multi-Z site
+ * templates (traits.len > 1) can't use a pooled single Z, so they always
+ * fall back to load_new_z().
+ */
+/proc/_spawn_away_site_for_template(datum/map_template/ruin/away_site/site, turf/target_tile, avoid_unsecured_zones = FALSE)
+	if(!site)
+		return null
+	if(site.loaded && !(site.template_flags & TEMPLATE_FLAG_ALLOW_DUPLICATES))
+		return null
+	if(!SSatlas.current_map.overmap_z)
+		return null
+
+	if(!target_tile)
+		target_tile = _pick_free_overmap_tile(avoid_unsecured_zones)
+		if(!target_tile)
+			return null
+
+	var/pick_x = target_tile.x
+	var/pick_y = target_tile.y
+
+	// Suspend ZAS during the load or the freshly loaded site gets vented
+	// (same recipe as the Map Template - Place In New Z verb).
+	var/pool_z = (length(site.traits) == 1) ? SSpersistence.acquireReusableZ() : 0
+	var/site_z
+	var/bounds
+	SSair.can_fire = FALSE
+	if(pool_z)
+		bounds = site.load_into_z(pool_z)
+		site_z = pool_z
+	else
+		var/z_before = world.maxz
+		bounds = site.load_new_z(FALSE)
+		site_z = z_before + 1
+	SSair.can_fire = TRUE
+	if(!bounds)
+		if(pool_z)
+			SSpersistence.poolReusableZ(pool_z) // hand it back, this attempt never claimed it
+		return null
+
+	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[site_z]"]
+	if(marker)
+		marker.start_x = pick_x
+		marker.start_y = pick_y
+		if(marker.loc)
+			marker.forceMove(target_tile)
+
+	// Grant the real security tier immediately if this landed inside an
+	// active beacon's radius, instead of waiting up to one sweep interval
+	// for process()'s periodic _apply_security_radius_grant() to catch it.
+	for(var/obj/structure/machinery/faction_beacon/B in world)
+		CHECK_TICK
+		if(B.active && B.powered)
+			B._apply_security_radius_grant()
+
+	if(avoid_unsecured_zones && zone_security_get(site_z) != ZONE_NULLSEC)
+		// Shouldn't happen -- the tile search above already excluded every
+		// claimed radius -- but guard against a beacon powering on in the
+		// same tick as this load.
+		_despawn_away_site_z(site_z, FALSE)
+		return null
+
+	// Paint the new marker's zone-security outline/border immediately --
+	// otherwise it sits unpainted until some unrelated later zone change
+	// happens to trigger a full repaint (zone_security_update_overmap()
+	// is only ever called at boot or on an explicit zone change).
+	zone_security_update_overmap()
+
+	if(site.auto_despawn_when_depleted)
+		_register_auto_despawn_asteroid(site_z, site.id)
+
+	return site_z
+
+// ============================================================
+// ASTEROID AUTO-DESPAWN  mined-out sites tear down and respawn elsewhere
+// ============================================================
+
+#define ASTEROID_DEPLETION_CHECK_INTERVAL 2 MINUTES
+#define ASTEROID_RESPAWN_DELAY 10 MINUTES
+
+/// z -> template_id, for every currently-loaded away site whose template
+/// has auto_despawn_when_depleted set. Populated by
+/// _register_auto_despawn_asteroid(), drained as each site despawns.
+GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
+
+/// TRUE if this z has no ore left, checking BOTH forms mineable asteroid
+/// content actually takes here -- confirmed by direct inspection of the
+/// three flagged templates' own .dmm content, since assuming one mechanic
+/// covered all of them would have been wrong:
+/// - Wall veins (/turf/simulated/mineral and subtypes, e.g. cursed.dmm's
+///   and overgrown_mining_station.dmm's own deposits) -- GetDrilled()
+///   (mine_turfs.dm) converts a mined vein to its mined_turf, which is NOT
+///   a /turf/simulated/mineral subtype, so it drops out of this scan the
+///   moment it's mined -- a plain existence check is enough.
+/// - Floor resources (/turf/simulated/floor/exoplanet/asteroid and
+///   subtypes, e.g. phoron_deposit's own dedicated turf subtype, which
+///   sets has_resources/resources[ORE_PHORON] in its own Initialize()) --
+///   drained by the automated mining drill (drill.dm). Manual pickaxe
+///   digging (gets_dug(), mine_turfs.dm) never decrements resources, but a
+///   fully dug tile eventually turns to /turf/space on its own (mine_turfs.dm's
+///   dug counter), dropping out of this scan naturally either way.
+/proc/_away_site_asteroid_depleted(z)
+	for(var/turf/simulated/mineral/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+		CHECK_TICK
+		return FALSE // an unmined wall vein still exists
+	for(var/turf/simulated/floor/exoplanet/asteroid/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+		CHECK_TICK
+		if(T.has_resources && length(T.resources))
+			return FALSE
+	return TRUE
+
+/// Stricter than zlevel_has_players() -- excludes a dead body with a
+/// lingering client/ckey, since this feature only cares whether anyone
+/// LIVING is still here. The neural lace half is identical to
+/// zlevel_has_players()'s own -- a lace's mere presence still blocks
+/// despawn regardless of aliveness, since it represents someone's saved
+/// consciousness, not a corpse.
+/proc/_zlevel_has_living_or_lace(z)
+	for(var/mob/M in GLOB.mob_list)
+		CHECK_TICK
+		if(M.z == z && M.stat != DEAD && (M.client || M.ckey))
+			return TRUE
+	for(var/obj/item/organ/internal/neural_lace/L in world)
+		CHECK_TICK
+		if(!length(L.registered_ckey))
+			continue
+		var/turf/T = get_turf(L)
+		if(T && T.z == z)
+			return TRUE
+	return FALSE
+
+/// Registers z for periodic depletion/despawn checking -- called once
+/// right after a flagged template successfully loads (both the RNG-pool
+/// boot loader, build_away_sites() in map.dm, and this file's own
+/// _spawn_away_site_for_template(), which covers mission auto-gen, admin
+/// manual gen, and this feature's own respawns). Deliberately never called
+/// from build_pinned_away_sites() -- an admin-pinned instance stays
+/// permanent regardless of depletion, same as it's already excluded from
+/// the RNG budget entirely.
+/proc/_register_auto_despawn_asteroid(z, template_id)
+	GLOB.auto_despawn_asteroid_zs[z] = template_id
+	addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_check_asteroid_depletion_and_despawn), z), ASTEROID_DEPLETION_CHECK_INTERVAL)
+
+/// Modeled on _try_cleanup_mission_sector() (persistence_missions.dm) --
+/// recheck on an interval, reschedule via addtimer() if not yet safe to
+/// tear down, act once every condition (depleted, no one living/laced
+/// still here, not inside claimed territory) is finally met.
+/proc/_check_asteroid_depletion_and_despawn(z)
+	var/template_id = GLOB.auto_despawn_asteroid_zs[z]
+	if(!template_id)
+		return // already handled/cancelled (e.g. an admin manually removed it)
+
+	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[z]"]
+	var/not_ready = !_away_site_asteroid_depleted(z) || _zlevel_has_living_or_lace(z) || (istype(marker) && _overmap_tile_hazard_excluded(get_turf(marker)))
+	if(not_ready)
+		addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_check_asteroid_depletion_and_despawn), z), ASTEROID_DEPLETION_CHECK_INTERVAL)
+		return
+
+	GLOB.auto_despawn_asteroid_zs -= z
+	_despawn_away_site_z(z)
+	addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_respawn_asteroid_site), template_id), ASTEROID_RESPAWN_DELAY)
+
+/// One-shot delayed respawn after a mined-out site tears itself down --
+/// reuses the same _spawn_away_site_for_template() call the "Generate Away
+/// Site" admin verb and mission auto-gen already use, letting it pick a
+/// fresh random overmap tile the normal way.
+/proc/_respawn_asteroid_site(template_id)
+	var/datum/map_template/ruin/away_site/template = SSmapping.away_sites_templates[template_id]
+	if(!template)
+		return
+	if(!_spawn_away_site_for_template(template, null))
+		// No free overmap tile right now -- try again after the same
+		// cooldown rather than losing this site permanently.
+		addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_respawn_asteroid_site), template_id), ASTEROID_RESPAWN_DELAY)
 
 /// Inject an away-site template at a chosen overmap tile at runtime -- the
 /// same kind of z-level that normally only spawns randomly at boot, placed
@@ -930,27 +1825,136 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 
 	log_and_message_admins("is generating away site '[tmpl_pick]' at overmap ([pick_x],[pick_y])", usr)
 
-	// Suspend ZAS during the load or the freshly loaded site gets vented
-	// (same recipe as the Map Template - Place In New Z verb).
-	var/z_before = world.maxz
-	SSair.can_fire = FALSE
-	var/bounds = site.load_new_z(FALSE)
-	SSair.can_fire = TRUE
-	if(!bounds)
+	var/site_z = _spawn_away_site_for_template(site, target_tile)
+	if(!site_z)
 		to_chat(usr, SPAN_WARNING("Failed to load '[tmpl_pick]'."))
 		log_and_message_admins("failed to generate away site '[tmpl_pick]'", usr)
 		return
 
-	var/site_z = z_before + 1
-	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[site_z]"]
-	if(marker)
-		marker.start_x = pick_x
-		marker.start_y = pick_y
-		if(marker.loc)
-			marker.forceMove(target_tile)
-
 	to_chat(usr, SPAN_GOOD("Generated '[tmpl_pick]' at overmap ([pick_x],[pick_y]), z=[site_z]. It is DYNAMIC (gone on reboot, not saved) -- pin it via Persistent Overmap Sites to make it permanent."))
 	log_and_message_admins("generated away site '[tmpl_pick]' at overmap ([pick_x],[pick_y]), z=[site_z]", usr)
+
+/**
+ * Core away-site teardown shared by "Remove Away Site" and the missions
+ * auto-gen cleanup (turn-in-triggered despawn of a mission-spawned sector).
+ * Wipes every turf on z to space, deletes the overmap marker, and cleans
+ * zone-security/persistence-toggle state. purge_incidental controls whether
+ * incidental persistence rows for z are also purged (SSpersistence.purgeZRows) --
+ * defaults TRUE (dynamic/mission-spawned sites always want this); callers
+ * tearing down a PINNED site pass the admin's own Purge/Keep choice instead.
+ * Caller is responsible for confirming no one is still on z
+ * (zlevel_has_players()) and, for pinned sites, its own
+ * ss13_persistent_away_sites row cleanup -- this proc only ever handles the
+ * always-safe, non-pin-specific teardown.
+ *
+ * purge_incidental TRUE also releases z into the shared Z reuse pool
+ * (GLOB.reusable_z_pool, persistence_ship_interiors.dm) once wiped, so a
+ * later away/mission spawn (or ship retrieve) can load onto it instead of
+ * permanently allocating a new Z-level. FALSE (a "Keep" choice tearing down
+ * a pinned site) skips pooling -- the admin explicitly wants this z's
+ * content left alone, not silently handed to something else.
+ */
+/proc/_despawn_away_site_z(z, purge_incidental = TRUE)
+	if(!z)
+		return
+
+	// The template's own .loaded counter (map_template.dm: "times loaded
+	// this round") was never decremented anywhere in this codebase -- so
+	// for any template without TEMPLATE_FLAG_ALLOW_DUPLICATES, the very
+	// first time it's ever spawned this round permanently latches loaded
+	// > 0, and both the "Generate Away Site" admin verb (line ~1731) and
+	// this file's own _spawn_away_site_for_template() (line ~1544) share
+	// the exact same "already loaded somewhere, does not allow duplicates"
+	// refusal check -- so every later attempt to spawn that same template
+	// again, including this file's own automatic respawn-after-despawn,
+	// silently fails forever. Also clears the stale GLOB.map_templates
+	// entry for z, mirroring the equivalent cleanup ship teardown already
+	// does for its own scope.
+	var/datum/map_template/here_template = GLOB.map_templates["[z]"]
+	if(here_template && here_template.loaded > 0)
+		here_template.loaded--
+	GLOB.map_templates -= "[z]"
+
+	if(purge_incidental)
+		SSpersistence.purgeZRows(z)
+
+	// Clean up zone security + persistence-toggle rows/state for this z too --
+	// otherwise a stale tier/toggle could silently apply to whatever different
+	// site happens to load at this same Z number on a future boot.
+	if(SSpersistence.databaseCheckConnection("_despawn_away_site_z cleanup"))
+		var/datum/db_query/del_sec = SSdbcore.NewQuery(
+			"DELETE FROM ss13_zone_security WHERE z = :z AND map_path = :mp",
+			list("z" = z, "mp" = "[SSatlas.current_map.path]")
+		)
+		del_sec.Execute()
+		qdel(del_sec)
+		var/datum/db_query/del_persist = SSdbcore.NewQuery(
+			"DELETE FROM ss13_zlevel_persistence WHERE z = :z AND map_path = :mp",
+			list("z" = z, "mp" = "[SSatlas.current_map.path]")
+		)
+		del_persist.Execute()
+		qdel(del_persist)
+	GLOB.zone_security_by_z -= "[z]"
+	GLOB.persistence_zlevel_skip -= z
+	GLOB.persistence_zlevel_allow -= z
+
+	// Delete every remaining atom/mob (caller already guaranteed player-free),
+	// wipe turfs to plain space, then remove the overmap marker. Pass 1 is a
+	// type-indexed world scan (the safe pattern): qdel'ing an object can
+	// itself spawn/drop a new movable as a side effect (an APC ejecting its
+	// cell is normal APC behavior), which a one-shot turf/contents snapshot
+	// taken before that qdel would never catch. Passes 2+ mop up whatever
+	// pass 1's qdel cascade freshly ejected -- those land directly on a turf
+	// (never nested), so a Z-scoped turf/contents re-check is safe there and,
+	// critically, bounded to this Z's own turf count instead of a second full
+	// for(TYPE in world) sweep. Repeating the world-wide scan every pass was
+	// a real hang: qdel() only calls Destroy() immediately (SSgarbage defers
+	// the real del()), so a just-qdel'd object with its .loc/.z untouched
+	// keeps matching on every subsequent pass, guaranteeing all 5 passes ran
+	// as full-world scans every time.
+	for(var/atom/movable/AM in world)
+		CHECK_TICK
+		if(AM.z != z)
+			continue
+		qdel(AM)
+
+	var/pass = 1
+	var/found_any = TRUE
+	while(found_any && pass < 5)
+		found_any = FALSE
+		pass++
+		for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+			CHECK_TICK
+			var/list/contents_snapshot = T.contents.Copy()
+			for(var/atom/movable/AM in contents_snapshot)
+				qdel(AM)
+				found_any = TRUE
+
+	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+		T.ChangeTurf(/turf/space)
+		CHECK_TICK
+
+	// Area reassignment back to the world default -- ChangeTurf() only
+	// touches the turf's type, not its area (a separate .loc assignment), so
+	// without this a future occupant's turfs would silently inherit this
+	// site's now-qdeleted custom area instances. Only matters once z can
+	// actually be reused (see the pool release below); harmless otherwise.
+	var/area/default_area = locate(world.area)
+	if(default_area)
+		for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+			var/area/current = T.loc
+			if(current != default_area)
+				T.change_area(current, default_area)
+			CHECK_TICK
+
+	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[z]"]
+	if(marker)
+		qdel(marker)
+	GLOB.map_sectors -= "[z]"
+	zone_security_update_overmap()
+
+	if(purge_incidental)
+		SSpersistence.poolReusableZ(z)
 
 /**
  * Fully removes a currently-loaded away site (pinned or dynamic) -- wipes its
@@ -997,6 +2001,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		return
 
 	var/datum/map_template/tmpl = GLOB.map_templates["[z_pick]"]
+	var/purge_incidental = TRUE
 
 	if(z_pick in GLOB.persistence_pinned_site_z)
 		var/datum/db_query/find_row = SSdbcore.NewQuery(
@@ -1015,54 +2020,11 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			del_row.Execute()
 			SSpersistence.databaseCheckQueryResult(del_row, "remove_away_site unpin")
 			qdel(del_row)
-			if(purge_choice == "Purge")
-				SSpersistence.purgeZRows(z_pick)
+			purge_incidental = (purge_choice == "Purge")
 		GLOB.persistence_pinned_site_z -= z_pick
 		GLOB.persistence_zlevel_allow -= z_pick
-	else
-		// Dynamic site -- no away-site row to clean, but purge any incidental
-		// persistence rows regardless (harmless no-op if none exist).
-		SSpersistence.purgeZRows(z_pick)
 
-	// Clean up zone security + persistence-toggle rows/state for this z too --
-	// otherwise a stale tier/toggle could silently apply to whatever different
-	// site happens to load at this same Z number on a future boot. Runs
-	// unconditionally (pinned or dynamic) since either could independently
-	// have accumulated a security tier or persistence toggle.
-	if(SSpersistence.databaseCheckConnection("remove_away_site cleanup"))
-		var/datum/db_query/del_sec = SSdbcore.NewQuery(
-			"DELETE FROM ss13_zone_security WHERE z = :z AND map_path = :mp",
-			list("z" = z_pick, "mp" = "[SSatlas.current_map.path]")
-		)
-		del_sec.Execute()
-		qdel(del_sec)
-		var/datum/db_query/del_persist = SSdbcore.NewQuery(
-			"DELETE FROM ss13_zlevel_persistence WHERE z = :z AND map_path = :mp",
-			list("z" = z_pick, "mp" = "[SSatlas.current_map.path]")
-		)
-		del_persist.Execute()
-		qdel(del_persist)
-	GLOB.zone_security_by_z -= "[z_pick]"
-	GLOB.persistence_zlevel_skip -= z_pick
-	GLOB.persistence_zlevel_allow -= z_pick
-
-	// Teardown: delete every remaining atom/mob (already guaranteed
-	// player-free by the guard above), wipe turfs to plain space, then remove
-	// the overmap marker. Snapshot each turf's contents first -- can't qdel
-	// while iterating a turf's live contents list (same gotcha reset_zlevel()
-	// already works around).
-	for(var/turf/T in block(locate(1, 1, z_pick), locate(world.maxx, world.maxy, z_pick)))
-		var/list/contents_snapshot = T.contents.Copy()
-		for(var/atom/movable/AM in contents_snapshot)
-			qdel(AM)
-		T.ChangeTurf(/turf/space)
-		CHECK_TICK
-
-	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[z_pick]"]
-	if(marker)
-		qdel(marker)
-	GLOB.map_sectors -= "[z_pick]"
-	zone_security_update_overmap()
+	_despawn_away_site_z(z_pick, purge_incidental)
 
 	to_chat(usr, SPAN_GOOD("Removed the away site at Z=[z_pick]."))
 	log_and_message_admins("removed away site at Z=[z_pick]", usr)
@@ -1247,6 +2209,10 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 
 	if(istype(target, /mob/living/carbon/human))
 		var/mob/living/carbon/human/H = target
+		// The issuing faction IS this ID's employer -- sync the mob before
+		// set_id_info() copies employer_faction onto the card, otherwise it
+		// stamps the holder's old prefs faction straight back over chosen_uid.
+		H.employer_faction = chosen_uid
 		H.set_id_info(new_card)
 
 	target.put_in_hands(new_card)
@@ -1382,25 +2348,11 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		var/confirm = tgui_alert(usr, "Permanently delete faction '[get_faction_name(chosen_uid)]' ([chosen_uid]) and all its jobs/data? This cannot be undone.", "Confirm Delete", list("Delete", "Cancel"))
 		if(confirm != "Delete") return
 
-		if(!SSpersistence.databaseCheckConnection("remove_faction"))
+		if(!SSpersistence.removeFactionCompletely(chosen_uid, usr))
 			to_chat(usr, SPAN_WARNING("DB connection failed."))
 			return
 
-		// CASCADE in DB handles faction_accounts and faction_jobs via foreign key
-		var/datum/db_query/q = SSdbcore.NewQuery(
-			"DELETE FROM ss13_factions WHERE uid = :uid",
-			list("uid" = chosen_uid)
-		)
-		q.Execute()
-		SSpersistence.databaseCheckQueryResult(q, "remove_faction delete")
-		qdel(q)
-
-		// Remove from in-memory caches
-		GLOB.persistence_faction_cache      -= chosen_uid
-		GLOB.persistence_faction_jobs_cache -= chosen_uid
-
 		to_chat(usr, SPAN_GOOD("Faction '[chosen_uid]' removed."))
-		log_and_message_admins("removed faction '[chosen_uid]'", usr)
 
 	feedback_add_details("admin_verb", "MFA")
 
@@ -1632,6 +2584,23 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		return null
 	return GLOB.persistence_faction_members_cache["[ckey]|[faction_uid]"]
 
+/// -1 = non-member, 0+ = member rank, 99 = admin. Also grants rank 2
+/// (command) to whoever is holding that faction's bearer master card
+/// (cards_ids.dm), regardless of DB membership -- the card isn't tied to
+/// any ckey, so this can't be resolved via get_faction_member() alone.
+/proc/get_effective_faction_rank(mob/user, faction_uid)
+	if(!user || !faction_uid)
+		return -1
+	faction_uid = normalize_faction_uid(faction_uid)
+	if(check_rights(R_ADMIN, 0, user))
+		return 99
+	var/list/member = user.ckey ? get_faction_member(user.ckey, faction_uid) : null
+	var/rank = member ? (isnull(member["rank"]) ? 0 : (member["rank"] + 0)) : -1
+	var/obj/item/card/id/ID = user.GetIdCard()
+	if(ID && ID.is_faction_master && !ID.revoked && normalize_faction_uid(ID.employer_faction) == faction_uid)
+		rank = max(rank, 2)
+	return rank
+
 /datum/controller/subsystem/persistence/proc/factionRegisterMember(ckey, real_name, faction_uid, job_title = null, rank = 0)
 	faction_uid = normalize_faction_uid(faction_uid)
 	if(!databaseCheckConnection("factionRegisterMember"))
@@ -1699,7 +2668,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		return FALSE
 	// Load members with valid account numbers
 	var/datum/db_query/mq = SSdbcore.NewQuery(
-		"SELECT ckey, job_title, account_number FROM ss13_faction_members WHERE faction_uid = :uid AND account_number > 0",
+		"SELECT ckey, real_name, job_title, account_number FROM ss13_faction_members WHERE faction_uid = :uid AND account_number > 0",
 		list("uid" = faction_uid)
 	)
 	mq.Execute()
@@ -1707,12 +2676,14 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		qdel(mq)
 		return FALSE
 
+	var/fname = get_faction_name(faction_uid)
 	var/paid = 0
 	var/skipped = 0
 	while(mq.NextRow())
-		var/mkey = mq.item[1]
-		var/mjob  = mq.item[2]
-		var/macct = text2num(mq.item[3]) || 0
+		var/mckey = mq.item[1]
+		var/mreal_name = mq.item[2]
+		var/mjob  = mq.item[3]
+		var/macct = text2num(mq.item[4]) || 0
 		if(!macct || !mjob)
 			skipped++
 			continue
@@ -1720,10 +2691,24 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		if(pay <= 0)
 			skipped++
 			continue
-		if(!faction_debit(faction_uid, pay, "Payroll to [mkey]"))
+		// Only pay a member who is actively playing this exact character
+		// right now -- ckey alone isn't enough, since the same ckey could be
+		// online on an unrelated character. Same online-mob lookup idiom as
+		// announce_faction_event() above.
+		var/mob/living/carbon/human/online_mob = null
+		for(var/mob/living/carbon/human/H in GLOB.player_list)
+			if(!H.client || H.ckey != mckey || H.real_name != mreal_name)
+				continue
+			online_mob = H
+			break
+		if(!online_mob)
+			skipped++
+			continue
+		if(!faction_debit(faction_uid, pay, "Payroll to [mckey]"))
 			log_game("Faction [faction_uid] payroll: insufficient funds, stopping.")
 			break
-		SSeconomy.charge_to_account(macct, "Faction Payroll", "Salary from [get_faction_name(faction_uid)]", null, pay)
+		SSeconomy.charge_to_account(macct, "Faction Payroll", "Salary from [fname]", null, pay)
+		to_chat(online_mob, SPAN_GOOD("Payroll: you've been paid [pay] credits by [fname]."))
 		paid++
 	qdel(mq)
 
@@ -1740,6 +2725,51 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		GLOB.persistence_faction_cache[faction_uid]["last_payroll_at"] = world.time
 
 	log_game("Faction [faction_uid] payroll: paid [paid] members, skipped [skipped].")
+	return TRUE
+
+/// Permanently deletes a faction: DB row (cascades to ss13_faction_accounts/
+/// ss13_faction_jobs via foreign key), both in-memory caches, and revokes any
+/// outstanding bearer master card. Shared by the admin "Remove Faction"
+/// branch (manage_faction_account(), user set) and the automatic stock-
+/// exchange bankruptcy path (stockMarketRevokeFaction(),
+/// persistence_stock_market.dm, user null) -- a faction that goes bankrupt
+/// while listed on the exchange doesn't just lose its territory (see
+/// _power_down_faction_beacons_on_bankruptcy(), faction_beacon.dm), it
+/// ceases to exist entirely and would have to be founded again from
+/// scratch via the normal petition process (start_founding, faction_manage.dm).
+/// Returns TRUE on success.
+/datum/controller/subsystem/persistence/proc/removeFactionCompletely(faction_uid, mob/user)
+	faction_uid = normalize_faction_uid(faction_uid)
+	if(!faction_uid || !islist(GLOB.persistence_faction_cache) || !(faction_uid in GLOB.persistence_faction_cache))
+		return FALSE
+	if(!databaseCheckConnection("removeFactionCompletely"))
+		return FALSE
+
+	var/fname = get_faction_name(faction_uid)
+
+	// CASCADE in DB handles faction_accounts and faction_jobs via foreign key
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"DELETE FROM ss13_factions WHERE uid = :uid",
+		list("uid" = faction_uid)
+	)
+	q.Execute()
+	databaseCheckQueryResult(q, "removeFactionCompletely delete")
+	qdel(q)
+
+	// Remove from in-memory caches
+	GLOB.persistence_faction_cache      -= faction_uid
+	GLOB.persistence_faction_jobs_cache -= faction_uid
+
+	// Revoke this faction's bearer master card, if it has one -- same
+	// revoke-by-scan idiom dispense_faction_id uses for superseded personal
+	// IDs (card.dm)
+	for(var/obj/item/card/id/faction_master/old_master in world)
+		if(!old_master.revoked && normalize_faction_uid(old_master.employer_faction) == faction_uid)
+			old_master.revoked = TRUE
+			old_master.access = list()
+			old_master.update_name()
+
+	log_and_message_admins("removed faction '[faction_uid]' ([fname])[user ? "" : " -- stock exchange bankruptcy, faction dissolved"]", user)
 	return TRUE
 
 // ============================================================

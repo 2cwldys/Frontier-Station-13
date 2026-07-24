@@ -234,6 +234,9 @@
 		return SHIP_GUN_ERROR_NO_AMMO
 
 /obj/structure/machinery/ship_weapon/proc/fire(var/atom/overmap_target, var/obj/landmark, var/direction_override)
+	if(istype(linked, /obj/effect/overmap/visitable/ship))
+		var/obj/effect/overmap/visitable/ship/firing_ship = linked
+		firing_ship.last_combat_time = world.time
 	var/obj/item/ship_ammunition/SA = consume_ammo()
 	if(!barrel)
 		crash_with("No barrel found for [src] at [x] [y] [z]! Cannot fire!")

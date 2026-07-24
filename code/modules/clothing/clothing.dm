@@ -783,6 +783,8 @@
 	else
 		for(var/obj/item/clothing/accessory/A in accessories)
 			var/image/accessory_image = A.get_accessory_mob_overlay(H, FALSE)
+			if(faction_tag_uid && !A.faction_tag_uid)
+				accessory_image.color = color
 			I.AddOverlays(accessory_image)
 
 	if(blood_DNA && slot != slot_l_hand_str && slot != slot_r_hand_str)
@@ -1143,6 +1145,8 @@
 	else
 		for(var/obj/item/clothing/accessory/A in accessories)
 			var/image/accessory_image = A.get_accessory_mob_overlay(H, FALSE)
+			if(faction_tag_uid && !A.faction_tag_uid)
+				accessory_image.color = color
 			I.AddOverlays(accessory_image)
 
 	if(blood_DNA && slot != slot_l_hand_str && slot != slot_r_hand_str)
@@ -1260,6 +1264,8 @@
 	else
 		for(var/obj/item/clothing/accessory/A in accessories)
 			var/image/accessory_image = A.get_accessory_mob_overlay(H, FALSE)
+			if(faction_tag_uid && !A.faction_tag_uid)
+				accessory_image.color = color
 			I.AddOverlays(accessory_image)
 
 	if(blood_DNA && slot != slot_l_hand_str && slot != slot_r_hand_str)

@@ -32,6 +32,8 @@
 	var/turf/T = get_turf(src)
 	if(!T || !T.z)
 		return
+	if(persistence_area_excluded(T))
+		return
 	SSpersistence.objectsRegisterTrack(src)
 
 /obj/effect/decal/cleanable/Destroy()

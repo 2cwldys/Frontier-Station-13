@@ -265,12 +265,12 @@
 			. += gift_storage.return_inv()
 
 /obj/item/storage/proc/show_to(mob/user as mob)
+	if(user.s_active && user.s_active != src)
+		user.s_active.hide_from(user)
 	if(user.s_active != src)
 		for(var/obj/item/I in src)
 			if(I.on_found(user))
 				return
-	if(user.s_active)
-		user.s_active.hide_from(user)
 	user.client.screen -= boxes
 	user.client.screen -= storage_start
 	user.client.screen -= storage_continue
@@ -311,8 +311,6 @@
 		animate_parent()
 
 	orient2hud(user)
-	if (user.s_active)
-		user.s_active.close(user)
 	show_to(user)
 
 /obj/item/storage/proc/close(mob/user as mob)

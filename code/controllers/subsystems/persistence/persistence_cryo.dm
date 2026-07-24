@@ -345,6 +345,17 @@
 	var/persistent_spawn   = FALSE
 	/// TRUE if this cryopod was placed on the original map (handled by worldstate). FALSE = admin-spawned (handled by persistent_objects).
 	var/persistence_map_placed = FALSE
+	/// ckey of the character this pod is personally reserved for, or null.
+	/// Mutually exclusive with persistent_network/persistent_spawn -- see
+	/// persistence_find_saved_cryopod()/persistence_find_available_cryopod() below.
+	var/personal_ckey = null
+	/// Paired with personal_ckey -- see modular_computer's own var of the same name.
+	var/personal_char_name = null
+	/// TRUE if this pod is reserved for its drydock ship's crew (owner +
+	/// crew_ckeys) rather than one specific person or a faction -- see
+	/// persistence_find_saved_cryopod()/persistence_find_available_cryopod()
+	/// below. Mutually exclusive with persistent_network/personal_ckey.
+	var/crew_tagged = FALSE
 	/// Never expire spawned cryopods
 	persistant_objects_expiration_time_days = 36500
 
@@ -386,7 +397,10 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 /obj/structure/machinery/cryopod/persistent_objects_get_content()
 	return list(
 		"persistent_network" = persistent_network,
-		"persistent_spawn"   = persistent_spawn
+		"persistent_spawn"   = persistent_spawn,
+		"personal_ckey"      = personal_ckey,
+		"personal_char_name" = personal_char_name,
+		"crew_tagged"        = crew_tagged
 	)
 
 /// On load: if a map-placed cryopod already exists at this position, configure it and qdel self.
@@ -409,6 +423,12 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 					existing.persistent_network = content["persistent_network"]
 				if(!isnull(content["persistent_spawn"]))
 					existing.persistent_spawn = content["persistent_spawn"]
+				if(!isnull(content["personal_ckey"]))
+					existing.personal_ckey = content["personal_ckey"]
+				if(!isnull(content["personal_char_name"]))
+					existing.personal_char_name = content["personal_char_name"]
+				if(!isnull(content["crew_tagged"]))
+					existing.crew_tagged = content["crew_tagged"]
 				// Hand off DB ownership so finalize updates this entry instead of purging it
 				existing.persistent_objects_track_id = src.persistent_objects_track_id
 				SSpersistence.objectsRegisterTrack(existing, src.persistent_objects_author_ckey)
@@ -420,6 +440,12 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 		persistent_network = content["persistent_network"]
 	if(!isnull(content["persistent_spawn"]))
 		persistent_spawn = content["persistent_spawn"]
+	if(!isnull(content["personal_ckey"]))
+		personal_ckey = content["personal_ckey"]
+	if(!isnull(content["personal_char_name"]))
+		personal_char_name = content["personal_char_name"]
+	if(!isnull(content["crew_tagged"]))
+		crew_tagged = content["crew_tagged"]
 
 /**
  * Look up the primary faction UID for a player from the ss13_faction_members table.
@@ -467,6 +493,10 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 		return null
 	if(pod.stat & (NOPOWER|BROKEN))
 		return null
+	if(pod.personal_ckey && (pod.personal_ckey != ckey || pod.personal_char_name != char_name))
+		return null
+	if(pod.crew_tagged && !_drydock_crew_check_identity(ckey, char_name, pod.z))
+		return null
 	if(pod.persistent_network && pod.persistent_network != "public")
 		var/player_faction = persistence_get_player_faction(ckey)
 		if(normalize_faction_uid(player_faction) != normalize_faction_uid(pod.persistent_network))
@@ -479,7 +509,30 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
  *   2. Public or unrestricted pod (persistent_network = "public" or "", persistent_spawn = TRUE)
  * Returns the chosen POD, or null (callers handle landmark fallbacks).
  */
-/proc/persistence_find_available_cryopod(faction_uid = null)
+/proc/persistence_find_available_cryopod(faction_uid = null, ckey = null, char_name = null)
+	// Priority 0: a pod personally reserved for this exact character -- takes
+	// precedence over faction/public pods, same as a personal tag overrides
+	// a faction tag on the pod itself (mutually exclusive by design).
+	if(ckey && char_name)
+		for(var/obj/structure/machinery/cryopod/pod in world)
+			if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore))
+				continue
+			if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN)))
+				continue
+			if(pod.personal_ckey == ckey && pod.personal_char_name == char_name)
+				return pod
+
+		// Priority 0.5: a pod tagged to this character's own drydock ship
+		// crew -- checked after the exact-personal match above, before
+		// faction/public, same precedence a Crew tag has everywhere else.
+		for(var/obj/structure/machinery/cryopod/pod in world)
+			if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore))
+				continue
+			if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN)))
+				continue
+			if(pod.crew_tagged && _drydock_crew_check_identity(ckey, char_name, pod.z))
+				return pod
+
 	// Priority 1: faction's own pods
 	if(faction_uid)
 		var/list/faction_pods = list()
@@ -518,6 +571,102 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 	if(length(public_pods))
 		return pick(public_pods)
 	return null
+
+/**
+ * Collect every cryopod currently valid for this player, tiered and labeled,
+ * for the spawn-choice picker below. Mirrors the exact per-pod validity
+ * checks used by persistence_find_saved_cryopod()/persistence_find_available_cryopod()
+ * (unpowered/broken, occupied, ignore-listed, personal/crew/network gates),
+ * but collects every match per tier instead of returning on first hit. A pod
+ * that would qualify under more than one tier (e.g. your personal pod is
+ * also your last-used one) is only listed once, under its highest-priority
+ * tier. Those two procs are untouched -- this is a separate, additive pass.
+ */
+/proc/persistence_collect_available_cryopods(ckey, char_name, faction_uid)
+	. = list()
+	if(!ckey || !char_name)
+		return
+	var/list/seen = list()
+
+	var/list/entry = GLOB.persistence_position_cache["[ckey]|[char_name]"]
+	if(islist(entry) && entry["last_pod_z"])
+		var/pz = entry["last_pod_z"]
+		if(pz >= 1 && pz <= world.maxz)
+			var/turf/T = locate(entry["last_pod_x"], entry["last_pod_y"], pz)
+			var/obj/structure/machinery/cryopod/pod = T ? (locate(/obj/structure/machinery/cryopod) in T) : null
+			if(pod && !is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore) && !pod.occupant && !(pod.stat & (NOPOWER|BROKEN)))
+				var/personal_ok = !pod.personal_ckey || (pod.personal_ckey == ckey && pod.personal_char_name == char_name)
+				var/crew_ok = !pod.crew_tagged || _drydock_crew_check_identity(ckey, char_name, pod.z)
+				var/network_ok = TRUE
+				if(pod.persistent_network && pod.persistent_network != "public")
+					network_ok = (normalize_faction_uid(faction_uid) == normalize_faction_uid(pod.persistent_network))
+				if(personal_ok && crew_ok && network_ok)
+					. += list(list("pod" = pod, "tier" = "Last Used"))
+					seen[pod] = TRUE
+
+	for(var/obj/structure/machinery/cryopod/pod in world)
+		if(seen[pod]) continue
+		if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore)) continue
+		if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
+		if(pod.personal_ckey == ckey && pod.personal_char_name == char_name)
+			. += list(list("pod" = pod, "tier" = "Personal"))
+			seen[pod] = TRUE
+
+	for(var/obj/structure/machinery/cryopod/pod in world)
+		if(seen[pod]) continue
+		if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore)) continue
+		if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
+		if(pod.crew_tagged && _drydock_crew_check_identity(ckey, char_name, pod.z))
+			. += list(list("pod" = pod, "tier" = "Crew"))
+			seen[pod] = TRUE
+
+	if(faction_uid)
+		for(var/obj/structure/machinery/cryopod/pod in world)
+			if(seen[pod]) continue
+			if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore)) continue
+			if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
+			if(pod.persistent_network == faction_uid)
+				. += list(list("pod" = pod, "tier" = "Faction"))
+				seen[pod] = TRUE
+
+	for(var/obj/structure/machinery/cryopod/pod in world)
+		if(seen[pod]) continue
+		if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore)) continue
+		if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
+		if(pod.persistent_network == "public" && pod.persistent_spawn)
+			. += list(list("pod" = pod, "tier" = "Public"))
+			seen[pod] = TRUE
+
+/**
+ * Mandatory spawn-pod picker shown once per fresh world entry (see
+ * PersistentAutoSpawn()'s fresh-spawn branch, new_player.dm). Lists every
+ * pod persistence_collect_available_cryopods() finds, tiered and labeled
+ * with its area and coordinates. Re-prompts with a freshly recollected list
+ * if the player cancels or their pick got raced away by another spawn in the
+ * meantime, until either a still-valid pod is chosen (returned) or a
+ * recollect comes back with nothing left to offer (returns null -- caller
+ * falls back to the existing automatic cascade).
+ */
+/proc/persistence_prompt_cryopod_choice(mob/user, ckey, char_name, faction_uid)
+	while(TRUE)
+		var/list/candidates = persistence_collect_available_cryopods(ckey, char_name, faction_uid)
+		if(!length(candidates))
+			return null
+
+		var/list/choices = list()
+		for(var/list/candidate in candidates)
+			var/obj/structure/machinery/cryopod/pod = candidate["pod"]
+			var/area/A = get_area(pod)
+			var/label = "[candidate["tier"]] -- [A ? A.name : "Unknown Area"] ([pod.x], [pod.y], [pod.z])"
+			choices[label] = pod
+
+		var/pick = tgui_input_list(user, "Choose a cryopod to wake in:", "Cryopod Selection", choices, timeout = 0)
+		if(QDELETED(user))
+			return null
+		var/obj/structure/machinery/cryopod/chosen = pick ? choices[pick] : null
+		if(!istype(chosen) || QDELETED(chosen) || chosen.occupant || (chosen.stat & (NOPOWER|BROKEN)))
+			continue
+		return chosen
 
 // ============================================================
 // GHOST VERB BLOCK  prevent ghosting while in/near cryopod
@@ -646,6 +795,136 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 
 	return null
 
+/// Personal-order counterpart to persistence_find_cargo_telepad() -- matches
+/// a pad's personal_ckey/personal_char_name instead of a faction network. No
+/// public fallback: a personal order only ever delivers to that character's
+/// own personally-tagged pad.
+/proc/persistence_find_personal_cargo_telepad(ckey, char_name)
+	if(!ckey || !char_name)
+		return null
+	for(var/obj/structure/machinery/telepad_cargo/pad in world)
+		if(!pad.accepts_cargo) continue
+		if(!pad.z) continue
+		if(!pad.persistent_spawn) continue
+		if(pad.personal_ckey == ckey && pad.personal_char_name == char_name)
+			return get_turf(pad)
+	return null
+
+/// Crew-order counterpart to persistence_find_personal_cargo_telepad() --
+/// matches a crew-tagged pad belonging to the SAME ship the order was
+/// submitted from (matched by shuttle_id via _drydock_ship_at() on the
+/// pad's own Z, not a stored identity) so Ship A's crew orders never land
+/// on Ship B's crew-tagged pad even if the orderer happens to be crew of
+/// both. No public fallback: a crew order only ever delivers to that ship's
+/// own crew-tagged pad.
+/proc/persistence_find_crew_cargo_telepad(shuttle_id)
+	if(!shuttle_id)
+		return null
+	for(var/obj/structure/machinery/telepad_cargo/pad in world)
+		if(!pad.accepts_cargo) continue
+		if(!pad.z) continue
+		if(!pad.persistent_spawn) continue
+		if(!pad.crew_tagged) continue
+		var/datum/drydock_ship/pad_ship = _drydock_ship_at(pad.z)
+		if(pad_ship && pad_ship.shuttle_id == shuttle_id)
+			return get_turf(pad)
+	return null
+
+/// Plural counterpart to persistence_find_personal_cargo_telepad() -- every
+/// matching pad instead of just the first, for the telepad-choice picker
+/// (cargo_order.dm/cargo_exports.dm) when a character has tagged more than
+/// one. Same scoping as the singular version -- never crosses into another
+/// character's, faction's, or ship's pads.
+/proc/persistence_find_personal_cargo_telepads(ckey, char_name)
+	var/list/pads = list()
+	if(!ckey || !char_name)
+		return pads
+	for(var/obj/structure/machinery/telepad_cargo/pad in world)
+		if(!pad.accepts_cargo) continue
+		if(!pad.z) continue
+		if(!pad.persistent_spawn) continue
+		if(pad.personal_ckey == ckey && pad.personal_char_name == char_name)
+			pads += pad
+	return pads
+
+/// Plural counterpart to persistence_find_crew_cargo_telepad() -- every
+/// matching pad instead of just the first, for the telepad-choice picker.
+/// Same scoping as the singular version -- never crosses into a different
+/// ship's crew-tagged pads.
+/proc/persistence_find_crew_cargo_telepads(shuttle_id)
+	var/list/pads = list()
+	if(!shuttle_id)
+		return pads
+	for(var/obj/structure/machinery/telepad_cargo/pad in world)
+		if(!pad.accepts_cargo) continue
+		if(!pad.z) continue
+		if(!pad.persistent_spawn) continue
+		if(!pad.crew_tagged) continue
+		var/datum/drydock_ship/pad_ship = _drydock_ship_at(pad.z)
+		if(pad_ship && pad_ship.shuttle_id == shuttle_id)
+			pads += pad
+	return pads
+
+/**
+ * Find every cargo telepad for the given faction network. Priority: faction
+ * telepads -> public telepads -> empty list. Returns every match within
+ * whichever tier wins (never mixes tiers) so a caller with more than one
+ * candidate can offer a choice instead of always landing on the first one
+ * iteration happens to find. Mirrors persistence_find_security_telepads()
+ * (persistence_zone_security.dm).
+ */
+/proc/persistence_find_cargo_telepads(network = null)
+	network = normalize_faction_uid(network)
+	var/list/faction_pads = list()
+	if(network)
+		for(var/obj/structure/machinery/telepad_cargo/pad in world)
+			if(!pad.accepts_cargo) continue
+			if(!pad.z) continue
+			if(!pad.persistent_spawn) continue
+			if(normalize_faction_uid(pad.persistent_network) == network)
+				faction_pads += pad
+	if(length(faction_pads))
+		return faction_pads
+	var/list/public_pads = list()
+	for(var/obj/structure/machinery/telepad_cargo/pad in world)
+		if(!pad.accepts_cargo) continue
+		if(!pad.z) continue
+		if(lowertext(pad.persistent_network) == "public" && pad.persistent_spawn)
+			public_pads += pad
+	return public_pads
+
+/// Builds telepad_choices UI data (ref + area_name, distance-sorted from the
+/// viewing computer) for any candidate list -- shared by Cargo Order/Exports
+/// across all three tag modes (each resolves its own already-scoped
+/// candidate list via the finders above before calling this). Empty list if
+/// there's 1 or fewer candidates -- callers shouldn't show a picker then.
+/// Same-Z tile distance always outranks cross-Z overmap-sector distance
+/// (+10000 offset keeps the two tiers from ever interleaving), so the
+/// closest pad to the console lists first.
+/proc/cargo_telepad_choice_data(list/telepads, obj/item/modular_computer/computer)
+	var/list/choices = list()
+	if(length(telepads) <= 1)
+		return choices
+	var/turf/console_turf = get_turf(computer)
+	var/console_z = GET_Z(computer)
+	var/obj/effect/overmap/visitable/console_sector = console_z ? GLOB.map_sectors["[console_z]"] : null
+	var/list/pad_distances = list()
+	for(var/obj/structure/machinery/telepad_cargo/pad in telepads)
+		var/turf/pad_turf = get_turf(pad)
+		var/dist = 99999
+		if(pad_turf && console_turf && pad_turf.z == console_z)
+			dist = get_dist(console_turf, pad_turf)
+		else if(pad_turf)
+			var/obj/effect/overmap/visitable/pad_sector = GLOB.map_sectors["[pad_turf.z]"]
+			if(console_sector && istype(pad_sector))
+				dist = 10000 + get_dist(console_sector, pad_sector)
+		pad_distances[pad] = dist
+	sortTim(pad_distances, GLOBAL_PROC_REF(cmp_numeric_asc), TRUE)
+	for(var/obj/structure/machinery/telepad_cargo/pad in pad_distances)
+		var/area/A = get_area(pad)
+		choices += list(list("ref" = "\ref[pad]", "area_name" = A ? A.name : "Unknown Area"))
+	return choices
+
 /**
  * Teleport a list of atoms to the destination turf with a flash effect.
  */
@@ -656,6 +935,7 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 		if(QDELETED(A)) continue
 		A.forceMove(destination)
 	// Visual/audio feedback at the destination
+	spark(destination, 5, GLOB.alldirs)
 	playsound(destination, 'sound/effects/phasein.ogg', 50, 1)
 
 // ============================================================

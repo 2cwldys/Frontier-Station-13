@@ -346,6 +346,7 @@ GLOBAL_LIST_INIT_TYPED(cleanbot_litter_types, /obj/item, list(
 	cleaning = TRUE
 	D.vars["being_cleaned"] = TRUE
 	update_icon()
+	playsound(get_turf(D), 'sound/effects/cleanbot_start.ogg', 75, TRUE)
 	var/clean_time = istype(D, /obj/effect/decal/cleanable/dirt) ? 10 : 50
 	log_game("[src] began cleaning [D] ([D.type]) at [get_turf(D)].")
 	addtimer(CALLBACK(src, PROC_REF(do_clean), D), clean_time)
@@ -367,6 +368,7 @@ GLOBAL_LIST_INIT_TYPED(cleanbot_litter_types, /obj/item, list(
 		D.vars["being_cleaned"] = FALSE
 		cleaning_target = null
 
+		playsound(get_turf(D), 'sound/effects/cleanbot_finish.ogg', 75, TRUE)
 		qdel(D)
 
 	cleaning = FALSE

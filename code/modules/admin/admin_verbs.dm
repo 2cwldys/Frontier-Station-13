@@ -201,11 +201,21 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/manage_faction_account,
 	/datum/admins/proc/manage_faction_jobs,
 	/datum/admins/proc/give_faction_id,
+	/datum/admins/proc/toggle_faction_creation,
+	/datum/admins/proc/toggle_faction_raiding,
+	/datum/admins/proc/manage_stock_market,
 	/datum/admins/proc/toggle_zlevel_persistence,
 	/datum/admins/proc/manage_manual_save_list,
 	/datum/admins/proc/manage_persistent_overmap_sites,
+	/datum/admins/proc/force_stash_ship,
+	/datum/admins/proc/force_stash_all_ships,
+	/datum/admins/proc/restore_ship_backup,
+	/datum/admins/proc/set_drydock_ship_cap,
 	/datum/admins/proc/generate_away_site,
 	/datum/admins/proc/remove_away_site,
+	/datum/admins/proc/manage_cargo_exports,
+	/datum/admins/proc/repair_dual_tagged_devices,
+	/datum/admins/proc/manage_missions,
 	/datum/admins/proc/set_zone_security,
 	/datum/admins/proc/view_overmap,
 	/datum/admins/proc/return_to_lobby,
@@ -692,8 +702,7 @@ GLOBAL_LIST_INIT(admin_verbs_storyteller, list(
 	else
 		//ghostize
 		var/mob/body = mob
-		var/mob/abstract/ghost/observer/ghost = body.ghostize(1)
-		ghost.admin_ghosted = 1
+		var/mob/abstract/ghost/observer/ghost = body.ghostize(can_reenter_corpse = 1, admin_ghosted = TRUE)
 		if(body)
 			body.teleop = ghost
 			if(!body.key)

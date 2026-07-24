@@ -32,6 +32,33 @@
 	///How precise (turf range) is the teleportation
 	var/precision = 1
 
+/// Purely visual bluespace flash -- never teleports, and (unlike a
+/// target-less base portal) never self-deletes on contact: teleport()
+/// qdels a portal with no target the moment anything enters its turf,
+/// which erased same-tick decorative spawns before they ever rendered.
+/obj/effect/portal/decorative
+	does_teleport = FALSE
+
+/// Same purely-visual flash as the base decorative portal, but fades out
+/// over its final moments instead of abruptly vanishing when its lifespan
+/// timer (QDEL_IN, base /obj/effect/portal/Initialize()) deletes it -- for
+/// a send-off that reads as fading away, not a jump-cut. Used everywhere
+/// the plain decorative portal used to be (telepad travel, drydock
+/// boarding, First Responder, Personal Travel, Cargo Exports) -- the base
+/// /obj/effect/portal/decorative type itself is kept only as the shared
+/// parent (does_teleport = FALSE), not spawned directly anymore.
+/obj/effect/portal/decorative/fading
+	/// How long the fade-out itself takes -- clamped to the actual lifespan
+	/// in Initialize() so a short-lived portal doesn't get asked to hold at
+	/// full opacity for a negative duration.
+	var/fade_time = 1 SECOND
+
+/obj/effect/portal/decorative/fading/Initialize(mapload, turf/set_target, set_creator, lifespan = 3 SECONDS, precise = 1)
+	. = ..()
+	var/actual_fade = min(fade_time, lifespan)
+	animate(src, alpha = 255, time = max(0, lifespan - actual_fade))
+	animate(alpha = 0, time = actual_fade)
+
 /obj/effect/portal/Initialize(mapload, turf/set_target, set_creator, lifespan = 300, precise = 1)
 	. = ..()
 
@@ -355,6 +382,22 @@
 /// Mainly for admin events.
 /obj/effect/portal/permanent
 	has_lifespan = FALSE
+
+/// A stable, reliable two-way walkway opened between a docked drydock ship
+/// and wherever it's docked (see /obj/effect/overmap/visitable/ship/landable/
+/// drydock_ship's on_landing()/on_takeoff(), drydock_ship.dm) -- a docked
+/// ship's real interior never physically moves (only its overmap marker
+/// does), so without this there is no walkable connection between the two
+/// at all. Deliberately public/unrestricted (unlike the ownership-gated
+/// boarding telepad) -- a physical dock is something anyone standing there
+/// can walk through. has_lifespan = FALSE: lifetime is governed by dock
+/// status (open/closed explicitly), not a timer. failchance = 0: this is a
+/// reliable gangway, not a random unstable bluespace event.
+/obj/effect/portal/dock_link
+	name = "docking umbilical"
+	desc = "A stabilized bluespace conduit bridging a docked ship to its mooring."
+	has_lifespan = FALSE
+	failchance = 0
 
 #undef COLOR_STAGE_FIVE
 #undef COLOR_STAGE_FOUR

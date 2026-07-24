@@ -1,6 +1,7 @@
 import {
   Box,
   Button,
+  Dropdown,
   Icon,
   LabeledList,
   Section,
@@ -15,10 +16,23 @@ import { NtosWindow } from '../layouts';
 import { sanitizeText } from '../sanitize';
 import { SearchBar } from './common/SearchBar';
 
+type TelepadChoice = {
+  ref: string;
+  area_name: string;
+};
+
 export type CargoData = {
   faction_network: string | null;
   faction_name: string | null;
   faction_balance: number | null;
+  is_personal: BooleanLike;
+  personal_owner_name: string | null;
+  personal_balance: number | null;
+  is_crew: BooleanLike;
+  crew_ship_name: string | null;
+  crew_balance: number | null;
+  telepad_choices: TelepadChoice[];
+  selected_telepad_ref: string | null;
   username: string;
   order_items: Item[];
   order_value: number;
@@ -134,6 +148,50 @@ export const MainPage = (props) => {
             {data.faction_balance !== null ? `${data.faction_balance} credits` : 'N/A'}
           </Box>
         </Box>
+      )}
+      {!!data.is_personal && (
+        <Box mb={1} bold>
+          Personal Balance:{' '}
+          <Box as="span" color={data.personal_balance !== null ? 'good' : 'label'}>
+            {data.personal_balance !== null ? `${data.personal_balance} credits` : 'N/A'}
+          </Box>
+          <Box color="label" mt={0.5}>
+            Orders from this console are paid from your personal account, not
+            a faction.
+          </Box>
+        </Box>
+      )}
+      {!!data.is_crew && (
+        <Box mb={1} bold>
+          {data.crew_ship_name ?? 'Ship'} Crew Balance:{' '}
+          <Box as="span" color={data.crew_balance !== null ? 'good' : 'label'}>
+            {data.crew_balance !== null ? `${data.crew_balance} credits` : 'N/A'}
+          </Box>
+          <Box color="label" mt={0.5}>
+            Orders from this console are billed to the ship owner's account,
+            not yours.
+          </Box>
+        </Box>
+      )}
+      {data.telepad_choices.length > 1 && (
+        <Dropdown
+          mb={1}
+          width="100%"
+          selected={
+            data.telepad_choices.find(
+              (t) => t.ref === data.selected_telepad_ref,
+            )?.area_name || 'Select a delivery telepad'
+          }
+          options={data.telepad_choices.map((t) => t.area_name)}
+          onSelected={(area_name) => {
+            const choice = data.telepad_choices.find(
+              (t) => t.area_name === area_name,
+            );
+            if (choice) {
+              act('select_telepad', { select_telepad: choice.ref });
+            }
+          }}
+        />
       )}
       <Section title={`Welcome, ${data.username}`}>
         <Stack vertical>

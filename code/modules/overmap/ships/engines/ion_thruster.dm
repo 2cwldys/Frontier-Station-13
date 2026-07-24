@@ -79,6 +79,7 @@
 	if(!on && !powered())
 		return 0
 	use_power_oneoff(thrust_limit * burn_cost * power_modifier)
+	playsound(loc, 'sound/machines/thruster.ogg', (50 * thrust_limit * power_modifier), FALSE, world.view * 4, 0.1)
 	. = thrust_limit * generated_thrust * power_modifier
 
 /obj/structure/machinery/ion_engine/proc/get_thrust()

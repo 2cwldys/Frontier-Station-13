@@ -52,6 +52,17 @@
 	layer         = FULLSCREEN_LAYER
 	plane         = HIDDEN_SHIT_PLANE
 
+// Rear-observer "something moved behind you" flash -- see _ping_rear_observers().
+/atom/movable/screen/behind_ping
+	icon          = 'icons/mob/hide.dmi'
+	icon_state    = "behind"
+	name          = " "
+	screen_loc    = "1,1"
+	mouse_opacity = MOUSE_OPACITY_TRANSPARENT
+	layer         = GAMEUI_BORDER_LAYER
+	plane         = FULLSCREEN_PLANE
+	alpha         = 160
+
 // ── Film grain screen object ───────────────────────────────────────────────
 
 /atom/movable/screen/film_grain
@@ -187,11 +198,59 @@
 // ── Movement hook ──────────────────────────────────────────────────────────
 // The cone test depends on relative position, not just facing -- walking
 // past someone changes whether they're in-cone even with dir unchanged, so
-// this needs the same recompute set_dir() already triggers.
+// this needs the same recompute set_dir() already triggers. Generalized to
+// every living mob (not just humans) so the rear-observer ping below fires
+// for ANY mover stepping behind a human's cone -- the cone itself stays
+// human-only, gated by the ishuman() check.
 
-/mob/living/carbon/human/Moved(atom/old_loc, movement_dir, forced, list/old_locs)
+/mob/living/Moved(atom/old_loc, movement_dir, forced, list/old_locs)
 	. = ..()
-	if(fov) update_vision_cone()
+	if(ishuman(src))
+		var/mob/living/carbon/human/H = src
+		if(H.fov) H.update_vision_cone()
+	_ping_rear_observers()
+
+// ── Behind-you awareness ping ──────────────────────────────────────────────
+// A personal-only pulse shown to a player when another human moves inside
+// their blind rear arc, up to BEHIND_PING_RANGE tiles away -- they can't
+// see the mover (FOV cone hides them), but they can tell something is
+// moving back there. Art is the hide.dmi "behind" state (Serenity family).
+
+#define BEHIND_PING_RANGE 3
+
+/mob/living/carbon/human
+	var/next_behind_ping = 0
+
+/// Called from Moved() above: pulse every nearby player whose ACTIVE cone
+/// hides this mover (same InCone rear-arc test update_vision_cone() uses).
+/// Defined on /mob/living (not human-only) so any mob type moving behind a
+/// human's cone triggers the pulse -- the observers checked below are still
+/// always human, since only humans have a real cone to hide behind.
+/mob/living/proc/_ping_rear_observers()
+	var/turf/T = get_turf(src)
+	if(!T)
+		return
+	for(var/mob/living/carbon/human/H in range(BEHIND_PING_RANGE, T))
+		if(H == src || !H.client || !H.fov || !H.fov.alpha)
+			continue
+		if(world.time < H.next_behind_ping)
+			continue
+		if(!InCone(H, OPPOSITE_DIR(H.dir)))
+			continue
+		H.next_behind_ping = world.time + 1 SECOND
+		// Screen overlay (not a world-turf image) -- GAMEUI_BORDER_LAYER on
+		// FULLSCREEN_PLANE so the pulse shows THROUGH the black rear-arc cone
+		// instead of under it, same rendering convention as fov/fov_mask_two.
+		var/atom/movable/screen/behind_ping/ping = new()
+		H.client.screen += ping
+		addtimer(CALLBACK(GLOBAL_PROC, /proc/_behind_ping_cleanup, H.client, ping), 1 SECOND)
+
+/proc/_behind_ping_cleanup(client/C, atom/movable/screen/behind_ping/I)
+	if(C)
+		C.screen -= I
+	qdel(I)
+
+#undef BEHIND_PING_RANGE
 
 // ── Living mob cleanup when dying/disconnecting ───────────────────────────
 

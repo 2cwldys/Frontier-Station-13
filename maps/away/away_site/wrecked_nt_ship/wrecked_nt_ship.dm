@@ -17,7 +17,7 @@
 	map = "wrecked_nt_ship"
 	descriptor = "A wrecked ship once owned by NanoTrasen."
 
-/obj/effect/overmap/visitable/wrecked_nt_ship
+/obj/effect/overmap/visitable/sector/wrecked_nt_ship
 	name = "wrecked NT ship"
 	desc = "A wrecked ship once owned by NanoTrasen, embedded within an asteroid. The ship is cold, with a faint possible lifesign detected within. Sensors have picked up exotic particles on site."
 

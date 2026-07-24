@@ -266,9 +266,9 @@
 
 /singleton/cargo_item/taperoll
 	category = "supply"
-	name = "tape roll"
+	name = "repairing tape"
 	supplier = "Hub"
-	description = "A roll of sticky tape. Possibly for taping ducks... or was that ducts?"
+	description = "A roll of sticky tape, used to repair items."
 	price = 8
 	items = list(
 		/obj/item/tape_roll

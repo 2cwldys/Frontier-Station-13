@@ -46,6 +46,14 @@
 		. += SPAN_NOTICE("It holds [length(stored_laces)] neural laces.")
 
 /obj/structure/machinery/lace_storage/attackby(obj/item/attacking_item, mob/user)
+	if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		if(!attacking_item.tool_use_check(user, 0))
+			return TRUE
+		attacking_item.play_tool_sound(get_turf(src), 50)
+		anchored = !anchored
+		to_chat(user, anchored ? SPAN_NOTICE("You secure \the [src] in place.") : SPAN_NOTICE("You unsecure \the [src]."))
+		attacking_item.degrade_durability(attacking_item.durability_per_use)
+		return TRUE
 	if(istype(attacking_item, /obj/item/organ/internal/neural_lace))
 		var/obj/item/organ/internal/neural_lace/lace = attacking_item
 		if(!has_free_slot())
@@ -213,6 +221,12 @@
 /obj/structure/machinery/lace_storage/worldstate_apply_content(list/content)
 	persistent_network = content["network"] || ""
 	update_icon()
+
+/// Cargo-ordered copy -- starts unanchored so it can be moved out of its
+/// crate before being wrenched into place. The base type's anchored = TRUE
+/// (whatever's already mapped in) is left untouched.
+/obj/structure/machinery/lace_storage/crate
+	anchored = FALSE
 
 /// Find an available lace storage vault for the given faction (or public)
 /proc/persistence_find_lace_storage(faction_uid = null)

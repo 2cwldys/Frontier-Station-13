@@ -120,6 +120,22 @@
 					to_chat(usr, SPAN_WARNING("The console shows an error screen: the weapon isn't loaded!"))
 				if(SHIP_GUN_FIRING_SUCCESSFUL)
 					log_and_message_admins("[usr] has fired [cannon] with target [linked.targeting] and entry point [LM]!", location = get_turf(usr))
+					// Combat is outlawed in highsec (see the zone shield's own
+					// legend) -- opening ship-to-ship fire from OR into
+					// beacon-covered highsec space records the gunner as a
+					// highsec offense, feeding the same admin escalation +
+					// First Responder log mob-on-mob violence already uses
+					// (zone_security_record_offense's own per-ckey cooldown
+					// keeps a sustained barrage from flooding it). Fire-time,
+					// not hit-time: shooting at all is the offense, and only
+					// this console knows who pulled the trigger. Zone comes
+					// from live overmap beacon coverage, not the ships' Zs --
+					// a moving ship's Z tier is stale by design.
+					if(usr.ckey && !zone_security_exempt(usr))
+						var/turf/firer_tile = get_turf(linked)
+						var/turf/victim_tile = linked.targeting ? get_turf(linked.targeting) : null
+						if(zone_security_overmap_tier(firer_tile) == ZONE_HIGHSEC || (victim_tile && zone_security_overmap_tier(victim_tile) == ZONE_HIGHSEC))
+							zone_security_record_offense(usr, null, "opened ship-to-ship fire in highsec space")
 					. = TRUE
 					if(issilicon(usr))
 						to_chat(usr,SPAN_WARNING("The targeting systems register, showing a successful firing sequence."))

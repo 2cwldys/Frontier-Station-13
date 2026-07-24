@@ -166,10 +166,21 @@
 	eject_item()
 
 /obj/item/modular_computer/attack(mob/living/target_mob, mob/living/user, target_zone)
-	// First Responder open: tapping a mob toggles a transport tag instead of attacking
+	// First Responder open: tapping a mob does whatever its tap_mode says --
+	// tag for transport (original behavior), or seize/repossess/scuttle the
+	// target's deployed ship -- instead of attacking.
 	var/datum/computer_file/program/security/first_responder/FR = active_program
 	if(istype(FR))
-		FR.toggle_prisoner_tag(target_mob, user)
+		if(FR.tap_mode == "tag")
+			FR.toggle_prisoner_tag(target_mob, user)
+		else
+			FR.handle_ship_seizure_tap(target_mob, user)
+		return
+	// Faction Management open with an active founding petition: tapping a
+	// player prompts them to consent to the petition instead of attacking
+	var/datum/computer_file/program/faction_manage/FM = active_program
+	if(istype(FM))
+		FM.tap_consent(target_mob, user)
 		return
 	if(scan_mode == SCANNER_MEDICAL)
 		var/datum/component/health_analyzer/h_analyzer = src.GetComponent(/datum/component/health_analyzer)

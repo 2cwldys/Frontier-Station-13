@@ -702,7 +702,15 @@ Traitors and the like can also be revived with the previous role mostly intact.
 		qdel(O, TRUE)
 	else
 		// This is naughty, but sometimes necessary.
-		O.Destroy(TRUE)	// Because direct del without this breaks things.
+		// Destroy() inside try/catch: Hard Delete is the escape hatch for
+		// objects whose Destroy() misbehaves -- if it throws and we unwind
+		// here, del(O) below never runs and the object becomes permanently
+		// undeletable (qdel latched GC_CURRENTLY_BEING_QDELETED on any prior
+		// soft attempt, so future qdels CRASH too).
+		try
+			O.Destroy(TRUE)	// Because direct del without this breaks things.
+		catch(var/exception/e)
+			log_debug("Hard Delete: Destroy() threw '[e]' on [O] ([O.type]) -- proceeding with del() anyway.")
 		del(O)
 
 /client/proc/cmd_admin_list_open_jobs()

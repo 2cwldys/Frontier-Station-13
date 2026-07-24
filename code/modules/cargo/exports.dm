@@ -26,6 +26,11 @@ For example, if some player buys metal and glass sheets and uses them to make an
 
 then the player gets the profit from selling his own wasted time.
 */
+/// Sells any item, at its DB-configured price (get_cargo_export_price()) or
+/// the flat base price if unconfigured -- every item is exportable, not just
+/// a fixed catalog. Accumulates onto generic_export_total/generic_export_lines
+/// (reset via reset_generic_export_totals() at the start of a sale cycle)
+/// instead of the old per-/datum/export total_cost tracking.
 /datum/controller/subsystem/cargo/proc/export_item_and_contents(atom/movable/AM, contraband, emagged, dry_run=FALSE)
 	var/sold_str = ""
 	var/cost = 0
@@ -35,16 +40,13 @@ then the player gets the profit from selling his own wasted time.
 	// We go backwards, so it'll be innermost objects sold first
 	for(var/i in reverseRange(contents))
 		var/atom/movable/thing = i
-		for(var/datum/export/E in exports_list)
-			if(!E)
-				continue
-			if(E.applies_to(thing, contraband, emagged))
-				if(dry_run)
-					cost += E.get_cost(thing, contraband, emagged)
-				else
-					E.sell_object(thing, contraband, emagged)
-					sold_str += " [thing.name]"
-				break
+		var/the_cost = get_cargo_export_price(thing)
+		if(dry_run)
+			cost += the_cost
+		else if(the_cost > 0)
+			generic_export_total += the_cost
+			generic_export_lines[thing.name] += the_cost
+			sold_str += " [thing.name]"
 		if(!dry_run)
 			qdel(thing)
 
@@ -52,6 +54,12 @@ then the player gets the profit from selling his own wasted time.
 		return cost
 	else
 		return sold_str
+
+/// Resets the accumulated totals for a new sale cycle -- call before scanning,
+/// then read generic_export_total/generic_export_lines after.
+/datum/controller/subsystem/cargo/proc/reset_generic_export_totals()
+	generic_export_total = 0
+	generic_export_lines = list()
 
 /datum/export
 	var/unit_name = ""				// Unit name. Only used in "Received [total_amount] [name]s [message]." message

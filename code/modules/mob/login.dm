@@ -104,6 +104,23 @@
 	if(client) //Should work based on "change_view" but we lack the infrastructure behind to make it useful, for now
 		client.attempt_auto_fit_viewport()
 
+	if(client && client.saved_dynamic_view)
+		// A sector view was open when this client last detached (aghost,
+		// disconnect) -- the exit path never ran client-side, so this stale
+		// cache would permanently block refit_dynamic_view()'s recompute
+		// guard and strand the expanded view. Discard and refit fresh.
+		client.saved_dynamic_view = null
+		client.refit_dynamic_view()
+
+	if(client)
+		// The Say/Me/OOC pushboxes persist is-checked client-side
+		// (saved-params) -- a stuck checked state renders them with the
+		// system highlight instead of their blue skin color. Reset to the
+		// default unchecked look; their own commands manage live toggling.
+		winset(client, "inputbuttons.saybutton", "is-checked=false")
+		winset(client, "inputbuttons.mebutton", "is-checked=false")
+		winset(client, "inputbuttons.oocbutton", "is-checked=false")
+
 	if(machine)
 		machine.on_user_login(src)
 

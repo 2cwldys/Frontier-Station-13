@@ -87,8 +87,8 @@
 		SSodyssey.scenario_zlevels += z_index
 	base_area = new base_area()
 
-	// regenerate minimaps
-	SSholomap.generate_all_minimaps()
+	// regenerate minimaps for the newly-added Z's only
+	SSholomap.generate_minimaps_for_range(bounds[MAP_MINZ], bounds[MAP_MAXZ])
 
 /**
  * This proc sends the early message to the Horizon. It is supposed to be sent around 5 minutes in, telling them to get ready for the expedition and to start going there.

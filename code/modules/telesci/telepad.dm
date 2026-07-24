@@ -70,9 +70,72 @@
 	var/persistent_spawn   = FALSE
 	/// TRUE when a player has claimed this pad for their faction; only officers+ can release.
 	var/faction_shackled   = FALSE
+	/// ckey of the character this pad is personally tagged to, or null.
+	/// Mutually exclusive with persistent_network/faction_shackled -- routes
+	/// that character's own personal cargo orders here (persistence_cargo_exports.dm/
+	/// cargo.dm) instead of a faction's.
+	var/personal_ckey = null
+	/// Paired with personal_ckey -- see modular_computer's own var of the same name.
+	var/personal_char_name = null
+	/// TRUE if this pad is tagged to its drydock ship's crew (owner +
+	/// crew_ckeys) rather than one specific person or a faction -- routes a
+	/// crew-tagged order (same ship) here instead of a personal or faction
+	/// one. Mutually exclusive with persistent_network/faction_shackled and
+	/// personal_ckey. Billing always goes to the ship OWNER's account
+	/// regardless of which crew member placed the order (cargo_order.dm/
+	/// cargo_exports.dm).
+	var/crew_tagged = FALSE
 	/// Hard guarantee flag: cargo delivery selectors refuse any pad with this
 	/// FALSE (security telepads) -- supplies can never land on non-cargo pads.
 	var/accepts_cargo      = TRUE
+	/// TRUE if this pad was placed on the original map (handled by
+	/// worldstate). FALSE = spawned at runtime (telepad_beacon item, or a
+	/// corvette_boarding pad map-placed inside a template's own .dmm and
+	/// loaded via load_new_z() -- mapload is still TRUE there, same as any
+	/// other map-placed instance). Mirrors cryopod/persistence_map_placed
+	/// (persistence_cryo.dm:347) -- prevents double-registering a map-placed
+	/// pad with both worldstate AND the dynamic persistent_objects tracker.
+	var/persistence_map_placed = FALSE
+
+/obj/structure/machinery/telepad_cargo/Initialize(mapload, ...)
+	. = ..()
+	if(mapload)
+		persistence_map_placed = TRUE
+
+/// objectsRegisterTrack() (faction_tagger_set(), below, and any subtype's own
+/// equivalent) only guarantees a spawned pad gets RECREATED at its saved
+/// position on restart -- the base /obj persistent_objects_get_content()
+/// returns an empty list, so persistent_network/persistent_spawn/faction_shackled
+/// were never actually being saved through this path at all, only through
+/// worldstate (which only ever runs for map-placed instances). Mirrors
+/// cryopod's own persistent_objects_get_content()/apply_content() pair
+/// (persistence_cryo.dm) -- the correct, complete template for this.
+/obj/structure/machinery/telepad_cargo/persistent_objects_get_content()
+	var/list/content = ..()
+	content["persistent_network"] = persistent_network
+	content["persistent_spawn"]   = persistent_spawn
+	content["faction_shackled"]   = faction_shackled
+	content["personal_ckey"]      = personal_ckey
+	content["personal_char_name"] = personal_char_name
+	content["crew_tagged"]        = crew_tagged
+	return content
+
+/obj/structure/machinery/telepad_cargo/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["persistent_network"]))
+		persistent_network = normalize_faction_uid(content["persistent_network"])
+	if(!isnull(content["persistent_spawn"]))
+		persistent_spawn = !!content["persistent_spawn"]
+	if(!isnull(content["faction_shackled"]))
+		faction_shackled = !!content["faction_shackled"]
+	if(!isnull(content["crew_tagged"]))
+		crew_tagged = !!content["crew_tagged"]
+	if(!isnull(content["personal_ckey"]))
+		personal_ckey = content["personal_ckey"]
+	if(!isnull(content["personal_char_name"]))
+		personal_char_name = content["personal_char_name"]
 
 // Player-facing faction linking for cargo/security telepads is configured
 // via the faction tagger tool now (code/game/objects/items/devices/faction_tagger.dm

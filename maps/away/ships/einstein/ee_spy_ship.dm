@@ -5,7 +5,7 @@
 	prefix = "ships/einstein/"
 	suffix = "ee_spy_ship.dmm"
 
-	sectors = list(SECTOR_TAU_CETI, SECTOR_ROMANOVICH, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE)
+	sectors = list(SECTOR_TAU_CETI, SECTOR_ROMANOVICH, SECTOR_DEEP_FRONTIER, SECTOR_CORP_ZONE, SECTOR_VALLEY_HALE)
 	spawn_weight = 0 // outdated and not following current standards, could be enabled after it's fixed
 	ship_cost = 1
 	id = "ee_spy_ship"

@@ -11,6 +11,12 @@
 
 /datum/effect_system/ion_trail/process()
 	. = ..()
+	// location is never otherwise assigned -- set_loc() exists on the base
+	// class specifically for this, but nothing was actually calling it, so
+	// the trail below could never fire for any bound holder (bikes, pods,
+	// etc.), on space tiles or otherwise.
+	if (holder)
+		set_loc(holder)
 	if (!location)
 		return
 

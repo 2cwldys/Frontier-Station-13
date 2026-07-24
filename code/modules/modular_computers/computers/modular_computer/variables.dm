@@ -61,6 +61,22 @@
 	var/persistent_network = ""
 	/// TRUE when a player has claimed this machine for their faction; only officers+ can release.
 	var/faction_shackled = FALSE
+	/// ckey of the character this machine is personally tagged to, or null.
+	/// Mutually exclusive with persistent_network/faction_shackled -- see
+	/// faction_tagger_set()/personal_tagger_set() (persistence_faction_tagger.dm).
+	/// While set, ui_interact() refuses anyone else (see modular_computer/ui.dm).
+	var/personal_ckey = null
+	/// Paired with personal_ckey -- a personal tag belongs to a CHARACTER, not
+	/// just an account (same convention as drydock ships' owner_char_name).
+	var/personal_char_name = null
+	/// TRUE if this machine is tagged to its drydock ship's crew (owner +
+	/// crew_ckeys) rather than one specific person or a faction -- resolved
+	/// dynamically via _drydock_crew_check() (telepad_drydock_boarding.dm).
+	/// Mutually exclusive with persistent_network/faction_shackled and
+	/// personal_ckey. Cargo ordering/exports bill the ship OWNER's account
+	/// directly while this is set (cargo_order.dm/cargo_exports.dm), not
+	/// whoever's operating the console.
+	var/crew_tagged = FALSE
 
 	/// Modular computers can run on various devices. Each DEVICE (Laptop, Console, Tablet,..)
 	/// must have it's own DMI file. Icon states must be called exactly the same in all files, but may look differently
@@ -76,6 +92,11 @@
 	var/icon_state_unpowered
 	/// Icon state overlay when the computer is turned on, but no program is loaded that would override the screen.
 	var/icon_state_menu = "menu"
+	/// Whether update_icon() overlays active_program.program_icon_state on
+	/// top of the base sprite. Console/laptop screen overlays are sized for
+	/// their larger screens and mismatch handheld tablet sprites -- see
+	/// /obj/item/modular_computer/handheld's override.
+	var/use_program_screen_overlay = TRUE
 	var/icon_state_menu_key = "black_key"
 	var/icon_state_screensaver
 	var/icon_state_screensaver_key
