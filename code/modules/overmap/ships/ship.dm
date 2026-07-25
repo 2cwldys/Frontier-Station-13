@@ -223,6 +223,12 @@
 	if((!speed[1] && !speed[2]) || !can_burn())
 		return
 
+	// Same ship-wide cue accelerate() broadcasts for Burn/Forward -- the
+	// Inertial Dampener button never had one of its own.
+	for(var/mob/living/L in GLOB.living_mob_list)
+		if(L.z in map_z)
+			L.playsound_local(soundin = 'sound/machines/inertial_dampener.ogg', vol = 50)
+
 	// Pythagorean theorem gives us the magnitude of the ship's velocity, which is always an absolute value.
 	// This is also the mathematical definition for Vector.size
 	var/magnitude_velocity = ((speed[1] ** 2) + (speed[2] **2)) ** (1/2)

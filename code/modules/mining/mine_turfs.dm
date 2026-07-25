@@ -415,6 +415,71 @@ GLOBAL_LIST_INIT(mineral_can_smooth_with, list(
 		O.geologic_data = get_geodata()
 	return O
 
+/// How much heat a single successful wall extraction adds on a lone asteroid
+/// exoplanet z. Decays over time (see _tick_asteroid_heat_decay() below) so a
+/// burst of mining spikes the fauna hazard but it cools back down if mining
+/// pauses, rather than ratcheting up permanently.
+#define ASTEROID_MINING_HEAT_PER_DRILL 4
+#define ASTEROID_MINING_HEAT_MAX 100
+#define ASTEROID_MINING_HEAT_DECAY_INTERVAL 30 SECONDS
+#define ASTEROID_MINING_HEAT_DECAY_AMOUNT 5
+
+/// z (as text) -> current mining-aggression heat for lone asteroid exoplanets.
+GLOBAL_LIST_EMPTY(asteroid_mining_heat)
+/// z (as text) -> the lazily-created fauna_spawner/lone_asteroid for that z.
+GLOBAL_LIST_EMPTY(asteroid_mining_spawner_by_z)
+/// z (as text) -> TRUE while a decay ticker is already scheduled for that z,
+/// so _schedule_asteroid_heat_decay() never stacks multiple timers.
+GLOBAL_LIST_EMPTY(asteroid_mining_heat_decay_active)
+
+/// Called whenever a lone asteroid exoplanet wall is successfully mined --
+/// see GetDrilled() below. Raises that z's mining heat, lazily creates (once)
+/// a fauna_spawner/lone_asteroid for the z, and re-tunes its spawn
+/// cooldown/wave size to match the new heat.
+/proc/_notify_asteroid_mining(turf/source)
+	var/z = GET_Z(source)
+	if(!is_asteroid_zone(z))
+		return
+	var/zkey = "[z]"
+	var/heat = min((GLOB.asteroid_mining_heat[zkey] || 0) + ASTEROID_MINING_HEAT_PER_DRILL, ASTEROID_MINING_HEAT_MAX)
+	GLOB.asteroid_mining_heat[zkey] = heat
+	_schedule_asteroid_heat_decay(z)
+
+	var/obj/effect/fauna_spawner/lone_asteroid/spawner = GLOB.asteroid_mining_spawner_by_z[zkey]
+	if(!spawner || QDELETED(spawner))
+		spawner = new(get_turf(source))
+		GLOB.asteroid_mining_spawner_by_z[zkey] = spawner
+	spawner.apply_heat(heat)
+	spawner.start_spawning() // no-op if already running -- see fauna_spawner/start_spawning()'s own guard
+
+/// Starts a self-rescheduling decay tick for z's mining heat, unless one is
+/// already running. See _tick_asteroid_heat_decay().
+/proc/_schedule_asteroid_heat_decay(z)
+	var/zkey = "[z]"
+	if(GLOB.asteroid_mining_heat_decay_active[zkey])
+		return
+	GLOB.asteroid_mining_heat_decay_active[zkey] = TRUE
+	addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_tick_asteroid_heat_decay), z), ASTEROID_MINING_HEAT_DECAY_INTERVAL)
+
+/// One decay step for z's mining heat -- reduces it, re-tunes the z's
+/// spawner to match, and reschedules itself until heat bottoms out at 0
+/// (heat never fully "turns off" the spawner -- see apply_heat()'s lowest
+/// band, a deliberate low ambient baseline rather than a hard stop).
+/proc/_tick_asteroid_heat_decay(z)
+	var/zkey = "[z]"
+	var/heat = max((GLOB.asteroid_mining_heat[zkey] || 0) - ASTEROID_MINING_HEAT_DECAY_AMOUNT, 0)
+	var/obj/effect/fauna_spawner/lone_asteroid/spawner = GLOB.asteroid_mining_spawner_by_z[zkey]
+	if(heat <= 0)
+		GLOB.asteroid_mining_heat -= zkey
+		GLOB.asteroid_mining_heat_decay_active -= zkey
+		if(spawner && !QDELETED(spawner))
+			spawner.apply_heat(0)
+		return
+	GLOB.asteroid_mining_heat[zkey] = heat
+	if(spawner && !QDELETED(spawner))
+		spawner.apply_heat(heat)
+	addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_tick_asteroid_heat_decay), z), ASTEROID_MINING_HEAT_DECAY_INTERVAL)
+
 /turf/simulated/mineral/proc/GetDrilled(var/artifact_fail = 0)
 	if(mineral?.result_amount)
 		//if the turf has already been excavated, some of it's ore has been removed
@@ -432,6 +497,11 @@ GLOBAL_LIST_INIT(mineral_can_smooth_with, list(
 		S.set_up(R, 10, 0, src, 40)
 		S.start()
 		qdel(R)
+
+	// Must run before ChangeTurf() below -- that call retypes src in place
+	// (turfs mutate rather than get replaced), so src is no longer a
+	// /turf/simulated/mineral once it's run.
+	_notify_asteroid_mining(src)
 
 	ChangeTurf(mined_turf)
 

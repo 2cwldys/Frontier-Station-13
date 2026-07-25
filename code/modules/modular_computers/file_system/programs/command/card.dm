@@ -319,11 +319,15 @@
 			// 2. Check mind.initial_account — set earlier this session by a previous ID operation
 			if(!rep_acct && user.mind && user.mind.initial_account)
 				rep_acct = user.mind.initial_account.account_number
-			// 3. Only if still nothing, create a brand-new account
+			// 3. Only if still nothing, create a brand-new account -- capture the
+			// return value directly (see dispense_faction_id's identical fix
+			// above) instead of re-deriving via user.mind.initial_account,
+			// which silently left the card's associated_account_number at 0
+			// whenever user.mind was null at this exact moment.
 			if(!rep_acct)
-				SSeconomy.create_and_assign_account(user)
-				if(user.mind && user.mind.initial_account)
-					rep_acct = user.mind.initial_account.account_number
+				var/datum/money_account/new_acct = SSeconomy.create_and_assign_account(user)
+				if(new_acct)
+					rep_acct = new_acct.account_number
 					rep_is_new = TRUE
 			new_card.associated_account_number = rep_acct
 
@@ -337,14 +341,25 @@
 			if(!placed_in_slot)
 				user.put_in_hands(new_card)
 
-			if(rep_is_new && rep_acct)
-				tgui_alert(user, "A personal Idris bank account has been created.\n\nAccount Number: #[rep_acct]\n\nYou will be asked to set a PIN next. Write this number down.", "Account Created", list("Set PIN"))
+			// Resolve the live account datum regardless of which step above found
+			// it -- the cache-lookup path (step 1) never touches
+			// user.mind.initial_account, so that var can't be trusted as "the
+			// account we just resolved" the way the fresh-create path could.
+			var/datum/money_account/rep_account = rep_acct ? SSeconomy.get_account(rep_acct) : null
+			// Fires the first time EVER a player sees this popup, not just when
+			// the account itself happens to be brand new -- most accounts are
+			// actually minted silently at roundstart (job.dm's setup_account()),
+			// so gating this on rep_is_new alone almost never actually showed it.
+			var/rep_show_intro = rep_account && !rep_account.intro_shown
+			if(rep_show_intro)
+				rep_account.intro_shown = TRUE
+				tgui_alert(user, "[rep_is_new ? "A new personal Idris bank account has been created for you." : "This ID has been linked to your existing personal Idris bank account."]\n\nAccount Number: #[rep_acct]\n\nYou will be asked to set a PIN next. Write this number down.", "Idris Bank Account", list("Set PIN"))
 				var/rep_pin = tgui_input_text(user, "Set a PIN for ATM access (4-8 digits). Leave blank to skip.", "Set ATM PIN", "", max_length = 8)
 				var/pin_display = "(random -- set at ATM)"
 				if(rep_pin && length(rep_pin) >= 4 && text2num(rep_pin))
-					if(user.mind?.initial_account)
-						user.mind.initial_account.remote_access_pin = text2num(rep_pin)
+					rep_account.remote_access_pin = text2num(rep_pin)
 					pin_display = rep_pin
+				SSpersistence.economySaveAccountNow(rep_account)
 				var/rep_note = "Idris Account: #[rep_acct] | PIN: [pin_display] | Insert ID at any Idris ATM."
 				if(GLOB.config.sql_enabled && SSdbcore.Connect())
 					var/datum/db_query/rn_q = SSdbcore.NewQuery(
@@ -395,10 +410,17 @@
 			if(!dispense_acct && user.mind && user.mind.initial_account)
 				dispense_acct = user.mind.initial_account.account_number
 			if(!dispense_acct)
-				// Not in cache — create a fresh unique account and save to DB via economy persistence
-				SSeconomy.create_and_assign_account(user)
-				if(user.mind && user.mind.initial_account)
-					dispense_acct = user.mind.initial_account.account_number
+				// Not in cache — create a fresh unique account and save to DB via
+				// economy persistence. Capture the return value directly instead
+				// of re-deriving it via user.mind.initial_account -- that assign
+				// only happens inside create_and_assign_account()'s own
+				// `if(mob.mind)` guard, so a null mind at this exact moment used
+				// to leave the card stamped with associated_account_number = 0
+				// (a real account existed, just never linked to the card) --
+				// silently dead for any future payment, including vending.
+				var/datum/money_account/new_acct = SSeconomy.create_and_assign_account(user)
+				if(new_acct)
+					dispense_acct = new_acct.account_number
 					acct_is_new = TRUE
 
 			// Dispense new blank faction ID
@@ -421,11 +443,22 @@
 			SSpersistence.factionRegisterMember(user.ckey, user.real_name, disp_net)
 			if(dispense_acct)
 				SSpersistence.factionUpdateMemberAccount(user.ckey, disp_net, dispense_acct)
-			if(acct_is_new && dispense_acct)
+			// Resolve the live account datum regardless of which step above found
+			// it -- the cache-lookup path (step 1) never touches
+			// user.mind.initial_account, so that var can't be trusted as "the
+			// account we just resolved" the way the fresh-create path could.
+			var/datum/money_account/acct = dispense_acct ? SSeconomy.get_account(dispense_acct) : null
+			// Fires the first time EVER a player sees this popup, not just when
+			// the account itself happens to be brand new -- most accounts are
+			// actually minted silently at roundstart (job.dm's setup_account()),
+			// so gating this on acct_is_new alone almost never actually showed it.
+			var/show_intro = acct && !acct.intro_shown
+			if(show_intro)
+				acct.intro_shown = TRUE
 				// Walk the player through setting their PIN and safekeeping their account info
 				tgui_alert(user,
-					"A personal Idris bank account has been created.\n\nAccount Number: #[dispense_acct]\n\nYou will be asked to set a PIN next. Write this number down.",
-					"Account Created", list("Set PIN"))
+					"[acct_is_new ? "A new personal Idris bank account has been created for you." : "This ID has been linked to your existing personal Idris bank account."]\n\nAccount Number: #[dispense_acct]\n\nYou will be asked to set a PIN next. Write this number down.",
+					"Idris Bank Account", list("Set PIN"))
 
 				var/chosen_pin = tgui_input_text(user,
 					"Set a PIN for remote ATM access (4-8 digits).\nLeave blank to skip — a random PIN will be assigned.",
@@ -433,9 +466,9 @@
 
 				var/pin_display = "(random — set at ATM)"
 				if(chosen_pin && length(chosen_pin) >= 4 && text2num(chosen_pin))
-					if(user.mind?.initial_account)
-						user.mind.initial_account.remote_access_pin = text2num(chosen_pin)
+					acct.remote_access_pin = text2num(chosen_pin)
 					pin_display = chosen_pin
+				SSpersistence.economySaveAccountNow(acct)
 
 				// Save account info persistently to ss13_crew_records
 				var/acct_note = "Idris Account: #[dispense_acct] | PIN: [pin_display] | Use any Idris SelfServ Teller (insert ID, no PIN needed if card is present)."
@@ -577,16 +610,55 @@
 
 	// Link existing bank account -- only mint a new one if the player has none anywhere
 	var/verb_acct = 0
+	var/verb_is_new = FALSE
 	var/list/verb_econ = GLOB.persistence_economy_cache["[user.ckey]|[user.real_name]"]
 	if(islist(verb_econ))
 		verb_acct = verb_econ["account_number"] || 0
 	if(!verb_acct && user.mind && user.mind.initial_account)
 		verb_acct = user.mind.initial_account.account_number
 	if(!verb_acct)
-		SSeconomy.create_and_assign_account(user)
-		if(user.mind && user.mind.initial_account)
-			verb_acct = user.mind.initial_account.account_number
+		// Capture the return value directly (see dispense_faction_id's
+		// identical fix) instead of re-deriving via user.mind.initial_account,
+		// which silently left associated_account_number at 0 whenever
+		// user.mind was null at this exact moment.
+		var/datum/money_account/new_acct = SSeconomy.create_and_assign_account(user)
+		if(new_acct)
+			verb_acct = new_acct.account_number
+			verb_is_new = TRUE
 	new_card.associated_account_number = verb_acct
+
+	// Resolve the live account datum regardless of which step above found it,
+	// and show the same one-time account-info/PIN-setup popup the tgui
+	// print_replacement action has -- this verb is just another entry point
+	// to the same self-service replacement flow, so it should onboard a
+	// player exactly the same way (most accounts are actually minted
+	// silently at roundstart, job.dm's setup_account(), so this can't be
+	// gated on verb_is_new alone or it'll almost never show).
+	var/datum/money_account/verb_account = verb_acct ? SSeconomy.get_account(verb_acct) : null
+	if(verb_account && !verb_account.intro_shown)
+		verb_account.intro_shown = TRUE
+		tgui_alert(user, "[verb_is_new ? "A new personal Idris bank account has been created for you." : "This ID has been linked to your existing personal Idris bank account."]\n\nAccount Number: #[verb_acct]\n\nYou will be asked to set a PIN next. Write this number down.", "Idris Bank Account", list("Set PIN"))
+		var/verb_pin = tgui_input_text(user, "Set a PIN for ATM access (4-8 digits). Leave blank to skip.", "Set ATM PIN", "", max_length = 8)
+		var/verb_pin_display = "(random -- set at ATM)"
+		if(verb_pin && length(verb_pin) >= 4 && text2num(verb_pin))
+			verb_account.remote_access_pin = text2num(verb_pin)
+			verb_pin_display = verb_pin
+		SSpersistence.economySaveAccountNow(verb_account)
+		var/verb_note = "Idris Account: #[verb_acct] | PIN: [verb_pin_display] | Insert ID at any Idris ATM."
+		if(GLOB.config.sql_enabled && SSdbcore.Connect())
+			var/datum/db_query/vn_q = SSdbcore.NewQuery(
+				{"INSERT INTO ss13_crew_records (ckey, char_name, ccia_notes, saved_at)
+				VALUES (:ckey, :name, :note, NOW())
+				ON DUPLICATE KEY UPDATE ccia_notes = VALUES(ccia_notes), saved_at = NOW()"},
+				list("ckey" = user.ckey, "name" = user.real_name, "note" = verb_note)
+			)
+			vn_q.Execute()
+			qdel(vn_q)
+		R.ccia_record = verb_note
+		to_chat(user, SPAN_GOOD("[icon2html(new_card, user)] KEEP SAFE -- Account: #[verb_acct] | PIN: [verb_pin_display]"))
+		to_chat(user, SPAN_NOTICE("Saved in your crew record. Access at any Idris SelfServ Teller."))
+	else if(verb_acct)
+		to_chat(user, SPAN_NOTICE("Existing bank account #[verb_acct] linked to this ID."))
 
 	user.put_in_hands(new_card)
 	to_chat(user, SPAN_GOOD("Replacement ID card printed. Previous card(s) revoked."))

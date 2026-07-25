@@ -50,11 +50,45 @@
 	/// Metric tonnes, very rough number, affects acceleration provided by engines
 	var/vessel_mass = 10000
 
+	/// TRUE when a cloaking device (or similar) has made this object
+	/// completely undetectable -- checked independently by every detection
+	/// surface (contact_sensors.dm, sensors.dm, helm.dm, overmap_shuttle.dm,
+	/// personal_travel.dm, sector_view.dm), since none of them share a single
+	/// central enumeration helper. See is_detectable()/set_cloaked() below.
+	var/cloaked = FALSE
+
 	var/image/targeted_overlay
 
 /obj/effect/overmap/Destroy()
 	QDEL_NULL(targeted_overlay)
 	return ..()
+
+/// Central check every detection surface should call alongside (not instead
+/// of) its own existing scannable/requires_contact logic.
+/obj/effect/overmap/proc/is_detectable()
+	return !cloaked
+
+/// Flips the cloak state. Powering on immediately purges any sensor console
+/// that had already identified this object, rather than just blocking future
+/// scans -- see _purge_existing_sensor_contacts().
+/obj/effect/overmap/proc/set_cloaked(new_state)
+	if(cloaked == new_state)
+		return
+	cloaked = new_state
+	if(cloaked)
+		_purge_existing_sensor_contacts()
+
+/// Removes any existing sensor-console identification of this object, so
+/// cloaking is immediate rather than only preventing future identification.
+/// Mirrors the existing "sensors lost power" cleanup at
+/// contact_sensors.dm's qdel(record) -- overmap_contact/Destroy() already
+/// correctly detargets weapons locks and strips pushed images from viewers.
+/obj/effect/overmap/proc/_purge_existing_sensor_contacts()
+	for(var/obj/structure/machinery/computer/ship/sensors/S in world)
+		var/datum/overmap_contact/record = S.contact_datums[src]
+		if(record)
+			qdel(record)
+		S.objects_in_view -= src
 
 //Overlay of how this object should look on other skyboxes
 /obj/effect/overmap/proc/get_skybox_representation()

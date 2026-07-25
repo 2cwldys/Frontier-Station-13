@@ -124,10 +124,28 @@
 	var/obj/item/podcomponent/sensors/Sn = get_part(POD_PART_SENSORS)
 	if(istype(Sn) && Sn.active)
 		var/turf/T = get_turf(sector_eye)
+		var/obj/effect/overmap/visitable/current = get_current_sector()
 		if(T)
 			for(var/obj/effect/overmap/O in view(Sn.range, T))
 				if(!O.requires_contact)
 					continue
+				// Never give away another ship's position through this
+				// free-look trick from a distance -- only real ship
+				// navigation/sensor machinery (which gates on actual
+				// detection, contact_sensors.dm) should reveal one from
+				// afar. Your own current ship (if any) is exempt so it
+				// still renders normally, and any ship (own or not) within
+				// SECTOR_VIEW_SHIP_PROXIMITY_RANGE tiles of the eye's
+				// current position reveals too -- close enough to target
+				// for warp, which is click-to-prime only.
+				if(istype(O, /obj/effect/overmap/visitable/ship) && O != current)
+					// Cloaked ships never reveal via this trick regardless
+					// of proximity -- the 4-tile exemption exists for
+					// ordinary warp targeting, not to defeat a cloak.
+					if(!O.is_detectable())
+						continue
+					if(get_dist(O, T) > SECTOR_VIEW_SHIP_PROXIMITY_RANGE)
+						continue
 				var/image/marker = image(null, O)
 				marker.appearance = O.appearance
 				// The appearance copy inherits the effect's

@@ -222,10 +222,7 @@ const CompanyRowView = (props: {
         </ProgressBar>
       </Table.Cell>
       <Table.Cell>{formatCredits(c.market_cap)} cr</Table.Cell>
-      <Table.Cell>
-        {c.shares_owned}
-        {c.shares_owned > 0 ? ` (avg ${c.avg_cost_basis} cr)` : ''}
-      </Table.Cell>
+      <Table.Cell>{c.shares_owned}</Table.Cell>
       <Table.Cell>
         <NumberInput
           value={amount}

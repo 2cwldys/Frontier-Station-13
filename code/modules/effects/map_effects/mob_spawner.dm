@@ -122,6 +122,96 @@
 	)
 
 /**
+ * Lone asteroid exoplanet mining hazard: lazily created per-z by
+ * _notify_asteroid_mining() (mine_turfs.dm) the first time a wall is mined
+ * on that z, then re-tuned via apply_heat() every time mining continues.
+ * Unlike the phoron_deposit spawner above (flat rate once triggered), this
+ * one's min_spawn_cooldown/max_spawn_cooldown/max_active_mobs are adjusted
+ * continuously to track how aggressively the asteroid is currently being
+ * mined, decaying back down if mining stops (see mine_turfs.dm's
+ * asteroid_mining_heat globals).
+ */
+/obj/effect/fauna_spawner/lone_asteroid
+	name = "Lone Asteroid Spawner"
+	mob_choices = list(
+		list(type = /mob/living/simple_animal/hostile/gutslug, speed = 3),
+		list(type = /mob/living/simple_animal/hostile/greed, speed = 4)
+	)
+
+/// Re-tunes spawn cooldown/wave size to match current mining heat (0-100).
+/// Low heat: rare, minor presence ("not overwhelmingly"). High heat:
+/// frequent, larger waves. Bands are a starting tuning, easy to adjust.
+/// Heat never fully disables the spawner -- even at 0 it keeps the lowest
+/// band running as a low ambient baseline risk, matching greed/gutslug's
+/// existing "asteroid ambush predator" flavor.
+/obj/effect/fauna_spawner/lone_asteroid/proc/apply_heat(heat)
+	if(heat < 20)
+		min_spawn_cooldown = 90
+		max_spawn_cooldown = 150
+		max_active_mobs = 2
+	else if(heat < 50)
+		min_spawn_cooldown = 45
+		max_spawn_cooldown = 80
+		max_active_mobs = 4
+	else
+		min_spawn_cooldown = 15
+		max_spawn_cooldown = 30
+		max_active_mobs = 7
+
+#define ASTEROID_HAZARD_MIN_PLAYER_DISTANCE 12
+#define ASTEROID_HAZARD_SPAWN_ATTEMPTS 20
+
+/// Picks a spawn turf at least ASTEROID_HAZARD_MIN_PLAYER_DISTANCE away from
+/// every human player currently on this z -- greed/gutslug already hunt any
+/// player on the same z regardless of distance (see their own get_targets()
+/// overrides), so spawning far away costs nothing gameplay-wise, but
+/// spawning adjacent to a mining player would be an unavoidable point-blank
+/// ambush. Falls back to the spawner's own location after
+/// ASTEROID_HAZARD_SPAWN_ATTEMPTS failed tries (rare).
+/obj/effect/fauna_spawner/lone_asteroid/proc/_pick_distant_spawn_turf()
+	var/list/players_on_z = list()
+	for(var/mob/living/carbon/human/H in GLOB.player_list)
+		if(H.z == z)
+			players_on_z += H
+	if(!length(players_on_z))
+		return get_turf(src)
+	for(var/i in 1 to ASTEROID_HAZARD_SPAWN_ATTEMPTS)
+		var/turf/candidate = locate(rand(1, world.maxx), rand(1, world.maxy), z)
+		if(!istype(candidate) || candidate.density)
+			continue
+		var/far_enough = TRUE
+		for(var/mob/living/carbon/human/H in players_on_z)
+			if(get_dist(candidate, H) < ASTEROID_HAZARD_MIN_PLAYER_DISTANCE)
+				far_enough = FALSE
+				break
+		if(far_enough)
+			return candidate
+	return get_turf(src)
+
+/// Overrides the base spawn_mob() (above) to spawn at a distance-checked
+/// turf instead of src.loc, and skips the waypoint-leading logic -- no
+/// pre-placed mob_waypoint landmark exists on a procedural asteroid, and
+/// greed/gutslug's own aggressive Z-wide targeting already handles the hunt.
+/obj/effect/fauna_spawner/lone_asteroid/spawn_mob()
+	if (!mob_choices || !length(mob_choices))
+		return
+	var/turf/spawn_turf = _pick_distant_spawn_turf()
+	var/choice = pick(mob_choices)
+	var/mob_type
+	if (islist(choice))
+		mob_type = choice["type"]
+	else
+		mob_type = choice
+	var/mob/living/new_mob = new mob_type(spawn_turf)
+	if (!new_mob)
+		return
+	active_mobs += new_mob
+	RegisterSignal(new_mob, COMSIG_QDELETING, PROC_REF(mob_died))
+
+#undef ASTEROID_HAZARD_MIN_PLAYER_DISTANCE
+#undef ASTEROID_HAZARD_SPAWN_ATTEMPTS
+
+/**
  * Opposed to `fauna_spawner`, this spawner allows further customization and checks over spawned mobs, such as:
  * * Having multiple spawn points, randomly chosen to spawn mobs.
  * * Keeping track of total mob counts inside a single object.

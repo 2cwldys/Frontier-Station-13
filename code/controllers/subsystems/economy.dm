@@ -350,6 +350,12 @@ SUBSYSTEM_DEF(economy)
 							//1 - require manual login / account number and pin
 							//2 - require card and manual login
 	var/ckey = null			// owning player ckey, set for player accounts to enable persistence
+	/// Whether this account's owner has ever been shown the account-info/
+	/// PIN-setup popup (card.dm's dispense_faction_id/print_replacement/
+	/// do_print_replacement) -- most accounts are actually minted silently
+	/// at roundstart (job.dm's setup_account()), so this is tracked
+	/// independently of whether the account itself is newly-created.
+	var/intro_shown = FALSE
 
 /// Adjusts the balance by delta (positive = credit, negative = debit) and
 /// immediately persists the new balance -- the personal-account analog of

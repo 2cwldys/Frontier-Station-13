@@ -42,6 +42,20 @@
 	groupable = FALSE
 	spawn_amount = 1
 
+/singleton/cargo_item/shipcloakingdevice
+	category = "operations"
+	name = "cloaking device"
+	supplier = "Hub"
+	description = "A hulking device that renders a ship completely undetectable to sensors once installed, anchored, and powered. Requires a steady supply of phoron crystals to operate."
+	price = 1000000
+	items = list(
+		/obj/structure/machinery/ship_cloaking_device
+	)
+	access = 0
+	container_type = "crate"
+	groupable = FALSE
+	spawn_amount = 1
+
 /singleton/cargo_item/colonyradio
 	category = "operations"
 	name = "colony radio"

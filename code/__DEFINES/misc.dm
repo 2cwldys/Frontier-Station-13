@@ -222,6 +222,12 @@
 /// instance, since each program instance belongs to one PDA/holder, not a
 /// shared machine.
 #define PERSONAL_TRAVEL_COOLDOWN (2 MINUTES + 30 SECONDS)
+/// How close (tiles) a Sector View eye/pod camera must be to a non-own ship
+/// before it's revealed -- see personal_travel.dm's _refresh_sensor_view()
+/// and sector_view.dm's refresh_sector_view(). Far-away ships stay hidden
+/// (no passive long-range scouting); this just lets a pilot get close enough
+/// to target one for warp/travel, since that's click-to-prime only.
+#define SECTOR_VIEW_SHIP_PROXIMITY_RANGE 4
 /// How long after taking or dealing real combat damage the program refuses
 /// every action -- "can't teleport out of a fight."
 #define PERSONAL_TRAVEL_COMBAT_LOCKOUT 10 MINUTES

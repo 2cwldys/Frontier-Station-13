@@ -16,7 +16,11 @@
 	suffix = "blueriver.dmm"
 
 	sectors = list(ALL_POSSIBLE_SECTORS)
-	sectors_blacklist = list(ALL_SPECIFIC_SECTORS, LEMURIAN_SEA_SECTORS) //it's a whole ass planet, shouldn't have it in predefined sectors
+	// ALL_SPECIFIC_SECTORS doesn't actually include Deep Frontier (it's
+	// treated as its own special case everywhere else in the away-site
+	// system) -- added explicitly so this "whole planet" ruin's own stated
+	// intent (below) actually holds for it too.
+	sectors_blacklist = list(ALL_SPECIFIC_SECTORS, LEMURIAN_SEA_SECTORS, SECTOR_DEEP_FRONTIER) //it's a whole ass planet, shouldn't have it in predefined sectors
 
 	unit_test_groups = list(1)
 

@@ -279,6 +279,14 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 		var/mob/abstract/ghost/observer/O = src
 		if(O.admin_ghosted)
 			return
+	// A body mid-Store-Character/forced-cryo is being forceMove()'d to the
+	// player storage telepad (persistStoreCharacter(), persistence_cryo.dm)
+	// BEFORE its client gets handed off to a fresh new_player mob -- without
+	// this, that transitional move fires a real zone-entry announcement at a
+	// player who's already left the game (the new_player exemption above
+	// never gets a chance to help since it fires on the OLD body, first).
+	if(ishuman(src) && src:persistence_in_cryo)
+		return
 	var/nz = GET_Z(src)
 	if(!nz)
 		return

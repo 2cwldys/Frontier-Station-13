@@ -6,7 +6,10 @@
 	suffix = "treasure_trove.dmm"
 
 	sectors = list(ALL_POSSIBLE_SECTORS)
-	sectors_blacklist = list(LEMURIAN_SEA_SECTORS)
+	// Same "whole planet" gap as blueriver.dm/crystal_planet_outpost_.dm --
+	// Deep Frontier was never excluded, so this planetoid was eligible to
+	// spawn there.
+	sectors_blacklist = list(LEMURIAN_SEA_SECTORS, SECTOR_DEEP_FRONTIER)
 	spawn_weight = 1
 	spawn_cost = 1
 	id = "trove"
