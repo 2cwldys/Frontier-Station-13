@@ -48,6 +48,16 @@
 /datum/controller/subsystem/persistence/proc/objectsInstantiateRows(list/persistent_data)
 	PRIVATE_PROC(TRUE)
 	var/instantiated = 0
+	// Recreated here via a plain new() (below) rather than a template mapload,
+	// so mapload=FALSE and Initialize() never returns INITIALIZE_HINT_LATELOAD
+	// for these specific instances -- atmos_init()/build_network() would
+	// otherwise never run for any persisted atmos machine (a fuel tank, pipe
+	// segment, engine part) at all, leaving it permanently isolated from any
+	// pipe network. Collected below and batch-initialized after the loop,
+	// same shape as the existing SSmachinery.makepowernets() fix already
+	// applied for the equivalent cable/powernet problem (shipInteriorApply(),
+	// persistence_ship_interiors.dm).
+	var/list/atmos_batch = list()
 	for (var/data in persistent_data)
 		CHECK_TICK
 		try
@@ -115,9 +125,13 @@
 			instance.persistent_objects_track_id = data["id"]
 			objectsApplyTrackContent(instance, data["content"], data["x"], data["y"], data["z"])
 			objectsRegisterTrack(instance, data["author_ckey"])
+			if(istype(instance, /obj/structure/machinery/atmospherics))
+				atmos_batch += instance
 			instantiated++
 		catch(var/exception/e)
 			log_subsystem_persistence_error("Persistent objects: Failed to instantiate [data["type"]] (id=[data["id"]]): [e]")
+	if(length(atmos_batch))
+		SSmachinery.setup_atmos_machinery(atmos_batch)
 	return instantiated
 
 /**

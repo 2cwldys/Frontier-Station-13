@@ -44,7 +44,7 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 		// z-levels deliberately never save or load turf changes (ore/terrain
 		// regenerates from the map each session); away/template-loaded/player
 		// levels are player space on this server and must persist.
-		if((tz in GLOB.persistence_zlevel_skip) || is_mining_level(tz) || persistence_z_manual_blocked(tz)) continue
+		if(!(tz in GLOB.persistence_pinned_site_z) && ((tz in GLOB.persistence_zlevel_skip) || is_mining_level(tz) || persistence_z_manual_blocked(tz))) continue
 		var/turf_type = text2path(query.item[4])
 		var/base_type = text2path(query.item[5])  // restored base so next save doesn't see type==baseturf
 		var/content_json = query.item[6]
@@ -158,7 +158,7 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
  */
 /datum/controller/subsystem/persistence/proc/_turfsCollectOne(turf/simulated/T, list/upsert_rows, list/delete_by_scope)
 	PRIVATE_PROC(TRUE)
-	if((T.z in GLOB.persistence_zlevel_skip) || is_mining_level(T.z) || persistence_z_manual_blocked(T.z))
+	if(!(T.z in GLOB.persistence_pinned_site_z) && ((T.z in GLOB.persistence_zlevel_skip) || is_mining_level(T.z) || persistence_z_manual_blocked(T.z)))
 		return
 	if(persistence_area_excluded(T))
 		return

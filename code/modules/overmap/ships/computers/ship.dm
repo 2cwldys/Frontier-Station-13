@@ -187,6 +187,16 @@ somewhere on that shuttle. Subtypes of these can be then used to perform ship ov
 		// it was never designed for. unlook()'s refit_dynamic_view() call
 		// already restores it correctly on the way back out.
 		user.clear_fullscreen("gameui_border", FALSE)
+		// Film grain and CRT scanlines are per-character immersion effects
+		// that make no sense while looking at an abstract overmap chart --
+		// unlook() restores both, respecting whatever preference state they
+		// were already in (a player with either disabled must not have it
+		// turned ON by this).
+		if(ishuman(user))
+			var/mob/living/carbon/human/H = user
+			if(H.film_grain)
+				H.client.screen -= H.film_grain
+			H.clear_fullscreen("crt_scanlines", FALSE)
 	// check_eye()'s sight grant (the full-reveal trio above) only flows
 	// while this console IS the mob's polled `machine` -- claim it
 	// explicitly rather than relying on whatever Topic/TGUI interaction
@@ -204,6 +214,8 @@ somewhere on that shuttle. Subtypes of these can be then used to perform ship ov
 	if(linked)
 		LAZYDISTINCTADD(linked.navigation_viewers, WEAKREF(user))
 	ADD_TRAIT(user, TRAIT_COMPUTER_VIEW, REF(src))
+	if(ishuman(user))
+		user.update_vision_cone() // re-checks check_fov() -- TRAIT_COMPUTER_VIEW now hides the cone
 
 /// Handles disabling the user's overmap view when a signal comes in, primarily used when the TGUI is closed, see helm.dm and sensors.dm
 /obj/structure/machinery/computer/ship/proc/handle_unlook_signal(var/datum/source, var/mob/user)
@@ -245,6 +257,12 @@ somewhere on that shuttle. Subtypes of these can be then used to perform ship ov
 		if(c.mob)
 			c.mob.reload_fullscreen()
 			c.mob.apply_gameui_border()
+			if(ishuman(c.mob))
+				var/mob/living/carbon/human/H = c.mob
+				if(H.film_grain && (H.client.prefs.toggles_secondary & FILM_GRAIN))
+					H.client.screen |= H.film_grain
+				if(H.client.prefs.toggles_secondary & CRT_SCANLINES)
+					H.apply_crt_scanlines()
 
 	if(user.machine == src)
 		user.unset_machine()
@@ -263,6 +281,8 @@ somewhere on that shuttle. Subtypes of these can be then used to perform ship ov
 			sensor.hide_contacts(user)
 
 	REMOVE_TRAIT(user, TRAIT_COMPUTER_VIEW, REF(src))
+	if(ishuman(user))
+		user.update_vision_cone() // re-checks check_fov() -- TRAIT_COMPUTER_VIEW is gone, cone returns to normal
 
 /obj/structure/machinery/computer/ship/proc/viewing_overmap(mob/user)
 	return (WEAKREF(user) in viewers) || (linked && (WEAKREF(user) in linked.navigation_viewers))

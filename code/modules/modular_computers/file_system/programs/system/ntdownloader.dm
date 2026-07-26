@@ -76,6 +76,26 @@
 		))
 	return data
 
+/// Closing the window (PC_exit -> core.dm's kill_program()) would otherwise
+/// hard-kill this program via the base kill_program() (program_events.dm),
+/// setting program_state = PROGRAM_STATE_KILLED. core.dm's process()
+/// dispatch (modular_computer/core.dm) only calls process_tick() on
+/// active_program or on programs sitting in idle_threads (ie. Minimize) --
+/// a killed program is neither, and is permanently skipped until the exact
+/// same program is manually re-run. Players naturally click the ordinary-
+/// looking "Close" button right after starting a download rather than
+/// "Minimize", which then freezes it at whatever % it had (commonly 0%)
+/// until someone happens to reopen NTOSDownloader specifically. While a
+/// download is actually queued/running, behave like Minimize instead so
+/// process_tick() keeps running in the background -- forced kills (device
+/// shutdown, etc.) are untouched.
+/datum/computer_file/program/ntnetdownload/kill_program(var/forced = FALSE)
+	if(!forced && queue_size)
+		computer.idle_threads.Add(src)
+		program_state = PROGRAM_STATE_BACKGROUND
+		return TRUE
+	return ..()
+
 /datum/computer_file/program/ntnetdownload/proc/get_download_status(datum/computer_file/program/P, mob/user)
 	if(!computer_emagged)
 		if(!P.available_on_ntnet)

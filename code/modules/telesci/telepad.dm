@@ -10,6 +10,8 @@
 	active_power_usage = 5000
 	var/efficiency
 
+	worldstate_vars = list("efficiency")
+
 	component_types = list(
 		/obj/item/circuitboard/telesci_pad,
 		/obj/item/bluespace_crystal/artificial = 2,
@@ -88,6 +90,13 @@
 	/// Hard guarantee flag: cargo delivery selectors refuse any pad with this
 	/// FALSE (security telepads) -- supplies can never land on non-cargo pads.
 	var/accepts_cargo      = TRUE
+
+	// Covers the mapload case (see persistence_map_placed below) -- the
+	// persistent_objects_* overrides further down cover the runtime-spawned
+	// case. Same field set as those overrides, minus stage/accepts_cargo
+	// (transient/fixed, not saved there either).
+	worldstate_vars = list("persistent_network", "persistent_spawn", "faction_shackled", "personal_ckey", "personal_char_name", "crew_tagged")
+
 	/// TRUE if this pad was placed on the original map (handled by
 	/// worldstate). FALSE = spawned at runtime (telepad_beacon item, or a
 	/// corvette_boarding pad map-placed inside a template's own .dmm and

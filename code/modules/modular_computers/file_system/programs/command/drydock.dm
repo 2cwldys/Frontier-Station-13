@@ -70,15 +70,26 @@
 		// so a player's other characters don't see a ship one character
 		// bought. Faction ships are unaffected by this.
 		var/datum/db_query/q = SSdbcore.NewQuery(
-			"SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed, custom_name, custom_class FROM ss13_drydock_ships WHERE (owner_ckey = :ckey AND owner_char_name = :char_name) OR faction_uid = :net",
+			"SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed, custom_name, custom_class FROM ss13_drydock_ships WHERE (owner_ckey = :ckey AND owner_char_name = :char_name) OR faction_uid = :net ORDER BY purchased_at ASC",
 			list("ckey" = user.ckey, "char_name" = user.real_name, "net" = own_faction)
 		)
 		q.Execute()
+		// shuttle_id is a reusable, server-wide slot number (see
+		// _drydockNextFreeShuttleId(), persistence_shuttles.dm) shared across
+		// every player's and faction's ships -- it is NOT "this owner's Nth
+		// ship", so a player's very first purchase can land on any slot
+		// depending on what everyone else on the server already owns.
+		// display_number below is the actual per-owner purchase order instead
+		// (personal and faction ships numbered independently), which is what
+		// the "#N" badge in the UI is meant to convey.
+		var/personal_index = 0
+		var/faction_index = 0
 		if(SSpersistence.databaseCheckQueryResult(q, "drydock ui_data select"))
 			while(q.NextRow())
 				var/sid = text2num(q.item[1])
 				var/datum/drydock_ship/live = GLOB.drydock_ships["[sid]"]
 				var/datum/map_template/drydock_ship/row_template = SSmapping.drydock_ship_templates[q.item[2]]
+				var/is_personal = (q.item[3] == user.ckey && q.item[4] == user.real_name)
 				var/list/row = list(
 					"shuttle_id" = sid, "template_id" = q.item[2],
 					"owner_ckey" = q.item[3], "owner_char_name" = q.item[4], "faction_uid" = q.item[5],
@@ -86,6 +97,7 @@
 					"custom_name" = q.item[7], "custom_class" = q.item[8],
 					"ready" = live ? live.ready : TRUE,
 					"display_name" = live ? live.display_name() : (q.item[7] || q.item[2]),
+					"display_number" = is_personal ? ++personal_index : ++faction_index,
 					"sub_shuttle_tags" = (row_template && length(row_template.sub_shuttle_tags)) ? row_template.sub_shuttle_tags : list(),
 					// Retrieve/stash active or queued for this ship -- Remove/
 					// Scuttle must grey out until it settles (see
@@ -93,7 +105,7 @@
 					"busy" = _drydock_ship_busy(sid)
 				)
 				my_shuttle_ids += sid
-				if(row["owner_ckey"] == user.ckey && row["owner_char_name"] == user.real_name)
+				if(is_personal)
 					data["personal_shuttles"] += list(row)
 				else
 					data["faction_shuttles"] += list(row)

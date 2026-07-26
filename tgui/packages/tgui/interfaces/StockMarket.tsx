@@ -272,7 +272,7 @@ const PortfolioTab = (props: {
           <Table.Row header>
             <Table.Cell>Ticker</Table.Cell>
             <Table.Cell>Shares</Table.Cell>
-            <Table.Cell>Avg Cost</Table.Cell>
+            <Table.Cell>Purchase Price</Table.Cell>
             <Table.Cell>Current Price</Table.Cell>
             <Table.Cell>Current Value</Table.Cell>
             <Table.Cell>Profit / Loss</Table.Cell>

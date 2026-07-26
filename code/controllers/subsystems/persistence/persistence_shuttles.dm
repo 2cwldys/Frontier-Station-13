@@ -45,6 +45,41 @@
 /// shuttle_id -> /datum/drydock_ship, for every purchased drydock ship (owned, stashed or deployed).
 GLOBAL_LIST_EMPTY(drydock_ships)
 
+/// TRUE once the periodic access re-sweep (below) has been armed -- lazily
+/// started from the first drydock retrieve rather than wiring into
+/// SSpersistence's own (30-minute-cadence, far too slow for this) Initialize().
+GLOBAL_VAR_INIT(drydock_periodic_sweep_started, FALSE)
+
+/// Arms a repeating sweep, on the same cadence as a faction beacon's own
+/// periodic re-sweep (FACTION_BEACON_SWEEP_INTERVAL, faction_beacon.dm), that
+/// re-runs the exact same unassigned-equipment sweep _drydockRetrieveRun()
+/// already does once at retrieve time -- but for every currently-deployed
+/// drydock ship, every cycle. This lets a ship that was deployed before a
+/// template access fix (or one whose one-shot sweep otherwise missed
+/// something) self-heal on its own, with no admin action or stash/retrieve
+/// cycle needed. Safe to repeat: both sweep procs already skip anything
+/// already assigned (`if(AL.req_access_faction || AL.crew_tagged) continue`),
+/// so a manual re-tag via the faction tagger always still sticks afterward.
+/proc/_drydock_start_periodic_sweep()
+	if(GLOB.drydock_periodic_sweep_started)
+		return
+	GLOB.drydock_periodic_sweep_started = TRUE
+	// Literal 30 SECONDS, not a shared define -- FACTION_BEACON_SWEEP_INTERVAL
+	// (faction_beacon.dm) is compiled after this file in aurorastation.dme, so
+	// it isn't visible here. Matches that interval by design; keep in sync if
+	// it ever changes.
+	addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_drydock_periodic_sweep)), 30 SECONDS, TIMER_LOOP)
+
+/proc/_drydock_periodic_sweep()
+	for(var/sid in GLOB.drydock_ships)
+		var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
+		if(!DS || DS.stashed || !DS.z)
+			continue
+		if(DS.faction_uid)
+			_sweep_unassigned_objects_for_faction(list("[DS.z]"), DS.faction_uid)
+		else
+			_sweep_unassigned_crew(list("[DS.z]"))
+
 /// Admin-tunable, DB-persisted (ss13_drydock_config) cap on how many ships
 /// can be deployed at once server-wide -- 0 = no limit. Loaded at boot by
 /// _drydockLoadShipCap(), updated live by the "Set Drydock Ship Cap" admin
@@ -157,15 +192,37 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return "[base] ([get_faction_name(faction_uid)])"
 	return base
 
+/// TRUE if sector is within 1 tile of the CentCom/Frontier Beacon Depot
+/// marker's own fixed position (code/modules/overmap/centcom_overmap.dm).
+/// CentCom is a neutral administrative depot, not owned by any faction and
+/// with no player-buildable faction beacon of its own -- proximity to it
+/// alone counts as valid drydock range for both retrieve and stash, personal
+/// or faction-owned, same as being within 1 tile of a real secured beacon.
+/proc/_drydock_near_centcom_depot(obj/effect/overmap/visitable/sector)
+	if(!istype(sector))
+		return FALSE
+	// Resolved via its own registered sector rather than the type path
+	// directly -- centcom_overmap.dm compiles after this file in
+	// aurorastation.dme, so /obj/.../sector/centcom isn't a known type here.
+	if(!length(SSatlas.current_map.admin_levels))
+		return FALSE
+	var/obj/effect/overmap/visitable/depot = GLOB.map_sectors["[SSatlas.current_map.admin_levels[1]]"]
+	if(!istype(depot))
+		return FALSE
+	return max(abs(sector.x - depot.x), abs(sector.y - depot.y)) <= 1
+
 /// TRUE if a beacon satisfying the ownership rule sits at or adjacent to
 /// (get_dist <= 1) sector: for a faction_uid, that faction's own beacon
 /// specifically; for null (personal), any active med-sec-or-better beacon
 /// regardless of whose it is. Shared by drydockRetrieve()'s personal-ship
 /// path and drydockStash(), so "secured territory" means the same thing in
-/// both places.
+/// both places. Also always TRUE near the CentCom depot (see
+/// _drydock_near_centcom_depot()), regardless of faction_uid.
 /proc/_drydock_secured_beacon_nearby(obj/effect/overmap/visitable/sector, faction_uid)
 	if(!istype(sector))
 		return FALSE
+	if(_drydock_near_centcom_depot(sector))
+		return TRUE
 	for(var/bz in GLOB.faction_beacon_by_z)
 		var/obj/structure/machinery/faction_beacon/B = GLOB.faction_beacon_by_z[bz]
 		if(!B)
@@ -1040,22 +1097,30 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	var/obj/effect/overmap/visitable/target_sector
 	var/placement_radius
 	if(DS.faction_uid)
-		if(!istype(anchor))
-			if(user)
-				to_chat(user, SPAN_WARNING("No faction beacon in range."))
-			log_drydock_warning("drydockRetrieve: refused -- no faction beacon anchor provided for faction-owned shuttle_id=[shuttle_id] (acting=[acting]).")
-			return FALSE
-		if(anchor.faction_uid != DS.faction_uid && !check_rights(R_ADMIN, 0, user))
+		if(istype(anchor) && (anchor.faction_uid == DS.faction_uid || check_rights(R_ADMIN, 0, user)))
+			target_sector = GLOB.map_sectors["[GET_Z(anchor)]"]
+			// Capped, not passed through raw -- security_radius is a multi-purpose
+			// value (zone-security coverage, Personal Travel leap eligibility) that
+			// can legitimately exceed the boarding proximity threshold; only the
+			// PLACEMENT distance used here needs to stay within it.
+			placement_radius = min(anchor.security_radius, DRYDOCK_SHIP_PLACEMENT_RADIUS)
+		else if(istype(anchor) && anchor.faction_uid != DS.faction_uid)
 			if(user)
 				to_chat(user, SPAN_WARNING("This beacon belongs to [get_faction_name(anchor.faction_uid)], not [get_faction_name(DS.faction_uid)]."))
 			log_drydock_warning("drydockRetrieve: refused -- faction beacon belongs to [anchor.faction_uid], not [DS.faction_uid] (acting=[acting]).")
 			return FALSE
-		target_sector = GLOB.map_sectors["[GET_Z(anchor)]"]
-		// Capped, not passed through raw -- security_radius is a multi-purpose
-		// value (zone-security coverage, Personal Travel leap eligibility) that
-		// can legitimately exceed the boarding proximity threshold; only the
-		// PLACEMENT distance used here needs to stay within it.
-		placement_radius = min(anchor.security_radius, DRYDOCK_SHIP_PLACEMENT_RADIUS)
+		else if(_drydock_near_centcom_depot(GLOB.map_sectors["[from_turf.z]"]))
+			// CentCom/the Frontier Beacon Depot has no player-buildable
+			// faction beacon of its own -- proximity to its fixed marker
+			// position counts as valid drydock range regardless, same as
+			// _drydock_secured_beacon_nearby() already grants personal ships.
+			target_sector = GLOB.map_sectors["[from_turf.z]"]
+			placement_radius = DRYDOCK_SHIP_PLACEMENT_RADIUS
+		else
+			if(user)
+				to_chat(user, SPAN_WARNING("No faction beacon in range."))
+			log_drydock_warning("drydockRetrieve: refused -- no faction beacon anchor provided for faction-owned shuttle_id=[shuttle_id] (acting=[acting]).")
+			return FALSE
 	else
 		if(!from_turf)
 			if(user)
@@ -1212,13 +1277,15 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// station beacon claiming its Zs (faction_beacon.dm) -- a faction-owned
 	// ship gets its equipment networked to its faction; a personally-owned
 	// ship gets its equipment tagged to its own crew instead, so an owner
-	// doesn't have to manually tag every console by hand. Runs once per
-	// retrieve, not periodically -- a manual re-tag via the faction tagger
-	// afterward always sticks (both sweeps skip anything already assigned).
+	// doesn't have to manually tag every console by hand. This one-shot pass
+	// covers the ship immediately; _drydock_start_periodic_sweep() (arming
+	// itself below) then keeps re-running the same sweep for every deployed
+	// ship going forward, so anything it misses self-heals within one cycle.
 	if(DS.faction_uid)
 		_sweep_unassigned_objects_for_faction(list("[new_z]"), DS.faction_uid)
 	else
 		_sweep_unassigned_crew(list("[new_z]"))
+	_drydock_start_periodic_sweep()
 
 	// Replenish each sub-ship from its own last snapshot (subshipSnapshotSave(),
 	// called from stash) -- unconditional, same philosophy as the parent
@@ -1349,6 +1416,15 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 	var/map_low = OVERMAP_EDGE
 	var/map_high = SSatlas.current_map.overmap_size - OVERMAP_EDGE
+	if(anchor_sector.x < map_low || anchor_sector.x > map_high || anchor_sector.y < map_low || anchor_sector.y > map_high)
+		// Anchor itself sits outside the normal placement band (eg CentCom,
+		// deliberately pinned near the map's corner, centcom_overmap.dm) --
+		// use the map's true bounds instead so the ship can land genuinely
+		// adjacent to the anchor's own real position, rather than having its
+		// center dragged into the normal band by BoundedCircularRandomCoordinate()'s
+		// own clamp and landing tiles away from where the player actually is.
+		map_low = 1
+		map_high = SSatlas.current_map.overmap_size
 
 	// Tier 1: within the normal radius, avoiding both other ship markers and
 	// active overmap hazards (meteor/dust/carp/electric/gravity_anomaly/ion,

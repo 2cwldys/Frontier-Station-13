@@ -202,7 +202,7 @@
 				apcs += A
 
 	var/notsuspended
-	if(!SSmachinery.can_fire)
+	if(SSmachinery.can_fire)
 		SSmachinery.can_fire = FALSE
 		notsuspended = TRUE
 

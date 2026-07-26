@@ -395,30 +395,7 @@
 
 	L.lastarea = newarea
 
-	// Start playing ambience.
-	if(length(src.ambience) && L && L.client && (L.client.prefs.sfx_toggles & ASFX_AMBIENCE) && !L.ear_deaf)
-		play_ambience(L)
-	else
-		stop_ambience(L)
-
-	// The global ambient playlist runs everywhere; play_ambience() ducks it
-	// only while an actual area stinger is sounding. Any area crossing can
-	// kick it off (internal guards prevent double-starts).
-	if(L && L.client && !L.ear_deaf)
-		L.client.start_ambient_playlist()
-
-	// The dreaded ship ambience hum.
-	// Explanation for the "if" clause: If the area has ambience, the mob exists, has a client, the client has the hum ASFX toggled on, the area the mob is in is a station area,
-	// the mob isn't deaf, and the client doesn't already have the ambient hum playing, then start playing the ambient hum.
-	if(L && L.client && (L.client.prefs.sfx_toggles & ASFX_HUM) && newarea.station_area && !L.ear_deaf)
-		if(!L.client.ambient_hum_playing)
-			L.client.ambient_hum_playing = TRUE
-			L << sound('sound/ambience/shipambience.ogg', repeat = 1, volume = VOLUME_AMBIENT_HUM, channel = 3)
-	// Otherwise, stop playing the ambient hum.
-	else
-		L << sound(null, channel = 3)
-		if(L.client)
-			L.client.ambient_hum_playing = FALSE
+	refresh_mob_ambience(L)
 
 	// Start playing music, if it exists.
 	if(src.music.len && L && L.client && (L.client.prefs.sfx_toggles & ASFX_MUSIC))
@@ -443,6 +420,48 @@
 		SEND_SIGNAL(recipient, COMSIG_EXIT_AREA, src)
 
 /**
+ * Starts/stops ambience and the ship ambience hum for the provided mob
+ * against this area's own settings -- the ambience+hum half of what
+ * /area/Entered() runs on every area crossing (music is handled separately,
+ * inline in Entered(), and is deliberately NOT part of this proc). Split out
+ * so it can also be called authoritatively outside of an actual area
+ * crossing -- see the aghost-reentry hook in mob/login.dm's LateLogin(),
+ * which needs to reconcile stale ambience/hum left over from a ghost's
+ * travels without ever re-triggering Entered() itself (the body's loc never
+ * changed).
+ *
+ * * mob/living/L - Affected mob.
+ */
+/area/proc/refresh_mob_ambience(mob/living/L)
+	if(!L?.client)
+		return
+
+	// Start playing ambience.
+	if(length(src.ambience) && (L.client.prefs.sfx_toggles & ASFX_AMBIENCE) && !L.ear_deaf)
+		play_ambience(L)
+	else
+		stop_ambience(L)
+
+	// The global ambient playlist runs everywhere; play_ambience() ducks it
+	// only while an actual area stinger is sounding. Any area crossing can
+	// kick it off (internal guards prevent double-starts).
+	if(!L.ear_deaf)
+		L.client.start_ambient_playlist()
+
+	// The dreaded ship ambience hum.
+	// Explanation for the "if" clause: If the area has ambience, the mob exists, has a client, the client has the hum ASFX toggled on, the area the mob is in is a station area,
+	// the mob isn't deaf, and the client doesn't already have the ambient hum playing, then start playing the ambient hum.
+	if((L.client.prefs.sfx_toggles & ASFX_HUM) && src.station_area && !L.ear_deaf)
+		if(!L.client.ambient_hum_playing)
+			L.client.ambient_hum_playing = TRUE
+			L << sound('sound/ambience/shipambience.ogg', repeat = 1, volume = VOLUME_AMBIENT_HUM, channel = 3)
+	// Otherwise, stop playing the ambient hum.
+	else
+		L << sound(null, channel = 3)
+		if(L.client)
+			L.client.ambient_hum_playing = FALSE
+
+/**
  * Plays ambiance for the provided mob.
  *
  * * mob/living/L - Affected mob.
@@ -465,7 +484,7 @@
  * * mob/living/L - Affected mob.
  */
 /area/proc/stop_ambience(var/mob/living/L)
-	L << sound(null, channel = 2)
+	L << sound(null, channel = CHANNEL_AMBIENCE)
 
 /**
  * Plays music for the provided mob.

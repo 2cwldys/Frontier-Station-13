@@ -28,12 +28,22 @@ a machine losing its config across a restart, etc.), check this log first
 before reading code -- it often narrows down which subsystem step is
 actually responsible.
 
+## New admin verb checklist (mandatory)
+
+Adding or editing ANY `/datum/admins/proc/` or `/client/proc/` admin verb is not done after writing the proc. It compiles clean either way, so a skipped step here produces no error -- the verb just silently never appears in the admin panel/right-click menu, and nothing will tell you that.
+
+Before considering an admin verb finished:
+
+1. `set name = "..."` and `set category = "..."` on the proc itself only control its label and which tab it's grouped under -- they do **not** grant the verb to anyone.
+2. Grep `code/modules/admin/admin_verbs.dm` for the new proc's typepath (or an existing sibling verb defined in the same block). It must appear inside one of the `GLOBAL_LIST_INIT(admin_verbs_*, list(...))` blocks in that file -- that list is what `add_verb()` actually grants based on rights (`admin_verbs_admin` for `R_ADMIN`, `admin_verbs_server` for `R_SERVER`, etc., wired near the bottom of the file).
+3. Match the list to the proc's own internal rights check (e.g. a proc gated on `check_rights(R_ADMIN)` belongs in `admin_verbs_admin`, not `admin_verbs_server` -- putting it in the wrong list either hides it from the people who should have it or grants it to people who shouldn't).
+4. If it's missing, add it before calling the verb done -- do not report an admin-verb task as complete without having done this grep-and-check step.
+
 ## Hard rules for .dm files
 
 - **ASCII only.** No em dashes, no Unicode of any kind -- the BYOND compiler breaks on it. Use `--` instead of an em dash.
 - Never use `length(S.contents)` on arbitrary structures; beware BYOND var scoping pitfalls.
 - `set waitfor = FALSE` procs fail silently -- audit call chains when porting code from other codebases.
-- **New `/datum/admins/proc/` verbs need a second registration step, or they silently never appear.** Defining the proc with `set name = "..."` / `set category = "..."` is not enough by itself -- it must also be added to the typepath list in `code/modules/admin/admin_verbs.dm` (the file that actually wires procs into the admin `verbs` list). This compiles clean either way, so the only symptom of forgetting it is the verb never showing up in the admin panel/right-click menu. Always grep `admin_verbs.dm` for the new proc name (or an existing sibling verb from the same file) after adding an admin verb, and add it if missing.
 
 ## Project shape
 

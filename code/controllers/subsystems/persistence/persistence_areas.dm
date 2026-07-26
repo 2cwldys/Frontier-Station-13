@@ -70,7 +70,7 @@
 				var/tz = triple[3]
 				if(tz < 1 || tz > world.maxz)
 					continue
-				if((tz in GLOB.persistence_zlevel_skip) || is_mining_level(tz) || persistence_z_manual_blocked(tz))
+				if(!(tz in GLOB.persistence_pinned_site_z) && ((tz in GLOB.persistence_zlevel_skip) || is_mining_level(tz) || persistence_z_manual_blocked(tz)))
 					continue
 				var/turf/T = locate(tx, ty, tz)
 				if(!istype(T))
@@ -144,7 +144,7 @@
 			// (plain map) scope, which would misapply after Z-pool reuse.
 			if(GLOB.persistence_ship_z["[T.z]"])
 				continue
-			if((T.z in GLOB.persistence_zlevel_skip) || is_mining_level(T.z) || persistence_z_manual_blocked(T.z))
+			if(!(T.z in GLOB.persistence_pinned_site_z) && ((T.z in GLOB.persistence_zlevel_skip) || is_mining_level(T.z) || persistence_z_manual_blocked(T.z)))
 				continue
 			if(!first_z)
 				first_z = T.z

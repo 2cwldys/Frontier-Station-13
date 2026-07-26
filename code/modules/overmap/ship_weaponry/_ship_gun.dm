@@ -80,8 +80,17 @@
 /obj/structure/machinery/ship_weapon/LateInitialize()
 	. = ..()
 	SSshuttle.weapons_to_initialize += src
-	if(SSshuttle.initialized)
-		SSshuttle.initialize_ship_weapons()
+	// clear_init_queue() (not initialize_ship_weapons() directly) -- the
+	// latter bypasses block_queue entirely and, gated only on `initialized`,
+	// used to fire mid-template-load (drydock ships, admin-spawned shuttles,
+	// away sites -- this branch is dead at round start), draining the queue
+	// before the ship's own marker/shuttle datum are necessarily registered
+	// yet and permanently dropping sync_linked() failures with no retry.
+	// clear_init_queue() correctly no-ops while block_queue is still TRUE
+	// (deferring to map_template.dm's and the marker's own already-correctly-
+	// timed calls), and drains immediately/safely for a weapon built live
+	// after the round has settled.
+	SSshuttle.clear_init_queue()
 	for(var/obj/structure/ship_weapon_dummy/SD in orange(1, src))
 		SD.connect(src)
 	if(!weapon_id)

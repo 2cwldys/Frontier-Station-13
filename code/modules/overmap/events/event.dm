@@ -136,6 +136,24 @@
 			E.kill()
 			LAZYREMOVE(ship_events[ship], E)
 
+/// Kills every ship event this specific hazard caused (via setup_for_overmap()'s
+/// source_hazard back-reference), regardless of whether the affected ship's
+/// current overmap turf still matches the hazard's turf right now. Needed
+/// because update_hazards()'s own kill pass only catches ships found
+/// literally `in T` at the exact instant a hazard is destroyed -- a ship
+/// whose logical hazard-turf membership has drifted out of sync with its
+/// sub-tile position (see ship.dm's fractional movement) would otherwise be
+/// left with an orphaned, un-killable event that never expires on its own
+/// (setup_for_overmap() sets endWhen = INFINITY).
+/singleton/overmap_event_handler/proc/kill_all_events_from_hazard(var/obj/effect/overmap/event/hazard)
+	for(var/obj/effect/overmap/visitable/ship/ship in ship_events)
+		var/list/active_ship_events = ship_events[ship]
+		for(var/datum/event/E as anything in active_ship_events)
+			if(E.source_hazard != hazard)
+				continue
+			E.kill()
+			LAZYREMOVE(ship_events[ship], E)
+
 /singleton/overmap_event_handler/proc/is_event_active(var/ship, var/event_type, var/severity)
 	if(!ship_events[ship])
 		return
@@ -322,6 +340,7 @@
 /obj/effect/overmap/event/Destroy()//takes a look at this one as well, make sure everything is A-OK
 	if(movable_event)
 		STOP_PROCESSING(SSprocessing, src)
+	overmap_event_handler.kill_all_events_from_hazard(src)
 	var/turf/T = loc
 	. = ..()
 	overmap_event_handler.update_hazards(T)

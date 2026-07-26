@@ -267,6 +267,8 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	security_radius = isnull(content["security_radius"]) ? 1 : text2num(content["security_radius"])
 	fuel_credits = isnull(content["fuel_credits"]) ? 0 : between(0, text2num(content["fuel_credits"]), max_fuel_credits)
 	public_territory = isnull(content["public_territory"]) ? FALSE : !!content["public_territory"]
+	if(!requires_fuel)
+		powered = TRUE // admin/no-maintenance beacons (e.g. hub) never legitimately save powered-off
 	if(faction_uid && powered && (!requires_fuel || fuel_credits > 0))
 		_apply_network()
 	else if(powered && requires_fuel && fuel_credits <= 0)
@@ -300,6 +302,8 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	if(!isnull(content["security_radius"])) security_radius = text2num(content["security_radius"])
 	if(!isnull(content["fuel_credits"]))    fuel_credits    = between(0, text2num(content["fuel_credits"]), max_fuel_credits)
 	if(!isnull(content["public_territory"])) public_territory = !!content["public_territory"]
+	if(!requires_fuel)
+		powered = TRUE // admin/no-maintenance beacons (e.g. hub) never legitimately save powered-off
 	if(faction_uid && powered && (!requires_fuel || fuel_credits > 0))
 		_apply_network()
 	else if(powered && requires_fuel && fuel_credits <= 0)
@@ -595,8 +599,14 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 /// beacon that just powered on/expanded -- was never retroactively evicted.
 /// Called alongside _apply_security_radius_grant() so both run on the same
 /// activation + periodic-resweep cadence.
+/// Shared by _evict_hazards_in_range() and ui_data() so the TGUI can tell
+/// command "hazard clearing is currently inactive" apart from "beacon claim
+/// is active" instead of silently no-opping behind an active-looking beacon.
+/obj/structure/machinery/faction_beacon/proc/_hazard_eviction_active()
+	return SSatlas.current_map.use_overmap && security_radius > 0 && guaranteed_security_tier >= ZONE_MEDSEC
+
 /obj/structure/machinery/faction_beacon/proc/_evict_hazards_in_range()
-	if(!SSatlas.current_map.use_overmap || security_radius <= 0 || guaranteed_security_tier < ZONE_MEDSEC)
+	if(!_hazard_eviction_active())
 		return
 	var/obj/effect/overmap/visitable/my_sector = GLOB.map_sectors["[GET_Z(src)]"]
 	if(!istype(my_sector))
@@ -1014,6 +1024,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	// the UI can make that context clear instead of implying Private always
 	// blocks non-members.
 	data["faction_raiding_enabled"] = GLOB.faction_raiding_enabled
+	data["hazard_eviction_active"] = _hazard_eviction_active()
 	var/obj/effect/overmap/visitable/here = GLOB.map_sectors["[GET_Z(src)]"]
 	data["site_name"] = istype(here) ? here.name : null
 	return data
@@ -1203,6 +1214,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	guaranteed_security_tier = ZONE_HIGHSEC
 	security_radius = 2 // reaches further than a standard faction beacon's default of 1
 	requires_fuel = FALSE // admin-spawned, immune to the credit maintenance mechanic
+	powered = TRUE // admin-spawned, already active -- doesn't need a manual power-on step like a normal beacon
 
 /obj/structure/machinery/faction_beacon/hub/ui_interact(mob/user, datum/tgui/ui)
 	ui = SStgui.try_update_ui(user, src, ui)

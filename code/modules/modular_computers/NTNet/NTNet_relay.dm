@@ -19,6 +19,10 @@
 	var/dos_capacity = 500		// Amount of DoS "packets" in buffer required to crash the relay
 	var/dos_dissipate = 1		// Amount of DoS "packets" dissipated over time.
 
+	/// dos_sources is deliberately excluded -- it's just a backwards-reference
+	/// list for qdel() cleanup, not meaningful state to restore.
+	worldstate_vars = list("enabled", "dos_failure", "dos_overload")
+
 	component_types = list(
 		/obj/item/stack/cable_coil{amount = 15},
 		/obj/item/circuitboard/ntnet_relay
@@ -120,6 +124,26 @@
 		GLOB.ntnet_global.relays.Remove(src)
 		GLOB.ntnet_global.add_log("Quantum relay connection severed. Current amount of linked relays: [NTNet.relays.len]")
 	return ..()
+
+/// worldstate_vars only covers mapload relays (worldstateInitialize()'s
+/// blanket loop). The cargo-ordered crate variant below is spawned at
+/// runtime, so it auto-registers into the tracked-objects persistence
+/// system instead -- mirrors telepad_cargo's persistent_objects_* pair.
+/obj/structure/machinery/ntnet_relay/persistent_objects_get_content()
+	var/list/content = ..()
+	content["enabled"] = enabled
+	content["dos_failure"] = dos_failure
+	content["dos_overload"] = dos_overload
+	return content
+
+/obj/structure/machinery/ntnet_relay/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["enabled"])) enabled = !!content["enabled"]
+	if(!isnull(content["dos_failure"])) dos_failure = !!content["dos_failure"]
+	if(!isnull(content["dos_overload"])) dos_overload = text2num(content["dos_overload"])
+	update_icon()
 
 /obj/structure/machinery/ntnet_relay/attackby(obj/item/attacking_item, mob/user)
 	if(attacking_item.tool_behaviour == TOOL_WRENCH)

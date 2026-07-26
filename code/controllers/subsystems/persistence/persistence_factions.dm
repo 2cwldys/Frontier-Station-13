@@ -716,7 +716,11 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 /proc/get_faction_name(uid)
 	uid = normalize_faction_uid(uid)
 	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
-		return uid
+		// uid is an internal lookup key (lowercased, spaces->underscores by
+		// normalize_faction_uid()) -- never display it raw. Covers the "hub"
+		// sentinel (the default/unclaimed network, which has no real founded-
+		// faction row to look up) and any other uncached/stale uid.
+		return capitalize_first_letters(replacetext(uid, "_", " "))
 	return GLOB.persistence_faction_cache[uid]["name"]
 
 // ============================================================
@@ -1043,6 +1047,16 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		return FALSE
 	if(istype(here_marker, /obj/effect/overmap/visitable/sector/exoplanet))
 		return FALSE
+	// CentCom is a bare, template-less Z built directly by atlas.dm at boot --
+	// no ruin/away_site template ever loads there, so the DB-row pinning
+	// below (meant for regenerating a ruin at the same overmap spot next
+	// boot) doesn't apply and never will. It always exists at boot
+	// regardless, so it just needs the same persistence-allow marking a
+	// real pinned site gets, with no DB row of its own.
+	if(is_centcom_level(z))
+		GLOB.persistence_pinned_site_z |= z
+		GLOB.persistence_zlevel_allow |= z
+		return TRUE
 	var/datum/map_template/here_template = GLOB.map_templates["[z]"]
 	if(!istype(here_template, /datum/map_template/ruin/away_site))
 		return FALSE

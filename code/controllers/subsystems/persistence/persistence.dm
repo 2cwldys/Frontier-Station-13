@@ -575,6 +575,19 @@ SUBSYSTEM_DEF(persistence)
 	qdel(zlq)
 	if(length(GLOB.persistence_zlevel_skip))
 		log_subsystem_persistence_info("Z-Level skip list loaded: [GLOB.persistence_zlevel_skip.Join(", ")]")
+
+	// CentCom is a bare, template-less Z built directly by atlas.dm at boot --
+	// it has no DB row of its own and no ruin/away_site template to pin, so
+	// unlike every other Z it can never earn its way onto the allow list
+	// before this. Without this, CentCom only gets allow-listed reactively
+	// (persistence_pin_site_at_z(), via a faction beacon's _apply_network())
+	// -- which runs AFTER the restore passes below already skipped it for
+	// this boot.
+	for(var/z = 1 to world.maxz)
+		if(is_centcom_level(z))
+			GLOB.persistence_pinned_site_z |= z
+			GLOB.persistence_zlevel_allow |= z
+
 	if(GLOB.config.manual_area_save)
 		log_subsystem_persistence_info("MANUAL_AREA_SAVE active: only z-levels \[[GLOB.persistence_zlevel_allow.Join(", ")]\] will save/load.")
 

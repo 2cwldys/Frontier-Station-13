@@ -173,6 +173,20 @@
 	if(pod)
 		persistence_set_last_pod(H.ckey, H.real_name, pod)
 
+	// Escaping a sentence into anything that ISN'T a prison cell (a normal
+	// cryopod, or no specific pod context at all) ends it outright,
+	// immediately -- confirmed with the user. Cheap cache read first so this
+	// costs nothing extra for the overwhelming common case of an ordinary,
+	// never-imprisoned player going to cryosleep normally. Entering a
+	// DIFFERENT prison pod (any faction) is deliberately left alone here --
+	// the lazy pod-existence check in persistence_character_imprisonment_status()
+	// already handles that rarer case reasonably.
+	if(!istype(pod, /obj/structure/machinery/cryopod/prison))
+		var/list/pos_entry = GLOB.persistence_position_cache["[H.ckey]|[H.real_name]"]
+		if(islist(pos_entry) && pos_entry["imprisoned"])
+			persistence_set_imprisoned(H.ckey, H.real_name, FALSE)
+			log_and_message_admins("[H.real_name] ([H.ckey])'s cryogenic prison sentence was cleared -- entered cryosleep outside their assigned cell.", null)
+
 	H.persistence_stored_ckey = H.ckey
 	H.persistence_in_cryo     = TRUE
 	announce_faction_cryo_enter(H)
@@ -364,6 +378,24 @@
 /// the faction beacon auto-claim sweep, and the PersistentAutoSpawn() last-resort fallback.
 GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery/cryopod/robot))
 
+/// Cryopod subtypes never offered as a DISCOVERY target -- i.e. never handed
+/// to someone with no saved pod of their own (persistence_find_available_cryopod(),
+/// persistence_collect_available_cryopods(), PersistentAutoSpawn()'s last-
+/// resort loop) -- but, unlike persistence_cryopod_spawn_ignore above,
+/// deliberately NOT checked by persistence_find_saved_cryopod(): a released
+/// prisoner's own saved last-used pod legitimately IS a prison cell, and
+/// must still resolve for them specifically. Kept as a separate list (not
+/// folded into persistence_cryopod_spawn_ignore) so a random unrelated
+/// respawning player never lands in someone else's cell, without also
+/// blocking the one person who's actually supposed to wake up there.
+GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machinery/cryopod/prison))
+
+/// Shared check for the "discovery" pod-selection procs (never used by
+/// persistence_find_saved_cryopod(), which must still resolve a prisoner's
+/// own saved cell) -- see persistence_cryopod_discovery_ignore above.
+/proc/_cryopod_ignored_for_discovery(obj/structure/machinery/cryopod/pod)
+	return is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore) || is_type_in_list(pod, GLOB.persistence_cryopod_discovery_ignore)
+
 // Faction assignment is configured via the faction tagger tool now (see
 // faction_tagger_set() in persistence_faction_tagger.dm). This admin-only
 // quick-access verb stays for a "raw" session where nobody has a faction ID
@@ -515,7 +547,7 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 	// a faction tag on the pod itself (mutually exclusive by design).
 	if(ckey && char_name)
 		for(var/obj/structure/machinery/cryopod/pod in world)
-			if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore))
+			if(_cryopod_ignored_for_discovery(pod))
 				continue
 			if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN)))
 				continue
@@ -526,7 +558,7 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 		// crew -- checked after the exact-personal match above, before
 		// faction/public, same precedence a Crew tag has everywhere else.
 		for(var/obj/structure/machinery/cryopod/pod in world)
-			if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore))
+			if(_cryopod_ignored_for_discovery(pod))
 				continue
 			if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN)))
 				continue
@@ -537,7 +569,7 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 	if(faction_uid)
 		var/list/faction_pods = list()
 		for(var/obj/structure/machinery/cryopod/pod in world)
-			if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore)) continue
+			if(_cryopod_ignored_for_discovery(pod)) continue
 			if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
 			if(pod.persistent_network == faction_uid)
 				faction_pods += pod
@@ -550,7 +582,7 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 	var/list/public_pods = list()
 	var/total_pods = 0
 	for(var/obj/structure/machinery/cryopod/pod in world)
-		if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore))
+		if(_cryopod_ignored_for_discovery(pod))
 			continue
 		total_pods++
 		if(!pod.z)
@@ -606,7 +638,7 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 
 	for(var/obj/structure/machinery/cryopod/pod in world)
 		if(seen[pod]) continue
-		if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore)) continue
+		if(_cryopod_ignored_for_discovery(pod)) continue
 		if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
 		if(pod.personal_ckey == ckey && pod.personal_char_name == char_name)
 			. += list(list("pod" = pod, "tier" = "Personal"))
@@ -614,7 +646,7 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 
 	for(var/obj/structure/machinery/cryopod/pod in world)
 		if(seen[pod]) continue
-		if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore)) continue
+		if(_cryopod_ignored_for_discovery(pod)) continue
 		if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
 		if(pod.crew_tagged && _drydock_crew_check_identity(ckey, char_name, pod.z))
 			. += list(list("pod" = pod, "tier" = "Crew"))
@@ -623,7 +655,7 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 	if(faction_uid)
 		for(var/obj/structure/machinery/cryopod/pod in world)
 			if(seen[pod]) continue
-			if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore)) continue
+			if(_cryopod_ignored_for_discovery(pod)) continue
 			if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
 			if(pod.persistent_network == faction_uid)
 				. += list(list("pod" = pod, "tier" = "Faction"))
@@ -631,7 +663,7 @@ GLOBAL_LIST_INIT(persistence_cryopod_spawn_ignore, list(/obj/structure/machinery
 
 	for(var/obj/structure/machinery/cryopod/pod in world)
 		if(seen[pod]) continue
-		if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore)) continue
+		if(_cryopod_ignored_for_discovery(pod)) continue
 		if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
 		if(pod.persistent_network == "public" && pod.persistent_spawn)
 			. += list(list("pod" = pod, "tier" = "Public"))

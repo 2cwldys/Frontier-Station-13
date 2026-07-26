@@ -878,7 +878,7 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		spawn_pod = persistence_find_available_cryopod(spawner_faction, ckey_lower, character.real_name)
 	if(!spawn_pod)
 		for(var/obj/structure/machinery/cryopod/pod in world)
-			if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore)) continue
+			if(_cryopod_ignored_for_discovery(pod)) continue
 			if(pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
 			var/turf/pt = get_turf(pod)
 			if(!pt || !pt.z) continue

@@ -16,6 +16,10 @@ type ShuttleRow = {
   custom_class: string | null;
   ready: BooleanLike;
   display_name: string;
+  // Per-owner purchase order (personal and faction ships numbered
+  // independently) -- NOT the same as shuttle_id, which is a reusable,
+  // server-wide slot number shared across every owner.
+  display_number: number;
   sub_shuttle_tags: string[];
   busy: BooleanLike;
 };
@@ -58,7 +62,7 @@ export const ShuttleDrydock = (props) => {
     const notReady = !row.stashed && !row.ready;
     return (
       <LabeledList.Item key={row.shuttle_id} label={row.display_name}>
-        #{row.shuttle_id}
+        #{row.display_number}
         {row.custom_class ? ` (${row.custom_class})` : ''} --{' '}
         {row.stashed ? 'Stashed' : notReady ? 'Initializing...' : 'Deployed'}
         <Button
@@ -250,7 +254,7 @@ export const ShuttleDrydock = (props) => {
                 return (
                   <Section
                     key={row.shuttle_id}
-                    title={`${row.template_id} #${row.shuttle_id}`}
+                    title={`${row.template_id} #${row.display_number}`}
                     level={2}
                   >
                     <LabeledList>
