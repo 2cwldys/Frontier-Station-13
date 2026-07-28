@@ -728,3 +728,31 @@
 	container_type = "crate"
 	groupable = TRUE
 	spawn_amount = 1
+
+/singleton/cargo_item/commanderbeacon
+	category = "weaponry"
+	name = "commander's beacon"
+	supplier = "Hub"
+	description = "A compact holographic emitter that rallies up to two loyal soldiers to fight at the bearer's side."
+	price = 25000
+	items = list(
+		/obj/item/commander_beacon
+	)
+	access = ACCESS_CARGO
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/factionbarracks
+	category = "weaponry"
+	name = "faction barracks"
+	supplier = "Hub"
+	description = "A prefab garrison module. Once anchored, tagged to a faction, and powered on, it trains and maintains up to five soldiers to defend its position. Arrives unanchored."
+	price = 100000
+	items = list(
+		/obj/structure/machinery/faction_barracks
+	)
+	access = ACCESS_CARGO
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1

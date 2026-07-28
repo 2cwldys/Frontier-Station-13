@@ -1,27 +1,33 @@
 /*
  * Persistence - Missions
- * Admin-authored mission templates (fetch-item and kill-NPC types), DB-backed
- * (ss13_missions, V088) and admin-editable (manage_missions()). Single-claim-
- * at-a-time: once accepted, a template is locked to that ckey until they
- * complete, abandon, or an admin frees it. Per-accepter progress is
- * runtime-only (current_accepter_ckey on the cached row, plus a
- * /datum/mission_instance for kill missions) -- a server restart mid-mission
- * resets it to available again; only the templates themselves persist.
+ * Admin-authored mission templates (fetch-item, visit-site, and kill-NPC
+ * types), DB-backed (ss13_missions, V088/V121) and admin-editable
+ * (manage_missions()). Kill missions are compiled out by default (see
+ * ENABLE_KILL_MISSIONS, _compile_options.dm) -- the type/DB value/runtime
+ * plumbing stays in place, just inert and hidden from the board/admin
+ * authoring UI until re-enabled. Single-claim-at-a-time: once accepted, a
+ * template is locked to that ckey until they complete, abandon, or an admin
+ * frees it. Per-accepter progress is runtime-only (current_accepter_ckey on
+ * the cached row, plus a /datum/mission_instance for visit/kill missions) --
+ * a server restart mid-mission resets it to available again; only the
+ * templates themselves persist.
  *
- * Kill missions target an away-site TEMPLATE (sector_template_id), not a
- * specific instance -- away sites aren't guaranteed to exist in a given
- * session (dynamic sites are drawn from an RNG pool each boot). accept_mission()
- * uses whatever live nullsec instance of the template currently exists, or
- * auto-generates one on demand (up to MISSION_AUTOGEN_SECTOR_LIMIT,
- * GLOB.mission_spawned_zs) via _spawn_away_site_for_template()
- * (persistence_factions.dm) -- this pool never touches the normal per-round
- * RNG dynamic-site budget. Kill missions also require a manual Turn In (like
- * fetch missions) once every target is dead, away from the sector --
- * killing the last mob only flips the instance to "objective complete", it
- * does not pay out directly (see /datum/mission_instance, turn_in_kill_mission()).
- * A mission-auto-generated sector despawns itself once its mission is turned
- * in, provided no one is still on it and no other active instance still
- * targets it (_try_cleanup_mission_sector()) -- freeing the cap slot.
+ * Visit and kill missions both target an away-site TEMPLATE
+ * (sector_template_id), not a specific instance -- away sites aren't
+ * guaranteed to exist in a given session (dynamic sites are drawn from an RNG
+ * pool each boot). accept_mission() uses whatever live nullsec instance of
+ * the template currently exists, or auto-generates one on demand (up to
+ * MISSION_AUTOGEN_SECTOR_LIMIT, GLOB.mission_spawned_zs) via
+ * _spawn_away_site_for_template() (persistence_factions.dm) -- this pool
+ * never touches the normal per-round RNG dynamic-site budget. Both also
+ * require a manual Turn In (like fetch missions) once objective_complete --
+ * reaching the sector (visit) or killing the last mob (kill) only flips the
+ * instance to "objective complete," away from the sector; it does not pay
+ * out directly (see /datum/mission_instance, turn_in_visit_mission(),
+ * turn_in_kill_mission()). A mission-auto-generated sector despawns itself
+ * once its mission is turned in, provided no one is still on it and no other
+ * active instance still targets it (_try_cleanup_mission_sector()) -- freeing
+ * the cap slot.
  */
 
 /// Sectors this system itself auto-generated for a mission (via
@@ -84,7 +90,7 @@ GLOBAL_LIST_EMPTY(mission_templates)
 		return
 
 	var/datum/db_query/query = SSdbcore.NewQuery(
-		"SELECT id, mission_type, title, description, fetch_item_path, fetch_count, kill_mob_path, kill_count, sector_template_id, reward, enabled FROM ss13_missions WHERE map_path = :mp",
+		"SELECT id, mission_type, title, description, fetch_item_path, fetch_count, kill_mob_path, kill_count, sector_template_id, reward, enabled, kill_preset_id FROM ss13_missions WHERE map_path = :mp",
 		list("mp" = "[SSatlas.current_map.path]")
 	)
 	query.Execute()
@@ -104,6 +110,7 @@ GLOBAL_LIST_EMPTY(mission_templates)
 			"sector_template_id"    = query.item[9],
 			"reward"                = text2num(query.item[10]),
 			"enabled"               = text2num(query.item[11]),
+			"kill_preset_id"        = query.item[12] ? text2num(query.item[12]) : null,
 			"current_accepter_ckey" = null,
 			"instance"              = null
 		))
@@ -197,7 +204,7 @@ GLOBAL_LIST_EMPTY(mission_templates)
 	if(!accepter || !accepter.ckey)
 		return FALSE
 
-	if(tmpl["mission_type"] == "kill")
+	if(tmpl["mission_type"] == "kill" || tmpl["mission_type"] == "visit")
 		var/obj/effect/overmap/visitable/sector_marker = find_mission_sector(tmpl["sector_template_id"])
 		if(!sector_marker || !length(sector_marker.map_z))
 			if(length(GLOB.mission_spawned_zs) >= MISSION_AUTOGEN_SECTOR_LIMIT)
@@ -222,10 +229,12 @@ GLOBAL_LIST_EMPTY(mission_templates)
 			to_chat(accepter, SPAN_NOTICE("Mission sector located and prepared."))
 		var/datum/mission_instance/instance = new()
 		instance.template_id = template_id
+		instance.mission_type = tmpl["mission_type"]
 		instance.accepter_ckey = accepter.ckey
 		instance.accepter_mob = accepter
 		instance.sector_zs = sector_marker.map_z.Copy()
 		instance.kill_mob_path = tmpl["kill_mob_path"]
+		instance.kill_preset_id = tmpl["kill_preset_id"]
 		instance.remaining_kills = tmpl["kill_count"]
 		instance.reward = tmpl["reward"]
 		tmpl["instance"] = instance
@@ -290,6 +299,7 @@ GLOBAL_LIST_EMPTY(mission_templates)
 	tmpl["instance"] = null
 	return TRUE
 
+#ifdef ENABLE_KILL_MISSIONS
 /**
  * Completes a kill mission for accepter -- requires every target already
  * dead (instance.objective_complete) AND accepter no longer on any Z
@@ -301,6 +311,40 @@ GLOBAL_LIST_EMPTY(mission_templates)
 /proc/turn_in_kill_mission(template_id, mob/living/carbon/human/accepter)
 	var/list/tmpl = get_mission_template(template_id)
 	if(!tmpl || tmpl["mission_type"] != "kill" || tmpl["current_accepter_ckey"] != accepter.ckey)
+		return FALSE
+	var/datum/mission_instance/instance = tmpl["instance"]
+	if(!istype(instance) || !instance.objective_complete)
+		return FALSE
+	if(GET_Z(accepter) in instance.sector_zs)
+		return FALSE
+
+	var/datum/money_account/account = SSeconomy.get_account_by_ckey(accepter.ckey)
+	if(account)
+		account.adjust_money(tmpl["reward"])
+
+	var/list/sector_zs = instance.sector_zs.Copy()
+	tmpl["current_accepter_ckey"] = null
+	tmpl["instance"] = null
+	qdel(instance)
+
+	for(var/z in sector_zs)
+		_try_cleanup_mission_sector(z, accepter)
+
+	return TRUE
+#endif
+
+/**
+ * Completes a visit mission for accepter -- requires having already reached
+ * the target sector (instance.objective_complete, set the moment
+ * check_sector_arrival() sees them arrive) AND no longer on any Z belonging
+ * to the mission's sector, same leave-before-turning-in shape as
+ * turn_in_kill_mission(). Pays the reward, frees the slot, and kicks off a
+ * cleanup attempt for the sector if this system auto-generated it. Returns
+ * TRUE on success.
+ */
+/proc/turn_in_visit_mission(template_id, mob/living/carbon/human/accepter)
+	var/list/tmpl = get_mission_template(template_id)
+	if(!tmpl || tmpl["mission_type"] != "visit" || tmpl["current_accepter_ckey"] != accepter.ckey)
 		return FALSE
 	var/datum/mission_instance/instance = tmpl["instance"]
 	if(!istype(instance) || !instance.objective_complete)
@@ -360,10 +404,16 @@ GLOBAL_LIST_EMPTY(mission_templates)
 /// sector. One instance per active kill-mission claim.
 /datum/mission_instance
 	var/template_id
+	var/mission_type
 	var/accepter_ckey
 	var/mob/accepter_mob
 	var/list/sector_zs = list()
 	var/kill_mob_path
+	/// If set, overrides kill_mob_path -- spawns via
+	/// spawn_hostile_npc_from_preset() (persistence_hostile_npcs.dm) instead
+	/// of a bare `new kill_mob_path(...)`, so admins can equip kill-mission
+	/// targets with a real, tuned hostile NPC preset.
+	var/kill_preset_id
 	var/remaining_kills = 0
 	var/reward = 0
 	var/list/spawned_mobs = list()
@@ -386,6 +436,13 @@ GLOBAL_LIST_EMPTY(mission_templates)
 	spawned = TRUE
 	UnregisterSignal(accepter_mob, COMSIG_MOVABLE_MOVED)
 
+	if(mission_type == "visit")
+		objective_complete = TRUE
+		if(accepter_mob.client)
+			to_chat(accepter_mob, SPAN_GOOD("You've reached the mission site -- turn the mission in to collect payment."))
+		return
+
+#ifdef ENABLE_KILL_MISSIONS
 	var/mob_type = text2path(kill_mob_path)
 	var/allow_space = mob_type && ispath(mob_type, /mob/living/simple_animal/hostile/carp)
 
@@ -394,12 +451,19 @@ GLOBAL_LIST_EMPTY(mission_templates)
 		var/turf/spawn_turf = find_mission_spawn_turf(spawn_z, allow_space)
 		if(!spawn_turf)
 			continue
-		var/mob/living/new_mob = new kill_mob_path(spawn_turf)
+		var/mob/living/new_mob
+		if(kill_preset_id)
+			new_mob = spawn_hostile_npc_from_preset(kill_preset_id, spawn_turf)
+		else
+			new_mob = new kill_mob_path(spawn_turf)
+		if(!new_mob)
+			continue
 		spawned_mobs += new_mob
 		GLOB.death_event.register(new_mob, src, PROC_REF(on_kill_mob_died))
 
 	if(accepter_mob.client)
 		to_chat(accepter_mob, SPAN_DANGER("Hostiles detected -- mission targets have arrived."))
+#endif
 
 /datum/mission_instance/proc/on_kill_mob_died(mob/dead_mob)
 	GLOB.death_event.unregister(dead_mob, src, PROC_REF(on_kill_mob_died))
@@ -447,7 +511,11 @@ GLOBAL_LIST_EMPTY(mission_templates)
 			return
 
 		if(choice == "Add Mission")
-			var/mission_type = tgui_input_list(usr, "Mission type:", "Add Mission", list("fetch", "kill"))
+			var/list/type_choices = list("fetch", "visit")
+#ifdef ENABLE_KILL_MISSIONS
+			type_choices += "kill"
+#endif
+			var/mission_type = tgui_input_list(usr, "Mission type:", "Add Mission", type_choices)
 			if(!mission_type)
 				continue
 			var/title = tgui_input_text(usr, "Mission title:", "Add Mission", "", max_length = 128)
@@ -462,6 +530,7 @@ GLOBAL_LIST_EMPTY(mission_templates)
 			var/fetch_count = null
 			var/kill_mob_path = null
 			var/kill_count = null
+			var/kill_preset_id = null
 			var/sector_template_id = null
 
 			if(mission_type == "fetch")
@@ -474,13 +543,31 @@ GLOBAL_LIST_EMPTY(mission_templates)
 				fetch_count = tgui_input_number(usr, "How many required:", "Add Mission", 1, 1000, 1)
 				if(isnull(fetch_count))
 					continue
-			else
-				var/typed_path = tgui_input_text(usr, "Mob type path to kill (e.g. /mob/living/simple_animal/hostile/carp):", "Add Mission", "", max_length = 128)
-				var/path = text2path(typed_path)
-				if(!path || !ispath(path, /mob/living))
-					to_chat(usr, SPAN_WARNING("'[typed_path]' is not a valid /mob/living type path."))
+#ifdef ENABLE_KILL_MISSIONS
+			else if(mission_type == "kill")
+				var/target_kind = tgui_input_list(usr, "Kill target:", "Add Mission", list("Hostile NPC preset", "Raw mob type path"))
+				if(!target_kind)
 					continue
-				kill_mob_path = "[path]"
+				if(target_kind == "Hostile NPC preset")
+					if(!length(GLOB.hostile_npc_presets))
+						to_chat(usr, SPAN_WARNING("No hostile NPC presets exist -- create one via 'Manage Hostile NPC Presets' first."))
+						continue
+					var/list/preset_options = list()
+					for(var/list/preset in GLOB.hostile_npc_presets)
+						if(preset["enabled"])
+							preset_options["#[preset["id"]] [preset["name"]]"] = preset
+					var/preset_pick = tgui_input_list(usr, "Which preset?", "Add Mission", preset_options)
+					if(!preset_pick)
+						continue
+					kill_preset_id = preset_options[preset_pick]["id"]
+					kill_mob_path = "[/mob/living/carbon/human/npc/hostile]"
+				else
+					var/typed_path = tgui_input_text(usr, "Hostile mob type path to kill (e.g. /mob/living/simple_animal/hostile/carp):", "Add Mission", "", max_length = 128)
+					var/path = text2path(typed_path)
+					if(!path || !(ispath(path, /mob/living/simple_animal/hostile) || ispath(path, /mob/living/carbon/human/npc/hostile)))
+						to_chat(usr, SPAN_WARNING("'[typed_path]' is not a valid hostile mob type -- it must be a /mob/living/simple_animal/hostile or /mob/living/carbon/human/npc/hostile subtype. A plain human/player-type mob has no combat AI and will never attack."))
+						continue
+					kill_mob_path = "[path]"
 				kill_count = tgui_input_number(usr, "How many to kill:", "Add Mission", 1, 100, 1)
 				if(isnull(kill_count))
 					continue
@@ -495,13 +582,27 @@ GLOBAL_LIST_EMPTY(mission_templates)
 				if(!target_site)
 					continue
 				sector_template_id = target_site.id
+#endif
+			else if(mission_type == "visit")
+				// Same away-site TEMPLATE targeting as kill missions (see
+				// comment above/find_mission_sector()) -- just no mob path/
+				// count, since the objective is reaching the site, not
+				// fighting anything there.
+				var/tmpl_pick = tgui_input_list(usr, "Target away-site template:", "Add Mission", SSmapping.away_sites_templates)
+				if(!tmpl_pick)
+					continue
+				var/datum/map_template/ruin/away_site/target_site = SSmapping.away_sites_templates[tmpl_pick]
+				if(!target_site)
+					continue
+				sector_template_id = target_site.id
 
 			var/datum/db_query/q = SSdbcore.NewQuery(
-				{"INSERT INTO ss13_missions (map_path, mission_type, title, description, fetch_item_path, fetch_count, kill_mob_path, kill_count, sector_template_id, reward, enabled)
-				VALUES (:mp, :mt, :title, :desc, :fip, :fc, :kmp, :kc, :stid, :reward, 1)"},
+				{"INSERT INTO ss13_missions (map_path, mission_type, title, description, fetch_item_path, fetch_count, kill_mob_path, kill_count, sector_template_id, reward, enabled, kill_preset_id)
+				VALUES (:mp, :mt, :title, :desc, :fip, :fc, :kmp, :kc, :stid, :reward, 1, :kpid)"},
 				list(
 					"mp" = "[SSatlas.current_map.path]", "mt" = mission_type, "title" = title, "desc" = (description != "" ? description : null),
-					"fip" = fetch_item_path, "fc" = fetch_count, "kmp" = kill_mob_path, "kc" = kill_count, "stid" = sector_template_id, "reward" = reward
+					"fip" = fetch_item_path, "fc" = fetch_count, "kmp" = kill_mob_path, "kc" = kill_count, "stid" = sector_template_id, "reward" = reward,
+					"kpid" = kill_preset_id
 				)
 			)
 			q.Execute()
@@ -513,7 +614,7 @@ GLOBAL_LIST_EMPTY(mission_templates)
 				"id" = new_id, "mission_type" = mission_type, "title" = title, "description" = description,
 				"fetch_item_path" = fetch_item_path, "fetch_count" = fetch_count, "kill_mob_path" = kill_mob_path,
 				"kill_count" = kill_count, "sector_template_id" = sector_template_id, "reward" = reward, "enabled" = TRUE,
-				"current_accepter_ckey" = null, "instance" = null
+				"kill_preset_id" = kill_preset_id, "current_accepter_ckey" = null, "instance" = null
 			))
 			log_and_message_admins("added mission '[title]' ([mission_type])", usr)
 			to_chat(usr, SPAN_GOOD("Added mission '[title]'."))

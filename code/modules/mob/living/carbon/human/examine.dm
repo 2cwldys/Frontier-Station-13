@@ -286,7 +286,7 @@
 	if(user == src && world.time < recently_came_until)
 		msg += "<span style='color: #ff69b4; text-shadow: 0 0 4px #ff69b4;'>You have recently came, lucky you!</span>\n"
 
-	if(species.show_ssd && (!species.has_organ[BP_BRAIN] || has_brain()) && stat != DEAD && !(status_flags & FAKEDEATH))
+	if(species.show_ssd && (!species.has_organ[BP_BRAIN] || has_brain()) && stat != DEAD && !(status_flags & FAKEDEATH) && !deliberately_clientless)
 		if(!vr_mob && !key)
 			msg += "<span class='deadsay'>[get_pronoun("He")] [get_pronoun("is")] [species.show_ssd]. It doesn't look like [get_pronoun("he")] [get_pronoun("is")] waking up anytime soon.</span>\n"
 		else if(!vr_mob && !client && !bg)

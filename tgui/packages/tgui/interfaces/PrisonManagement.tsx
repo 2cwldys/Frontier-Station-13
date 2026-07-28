@@ -8,7 +8,7 @@ type Prisoner = {
   char_name: string;
   indefinite: BooleanLike;
   remaining_seconds: number;
-  locked: BooleanLike;
+  frozen: BooleanLike;
 };
 
 type PrisonManagementData = {
@@ -68,21 +68,21 @@ export const PrisonManagement = (props) => {
                       ? 'Indefinite'
                       : formatRemaining(p.remaining_seconds)}
                   </Table.Cell>
-                  <Table.Cell color={p.locked ? 'bad' : 'good'}>
-                    {p.locked ? 'Locked' : 'Unlocked'}
+                  <Table.Cell color={p.frozen ? 'bad' : 'good'}>
+                    {p.frozen ? 'Frozen' : 'Thawed'}
                   </Table.Cell>
                   <Table.Cell>
                     <Button
                       compact
-                      icon={p.locked ? 'unlock' : 'lock'}
+                      icon={p.frozen ? 'sun' : 'snowflake'}
                       onClick={() =>
-                        act('toggle_lock', {
+                        act('toggle_freeze', {
                           ckey: p.ckey,
                           char_name: p.char_name,
                         })
                       }
                     >
-                      {p.locked ? 'Unlock' : 'Lock'}
+                      {p.frozen ? 'Thaw' : 'Freeze'}
                     </Button>
                     <Button
                       compact

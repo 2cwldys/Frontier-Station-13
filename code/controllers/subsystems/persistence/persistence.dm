@@ -624,6 +624,24 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/ms_e)
 		log_subsystem_persistence_error("Missions init failed: [ms_e] on [ms_e.file]:[ms_e.line]")
 
+	log_subsystem_persistence_info("Starting outfit template initialization...")
+	try
+		outfitTemplatesInitialize()
+	catch(var/exception/ot_e)
+		log_subsystem_persistence_error("Outfit templates init failed: [ot_e] on [ot_e.file]:[ot_e.line]")
+
+	log_subsystem_persistence_info("Starting hostile NPC preset initialization...")
+	try
+		hostileNpcPresetsInitialize()
+	catch(var/exception/hnp_e)
+		log_subsystem_persistence_error("Hostile NPC presets init failed: [hnp_e] on [hnp_e.file]:[hnp_e.line]")
+
+	log_subsystem_persistence_info("Starting away site mob preset initialization...")
+	try
+		awaySiteMobPresetsInitialize()
+	catch(var/exception/asmp_e)
+		log_subsystem_persistence_error("Away site mob presets init failed: [asmp_e] on [asmp_e.file]:[asmp_e.line]")
+
 	// Arms the "is anyone actually playing" autosave auto-pause sweep.
 	_autosave_empty_reconcile_start()
 

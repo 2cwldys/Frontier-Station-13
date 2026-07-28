@@ -495,8 +495,11 @@
 		to_chat(user, SPAN_WARNING("Dead people can not be put into \the [src]."))
 		return
 	// Faction-owned pods only accept their own members. Single choke point for
-	// every physical entry path (grab, mouse-drop, Enter Pod verb).
-	if(persistent_network && persistent_network != "public" && GLOB.config.sql_enabled)
+	// every physical entry path (grab, mouse-drop, Enter Pod verb). Exempts
+	// prison cells -- the entire point of a prison is holding people who
+	// AREN'T members of the imprisoning faction, so this would otherwise make
+	// it impossible to ever put an outsider in one to begin with.
+	if(persistent_network && persistent_network != "public" && GLOB.config.sql_enabled && !istype(src, /obj/structure/machinery/cryopod/prison))
 		var/effective_ckey = M.ckey
 		if(!effective_ckey && ishuman(M))
 			var/mob/living/carbon/human/HM = M

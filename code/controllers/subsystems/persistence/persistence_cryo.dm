@@ -251,6 +251,10 @@
 		var/scale = max(vs[1], vs[2]) * WORLD_ICON_SIZE / 480
 		if(scale > 1)
 			border.transform = matrix(scale, 0, 0, 0, scale, 0)
+	// Muffled/distant reverb on everything heard while chilled -- playsound_local()
+	// (game/sound/sound.dm) already fully supports this override, nothing
+	// else in the codebase currently sets it.
+	sound_environment_override = SOUND_ENVIRONMENT_UNDERWATER
 
 /// Exit phase: a chilled sound others can hear, ~15 seconds of sluggish
 /// movement, and the 15-second countdown after which the visuals fade out.
@@ -270,6 +274,7 @@
 /mob/living/carbon/human/proc/clear_cryo_chill()
 	remove_client_color(/datum/client_color/chilled)  // animates back over 1 second
 	clear_fullscreen("chilled", 1.5 SECONDS)          // alpha fade-out
+	sound_environment_override = SOUND_ENVIRONMENT_NONE
 
 // ============================================================
 // ENTER CRYOSLEEP VERB  manual logout via cryopod
@@ -529,7 +534,14 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 		return null
 	if(pod.crew_tagged && !_drydock_crew_check_identity(ckey, char_name, pod.z))
 		return null
-	if(pod.persistent_network && pod.persistent_network != "public")
+	// A prisoner is very often NOT a member of the faction that imprisoned
+	// them -- that's the whole point of a prison cell, unlike an ordinary
+	// pod (which should stay faction-exclusive for this lookup). Skipping
+	// the match here means a prisoner's own last-used cell always resolves
+	// correctly regardless of their personal faction (or lack of one) --
+	// confirmed with the user, this must hold even once their sentence has
+	// expired, since this proc never looks at imprisonment status at all.
+	if(pod.persistent_network && pod.persistent_network != "public" && !istype(pod, /obj/structure/machinery/cryopod/prison))
 		var/player_faction = persistence_get_player_faction(ckey)
 		if(normalize_faction_uid(player_faction) != normalize_faction_uid(pod.persistent_network))
 			return null

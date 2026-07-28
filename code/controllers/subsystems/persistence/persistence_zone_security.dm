@@ -61,6 +61,42 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 		return FALSE
 	return TRUE
 
+/// TRUE if overmap object O (a site occupying overmap grid space, e.g. a
+/// station/away-site/planet -- never a ship) is currently protected from
+/// ship-to-site bombardment/lock-on, checked per real Z-level the site
+/// spans (O.map_z):
+///
+/// - zone_security_get() reports HIGHSEC for that z -- covers both a
+///   direct admin/CentCom designation with no beacon at all ("highsec is
+///   forever powered on") AND a HIGHSEC-tier beacon's own security_radius
+///   grant to a neighboring z (_apply_security_radius_grant(), faction_
+///   beacon.dm, already persists that grant into this same table) -- no
+///   exemption, blocks everyone. This radius-extension is HIGHSEC-specific:
+///   a MEDSEC beacon's radius grant only raises neighbors to MEDSEC, which
+///   this check doesn't treat as bombardment-protected at all.
+/// - OR an active, POWERED faction beacon directly covers that z
+///   (get_owning_faction_beacon(), faction_beacon.dm) at any tier -- a
+///   member of that SAME faction is exempt (mirrors
+///   get_cargo_tax_beneficiary()'s and _drydock_raid_blocked()'s own
+///   identical same-faction carve-out).
+/proc/site_bombardment_protected(obj/effect/overmap/visitable/O, mob/user)
+	if(!istype(O))
+		return FALSE
+	for(var/target_z in O.map_z)
+		if(zone_security_get(target_z) == ZONE_HIGHSEC)
+			return TRUE
+		var/obj/structure/machinery/faction_beacon/B = get_owning_faction_beacon(target_z)
+		if(!B)
+			continue
+		if(B.faction_uid && ishuman(user))
+			var/mob/living/carbon/human/H = user
+			var/obj/item/card/id/ID = H.GetIdCard()
+			var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+			if(own_faction && own_faction == normalize_faction_uid(B.faction_uid))
+				continue
+		return TRUE
+	return FALSE
+
 /// TRUE if z belongs to an asteroid exoplanet body (any variant) -- covers
 /// romanovich/ice/dumas/ytizi/chanterel/burzsia/etc, all subtypes of one
 /// base type. Asteroids can still passively fall within a nearby beacon's
@@ -76,6 +112,10 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
  * overmap markers. Called from SSpersistence.Initialize().
  */
 /datum/controller/subsystem/persistence/proc/zoneSecurityInitialize()
+	// Highsec death emergencies (see _on_mob_death_check_emergency() below) --
+	// same registration pattern SSstatistics uses for this exact signal.
+	RegisterSignal(SSdcs, COMSIG_GLOB_MOB_DEATH, PROC_REF(_on_mob_death_check_emergency))
+
 	// MERGE into the existing map, never reassign -- pinned-site zones were
 	// already registered during SSmapping init (build_pinned_away_sites),
 	// before this proc runs
@@ -437,7 +477,8 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 			"x"    = anchor.x,
 			"y"    = anchor.y,
 			"z"    = anchor.z,
-			"time" = world.time
+			"time" = world.time,
+			"type" = "offense"
 		))
 		if(length(GLOB.highsec_offense_log) > HIGHSEC_OFFENSE_LOG_MAX)
 			GLOB.highsec_offense_log.Cut(1, 2)
@@ -476,13 +517,106 @@ GLOBAL_LIST_EMPTY(hub_distress_last_called)
 		"x"    = caller.x,
 		"y"    = caller.y,
 		"z"    = caller.z,
-		"time" = world.time
+		"time" = world.time,
+		"type" = "distress"
 	))
 	if(length(GLOB.highsec_offense_log) > HIGHSEC_OFFENSE_LOG_MAX)
 		GLOB.highsec_offense_log.Cut(1, 2)
 	// Same PDA-beep alert path a normal offense uses (zone_security_alert_responders below).
 	zone_security_alert_responders(caller, caller, "DISTRESS CALL: [caller.name] requests Hub security in [A ? A.name : "unknown location"]! Open First Responder to respond.")
 	return TRUE
+
+/// ckey -> world.time of their last recorded death emergency. Separate from
+/// the offense/distress cooldown maps so one doesn't swallow another.
+GLOBAL_LIST_EMPTY(hub_emergency_last_tracked)
+#define EMERGENCY_TRACK_COOLDOWN (10 MINUTES)
+
+/**
+ * Death emergency: reports a dead player's recoverable remains (an intact
+ * body, or a neural lace that preserved their consciousness) to Hub security
+ * as a First Responder entry -- same log/PDA-ping/JMP pipeline as an offense
+ * or distress call, just tagged "emergency" instead. Fires regardless of
+ * zone tier -- only the portal-jump response itself is highsec-gated (see
+ * first_responder.dm's "respond" handler), everywhere else a responder just
+ * gets told the sector/coordinates. anchor is whatever a responder should
+ * actually jump to or be pointed at (the victim's own corpse, or the
+ * disembodied lace_mob when gibbed) -- see _on_mob_death_check_emergency()
+ * below for how each case is detected.
+ */
+/proc/zone_security_record_emergency(mob/victim, atom/anchor, reason)
+	if(!victim || !victim.ckey || !anchor)
+		return FALSE
+	var/last = GLOB.hub_emergency_last_tracked[victim.ckey]
+	if(last && (world.time - last) < EMERGENCY_TRACK_COOLDOWN)
+		return FALSE
+	GLOB.hub_emergency_last_tracked[victim.ckey] = world.time
+	var/area/A = get_area(anchor)
+	message_admins("<span class='danger'>EMERGENCY:</span> [key_name(victim)] found dead in [A ? A.name : "unknown location"] -- [reason] (<a href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[anchor.x];Y=[anchor.y];Z=[anchor.z]'>JMP</a>)")
+	log_game("Emergency: [key_name(victim)] died at ([anchor.x],[anchor.y],[anchor.z]) -- [reason].")
+	GLOB.highsec_offense_log += list(list(
+		"name" = "[victim.name] ([reason])",
+		"ref"  = WEAKREF(anchor),
+		"x"    = anchor.x,
+		"y"    = anchor.y,
+		"z"    = anchor.z,
+		"time" = world.time,
+		"type" = "emergency"
+	))
+	if(length(GLOB.highsec_offense_log) > HIGHSEC_OFFENSE_LOG_MAX)
+		GLOB.highsec_offense_log.Cut(1, 2)
+	zone_security_alert_responders(victim, anchor, "EMERGENCY: [victim.name] found dead in [A ? A.name : "unknown location"]! Open First Responder to respond.")
+	return TRUE
+
+/// For a Z that isn't highsec (no portal access): the overmap sector marker
+/// covering it, if any -- name + the marker's own (x,y) on the star-chart,
+/// for First Responder to report as "go here yourself" instead of a jump.
+/proc/zone_security_overmap_location(z)
+	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[z]"]
+	if(!istype(marker))
+		return null
+	return list("name" = marker.name, "x" = marker.x, "y" = marker.y)
+
+/**
+ * Listens for every mob death (COMSIG_GLOB_MOB_DEATH, sent from death() --
+ * see death.dm) and pages First Responder when a player dies anywhere with
+ * something still recoverable -- highsec or not; only the portal-jump
+ * response itself is highsec-gated (first_responder.dm's "respond" handler),
+ * elsewhere a responder is just told the sector/coordinates. NPCs/wildlife
+ * (no ckey/mind -- the same hostile mobs the mission system spawns) never
+ * trigger this. The explicit deliberately_clientless check additionally
+ * covers an admin briefly possessing one of those NPCs (which DOES give it a
+ * real ckey/mind for the duration) -- still shouldn't page First Responder
+ * just because a temporarily-possessed hostile NPC died. A non-gibbed death
+ * leaves an intact body to page immediately; a gibbed death only pages if a
+ * neural lace nearby actually preserved the victim's consciousness (see
+ * _check_gibbed_lace_emergency() below) -- otherwise there's nothing left to
+ * rescue and no ping fires.
+ */
+/datum/controller/subsystem/persistence/proc/_on_mob_death_check_emergency(datum/source, mob/victim, gibbed)
+	SIGNAL_HANDLER
+	if(!victim || !victim.ckey || !victim.mind || victim.deliberately_clientless)
+		return
+	var/turf/death_turf = get_turf(victim)
+	if(!death_turf)
+		return
+	if(!gibbed)
+		zone_security_record_emergency(victim, victim, "body recovered")
+		return
+	// gib()'s organ-ejection loop runs synchronously within the same call
+	// stack this signal fires from -- give it a moment to actually land the
+	// lace on a turf (and the mob to be fully qdel'd) before checking.
+	addtimer(CALLBACK(src, PROC_REF(_check_gibbed_lace_emergency), death_turf), 1 SECOND)
+
+/// Scans near a gib site for a neural lace that actually preserved a
+/// consciousness (lace_occupied + a live lace_mob) -- throw_at() can scatter
+/// ejected organs a couple tiles, hence the range() instead of the exact turf.
+/datum/controller/subsystem/persistence/proc/_check_gibbed_lace_emergency(turf/death_turf)
+	if(!death_turf)
+		return
+	for(var/obj/item/organ/internal/neural_lace/lace in range(2, death_turf))
+		if(lace.lace_occupied && lace.lace_mob)
+			zone_security_record_emergency(lace.lace_mob, lace.lace_mob, "consciousness preserved in neural lace")
+			return
 
 /**
  * Beep every Hub-network computer/PDA carrying the First Responder program --

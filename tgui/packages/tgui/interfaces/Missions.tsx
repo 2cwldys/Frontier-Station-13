@@ -5,7 +5,7 @@ import { NtosWindow } from '../layouts';
 
 type Mission = {
   id: number;
-  mission_type: 'fetch' | 'kill';
+  mission_type: 'fetch' | 'kill' | 'visit';
   title: string;
   description: string;
   fetch_count: number | null;
@@ -33,9 +33,9 @@ export const Missions = (props) => {
         <Section title="Missions Board">
           <Box color="label" mb={1}>
             Fetch missions are turned in once you're carrying the required
-            items. Kill missions spawn their targets only once you actually
-            reach the target sector -- once every target is down, leave the
-            sector and turn the mission in to collect payment.
+            items. Visit missions complete the moment you reach the target
+            sector -- leave the sector and turn the mission in to collect
+            payment.
           </Box>
           {status_message && (
             <Box
@@ -65,9 +65,11 @@ export const Missions = (props) => {
               <Table.Row key={mission.id}>
                 <Table.Cell bold>{mission.title}</Table.Cell>
                 <Table.Cell>
-                  {mission.mission_type === 'fetch'
-                    ? `Fetch x${mission.fetch_count}`
-                    : `Kill x${mission.kill_count}`}
+                  {mission.mission_type === 'fetch' &&
+                    `Fetch x${mission.fetch_count}`}
+                  {mission.mission_type === 'visit' && 'Visit Site'}
+                  {mission.mission_type === 'kill' &&
+                    `Kill x${mission.kill_count}`}
                 </Table.Cell>
                 <Table.Cell>{mission.description}</Table.Cell>
                 <Table.Cell>{mission.reward} cr</Table.Cell>

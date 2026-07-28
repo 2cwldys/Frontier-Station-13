@@ -892,6 +892,9 @@
 		if(!istype(target) || target == src)
 			return
 
+		if(target.deliberately_clientless)
+			return
+
 		if(!client)
 			return
 

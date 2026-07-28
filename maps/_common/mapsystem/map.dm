@@ -389,6 +389,7 @@
 				var/datum/map_template/ruin/away_site/site = template
 				if(site.auto_despawn_when_depleted)
 					_register_auto_despawn_asteroid(z_before + 1, site.id)
+			maybe_populate_away_site_with_pirates(z_before + 1)
 		else
 			log_admin("Failed loading away site [template]!")
 

@@ -5,7 +5,7 @@
  * security manage every prisoner tied to THIS console's own faction network
  * (computer.persistent_network) without needing to walk to each individual
  * cell. Respects the same security-access gate the pod itself uses, and the
- * same locked/unlocked (parole) and sentence-adjustment concepts.
+ * same frozen/thawed (parole) and sentence-adjustment concepts.
  */
 /datum/computer_file/program/prison_management
 	filename = "prisonmgmt"
@@ -67,7 +67,7 @@
 			"char_name"         = c["char_name"],
 			"indefinite"        = rec["indefinite"],
 			"remaining_seconds" = rec["remaining_seconds"],
-			"locked"            = rec["locked"]
+			"frozen"            = rec["frozen"]
 		))
 	return data
 
@@ -107,10 +107,17 @@
 			log_and_message_admins("released [target_char_name] ([target_ckey]) from cryogenic prison storage via Prison Management ([get_faction_name(net)]).", user)
 			. = TRUE
 
-		if("toggle_lock")
-			cell.locked = !cell.locked
-			to_chat(user, SPAN_GOOD("[target_char_name]'s cell is now [cell.locked ? "LOCKED" : "UNLOCKED"]."))
-			log_and_message_admins("[cell.locked ? "locked" : "unlocked"] [target_char_name] ([target_ckey])'s cryogenic prison storage via Prison Management ([get_faction_name(net)]).", user)
+		if("toggle_freeze")
+			cell.frozen = !cell.frozen
+			if(cell.frozen)
+				// Forcibly end any live session(s) in that cell right now --
+				// mirrors cryopod_prison.dm's own toggle_freeze handler.
+				for(var/mob/living/carbon/O in cell.prison_occupants.Copy())
+					if(O.client)
+						cell.persistence_force_store(O)
+						cell.prison_occupants -= O
+			to_chat(user, SPAN_GOOD("[target_char_name]'s cell is now [cell.frozen ? "FROZEN" : "THAWED"]."))
+			log_and_message_admins("[cell.frozen ? "froze" : "thawed"] [target_char_name] ([target_ckey])'s cryogenic prison storage via Prison Management ([get_faction_name(net)]).", user)
 			. = TRUE
 
 		if("adjust")

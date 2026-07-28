@@ -706,11 +706,9 @@
 		else if(ishuman(L))
 			if(!allow_nonfaction_humans)
 				return TURRET_NOT_TARGET // Wildlife-only mode: no human ever qualifies, faction or not
-			var/mob/living/carbon/human/H = L
-			var/obj/item/card/id/ID = H.GetIdCard()
-			var/L_uid = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+			var/L_uid = get_living_persistence_faction_uid(L)
 			if(L_uid && L_uid == persistent_network)
-				return TURRET_NOT_TARGET // exempt the turret's own faction
+				return TURRET_NOT_TARGET // exempt the turret's own faction, including a same-faction hostile_npc soldier (no ID card of their own)
 			// else: allowed through, existing assess_perp threat-level logic below decides as normal
 
 	if(isanimal(L) || issmall(L)) // Animals are not so dangerous

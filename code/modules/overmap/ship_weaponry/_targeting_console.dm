@@ -108,6 +108,15 @@
 				to_chat(usr, SPAN_WARNING("The safeties are engaged! You need to be undocked in order to fire."))
 				return
 			var/is_hazard_shot = (selected_entrypoint == SHIP_HAZARD_TARGET)
+			// Defense-in-depth safety net for ship-to-site bombardment --
+			// the primary block is at lock-on time (overmap_object.dm's
+			// target()); this catches a lock established before a beacon
+			// powered on/a zone went highsec. Ship targets (drydock ships
+			// included) and hazard shots are untouched -- see target()'s
+			// own comment for why ship-to-ship stays log-only, never blocked.
+			if(!is_hazard_shot && istype(linked.targeting, /obj/effect/overmap/visitable/sector) && site_bombardment_protected(linked.targeting, usr))
+				to_chat(usr, SPAN_WARNING("Weapons systems refuse to fire -- the target is under active protection and cannot be bombarded."))
+				return
 			if(is_hazard_shot)
 				LM = null
 			else

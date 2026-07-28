@@ -1,0 +1,306 @@
+HOSTILE NPC SYSTEM -- FULL TESTING CHECKLIST
+(hostile NPC presets, custom outfit templates, faction barracks, commander's beacon)
+
+============================================================
+0. PREREQS -- DO THIS FIRST
+============================================================
+1. Apply DB migrations (adds ss13_outfit_templates, ss13_hostile_npc_presets,
+   outfit_template_id column, kill_preset_id column, pack_id column):
+       scripts\db_update.ps1
+   Safe to run anytime -- only creates what's missing.
+
+2. Compile clean:
+       scripts\debug-compile.ps1 -ReportOnly
+   Expect: "RESULT: CLEAN" (0 errors, 0 warnings). This also rebuilds the
+   tgui bundle, which is required for the Faction Barracks / Commander's
+   Beacon windows to actually render anything.
+
+3. Boot the server.
+
+
+============================================================
+1. CREATE AN OUTFIT TEMPLATE (capture gear off your own character)
+============================================================
+Use this when you want an NPC/soldier wearing something that isn't already
+one of the pre-made outfits in the game.
+
+1. Get into (or admin-possess) a human body and equip it exactly how you
+   want the NPC dressed -- put a gun in a hand, put on armor/helmet, etc.
+2. Admin verb: "Modify Outfit Templates" -> "Add Template (capture what
+   I'm wearing)".
+3. Give it a name (e.g. "Zavodskoi Grunt Kit"). Optional description.
+4. Chat should echo back exactly what was captured, e.g.:
+       Captured 'Zavodskoi Grunt Kit' (6 slot(s)): uniform, suit, head,
+       gloves, shoes, r_hand.
+   If it says "You aren't wearing or holding anything capturable," you
+   equipped nothing -- put gear on first.
+5. To fix/update a template after changing your gear: "Modify Outfit
+   Templates" -> "Recapture Template" -> pick it -> it re-snapshots your
+   CURRENT gear over the old one. Any preset already using this template
+   picks up the new loadout automatically, no preset edit needed.
+6. "Rename Template" / "Remove Template" work the same way (pick from a
+   list). Removing a template that a preset still points at just makes
+   that preset skip equipping an outfit at spawn -- not a hard error, but
+   don't leave it dangling if you're actively using that preset.
+
+NOTE: only the item's TYPE is captured (uniform/gun/armor typepath) --
+not custom paint, custom names, or forensics on that specific item. This
+matches how every other outfit in this codebase already works.
+
+NOTE: backpack/belt CONTENTS and uniform-attached accessories (ties,
+holsters clipped to a uniform) are NOT captured -- only the direct
+equip slots (uniform, suit, back, belt, gloves, wrists, pants, shoes,
+head, mask, ears, glasses, both pockets, suit-storage, ID, both hands).
+
+
+============================================================
+2. CREATE A HOSTILE NPC PRESET
+============================================================
+1. Admin verb: "Manage Hostile NPC Presets" -> "Add Preset".
+2. Name it -- spawned NPCs are named after THIS, not a random SS13 name.
+3. "Select an outfit:" -- this list shows BOTH the built-in game outfits
+   AND your custom templates (labeled "(custom)" at the end). Pick either
+   kind.
+4. "Faction (optional, can be overridden by whatever spawns this
+   preset):" --
+     - Pick "(none)" if you want this preset reused by MULTIPLE different
+       factions later (barracks/commander's beacon each stamp their own
+       faction on top -- see section 5 below), OR if this is meant to be
+       a factionless group (pirates, raiders -- see section 4b).
+     - Pick a specific faction if this preset should ALWAYS be that
+       faction whenever spawned directly (ad-hoc admin spawn, missions,
+       map spawners -- none of which override the faction). A barracks or
+       commander's beacon belonging to a DIFFERENT faction will not even
+       be able to select this preset (see section 4c).
+5. Fill in aggro range / ranged attack range / attack delay / move speed /
+   smash-obstacles-or-not / description. Defaults are fine for a first test.
+6. "Pack tag (optional...)": only matters for FACTIONLESS presets (see
+   section 4b) -- leave blank unless you're specifically building a group
+   of different presets that should treat each other as friendly.
+7. It's saved and enabled immediately -- no restart needed.
+8. "Edit Preset" lets you change any of this later, including switching
+   the Outfit field between a built-in outfit and a custom template (or
+   back), and the new "Pack Tag" field. "Toggle Enabled" / "Remove Preset"
+   work as you'd expect.
+
+
+============================================================
+3. AD-HOC SPAWN TEST (fastest way to sanity-check a preset)
+============================================================
+1. Admin verb: "Spawn Hostile NPC" -> pick your preset -> spawns at your
+   own tile, with a spark + fading portal effect at the spawn point.
+2. Examine it immediately -- confirm it does NOT say anything like "is in
+   a deep slumber" / "Disconnected/ghosted X minutes ago," and confirm it
+   is standing, not lying on the floor (this was a real bug -- keyless
+   NPCs used to get treated as an abandoned/disconnected player body and
+   permanently forced unconscious; fixed).
+3. Confirm its name matches the preset's own name, not a random SS13 name.
+4. Confirm it's wearing exactly the gear you expect.
+5. If it has a gun: back away and let it aggro (needs a valid target in
+   its aggro range -- another mob, a monkey, an admin-controlled dummy,
+   etc.). Confirm it closes to its ranged attack range, stops, and
+   actually fires -- watch the mag's ammo count drop.
+6. If it's melee/unarmed: confirm it closes to melee range and swings/
+   punches. An unarmed punch should NOT throw anything in the server log
+   (this exercises a fix for a mob that has no HUD-driven zone_sel var).
+7. Put armor on whatever it's attacking vs. not -- confirm damage is
+   reduced with armor (proves it's going through the same real attack
+   procs a player's click would, not a flat damage number).
+
+
+============================================================
+4. TARGETING RULES
+============================================================
+
+--- 4a. Real faction vs. real faction ---
+1. Tag two ID cards (or two players' actual IDs) to two DIFFERENT real
+   factions via the faction tagger / faction management program.
+2. Spawn (or have a barracks/beacon spawn) an NPC tagged to Faction A.
+3. Confirm: it attacks the Faction B holder normally.
+4. Confirm: it completely ignores/never targets the Faction A holder,
+   even standing right next to it.
+5. Confirm: a player with NO faction ID at all is still treated as a
+   valid target by a factioned NPC (a real faction only exempts its own
+   members, not everyone).
+6. Spawn TWO NPCs both tagged to Faction A (e.g. two soldiers from the
+   same barracks) -- confirm they do NOT fight each other. (This used to
+   be broken -- NPC-vs-NPC same-faction recognition only checked the
+   TARGET's worn ID card, which NPCs don't carry; fixed to also check
+   another hostile NPC's own faction_uid directly.)
+7. Spawn one Faction A NPC and one Faction B NPC near each other with no
+   player present -- confirm they fight each other (enemy faction AI DOES
+   target enemy faction AI).
+
+--- 4b. Factionless "pack" behavior (pirates, raiders, etc.) ---
+1. Create a preset with Faction = "(none)" and no pack tag -- e.g.
+   "Pirate Grunt". Spawn 2-3 copies (ad-hoc verb, or a kill mission with a
+   kill count > 1) -- confirm they attack any player nearby but do NOT
+   attack each other, even with zero pack tag set (same preset = same
+   pack by default).
+2. Create a SECOND factionless preset, e.g. "Pirate Captain," and give
+   BOTH "Pirate Grunt" and "Pirate Captain" the exact same Pack Tag (e.g.
+   "pirates_v1") via Add Preset or Edit Preset -> "Pack Tag". Spawn one of
+   each near each other -- confirm they do NOT fight each other despite
+   being different presets, but both still attack players.
+3. Confirm a factionless pack NPC still gets attacked by (and attacks) any
+   REAL-faction NPC -- pack grouping only ever suppresses fighting among
+   its own factionless kind, never overrides real faction hostility.
+
+--- 4c. Faction-exclusive presets ---
+1. Create a preset tagged to a specific Faction A.
+2. As a Faction B barracks or commander's beacon, open "Set Preset" --
+   confirm the Faction A preset does NOT appear in the list at all.
+3. Set a Faction A barracks to an Faction-A-exclusive preset, then retag
+   the barracks to Faction B (faction tagger) while still holding that
+   preset -- confirm it silently stops spawning (refuses to use a preset
+   that's no longer allowed for its current faction) rather than
+   continuing to produce Faction-A-flavored soldiers for Faction B.
+4. Presets with Faction = "(none)" remain selectable by everyone,
+   regardless of the barracks'/beacon's own faction tag.
+
+
+============================================================
+5. FACTION BARRACKS (the building)
+============================================================
+1. Order "faction barracks" via the cargo order program -- 100,000
+   credits. Confirm it arrives UNANCHORED (loose on the floor).
+2. Click it -- opens a TGUI window. At this point: Power shows OFFLINE,
+   Anchored shows No, Faction shows "Not tagged to a faction".
+3. Wrench it to the floor (Anchored -> Yes).
+4. Use the faction tagger tool on it, tag it to a REAL faction (not
+   personal/public/crew -- those are explicitly rejected).
+5. Back in its TGUI: Faction should now show the faction's name in green.
+6. Click "Set Preset" -> pick an enabled preset available to your faction
+   (see section 4c above for what "available" means).
+7. Click "Activate". If anchored + faction-tagged + preset is set, it
+   goes ACTIVE. If any of those is missing, the button either stays
+   disabled or you'll get a clear chat message saying which one.
+8. Watch the Soldiers count -- it should climb to 5 QUICKLY (a couple of
+   seconds apart), not 30-90 seconds apart, since this is filling an empty
+   roster for the first time, not replacing a combat loss. Confirm a
+   spark + fading portal effect plays at each soldier's spawn point, and
+   each soldier is wearing your faction's color on its helmet/armor.
+9. Kill one soldier -- NOW confirm the replacement takes the full
+   30-90 second cooldown (this cooldown is specifically for replacing
+   combat losses, not for the initial fill-up).
+10. Click "Deactivate" -- confirm no NEW soldiers spawn afterward, but
+    the ones already standing are NOT removed (this is intentional).
+11. Click "Dismiss Soldiers" -- confirm this DOES remove all of the
+    barracks' current soldiers immediately (this is the explicit
+    "actually get rid of them" action -- power off alone does not do
+    this, by design).
+12. Try retagging the faction while it's still active -- should refuse
+    ("power down first"). Try activating while tagged personal/public/
+    crew -- should refuse with a clear message either way.
+13. "Hostility" section -- "Hostile" (default) vs "Passive": toggle to
+    Passive and confirm the soldiers stop attacking non-faction targets
+    that wander near them entirely, but keep standing guard as normal.
+    Toggle back to Hostile -- confirm they resume engaging. Confirm a
+    newly-spawned replacement soldier inherits whichever mode is
+    currently set.
+14. Only players/admins with rank >= 1 in that faction (or a full admin)
+    can use its TGUI buttons at all -- confirm a non-member gets "You
+    don't have permission to configure this."
+
+
+============================================================
+6. COMMANDER'S BEACON (the personal item)
+============================================================
+1. Order "commander's beacon" via cargo -- 25,000 credits.
+2. Make sure you are ACTUALLY carrying a real faction ID (this item
+   flatly refuses to work for someone with no faction at all).
+3. Click it in your hand -- opens a TGUI window.
+4. Click "Set Preset" -> pick one available to your faction.
+5. Click "Activate". If you have no faction, this refuses with a clear
+   message instead of silently doing nothing.
+6. Confirm BOTH followers appear within a few seconds of each other on
+   first activation (not 30-90 seconds apart), each with a spark + fading
+   portal effect at their spawn point, and actually walk WITH you as you
+   move around (not just stand at the spot they were summoned).
+7. Confirm they never attack you, and if you're wearing a faction ID,
+   they also leave your faction-mates alone (same faction bridge as
+   section 4a).
+8. "Orders" section -- "Follow" and "Hold Position":
+     - "Follow" (default): idle followers close distance to you.
+     - "Hold Position": idle followers stay wherever they currently are
+       instead of tailing you. They will STILL chase and fight anything
+       that gets close enough to aggro them -- "hold position" only
+       cancels the "walk toward the boss" behavior when nothing's
+       attacking.
+   Confirm switching between the two while followers already exist
+   changes their behavior immediately (no need to dismiss/resummon).
+   Confirm a NEWLY spawned replacement (after one dies) also inherits
+   whichever mode is currently selected.
+9. Point-to-move ordering (uses the game's normal "Point To" verb, no new
+   verb/hotkey): point at one of your own followers -- confirm a chat
+   message ("You single out ... to command") and the usual red point-glow
+   on JUST that follower. Then point at a distant (but visible) empty
+   turf -- confirm ONLY the selected follower walks there (the vanilla
+   point marker decal appears at that turf too), the other follower is
+   unaffected, and the ordered follower stops exactly at the marked spot
+   and stays there afterward instead of walking back to you. Let a target
+   wander into its aggro range mid-route -- confirm it breaks off to
+   fight, then resumes walking to the marked spot afterward if it hasn't
+   arrived yet. Clicking "Follow" or "Hold Position" while a follower is
+   mid-order should immediately cancel that individual order.
+10. Kill a follower -- confirm it's replaced after the full 30-90 second
+    cooldown (only the initial fill-up is fast, see item 6 above).
+11. "Hostility" section -- same "Hostile"/"Passive" toggle as the
+    barracks (section 5, item 13); confirm the same behavior here.
+12. Click "Dismiss Soldiers" -- confirm this immediately removes your
+    current followers (same "power off alone doesn't remove them,
+    dismiss actually does" behavior as the barracks).
+13. Click "Deactivate" -- confirm no new followers spawn, but any still
+    alive keep following/holding per their current order until they die
+    or you dismiss them.
+14. Lose your faction mid-use (get fired / faction disbands, if you can
+    simulate it) -- confirm the beacon auto-deactivates with a chat
+    message instead of continuing to run for a factionless owner.
+
+
+============================================================
+7. MISSION / SPAWNER INTEGRATION
+============================================================
+Missions and map spawners go through the exact same shared spawn helper
+as the barracks/beacon, so they automatically get outfit templates,
+faction tagging, correct naming, the unconscious-mob fix, spawn VFX, and
+pack grouping for free -- nothing extra to configure. The ONLY things that
+don't apply to them are the Hostile/Passive toggle and faction-exclusive
+preset filtering, since both are ownership concepts tied to a player's own
+barracks/beacon -- an admin authoring a mission can pick ANY preset
+regardless of its faction, by design.
+
+1. Admin verb "Manage Missions" -> Add Mission -> kill type -> "Hostile
+   NPC preset" -> pick a preset, set a kill count > 1 if you want to
+   verify pack behavior (section 4b) at the same time. Accept the
+   mission, travel to the sector, confirm the right enemies spawn
+   correctly equipped/factioned/named, don't fight each other if they
+   share a preset or pack tag, and that killing them completes the
+   mission.
+2. If a map has a fauna_spawner, an entry can use a "preset" key (by
+   preset name) instead of "type" in its mob_choices list -- confirm it
+   spawns via the preset on its next cycle.
+
+
+============================================================
+QUICK REFERENCE -- WHAT LIVES WHERE
+============================================================
+Admin verbs (all under "Persistence" category unless noted):
+    Modify Outfit Templates
+    Manage Hostile NPC Presets
+    Spawn Hostile NPC          (category "Fun")
+    Manage Missions
+
+Cargo catalog (category "weaponry"):
+    commander's beacon   -- 25,000 credits
+    faction barracks     -- 100,000 credits, arrives unanchored
+
+Icons currently in use (both are placeholder reuses, not custom art):
+    faction barracks     -- icons/obj/machinery/telecomms.dmi, "bspacerelay"
+                             (same sprite as the existing faction beacon)
+    commander's beacon   -- icons/obj/item/hand_tele.dmi, "hand_tele"
+                             (the hand-teleporter item sprite)
+
+Spawn VFX (both devices, missions, and spawners all get this for free):
+    spark(T, 3, GLOB.alldirs) + /obj/effect/portal/decorative/fading,
+    played once at the exact turf a soldier/follower spawns on.

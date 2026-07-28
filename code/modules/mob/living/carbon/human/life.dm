@@ -816,7 +816,7 @@
 		recently_slept -= 1
 
 	//SSD check, if a logged player is awake put them back to sleep!
-	if(species.show_ssd && (!client && !vr_mob) && !teleop && ((world.realtime - disconnect_time) >= 5 MINUTES)) //only sleep after 5 minutes, should help those with intermittent internet connections
+	if(species.show_ssd && (!client && !vr_mob) && !teleop && !deliberately_clientless && ((world.realtime - disconnect_time) >= 5 MINUTES)) //only sleep after 5 minutes, should help those with intermittent internet connections
 		Sleeping(2)
 	if(stat == DEAD)	//DEAD. BROWN BREAD. SWIMMING WITH THE SPESS CARP
 		blinded = 1

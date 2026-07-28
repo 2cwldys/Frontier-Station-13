@@ -71,12 +71,20 @@
 		first_spawn_done = TRUE
 	else
 		choice = pick(mob_choices)
+	var/mob/living/new_mob
 	if (islist(choice))
-		mob_type = choice["type"]
-		move_speed = choice["speed"]
+		move_speed = choice["speed"] || move_speed
+		// Hostile NPC preset (by name -- these are DM-authored lists, and a
+		// DB autoincrement id isn't known at compile time), checked before
+		// the plain typepath key, persistence_hostile_npcs.dm.
+		if (choice["preset"])
+			new_mob = spawn_hostile_npc_from_preset(get_hostile_npc_preset_by_name(choice["preset"])?["id"], src.loc)
+		else
+			mob_type = choice["type"]
 	else
 		mob_type = choice
-	var/mob/living/new_mob = new mob_type(src.loc)
+	if (!new_mob && mob_type)
+		new_mob = new mob_type(src.loc)
 	if (!new_mob)
 		return
 	active_mobs += new_mob
@@ -266,12 +274,19 @@
 		var/move_speed = 5
 		var/choice
 		choice = pick(mob_choices)
+		var/mob/living/new_mob
 		if (islist(choice))
-			mob_type = choice["type"]
-			move_speed = choice["speed"]
+			move_speed = choice["speed"] || move_speed
+			if (choice["preset"])
+				new_mob = spawn_hostile_npc_from_preset(get_hostile_npc_preset_by_name(choice["preset"])?["id"], T)
+			else
+				mob_type = choice["type"]
 		else
 			mob_type = choice
-		var/mob/living/new_mob = new mob_type(T)
+		if (!new_mob && mob_type)
+			new_mob = new mob_type(T)
+		if (!new_mob)
+			continue
 		active_mobs += new_mob
 
 		RegisterSignal(new_mob, COMSIG_QDELETING, PROC_REF(mob_died))

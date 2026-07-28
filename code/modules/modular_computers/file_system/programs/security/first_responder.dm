@@ -112,11 +112,18 @@
 			continue
 		var/datum/weakref/wr = entry["ref"]
 		var/mob/offender = wr ? wr.resolve() : null
+		// Live-checked, not cached at record time -- zone tiers can change
+		// (beacon claim/loss, admin toggle) between when this was logged and
+		// when a responder actually looks at the list.
+		var/is_highsec = (zone_security_get(entry["z"]) == ZONE_HIGHSEC)
 		offenses += list(list(
-			"index"    = i,
-			"name"     = entry["name"],
-			"age"      = "[round((world.time - entry["time"]) / (1 MINUTE))] min ago",
-			"tracked"  = !QDELETED(offender) && offender.z
+			"index"       = i,
+			"name"        = entry["name"],
+			"age"         = "[round((world.time - entry["time"]) / (1 MINUTE))] min ago",
+			"tracked"     = !QDELETED(offender) && offender.z,
+			"type"        = entry["type"] || "offense",
+			"can_jump"    = is_highsec,
+			"sector_info" = is_highsec ? null : zone_security_overmap_location(entry["z"])
 		))
 	data["offenses"] = offenses
 
@@ -162,6 +169,13 @@
 			var/turf/target_turf = locate(entry["x"], entry["y"], entry["z"])
 			if(!target_turf)
 				to_chat(user, SPAN_WARNING("Cannot resolve the offense location."))
+				return TRUE
+			// Server-side re-check, not just trusting the client's can_jump --
+			// offenses/distress calls are only ever recorded in highsec to
+			// begin with, but emergencies can be logged anywhere; the portal
+			// itself stays Hub-jurisdiction-only regardless of entry type.
+			if(zone_security_get(target_turf.z) != ZONE_HIGHSEC)
+				to_chat(user, SPAN_WARNING("Outside Hub jurisdiction -- no portal access. Travel there yourself."))
 				return TRUE
 			var/turf/dest = first_responder_clear_turf_near(target_turf)
 			if(!dest)

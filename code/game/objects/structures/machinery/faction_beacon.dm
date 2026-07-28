@@ -374,6 +374,13 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		var/obj/structure/machinery/faction_beacon/holder = GLOB.faction_beacon_by_z["[z]"]
 		if(holder && holder != src && !QDELETED(holder))
 			return "Z-level [z] is already claimed by [holder.faction_uid ? get_faction_name(holder.faction_uid) : "another beacon"]"
+		// ANY other active beacon's radius reach over z -- at any tier,
+		// highsec or medsec -- already provides protection there; letting a
+		// second beacon claim inside that radius would just nest overlapping
+		// security claims for no purpose. The hub beacon is exempt -- it's
+		// the one beacon allowed to anchor highsec in the first place.
+		if(!istype(src, /obj/structure/machinery/faction_beacon/hub) && _max_tier_from_other_beacons(z) > ZONE_NULLSEC)
+			return "this location already falls within another faction's protected radius -- no new beacon may be claimed here"
 	return null
 
 /// TRUE if this beacon currently holds (or can freely take) its station's

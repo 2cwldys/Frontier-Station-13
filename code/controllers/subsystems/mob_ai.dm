@@ -62,7 +62,15 @@ SUBSYSTEM_DEF(mob_ai)
 
 	mutexes += mob_weakref
 
-	mob_to_process.think()
+	// think() is a long, branchy proc (targeting/movement/combat) -- an
+	// uncaught runtime here would otherwise abort this proc before the
+	// mutex is ever released below, permanently locking that one mob out
+	// of every future run (fire()'s currentrun always excludes anything
+	// with a live mutex entry) while every other mob keeps ticking fine.
+	try
+		mob_to_process.think()
+	catch(var/exception/e)
+		log_runtime("runtime error in [mob_to_process.type]/think(): [e.name]\n[e.desc]")
 
 	mutexes -= mob_weakref
 

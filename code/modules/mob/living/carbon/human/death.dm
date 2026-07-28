@@ -1,5 +1,11 @@
 /mob/living/carbon/human/gib()
 	vr_disconnect()
+	// neural_lace/removed() only captures consciousness when stat is already
+	// DEAD -- without marking dead before organs are stripped below, a lace
+	// ejected by gib() never gets the chance to preserve anything. death()'s
+	// own re-entrancy guard (if(stat == DEAD) return 0) makes the parent
+	// gib()'s later death(1) call, via ..() below, a safe no-op.
+	death(1)
 
 	for(var/obj/item/organ/I in internal_organs)
 		I.removed()

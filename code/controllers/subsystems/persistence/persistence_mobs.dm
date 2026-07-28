@@ -743,7 +743,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	var/list/core = _persistence_imprisonment_core(ckey, char_name)
 	if(!core)
 		return null
-	if(!core["cell"].locked)
+	if(!core["cell"].frozen)
 		return null
 	return list("indefinite" = core["indefinite"], "remaining_seconds" = core["remaining_seconds"])
 
@@ -762,10 +762,17 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	return list(
 		"indefinite"        = core["indefinite"],
 		"remaining_seconds" = core["remaining_seconds"],
-		"locked"            = core["cell"].locked,
+		"frozen"            = core["cell"].frozen,
 		"cell"              = core["cell"],
 		"faction_uid"       = core["faction_uid"]
 	)
+
+/// TRUE if ckey/char_name currently has an unexpired sentence -- the one
+/// live check every enforcement point (movement, speech, emotes) re-runs,
+/// so natural expiry lifts every restriction on its own without needing a
+/// separate timer/callback to unset anything.
+/proc/persistence_character_actively_imprisoned(ckey, char_name)
+	return !!_persistence_imprisonment_core(ckey, char_name)
 
 /**
  * Restore mob to their last saved position, or spawn at default landmark.

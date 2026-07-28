@@ -4,6 +4,17 @@
 /mob/living/can_emote(var/emote_type)
 	return (..() && !(silent && emote_type == AUDIBLE_MESSAGE))
 
+/// A still-sentenced prisoner can't emote at all (visible or audible) even
+/// once thawed -- live-checked, same as handle_speech_problems() (say.dm)
+/// and the movement block (cryopod_prison.dm), so it lifts on its own once
+/// the sentence ends or someone ejects them.
+/mob/living/carbon/human/can_emote(var/emote_type)
+	if(!..())
+		return FALSE
+	if(istype(loc, /obj/structure/machinery/cryopod/prison) && persistence_character_actively_imprisoned(ckey || persistence_stored_ckey, real_name))
+		return FALSE
+	return TRUE
+
 /mob/verb/custom_audible_emote()
 	set name = "Emote (Audible)"
 	set category = "IC"

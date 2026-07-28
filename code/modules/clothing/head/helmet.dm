@@ -190,6 +190,9 @@
 	desc = "A state-of-the-art combat helmet used by Ceres Lance. It is made with an additional layer of padding and ballstic visor designed to protect operatives attempting to physically restrain hostile IPCs, but has poor heat dissipation characteristics as a result."
 	icon_state = "helm_lance"
 	item_state = "helm_lance"
+	// Only this specific helmet -- the plain riot helmet (parent) keeps
+	// showing hair underneath, unchanged.
+	flags_inv = HIDEEARS|BLOCKHEADHAIR
 	armor = list(
 		MELEE = ARMOR_MELEE_VERY_HIGH,
 		BULLET = ARMOR_BALLISTIC_MAJOR,

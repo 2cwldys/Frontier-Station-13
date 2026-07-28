@@ -36,12 +36,19 @@
 			if(!F)
 				to_chat(src, SPAN_WARNING("Error: admin_investigate: [INVESTIGATE_DIR][subject] is an invalid path or cannot be accessed."))
 				return
-			src << browse(F,"window=investigate[subject];size=800x300")
+			// Was browse(F, ...) directly -- served the raw log file with no
+			// theming at all (it has no <html>/<style> of its own, just
+			// accumulated <small>/<br> HTML fragments from investigate_log()).
+			// Wrapping via HTML_SKELETON() applies the same navy theme every
+			// other admin tool gets, without touching the log content itself.
+			src << browse(HTML_SKELETON(file2text(F)), "window=investigate[subject];size=800x300")
 
 		if("hrefs")				//persistant logs and stuff
 			if(GLOB.config && GLOB.config.logsettings["log_hrefs"])
 				if(GLOB.config.logfiles["world_href_log"])
-					src << browse(GLOB.config.logfiles["world_href_log"], "window=investigate[subject];size=800x300")
+					// world_href_log is plain text, not HTML -- <pre> preserves
+					// its line breaks/spacing the way raw-file browse() used to.
+					src << browse(HTML_SKELETON("<pre>[file2text(GLOB.config.logfiles["world_href_log"])]</pre>"), "window=investigate[subject];size=800x300")
 				else
 					to_chat(src, SPAN_WARNING("Error: admin_investigate: No href logfile found."))
 					return

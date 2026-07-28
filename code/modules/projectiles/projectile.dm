@@ -568,6 +568,18 @@
 		return FALSE
 	if(target == firer && !ignore_source_check)
 		return FALSE
+	// A hostile_npc soldier's own bullets never damage anyone it considers
+	// friendly (commander, same persistence faction incl. real players, same
+	// pack) -- covers a teammate grazing into an already-fired shot's path
+	// mid-flight (on_entered()/scan_crossed_hit(), Moved()/scan_moved_turf()),
+	// not just hostile_npc.dm's own is_friendly_fire_blocked(), which only
+	// checks positions once, at the moment of firing. Scoped strictly to a
+	// hostile_npc firer so ordinary player-vs-player friendly fire is
+	// completely untouched.
+	if(isliving(target) && istype(firer, /mob/living/carbon/human/npc/hostile))
+		var/mob/living/carbon/human/npc/hostile/H = firer
+		if(H.is_friendly(target))
+			return FALSE
 	if(!ignore_loc && (loc != target.loc) && !(can_hit_turfs && direct_target && loc == target))
 		return FALSE
 	// if pass_flags match, pass through entirely - unless direct target is set.

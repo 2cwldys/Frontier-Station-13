@@ -1,15 +1,18 @@
 /*
  * Missions Board
- * Browse admin-authored missions (fetch-item or kill-NPC) and accept one.
- * Single-claim-at-a-time -- once accepted, that mission is locked to you
- * until you complete, abandon it, or an admin frees it. Kill missions spawn
- * their targets only once you actually reach the target sector (see
- * /datum/mission_instance, persistence_missions.dm), and require turning in
- * away from the sector once every target is dead (objective_complete) --
- * same as fetch missions, which are completed by turning in the required
- * items via this same program. Turning in specifically requires a full
- * console or laptop -- a handheld/tablet can still browse, accept, and
- * abandon, but not turn in (see the hardware check in ui_act() below).
+ * Browse admin-authored missions (fetch-item, visit-site, or kill-NPC -- kill
+ * is compiled out by default, see ENABLE_KILL_MISSIONS in _compile_options.dm)
+ * and accept one. Single-claim-at-a-time -- once accepted, that mission is
+ * locked to you until you complete, abandon it, or an admin frees it. Visit
+ * missions complete the moment you actually reach the target sector; kill
+ * missions (when enabled) spawn their targets there instead and only
+ * complete once every target is dead (see /datum/mission_instance,
+ * persistence_missions.dm) -- both then require turning in away from the
+ * sector (objective_complete), same as fetch missions, which are completed by
+ * turning in the required items via this same program. Turning in
+ * specifically requires a full console or laptop -- a handheld/tablet can
+ * still browse, accept, and abandon, but not turn in (see the hardware check
+ * in ui_act() below).
  */
 
 /datum/computer_file/program/civilian/missions
@@ -17,7 +20,7 @@
 	filedesc = "Missions Board"
 	program_icon_state = "generic"
 	program_key_icon_state = "blue_key"
-	extended_desc = "Browse and accept fetch/kill missions, or turn in a completed fetch mission."
+	extended_desc = "Browse and accept fetch/visit missions, or turn in a completed one."
 	usage_flags = PROGRAM_CONSOLE | PROGRAM_LAPTOP | PROGRAM_TABLET
 	requires_ntnet = FALSE
 	size = 2
@@ -35,6 +38,10 @@
 	for(var/list/tmpl in GLOB.mission_templates)
 		if(!tmpl["enabled"])
 			continue
+#ifndef ENABLE_KILL_MISSIONS
+		if(tmpl["mission_type"] == "kill")
+			continue
+#endif
 		var/datum/mission_instance/instance = tmpl["instance"]
 		mission_list += list(list(
 			"id"                 = tmpl["id"],
@@ -81,11 +88,22 @@
 			var/list/tmpl = get_mission_template(template_id)
 			if(!tmpl)
 				return TRUE
-			var/success = (tmpl["mission_type"] == "fetch") ? turn_in_fetch_mission(template_id, user) : turn_in_kill_mission(template_id, user)
+			var/success = FALSE
+			switch(tmpl["mission_type"])
+				if("fetch")
+					success = turn_in_fetch_mission(template_id, user)
+				if("visit")
+					success = turn_in_visit_mission(template_id, user)
+#ifdef ENABLE_KILL_MISSIONS
+				if("kill")
+					success = turn_in_kill_mission(template_id, user)
+#endif
 			if(success)
 				status_message = "Mission turned in. Reward paid."
 			else if(tmpl["mission_type"] == "fetch")
 				status_message = "You don't have the required items, or this isn't your mission to turn in."
+			else if(tmpl["mission_type"] == "visit")
+				status_message = "Can't turn in yet -- make sure you've reached the sector and left it again."
 			else
 				status_message = "Can't turn in yet -- make sure every target is eliminated and you've left the sector."
 			return TRUE

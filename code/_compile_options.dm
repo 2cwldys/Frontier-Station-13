@@ -10,6 +10,10 @@
 // If defined, the sunlight system is enabled. Caution: this uses a LOT of memory.
 //#define ENABLE_SUNLIGHT
 
+// If defined, the Missions Board's "kill" mission type is offered/active again.
+// Disabled by default -- missions currently only offer "fetch" and "visit".
+//#define ENABLE_KILL_MISSIONS
+
 // We want to use external resources. Kthx.
 #define PRELOAD_RSC 0
 

@@ -44,10 +44,13 @@
 			<script src='view_variables.js'></script>
 			<title>[thing] ([REF(thing)] - [thing.type])</title>
 			<style>
-				body { font-family: Arial, "Helvetica Neue", Helvetica, sans-serif; font-size: 10pt; }
+				body { font-family: Arial, "Helvetica Neue", Helvetica, sans-serif; font-size: 10pt; background-color: #0d1b33; color: #ffffff; }
 				.key, .type, .value { font-family: "Fira Code", Consolas, Menlo, Monaco, "Lucida Console", "Liberation Mono", "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Courier New", monospace, sans-serif; font-size: 9pt; }
 				.key { font-weight: bold }
-				.type { text-decoration: underline; color: gray }
+				.type { text-decoration: underline; color: #8ecdf7 }
+				a, a:link, a:visited { color: #8ecdf7; }
+				a:hover { color: #ffffff; background-color: #1a3560; }
+				input { background-color: #1a3560; color: #ffffff; border: 1px solid #2a4a80; }
 			</style>
 		</head>
 		<body onload='selectTextField(); updateSearch()'>
@@ -72,7 +75,7 @@
 										onchange='loadPage(this.form.elements\[0\])'
 										target='_parent._top'
 										onmouseclick='this.focus()'
-										style='background-color:#ffffff'>
+										style='background-color:#1a3560;color:#ffffff'>
 									<option>Select option</option>
 									[dropdownoptions.Join()]
 								</select>

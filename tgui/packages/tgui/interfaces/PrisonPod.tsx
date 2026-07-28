@@ -1,18 +1,23 @@
-import { Box, Button, LabeledList, NoticeBox } from 'tgui-core/components';
+import { Box, Button, LabeledList, NoticeBox, Section, Table } from 'tgui-core/components';
 import type { BooleanLike } from 'tgui-core/react';
 import { useBackend } from '../backend';
 import { NtosWindow } from '../layouts';
 
+type Occupant = {
+  ref: string;
+  name: string;
+  imprisoned: BooleanLike;
+  indefinite: BooleanLike;
+  remaining_seconds: number;
+};
+
 type PrisonPodData = {
-  occupant_name: string | null;
+  occupants: Occupant[];
   nopower: BooleanLike;
   broken: BooleanLike;
   faction_name: string | null;
   can_imprison: BooleanLike;
-  locked: BooleanLike;
-  imprisoned: BooleanLike;
-  indefinite: BooleanLike;
-  remaining_seconds: number;
+  frozen: BooleanLike;
 };
 
 const formatRemaining = (seconds: number) => {
@@ -28,19 +33,16 @@ const formatRemaining = (seconds: number) => {
 export const PrisonPod = (props) => {
   const { act, data } = useBackend<PrisonPodData>();
   const {
-    occupant_name,
+    occupants = [],
     nopower,
     broken,
     faction_name,
     can_imprison,
-    locked,
-    imprisoned,
-    indefinite,
-    remaining_seconds,
+    frozen,
   } = data;
 
   return (
-    <NtosWindow width={420} height={360}>
+    <NtosWindow width={460} height={420}>
       <NtosWindow.Content scrollable>
         {!!broken && <NoticeBox danger>This unit is damaged.</NoticeBox>}
         {!!nopower && <NoticeBox danger>This unit has no power.</NoticeBox>}
@@ -48,62 +50,77 @@ export const PrisonPod = (props) => {
           <LabeledList.Item label="Faction">
             {faction_name ?? 'Unassigned'}
           </LabeledList.Item>
-          <LabeledList.Item label="Occupant">
-            {occupant_name ?? 'Empty'}
-          </LabeledList.Item>
-          {!!occupant_name && (
-            <>
-              <LabeledList.Item label="Sentence">
-                {imprisoned
-                  ? indefinite
-                    ? 'Indefinite'
-                    : formatRemaining(remaining_seconds)
-                  : 'Not imprisoned'}
-              </LabeledList.Item>
-              {!!imprisoned && (
-                <LabeledList.Item label="Cell Status">
-                  <Box color={locked ? 'bad' : 'good'} inline>
-                    {locked ? 'Locked' : 'Unlocked (parole)'}
-                  </Box>
-                </LabeledList.Item>
-              )}
-            </>
-          )}
-        </LabeledList>
-        <Box mt={1}>
-          {!imprisoned ? (
+          <LabeledList.Item label="Cell Status">
+            <Box color={frozen ? 'bad' : 'good'} inline mr={1}>
+              {frozen ? 'Frozen' : 'Thawed'}
+            </Box>
             <Button
-              icon="lock"
-              color="bad"
-              disabled={!occupant_name || !can_imprison}
+              icon={frozen ? 'sun' : 'snowflake'}
               tooltip={
-                !can_imprison
-                  ? 'Must be tagged to a faction before it can imprison anyone.'
-                  : 'Imprison the current occupant'
+                frozen
+                  ? 'Thaw -- tied prisoner(s) may spawn/play despite their sentence, which keeps ticking regardless.'
+                  : 'Freeze -- blocks Play, and immediately returns anyone currently thawed and playing here to the character menu.'
               }
-              onClick={() => act('imprison')}
+              onClick={() => act('toggle_freeze')}
             >
-              Imprison
+              {frozen ? 'Thaw' : 'Freeze'}
             </Button>
+          </LabeledList.Item>
+        </LabeledList>
+        <Section title={`Occupants (${occupants.length})`} mt={1}>
+          {occupants.length ? (
+            <Table>
+              <Table.Row header>
+                <Table.Cell>Name</Table.Cell>
+                <Table.Cell>Sentence</Table.Cell>
+                <Table.Cell />
+              </Table.Row>
+              {occupants.map((occupant) => (
+                <Table.Row key={occupant.ref}>
+                  <Table.Cell>{occupant.name}</Table.Cell>
+                  <Table.Cell>
+                    {occupant.imprisoned
+                      ? occupant.indefinite
+                        ? 'Indefinite'
+                        : formatRemaining(occupant.remaining_seconds)
+                      : 'Not imprisoned'}
+                  </Table.Cell>
+                  <Table.Cell collapsing>
+                    {!occupant.imprisoned ? (
+                      <Button
+                        icon="lock"
+                        color="bad"
+                        disabled={!can_imprison}
+                        tooltip={
+                          !can_imprison
+                            ? 'Must be tagged to a faction before it can imprison anyone.'
+                            : 'Imprison this occupant'
+                        }
+                        onClick={() =>
+                          act('imprison', { occupant_ref: occupant.ref })
+                        }
+                      >
+                        Imprison
+                      </Button>
+                    ) : (
+                      <Button
+                        icon="door-open"
+                        color="good"
+                        onClick={() =>
+                          act('release', { occupant_ref: occupant.ref })
+                        }
+                      >
+                        Release
+                      </Button>
+                    )}
+                  </Table.Cell>
+                </Table.Row>
+              ))}
+            </Table>
           ) : (
-            <>
-              <Button
-                icon="door-open"
-                color="good"
-                onClick={() => act('release')}
-              >
-                Release
-              </Button>
-              <Button
-                icon={locked ? 'unlock' : 'lock'}
-                ml={1}
-                onClick={() => act('toggle_lock')}
-              >
-                {locked ? 'Unlock' : 'Lock'}
-              </Button>
-            </>
+            <Box color="label">Empty.</Box>
           )}
-        </Box>
+        </Section>
       </NtosWindow.Content>
     </NtosWindow>
   );

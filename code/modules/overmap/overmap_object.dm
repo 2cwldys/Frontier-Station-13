@@ -262,6 +262,13 @@
 	closeToolTip(usr)
 
 /obj/effect/overmap/visitable/proc/target(var/obj/effect/overmap/O, var/obj/structure/machinery/computer/ship/C)
+	// Ship-to-site bombardment only -- ship targets (including drydock
+	// ships) are untouched, matching this codebase's own deliberate "log,
+	// don't block" stance on ship-to-ship combat (see the fire handler's
+	// highsec offense check, _targeting_console.dm).
+	if(istype(O, /obj/effect/overmap/visitable/sector) && site_bombardment_protected(O, usr))
+		to_chat(usr, SPAN_WARNING("Tactical sensors refuse to establish a lock -- the target is under active protection."))
+		return
 	C.targeting = TRUE
 	usr.visible_message(SPAN_WARNING("[usr] starts calibrating the targeting systems, swiping around the holographic screen..."), SPAN_WARNING("You start calibrating the targeting systems, swiping around the screen as you focus..."))
 	if(do_after(usr, 5 SECONDS))

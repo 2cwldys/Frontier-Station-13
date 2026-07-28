@@ -106,6 +106,9 @@ GLOBAL_LIST_INIT(admin_verbs_admin, list(
 	/client/proc/reset_openturf,
 	/client/proc/view_removed_structures,
 	/datum/admins/proc/manage_faction_prisoners,
+	/datum/admins/proc/manage_hostile_npc_presets,
+	/datum/admins/proc/modify_outfit_templates,
+	/datum/admins/proc/spawn_hostile_npc,
 	/client/proc/toggle_aooc,
 	/client/proc/force_away_mission,
 	/client/proc/alooc,
@@ -214,6 +217,7 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/set_drydock_ship_cap,
 	/datum/admins/proc/generate_away_site,
 	/datum/admins/proc/remove_away_site,
+	/datum/admins/proc/manage_away_site_mob_presets,
 	/datum/admins/proc/manage_cargo_exports,
 	/datum/admins/proc/repair_dual_tagged_devices,
 	/datum/admins/proc/manage_missions,
@@ -1551,8 +1555,8 @@ GLOBAL_LIST_INIT(admin_verbs_storyteller, list(
 		if(!status)
 			continue
 		var/label = status["indefinite"] \
-			? "[c["char_name"]] ([c["ckey"]]) -- indefinite[status["locked"] ? "" : " (UNLOCKED)"]" \
-			: "[c["char_name"]] ([c["ckey"]]) -- [round(status["remaining_seconds"] / 60)] min left[status["locked"] ? "" : " (UNLOCKED)"]"
+			? "[c["char_name"]] ([c["ckey"]]) -- indefinite[status["frozen"] ? "" : " (THAWED)"]" \
+			: "[c["char_name"]] ([c["ckey"]]) -- [round(status["remaining_seconds"] / 60)] min left[status["frozen"] ? "" : " (THAWED)"]"
 		options[label] = c
 
 	if(!length(options))
