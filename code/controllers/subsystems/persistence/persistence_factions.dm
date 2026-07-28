@@ -1721,7 +1721,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	if(site.auto_despawn_when_depleted)
 		_register_auto_despawn_asteroid(site_z, site.id)
 
-	maybe_populate_away_site_with_pirates(site_z)
+	maybe_populate_away_site_with_pirates(site_z, site.id)
 
 	return site_z
 

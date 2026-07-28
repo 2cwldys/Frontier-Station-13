@@ -1,0 +1,255 @@
+MODIFYING PIRATE NPCS AT NULLSEC AWAY SITES
+(the shared pool that auto-populates freshly generated away sites)
+
+This covers the system that quietly drops 1-3 hostile NPCs onto almost
+every newly-generated away site, independent of missions, faction
+barracks, and the commander's beacon. It reuses the same "hostile NPC
+preset" content those other systems use, but has its own separate pool of
+which presets are eligible to show up on an away site at all.
+
+If you just want to create/tune a hostile NPC preset in general (gear,
+stats, faction, pack tag), see
+docs\hostile-npc-system-testing-checklist.txt sections 1-2 first -- this
+guide assumes you already know how to do that, and focuses on the
+away-site-specific pool layered on top.
+
+
+============================================================
+0. PREREQS
+============================================================
+1. SQL persistence must be enabled (GLOB.config.sql_enabled) -- both admin
+   verbs used below flatly refuse otherwise, and the away-site pool stays
+   permanently empty on a non-SQL server.
+2. Apply DB migrations if you haven't already: scripts\db_update.ps1
+   (adds ss13_hostile_npc_presets AND ss13_away_site_mob_presets).
+3. Compile clean: scripts\debug-compile.ps1 -ReportOnly -- expect
+   "RESULT: CLEAN".
+4. A fresh server starts with BOTH tables empty. No pirates will ever
+   appear on any away site until you populate at least one preset AND add
+   it to the away-site pool (sections 2 and 3 below).
+
+
+============================================================
+1. THE MENTAL MODEL -- HOW THIS ACTUALLY WORKS END TO END
+============================================================
+Every time a new away-site Z is created -- at boot (random selection from
+all registered away-site templates), via the "Generate Away Site" admin
+verb, or automatically by a mission/asteroid-respawn -- one shared proc
+runs against that Z immediately after the map loads:
+
+    maybe_populate_away_site_with_pirates(z)
+    code\controllers\subsystems\persistence\persistence_away_site_mobs.dm:52
+
+It skips populating that Z entirely if ANY of these are true:
+  - The site is a PINNED/persistent site (ss13_persistent_away_sites) --
+    pinned sites are never auto-populated by this pool.
+  - The Z is an active mission's target sector.
+  - A powered faction beacon already claims/covers that Z (its
+    security_radius reaches it) -- claimed territory doesn't get random
+    pirates dropped on it.
+  - The map template ITSELF already placed a fauna_spawner object on that
+    Z (see section 7 -- this is the escape hatch for a site that wants a
+    hand-authored, non-random lineup instead).
+
+Otherwise, it rolls rand(1, 3) spawns. For each one, it picks a random
+entry from the admin-curated away-site pool, finds a random solid floor
+turf on that Z, and spawns a real hostile NPC from whichever preset that
+pool entry points at -- the same spawn_hostile_npc_from_preset() call
+missions/barracks/beacons all use, so it gets the same gear, faction
+tagging, correct naming, and spawn VFX for free.
+
+Two separate things you can edit, and they are NOT the same admin verb:
+
+  A) WHAT a pirate preset actually is (name/gear/faction/stats/pack tag)
+     -> "Manage Hostile NPC Presets" verb, ss13_hostile_npc_presets table.
+     This is shared, general-purpose content -- also used by missions,
+     faction barracks, and the commander's beacon.
+
+  B) WHETHER a given preset is even eligible to show up on an away site
+     at all -> "Modify Away Site Mobs" verb, ss13_away_site_mob_presets
+     table. This is JUST a pool membership list (id + preset_id pairs) --
+     it defines no stats of its own.
+
+A preset that exists but was never added to the away-site pool will never
+appear on an away site (though it can still be used by missions/barracks/
+beacons directly, or spawned ad-hoc for testing).
+
+
+============================================================
+2. CREATE OR EDIT THE PIRATE'S CONTENT
+============================================================
+Admin verb: "Manage Hostile NPC Presets" (category "Persistence")
+File: code\controllers\subsystems\persistence\persistence_hostile_npcs.dm
+
+1. "Add Preset" (or "Edit Preset" on an existing one).
+2. Name it -- e.g. "Pirate Grunt". Spawned NPCs are named after this.
+3. Outfit: pick a built-in game outfit, or one of your own captured
+   "(custom)" templates (see the outfit-template-capture workflow in
+   docs\hostile-npc-system-testing-checklist.txt section 1 if you need a
+   loadout that doesn't exist yet).
+4. Faction: leave this "(none)" for pirates. A factionless preset attacks
+   every player, but NOT its own kind -- see step 6.
+5. Fill in aggro range / ranged attack range / attack delay / move speed /
+   smash-obstacles-or-not / description.
+6. Pack Tag (only matters for factionless presets like this): if you're
+   building MULTIPLE different pirate presets that should recognize each
+   other as friendly (e.g. "Pirate Grunt" + "Pirate Captain" fighting
+   side by side instead of each other), give them all the exact same Pack
+   Tag string, e.g. "pirates_v1". If you leave it blank, multiple copies
+   of the SAME preset still won't fight each other by default (same
+   preset = same pack automatically) -- you only need a Pack Tag when
+   mixing DIFFERENT presets together.
+7. Saved and enabled immediately, no restart needed.
+8. Sanity-check it before wiring it into away sites at all: "Spawn
+   Hostile NPC" (category "Fun") -> pick your preset -> spawns at your own
+   tile. Confirm it's standing (not asleep), named correctly, geared
+   correctly, and actually fights/fires when something aggros it.
+
+
+============================================================
+3. ADD (OR REMOVE) THE PRESET FROM THE AWAY-SITE POOL
+============================================================
+Admin verb: "Modify Away Site Mobs" (category "Persistence")
+File: code\controllers\subsystems\persistence\persistence_away_site_mobs.dm
+
+1. "Add Preset to Pool" -> pick from your existing hostile NPC presets
+   (must already exist -- see section 2 above; this verb does not create
+   presets, only pool membership).
+2. That's it -- the next away site that gets generated (and passes the
+   skip-conditions in section 1) can now roll this preset.
+3. "Remove Preset from Pool" removes an entry the same way. Removing a
+   preset from the pool does NOT retroactively despawn any pirate already
+   standing on an existing away site from an earlier roll -- it only
+   affects future rolls.
+4. This pool is scoped per-map (map_path column) -- if you run multiple
+   maps/configs, each one has its own independent pool and you'll need to
+   add presets to each separately.
+
+
+============================================================
+4. TESTING YOUR CHANGE
+============================================================
+Waiting for a fresh boot-time away site to happen to roll your preset is
+slow and non-deterministic (1-3 random picks out of however many pool
+entries exist). Faster options:
+
+  - Admin verb "Generate Away Site" (category "Persistence",
+    persistence_factions.dm) -- manually injects an away-site template at
+    a chosen overmap tile right now. It goes through the exact same
+    maybe_populate_away_site_with_pirates() call as a boot-time site, so
+    this is the fastest realistic end-to-end test of "does my pool entry
+    actually show up."
+  - If you specifically want to guarantee your NEW preset rolls (rather
+    than leaving it to chance among however many other pool entries
+    exist), temporarily remove the other pool entries, generate a site,
+    confirm, then add them back.
+  - "Spawn Hostile NPC" (section 2, step 8) tests the preset's OWN
+    content (gear/stats/targeting) in isolation, but does not exercise
+    the away-site pool/skip-condition logic at all -- use "Generate Away
+    Site" to test the pool itself.
+
+
+============================================================
+5. THINGS THAT ARE NOT ADMIN-CONFIGURABLE (CODE EDITS ONLY)
+============================================================
+Everything above is admin-verb-driven, no code changes needed. These are
+the exceptions, if you actually need to touch code:
+
+  - Spawn count per site is hardcoded to rand(1, 3):
+    persistence_away_site_mobs.dm, inside maybe_populate_away_site_with_
+    pirates(), the "spawn_count = rand(1, 3)" line. Change the literal
+    range there if you want more/fewer pirates per site.
+  - The floor-turf-only placement rule (no spawning in space, walls, etc)
+    comes from find_mission_spawn_turf() (persistence_missions.dm) --
+    shared with mission spawns, not something to touch just for pirates.
+  - The skip-conditions in section 1 (pinned sites, active missions,
+    faction-beacon-claimed Zs, sites with their own fauna_spawner) are all
+    in the same proc, in that order -- if you want different exemption
+    logic, this is the only place it lives.
+
+
+============================================================
+6. WANT ONE SPECIFIC SITE TO HAVE A FIXED PIRATE LINEUP INSTEAD?
+============================================================
+The shared pool above is random and applies to every eligible away site
+generically. If you're authoring a specific away-site template (its own
+.dmm + .dm file under maps\away\away_site\<your_site>\) and want IT
+specifically to always spawn a fixed, hand-chosen pirate composition
+instead of rolling the shared pool, use a fauna_spawner instead:
+
+1. In your site's own .dm file, define a fauna_spawner subtype:
+       /obj/effect/fauna_spawner/your_site_pirates
+           mob_choices = list(
+               list(preset = "Pirate Grunt", speed = 5),
+               list(preset = "Pirate Captain", speed = 2),
+           )
+           max_active_mobs = 3
+   The "preset" key (by preset NAME, not id) reuses the exact same
+   spawn_hostile_npc_from_preset() pipeline as the shared pool -- same
+   gear/faction/naming/VFX.
+2. Place an instance of it, plus at least one
+   /obj/effect/landmark/mob_waypoint on the same Z, directly in your
+   .dmm map file.
+3. This automatically opts your site OUT of the shared random pool --
+   maybe_populate_away_site_with_pirates() checks for an existing
+   fauna_spawner on the Z first and does nothing if one is already there.
+   You don't need to do anything else to disable the shared pool for
+   this specific site.
+4. See code\modules\effects\map_effects\mob_spawner.dm for the full
+   fauna_spawner var list (min/max spawn cooldown, organized/multi-
+   waypoint variant, etc).
+
+
+============================================================
+7. DON'T CONFUSE THIS WITH -- OTHER THINGS ALSO CALLED "PIRATE"
+============================================================
+This codebase has three OTHER "pirate" things that share the name but
+are unrelated to this guide:
+
+  - maps\away\away_site\pirate_base\* -- an entire away-site template
+    literally named "pirate base." Its pirates are PLAYER-CONTROLLED
+    ghost roles (pirate_base_ghostroles.dm), not AI, and are disabled by
+    default (admins must toggle the ghost role on). Different system
+    entirely (SSticker ghost-role framework) -- not hostile_npc_presets,
+    not this pool.
+  - /mob/living/simple_animal/hostile/pirate
+    (code\modules\mob\living\simple_animal\hostile\pirate.dm) -- an old
+    flat-stat simple_animal critter. It is not placed on any current map
+    or fauna_spawner and appears to be legacy. Don't use this type for
+    new work; use the real hostile_npc_presets system covered in this
+    guide instead.
+  - code\game\objects\structures\machinery\piracy_beacon.dm -- a
+    player-placed structure that only flags "piracy infrastructure exists
+    here" for unlocking syndicate cargo purchases in nullsec. Nothing to
+    do with NPC spawning -- don't confuse with faction_beacon.dm (the
+    thing whose radius exempts a Z from this pool, section 1).
+
+
+============================================================
+QUICK REFERENCE
+============================================================
+Admin verbs (category "Persistence" unless noted):
+    Manage Hostile NPC Presets   -- what a pirate IS (gear/stats/faction)
+    Modify Away Site Mobs        -- IS this preset eligible on away sites
+    Modify Outfit Templates      -- capture custom gear for a preset
+    Generate Away Site           -- manually spawn a site to test with
+    Spawn Hostile NPC (Fun)      -- ad-hoc spawn a preset on yourself
+
+Key files:
+    code\controllers\subsystems\persistence\persistence_away_site_mobs.dm
+        maybe_populate_away_site_with_pirates(z) -- the whole mechanism
+    code\controllers\subsystems\persistence\persistence_hostile_npcs.dm
+        spawn_hostile_npc_from_preset(), preset CRUD/admin verb
+    code\modules\mob\living\carbon\human\npc\hostile_npc.dm
+        apply_hostile_preset(), the actual AI (think()/targeting/combat)
+    code\modules\effects\map_effects\mob_spawner.dm
+        /obj/effect/fauna_spawner -- hand-placed per-site override
+
+DB tables:
+    ss13_hostile_npc_presets       -- preset content
+    ss13_away_site_mob_presets     -- pool membership (id, map_path,
+                                      preset_id) -- edited only via the
+                                      admin verb, not by hand
+
+Hardcoded (code edit required, not admin-configurable):
+    Spawns per site: rand(1, 3) in maybe_populate_away_site_with_pirates()
