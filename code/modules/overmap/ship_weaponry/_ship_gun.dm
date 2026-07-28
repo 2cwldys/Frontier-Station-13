@@ -246,6 +246,15 @@
 	if(istype(linked, /obj/effect/overmap/visitable/ship))
 		var/obj/effect/overmap/visitable/ship/firing_ship = linked
 		firing_ship.last_combat_time = world.time
+		// Firing gives away the ship's position regardless of how well it's
+		// hidden -- force any active cloak on this ship off, and lock it out
+		// from re-cloaking for a while so a shot can't be immediately
+		// followed by vanishing again.
+		for(var/obj/structure/machinery/ship_cloaking_device/CD in SSmachinery.machinery)
+			if(CD.linked != firing_ship || !CD.active)
+				continue
+			CD._set_active(FALSE)
+			CD.cloak_lockout_until = world.time + 30 SECONDS
 	var/obj/item/ship_ammunition/SA = consume_ammo()
 	if(!barrel)
 		crash_with("No barrel found for [src] at [x] [y] [z]! Cannot fire!")

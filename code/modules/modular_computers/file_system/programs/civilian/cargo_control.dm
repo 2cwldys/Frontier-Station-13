@@ -230,10 +230,14 @@
 				status_message = "No exportable items found at the faction telepad."
 				return TRUE
 
-			faction_credit(exp_net, exp_total, "Export sale via cargo console by [usr.ckey]")
+			// Taxed if this telepad falls inside a DIFFERENT faction's beacon
+			// territory -- exempt (no-op) when it's this faction's own
+			// claimed territory, the common case.
+			var/taxed_total = apply_cargo_territory_tax(GET_Z(exp_turf), exp_total, FALSE, exp_net, usr, "Export sale via cargo console by [usr.ckey] -- territory tax")
+			faction_credit(exp_net, taxed_total, "Export sale via cargo console by [usr.ckey]")
 			var/exp_summary = exp_lines.len ? jointext(exp_lines, "; ") : "unknown items"
-			status_message = "Exported for [exp_total] cr: [exp_summary]. Credited to [get_faction_name(exp_net)]."
-			log_game("[usr.ckey] exported [exp_total] cr of goods to faction [exp_net] via cargo console.")
+			status_message = "Exported for [exp_total] cr: [exp_summary]. Credited [taxed_total] cr to [get_faction_name(exp_net)][taxed_total < exp_total ? " (after territory tax)" : ""]."
+			log_game("[usr.ckey] exported [exp_total] cr of goods to faction [exp_net] via cargo console (credited [taxed_total]).")
 			return TRUE
 
 		//Send shuttle

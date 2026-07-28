@@ -53,7 +53,7 @@
 		return
 
 	if(action == "pick")
-		var/list/possible_d = shuttle.get_possible_destinations()
+		var/list/possible_d = shuttle.get_possible_destinations(user)
 		var/D
 		if(length(possible_d))
 			D = tgui_input_list(usr, "Choose shuttle destination.", "Shuttle Destination", possible_d)

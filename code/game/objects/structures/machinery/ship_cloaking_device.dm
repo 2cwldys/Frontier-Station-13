@@ -35,6 +35,10 @@
 	var/power_output = 1
 	var/sheet_path = /obj/item/stack/material/phoron
 	var/sheet_name = "phoron crystals"
+	/// world.time this device may next be (re)activated -- stamped whenever
+	/// firing a weapon force-uncloaks the ship (_ship_gun.dm's fire()), so a
+	/// cloaked ship can't fire and immediately vanish again.
+	var/cloak_lockout_until = 0
 
 /obj/structure/machinery/ship_cloaking_device/Initialize()
 	. = ..()
@@ -102,6 +106,9 @@
 
 /obj/structure/machinery/ship_cloaking_device/proc/toggle_cloak(mob/user)
 	if(!active)
+		if(world.time < cloak_lockout_until)
+			to_chat(user, SPAN_WARNING("\The [src] is still recalibrating after firing -- [round((cloak_lockout_until - world.time) / 10)] second\s left."))
+			return
 		if(!anchored)
 			to_chat(user, SPAN_WARNING("\The [src] must be anchored before it can be activated."))
 			return

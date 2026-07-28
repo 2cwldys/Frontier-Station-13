@@ -246,6 +246,8 @@
 	playsound(src, 'sound/machines/windowdoor.ogg', 50, 1)
 	if(user.client) user.client.screen |= hud_elements
 	LAZYDISTINCTADD(user.additional_vision_handlers, src)
+	if(ishuman(user))
+		user.update_vision_cone()
 	update_icon()
 	GLOB.move_manager.stop_looping(src) // stop it from auto moving when the pilot gets in
 	return TRUE
@@ -269,6 +271,8 @@
 
 	user.forceMove(get_turf(src))
 	LAZYREMOVE(user.additional_vision_handlers, src)
+	if(ishuman(user))
+		user.update_vision_cone()
 	if(user.client)
 		user.client.screen -= hud_elements
 		user.client.eye = user

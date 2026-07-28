@@ -45,7 +45,7 @@
  * register them for tracking. Shared by the boot restore (objectsInitialize())
  * and the per-ship-Z apply (objectsApplyZ()). Returns the count instantiated.
  */
-/datum/controller/subsystem/persistence/proc/objectsInstantiateRows(list/persistent_data)
+/datum/controller/subsystem/persistence/proc/objectsInstantiateRows(list/persistent_data, quiet = FALSE)
 	PRIVATE_PROC(TRUE)
 	var/instantiated = 0
 	// Recreated here via a plain new() (below) rather than a template mapload,
@@ -131,7 +131,7 @@
 		catch(var/exception/e)
 			log_subsystem_persistence_error("Persistent objects: Failed to instantiate [data["type"]] (id=[data["id"]]): [e]")
 	if(length(atmos_batch))
-		SSmachinery.setup_atmos_machinery(atmos_batch)
+		SSmachinery.setup_atmos_machinery(atmos_batch, quiet)
 	return instantiated
 
 /**
@@ -143,7 +143,7 @@
 	var/list/scope_rows = objectsDatabaseGetActiveEntries(scope)
 	if(!islist(scope_rows) || !length(scope_rows))
 		return
-	var/instantiated = objectsInstantiateRows(scope_rows)
+	var/instantiated = objectsInstantiateRows(scope_rows, TRUE)
 	log_subsystem_persistence_info("Persistent objects: Applied [instantiated] ship tracked objects to z=[z] ([scope]).")
 
 /**

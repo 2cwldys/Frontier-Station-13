@@ -173,7 +173,22 @@
 				if(!I.associated_account_number)
 					status_message = "Unable to submit order. No linked bank account on your ID."
 					return TRUE
-				var/transfer_error = SSeconomy.transfer_money(I.associated_account_number, SScargo.supply_account.account_number, "Cargo order", "Cargo Order Console", co.get_value(0))
+				// Taxed if this console sits inside a faction's claimed
+				// territory the ordering player isn't a member of -- charged
+				// as a separate deduction alongside the unchanged base
+				// transfer below, so Operations still only ever sees the
+				// base price.
+				var/base_price = co.get_value(0)
+				var/beneficiary = get_cargo_tax_beneficiary(GET_Z(computer), null, usr)
+				var/tax = beneficiary ? round(base_price * CARGO_TERRITORY_TAX_RATE) : 0
+				if(tax > 0)
+					var/datum/money_account/buyer_acc = SSeconomy.get_account(I.associated_account_number)
+					if(!buyer_acc || buyer_acc.money < base_price + tax)
+						status_message = "Unable to submit order. Insufficient funds to cover order plus territory tax."
+						return TRUE
+					buyer_acc.adjust_money(-tax)
+					faction_credit(beneficiary, tax, "Personal cargo order territory tax")
+				var/transfer_error = SSeconomy.transfer_money(I.associated_account_number, SScargo.supply_account.account_number, "Cargo order", "Cargo Order Console", base_price)
 				if(transfer_error)
 					status_message = "Unable to submit order. [transfer_error]"
 					return TRUE

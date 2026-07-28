@@ -263,9 +263,7 @@
 		var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
 		if(!DS || DS.stashed || DS.z != target_z)
 			continue
-		var/obj/item/card/id/ID = L.GetIdCard()
-		var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
-		if(DS.owned_by(L) || (DS.faction_uid && DS.faction_uid == own_faction) || ("[L.ckey]|[L.real_name]" in DS.crew_ckeys))
+		if(_drydock_full_access_check(L, target_z))
 			return DRYDOCK_PICK_MODE_OPEN
 		return DRYDOCK_PICK_MODE_EXTERIOR_ONLY
 	// Any other ship-type marker (non-drydock -- NPC/faction ships, the
@@ -387,8 +385,6 @@
 
 	var/list/candidates = list()
 	var/found_not_ready = FALSE
-	var/obj/item/card/id/ID = L.GetIdCard()
-	var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
 	for(var/sid in GLOB.drydock_ships)
 		var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
 		if(!DS || DS.stashed)
@@ -396,7 +392,7 @@
 		if(pad_network)
 			if(DS.faction_uid != pad_network)
 				continue
-		else if(!(DS.owned_by(L) || (DS.faction_uid && DS.faction_uid == own_faction) || ("[L.ckey]|[L.real_name]" in DS.crew_ckeys)))
+		else if(!_drydock_full_access_check(L, DS.z))
 			continue
 		// Still mid-load (deferred atmos settle, persistence_ship_interiors.dm)
 		// -- not offered as a candidate at all yet, distinct from "no ships."
@@ -763,6 +759,40 @@
 /// baked in here.
 /proc/_drydock_crew_check(mob/M, z)
 	return _drydock_crew_check_identity(M.ckey, M.real_name, z)
+
+/// TRUE if L has full owner/faction/crew access to whichever drydock ship
+/// currently occupies z -- its owner, a member of its faction, or on its
+/// crew_ckeys list. FALSE (fails closed) if no deployed ship resolves at z
+/// at all. The shared shape of the access rule duplicated at
+/// _drydock_pick_access_mode() and _drydock_board_resolve_ship() below --
+/// also reused by overmap's is_detectable() viewer exemption
+/// (overmap_object.dm) so a cloaked ship stays visible to its own
+/// owner/faction/crew.
+/proc/_drydock_full_access_check(mob/L, z)
+	var/datum/drydock_ship/DS = _drydock_ship_at(z)
+	if(!DS || !L)
+		return FALSE
+	var/obj/item/card/id/ID = L.GetIdCard()
+	var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+	return DS.owned_by(L) || (DS.faction_uid && DS.faction_uid == own_faction) || ("[L.ckey]|[L.real_name]" in DS.crew_ckeys)
+
+/// Ship-level counterpart to _drydock_full_access_check() for contexts with
+/// no specific mob to check -- e.g. a sensor console's own shared
+/// identification tick (contact_sensors.dm's process()), which runs once per
+/// console, not once per viewer. TRUE if the drydock ships deployed at z1
+/// and z2 are the same ship or share a (non-null) faction_uid. Reaching a
+/// ship's own console already requires being crew/allowed aboard it, so
+/// "this console's ship" stands in for "whoever's using it" -- a coarser
+/// approximation than the mob-level check, but correct for the stated
+/// requirement (crew/faction see their own/allied ships).
+/proc/_drydock_ships_share_ownership(z1, z2)
+	var/datum/drydock_ship/A = _drydock_ship_at(z1)
+	var/datum/drydock_ship/B = _drydock_ship_at(z2)
+	if(!A || !B)
+		return FALSE
+	if(A == B)
+		return TRUE
+	return A.faction_uid && A.faction_uid == B.faction_uid
 
 /// Identity-based counterpart to _drydock_crew_check() -- for callers that
 /// only have a (ckey, char_name) pair on hand, not a live mob (e.g. cryopod

@@ -142,7 +142,7 @@
 					// Cloaked ships never reveal via this trick regardless
 					// of proximity -- the 4-tile exemption exists for
 					// ordinary warp targeting, not to defeat a cloak.
-					if(!O.is_detectable())
+					if(!O.is_detectable(viewing_user))
 						continue
 					if(get_dist(O, T) > SECTOR_VIEW_SHIP_PROXIMITY_RANGE)
 						continue

@@ -722,8 +722,11 @@ SUBSYSTEM_DEF(cargo)
 		return FALSE
 
 	// Faction pays BEFORE anything spawns -- a failed debit leaves no
-	// orphaned crate and no operations charge.
-	if(!faction_debit(co.delivery_network, co.price, "Cargo order [co.order_id]"))
+	// orphaned crate and no operations charge. Taxed if the delivery telepad
+	// falls inside a DIFFERENT faction's beacon territory -- exempt (no-op)
+	// when it's this faction's own claimed territory, the common case.
+	var/taxed_price = apply_cargo_territory_tax(GET_Z(telepad_turf), co.price, TRUE, co.delivery_network, null, "Cargo order [co.order_id] territory tax")
+	if(!faction_debit(co.delivery_network, taxed_price, "Cargo order [co.order_id]"))
 		co.status = "rejected"
 		log_subsystem_cargo("Order [co.order_id] rejected: faction '[co.delivery_network]' has insufficient funds.")
 		return FALSE
@@ -830,7 +833,10 @@ SUBSYSTEM_DEF(cargo)
 	// owner exactly what ordering from their own personal-tagged console
 	// would (cargo_order.dm's submit_order charges get_value(0) there too),
 	// since it's billed as if the owner placed it themselves.
-	var/crew_order_cost = co.get_value(0)
+	// Taxed if delivered into a faction's claimed territory the ship itself
+	// doesn't belong to -- a personal (non-faction) ship has no faction_uid
+	// to be exempt against, so it's always taxed inside claimed territory.
+	var/crew_order_cost = apply_cargo_territory_tax(GET_Z(telepad_turf), co.get_value(0), TRUE, DS.faction_uid, null, "Crew cargo order territory tax (ship #[co.crew_shuttle_id])")
 	if(!owner_acc || owner_acc.money < crew_order_cost)
 		co.status = "rejected"
 		log_subsystem_cargo("Order [co.order_id] rejected: ship #[co.crew_shuttle_id]'s owner account has insufficient funds.")

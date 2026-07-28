@@ -64,9 +64,30 @@
 	return ..()
 
 /// Central check every detection surface should call alongside (not instead
-/// of) its own existing scannable/requires_contact logic.
-/obj/effect/overmap/proc/is_detectable()
-	return !cloaked
+/// of) its own existing scannable/requires_contact logic. viewer is optional
+/// (omitting it preserves the old context-free "cloaked hides from
+/// everyone" behavior) and may be either a mob (a specific viewer is asking
+/// -- sees this ship if they're its own owner/faction/crew, or physically
+/// aboard it) or another overmap ship (a console's own shared identification
+/// tick with no specific mob in scope -- sees this ship if the two ships
+/// share ownership/faction, see _drydock_ships_share_ownership()).
+/// _drydock_full_access_check()/_drydock_ships_share_ownership()
+/// (telepad_drydock_boarding.dm) are the shared access rules.
+/obj/effect/overmap/proc/is_detectable(viewer)
+	if(!cloaked)
+		return TRUE
+	if(!viewer)
+		return FALSE
+	if(ismob(viewer))
+		var/mob/M = viewer
+		if(GET_Z(M) in map_z)
+			return TRUE
+		return _drydock_full_access_check(M, length(map_z) ? map_z[1] : GET_Z(src))
+	if(istype(viewer, /obj/effect/overmap/visitable))
+		var/obj/effect/overmap/visitable/asking_ship = viewer
+		var/asking_z = length(asking_ship.map_z) ? asking_ship.map_z[1] : GET_Z(asking_ship)
+		return _drydock_ships_share_ownership(asking_z, length(map_z) ? map_z[1] : GET_Z(src))
+	return FALSE
 
 /// Flips the cloak state. Powering on immediately purges any sensor console
 /// that had already identified this object, rather than just blocking future

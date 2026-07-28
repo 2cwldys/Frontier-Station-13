@@ -1193,11 +1193,11 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	var/bounds
 	SSair.can_fire = FALSE
 	if(pool_z)
-		bounds = template.load_into_z(pool_z)
+		bounds = template.load_into_z(pool_z, TRUE)
 		new_z = pool_z
 	else
 		var/z_before = world.maxz
-		bounds = template.load_new_z(FALSE)
+		bounds = template.load_new_z(FALSE, TRUE)
 		new_z = z_before + 1
 	SSair.can_fire = TRUE
 	if(!bounds)

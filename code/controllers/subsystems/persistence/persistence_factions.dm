@@ -664,6 +664,47 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	_faction_transaction_log(uid, amount, reason)
 	return TRUE
 
+/// 10% cargo tariff/duty rate for trade happening inside a faction beacon's
+/// claimed territory (direct Z or radius reach, get_owning_faction_beacon()).
+#define CARGO_TERRITORY_TAX_RATE 0.10
+
+/// Resolves which faction (if any) should receive cargo tax for a
+/// transaction at z -- null if the territory is unclaimed, or if the trader
+/// is exempt as a member of the claiming faction. trader_faction_uid is the
+/// transaction's own faction (delivery_network/exp_net/a ship's faction_uid),
+/// checked first; trader (a mob) is a fallback for transactions with no
+/// faction of their own (personal orders) -- exempt if the mob's own ID
+/// shows membership in the claiming faction.
+/proc/get_cargo_tax_beneficiary(z, trader_faction_uid, mob/trader)
+	var/obj/structure/machinery/faction_beacon/owner = get_owning_faction_beacon(z)
+	if(!owner || !owner.faction_uid)
+		return null
+	var/owner_uid = normalize_faction_uid(owner.faction_uid)
+	if(trader_faction_uid && normalize_faction_uid(trader_faction_uid) == owner_uid)
+		return null
+	if(!trader_faction_uid && trader)
+		var/obj/item/card/id/ID = trader.GetIdCard()
+		var/mob_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+		if(mob_faction && mob_faction == owner_uid)
+			return null
+	return owner.faction_uid
+
+/// Applies the territory cargo tax to a base amount, crediting the territory
+/// faction's cut via faction_credit() as a side effect. Returns the amount
+/// the OTHER party should actually pay/receive: base_amount + tax for an
+/// import (buyer pays more), base_amount - tax for an export (seller nets
+/// less). Returns base_amount unchanged if untaxed (no claiming faction, or
+/// the trader is exempt).
+/proc/apply_cargo_territory_tax(z, base_amount, is_import, trader_faction_uid, mob/trader, reason)
+	var/beneficiary = get_cargo_tax_beneficiary(z, trader_faction_uid, trader)
+	if(!beneficiary)
+		return base_amount
+	var/tax = round(base_amount * CARGO_TERRITORY_TAX_RATE)
+	if(tax <= 0)
+		return base_amount
+	faction_credit(beneficiary, tax, reason)
+	return is_import ? (base_amount + tax) : (base_amount - tax)
+
 /// Log a faction transaction (debit negative, credit positive). Fire-and-forget.
 /proc/_faction_transaction_log(uid, amount, reason)
 	uid = normalize_faction_uid(uid)

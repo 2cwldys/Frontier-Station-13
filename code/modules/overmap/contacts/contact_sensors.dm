@@ -61,7 +61,7 @@
 		for(var/obj/item/ship_tracker/tracker in trackers)
 			if(tracker.enabled)
 				var/obj/effect/overmap/visitable/tracked_effect = overmap_sectors["[GET_Z(tracker)]"]
-				if(tracked_effect && istype(tracked_effect) && tracked_effect != linked && tracked_effect.requires_contact && tracked_effect.is_detectable())
+				if(tracked_effect && istype(tracked_effect) && tracked_effect != linked && tracked_effect.requires_contact && tracked_effect.is_detectable(linked))
 					objects_in_current_view[tracked_effect] = TRUE
 					objects_in_view[tracked_effect] = 100
 
@@ -76,7 +76,7 @@
 				continue
 			if(!contact.requires_contact)	   // Only some effects require contact for visibility.
 				continue
-			if(!contact.is_detectable())	   // Cloaked -- never enters the identification pipeline.
+			if(!contact.is_detectable(linked))	   // Cloaked -- never enters the identification pipeline.
 				continue
 
 			objects_in_current_view[contact] = TRUE
@@ -94,7 +94,7 @@
 					continue
 				if(!contact.requires_contact)	   // Only some effects require contact for visibility.
 					continue
-				if(!contact.is_detectable())	   // Cloaked -- never enters the identification pipeline.
+				if(!contact.is_detectable(linked))	   // Cloaked -- never enters the identification pipeline.
 					continue
 
 				objects_in_current_view[contact] = TRUE

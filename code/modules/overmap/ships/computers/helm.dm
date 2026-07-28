@@ -191,7 +191,7 @@
 	// (below) -- no new ui_act needed, just this extra data.
 	var/list/nearby_contacts = list()
 	for(var/obj/effect/overmap/visitable/nearby in view(7, connected))
-		if(nearby == connected || !nearby.scannable || !nearby.is_detectable())
+		if(nearby == connected || !nearby.scannable || !nearby.is_detectable(user))
 			continue
 		nearby_contacts += list(list("name" = nearby.name, "x" = nearby.x, "y" = nearby.y))
 	data["nearby_contacts"] = nearby_contacts
