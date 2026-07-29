@@ -756,3 +756,17 @@
 	container_type = "crate"
 	groupable = TRUE
 	spawn_amount = 1
+
+/singleton/cargo_item/guardbeacon
+	category = "weaponry"
+	name = "guard beacon"
+	supplier = "Hub"
+	description = "A concealed emitter that maintains a single, stationary guard at a fixed post and facing -- invisible once placed. Arrives unanchored."
+	price = 50000
+	items = list(
+		/obj/structure/machinery/guard_beacon
+	)
+	access = ACCESS_CARGO
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1

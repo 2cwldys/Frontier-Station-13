@@ -14,6 +14,11 @@
 // Disabled by default -- missions currently only offer "fetch" and "visit".
 //#define ENABLE_KILL_MISSIONS
 
+// If defined, faction-affiliated hostile NPCs (commander's beacon/faction
+// barracks soldiers) show an extra examine line marking them as cloned
+// combat drones. Off by default.
+#define FACTION_AI_CLONE_SOLDIERS
+
 // We want to use external resources. Kthx.
 #define PRELOAD_RSC 0
 

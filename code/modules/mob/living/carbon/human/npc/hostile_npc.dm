@@ -17,6 +17,14 @@
  * item.resolve_attackby(), UnarmedAttack()) instead of a flat damage roll,
  * so armor/wounds/ammo all apply exactly as they do for a player.
  */
+/// How long a soldier will keep chasing a target it can no longer actually
+/// see before giving up and returning to IDLE (follow/hold/patrol/individual
+/// orders). Without this, a target that breaks LOS behind a wall/window
+/// locks the mob out of ALL idle-branch behavior forever, since nothing else
+/// ever calls LoseTarget() for a target that's merely out of sight rather
+/// than dead/invalid.
+#define HOSTILE_NPC_LOS_GIVEUP_TIME (10 SECONDS)
+
 /mob/living/carbon/human/npc/hostile
 	/// Persistence faction uid this NPC belongs to -- distinct from the
 	/// pre-existing lore mob/var/faction string every mob has. null = no
@@ -32,6 +40,9 @@
 	var/pack_id
 	var/stance = HOSTILE_STANCE_IDLE
 	var/atom/last_found_target
+	/// world.time this NPC last actually had LOS on last_found_target --
+	/// see HOSTILE_NPC_LOS_GIVEUP_TIME in MoveToTarget().
+	var/last_target_seen_time = 0
 	var/list/targets = list()
 	var/aggro_range = 10
 	var/ranged_attack_range = 6
@@ -71,6 +82,16 @@
 	var/patrol_radius = 5
 	var/turf/patrol_destination
 	var/patrol_wait_until = 0
+	/// Guard-beacon soldiers only -- a fixed direction to face while
+	/// otherwise idle (not following/patrolling/point-ordered), so they read
+	/// as a stationed guard instead of a mob standing still facing whatever
+	/// direction combat last left it in. Unused (0) for every other spawner.
+	var/guard_facing_dir = 0
+	/// Guard-beacon soldiers only -- the exact tile they're posted at. Unlike
+	/// patrol_anchor_turf (which wanders nearby), a guard walks straight back
+	/// to this specific tile if bumped/pushed/thrown off it. Null for every
+	/// other spawner.
+	var/turf/guard_post_turf
 
 /mob/living/carbon/human/npc/hostile/Initialize(mapload)
 	. = ..()
@@ -190,6 +211,8 @@
 					follow_commander()
 				else if(patrol_anchor_turf && !hold_position)
 					patrol_guard_anchor()
+				else if(guard_post_turf)
+					hold_guard_post()
 
 		if(HOSTILE_STANCE_ATTACK)
 			MoveToTarget()
@@ -255,7 +278,7 @@
 		GLOB.move_manager.stop_looping(src)
 		return
 	open_path_door_towards(ordered_destination)
-	GLOB.move_manager.move_to(src, ordered_destination, 0, move_speed)
+	GLOB.move_manager.move_to(src, ordered_destination, 0, move_speed, INFINITY)
 
 /mob/living/carbon/human/npc/hostile/proc/follow_commander()
 	if(QDELETED(commander) || !isturf(commander.loc))
@@ -265,11 +288,11 @@
 	if(z != commander.z)
 		catch_up_to_commander()
 		return
-	if(get_dist(src, commander) <= 2)
+	if(get_dist(src, commander) <= 2 && has_clear_path_to(commander))
 		GLOB.move_manager.stop_looping(src)
 		return
 	open_path_door_towards(commander)
-	GLOB.move_manager.move_to(src, commander, 2, move_speed)
+	GLOB.move_manager.move_to(src, commander, 2, move_speed, INFINITY)
 
 /// Followers can't path across z-levels (get_dist()/move_manager are both
 /// same-z only) -- if the commander changes z without the follower
@@ -301,14 +324,22 @@
 /// no matching ID exactly as it would a player.
 /mob/living/carbon/human/npc/hostile/proc/open_path_door_towards(atom/target)
 	var/turf/target_turf = get_turf(target)
-	if(!target_turf)
+	var/turf/my_turf = get_turf(src)
+	if(!target_turf || !my_turf || my_turf == target_turf)
 		return
 	var/turf/next = get_step_to(src, target_turf)
 	if(!next)
+		// get_step_to() gives up entirely (returns 0) when a dense door is
+		// the ONLY route -- it can't tell a closed-but-openable door apart
+		// from a solid wall, so it never hands back the door's tile to try.
+		// Fall back to a plain directional step, which is exactly where a
+		// blocking door is most likely to be.
+		next = get_step(my_turf, get_dir(my_turf, target_turf))
+	if(!next)
 		return
 	for(var/obj/structure/machinery/door/D in next)
-		if(D.density && !D.operating)
-			D.bumpopen(src)
+		if(D.density && !D.operating && D.allowed(src))
+			D.open()
 
 /// Barracks soldiers only -- wanders to a random nearby non-dense turf
 /// around patrol_anchor_turf, pauses there a while, then picks a new one.
@@ -325,7 +356,7 @@
 			GLOB.move_manager.stop_looping(src)
 			return
 		open_path_door_towards(patrol_destination)
-		GLOB.move_manager.move_to(src, patrol_destination, 0, move_speed)
+		GLOB.move_manager.move_to(src, patrol_destination, 0, move_speed, INFINITY)
 		return
 	if(world.time < patrol_wait_until)
 		return
@@ -335,6 +366,18 @@
 			candidates += T
 	if(length(candidates))
 		patrol_destination = pick(candidates)
+
+/// Guard-beacon soldiers only -- walks straight back to its assigned post if
+/// bumped/pushed/thrown off it (no wandering, unlike patrol_guard_anchor()),
+/// and holds guard_facing_dir once actually there.
+/mob/living/carbon/human/npc/hostile/proc/hold_guard_post()
+	if(get_dist(src, guard_post_turf) > 0)
+		open_path_door_towards(guard_post_turf)
+		GLOB.move_manager.move_to(src, guard_post_turf, 0, move_speed, INFINITY)
+		return
+	GLOB.move_manager.stop_looping(src)
+	if(guard_facing_dir && dir != guard_facing_dir)
+		dir = guard_facing_dir
 
 /// Shared friend-check used both for targeting exclusion (is_valid_target())
 /// and for the friendly-fire path scan (is_friendly_fire_blocked()).
@@ -444,6 +487,7 @@
 		unset_last_found_target()
 	last_found_target = target
 	if(target)
+		last_target_seen_time = world.time
 		RegisterSignal(target, COMSIG_QDELETING, PROC_REF(on_last_found_target_deleted))
 	return TRUE
 
@@ -512,6 +556,26 @@
 			continue
 		if(IS_OPAQUE_TURF(T))
 			return FALSE
+	return TRUE
+
+/// TRUE if nothing dense sits between src and target -- used to make sure
+/// "close enough, stop following" (follow_commander()) means actually
+/// reachable, not just within raw coordinate distance despite a wall or
+/// closed door (including a transparent one, which wouldn't trip
+/// can_see_target()) sitting directly between them.
+/mob/living/carbon/human/npc/hostile/proc/has_clear_path_to(atom/target)
+	var/turf/source_turf = get_turf(src)
+	var/turf/target_turf = get_turf(target)
+	if(!source_turf || !target_turf)
+		return FALSE
+	for(var/turf/T in getline(source_turf, target_turf))
+		if(T == source_turf || T == target_turf)
+			continue
+		if(T.density)
+			return FALSE
+		for(var/obj/O in T)
+			if(O.density)
+				return FALSE
 	return TRUE
 
 /// TRUE if a living friendly (commander, same faction, or same pack) is
@@ -585,6 +649,20 @@
 		LoseTarget()
 		return
 
+	// A target that's merely out of sight (behind a wall/window) is never
+	// caught by the check above -- targets/is_valid_target() don't care
+	// about LOS at all, and this branch (HOSTILE_STANCE_ATTACK) is the only
+	// place a lost-LOS gun target would otherwise loop forever without ever
+	// reaching AttackTarget()'s own LOS check. A melee target flips straight
+	// to ATTACKING regardless of LOS/range, but bounces right back here via
+	// AttackTarget()'s "dist > 1" branch, so this still catches it within
+	// HOSTILE_NPC_LOS_GIVEUP_TIME either way.
+	if(can_see_target(last_found_target))
+		last_target_seen_time = world.time
+	else if(world.time - last_target_seen_time > HOSTILE_NPC_LOS_GIVEUP_TIME)
+		LoseTarget()
+		return
+
 	var/obj/item/W = get_wielded_weapon()
 	if(istype(W, /obj/item/gun))
 		if(get_dist(src, last_found_target) <= ranged_attack_range && can_see_target(last_found_target))
@@ -592,11 +670,11 @@
 			change_stance(HOSTILE_STANCE_ATTACKING)
 		else
 			open_path_door_towards(last_found_target)
-			GLOB.move_manager.move_to(src, last_found_target, ranged_attack_range - 1, move_speed)
+			GLOB.move_manager.move_to(src, last_found_target, ranged_attack_range - 1, move_speed, INFINITY)
 	else
 		change_stance(HOSTILE_STANCE_ATTACKING)
 		open_path_door_towards(last_found_target)
-		GLOB.move_manager.move_to(src, last_found_target, 1, move_speed)
+		GLOB.move_manager.move_to(src, last_found_target, 1, move_speed, INFINITY)
 
 /mob/living/carbon/human/npc/hostile/proc/AttackTarget()
 	if(QDELETED(last_found_target) || !is_valid_target(last_found_target))
@@ -646,3 +724,15 @@
 	hostile_last_attack = world.time
 	attacked_times++
 	return TRUE
+
+#ifdef FACTION_AI_CLONE_SOLDIERS
+/// Faction-owned soldiers are lore-flavored as cloned combat drones --
+/// factionless hostile_npc spawns (pirates/away-site presets) never get a
+/// faction_uid at all, so this naturally excludes them without needing a
+/// separate check.
+/mob/living/carbon/human/npc/hostile/assemble_height_string(mob/examiner)
+	. = ..()
+	if(!faction_uid)
+		return .
+	. += "\n<b>They have a neurogenic suppressant device blinking on their head, indicating them as a cloned combat drone.</b>"
+#endif //FACTION_AI_CLONE_SOLDIERS

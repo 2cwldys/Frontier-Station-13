@@ -26,25 +26,27 @@
  * the item itself is completely untouched.
  *
  * Individual followers can also be given a one-off "go stand over there"
- * order: pick one from the soldier list in the TGUI itself (no verb-panel
- * hunting -- this used to be a hidden held-item verb, which players
- * reasonably never found), then click anywhere visible in the world (need
- * not be adjacent, and -- since the TGUI is reachable without holding the
- * item at all, per the action button above -- need not be holding the
- * beacon either). This is done via a one-shot COMSIG_MOB_CLICKON
- * registration on the commanding mob (_arm_destination_click()/
- * _on_destination_click() below), not an afterattack() override, since
- * afterattack() only ever fires for clicks made with this exact item
- * actively wielded -- which would silently break the destination step
- * whenever the beacon is worn instead of held. Deliberately NOT built on the
- * game's vanilla "Point To" verb/COMSIG_MOB_POINT either -- that verb
- * shares one 2.5-second cooldown per pointing mob regardless of target
- * (mob.dm's "point_verb_emote_cooldown"), which silently swallows the
- * second of two quick point actions and broke the intended fast
- * select-soldier-then-tap-turf workflow. This has no such cooldown, and
- * manually replicates the same visual feedback (add_point_filter() glow, a
- * fading ground decal/point marker) the vanilla verb would have given for
- * free.
+ * order: pick any number from the soldier list in the TGUI itself (no
+ * verb-panel hunting -- this used to be a hidden held-item verb, which
+ * players reasonably never found), then click anywhere visible in the world
+ * (need not be adjacent, and -- since the TGUI is reachable without holding
+ * the item at all, per the action button above -- need not be holding the
+ * beacon either). This is done via a COMSIG_MOB_CLICKON registration on the
+ * commanding mob (_arm_destination_click()/_on_destination_click() below),
+ * not an afterattack() override, since afterattack() only ever fires for
+ * clicks made with this exact item actively wielded -- which would silently
+ * break the destination step whenever the beacon is worn instead of held.
+ * Deliberately NOT built on the game's vanilla "Point To" verb/
+ * COMSIG_MOB_POINT either -- that verb shares one 2.5-second cooldown per
+ * pointing mob regardless of target (mob.dm's "point_verb_emote_cooldown"),
+ * which silently swallows the second of two quick point actions and broke
+ * the intended fast select-soldier-then-tap-turf workflow. This has no such
+ * cooldown, and manually replicates the same visual feedback
+ * (add_point_filter() glow, a fading ground decal/point marker) the vanilla
+ * verb would have given for free. The click registration stays armed across
+ * repeated orders (deliberately NOT one-shot, per player feedback that
+ * having to reselect for every single order was tedious) until the player
+ * either deselects every soldier or closes the TGUI (ui_close() below).
  *
  * Optionally faction-taggable (persistent_network, same compatibility
  * interface faction_barracks.dm uses) -- if tagged, only members of that
@@ -90,14 +92,14 @@
 	/// "hostile" (default) -- followers proactively attack non-faction
 	/// targets. "passive" -- followers never initiate combat at all.
 	var/hostility_mode = "hostile"
-	/// Which of active_mobs the owner most recently targeted via
-	/// select_soldier -- the target of their next move-to-turf order.
-	var/mob/living/carbon/human/npc/hostile/selected_soldier
-	/// Mob currently armed with a one-shot COMSIG_MOB_CLICKON registration
-	/// (see _arm_destination_click()) -- tracked separately from
-	/// selected_soldier/owner so it can be reliably unregistered from the
-	/// right mob even if a new soldier is selected, or this item is
-	/// destroyed, before they actually click anywhere.
+	/// Which of active_mobs the owner currently has singled out via
+	/// select_soldier -- every one of these gets the next move-to-turf order.
+	var/list/selected_soldiers = list()
+	/// Mob currently armed with a COMSIG_MOB_CLICKON registration (see
+	/// _arm_destination_click()) -- tracked separately from
+	/// selected_soldiers/owner so it can be reliably unregistered from the
+	/// right mob even if the selection changes, or this item is destroyed,
+	/// before they actually click anywhere.
 	var/mob/pending_click_user
 	/// Faction tagger compatible var -- "" (personal/untagged) or a real
 	/// faction_uid. When set, activation refuses for anyone not a member
@@ -133,6 +135,36 @@
 	persistent_network = new_uid || ""
 	return TRUE
 
+// ------- Reboot persistence (generic passthrough -- serializePersistentItem(),
+// persistence_mobs.dm -- fires automatically wherever this item is serialized:
+// worn, held, in a backpack, in a closet, or dropped loose. No registration
+// call needed, unlike a placed structure. owner/active_mobs/spawning_enabled
+// are deliberately NOT restored -- a live mob reference and active soldiers
+// can't meaningfully survive a reboot; the player just re-activates it, and
+// it summons with the restored preset/stance/hostility/tag instead of blank
+// ones. -------
+
+/obj/item/commander_beacon/persistent_objects_get_content()
+	var/list/content = ..()
+	content["preset_id"] = preset_id
+	content["stance_mode"] = stance_mode
+	content["hostility_mode"] = hostility_mode
+	content["persistent_network"] = persistent_network
+	return content
+
+/obj/item/commander_beacon/persistent_objects_apply_content(content, x, y, z)
+	. = ..()
+	if(!islist(content))
+		return
+	if(!isnull(content["preset_id"]))
+		preset_id = content["preset_id"]
+	if(!isnull(content["stance_mode"]))
+		stance_mode = content["stance_mode"]
+	if(!isnull(content["hostility_mode"]))
+		hostility_mode = content["hostility_mode"]
+	if(!isnull(content["persistent_network"]))
+		persistent_network = content["persistent_network"]
+
 /obj/item/commander_beacon/attack_self(mob/user)
 	if(!istype(loc, /mob) || loc != user)
 		return
@@ -143,6 +175,14 @@
 	if(!ui)
 		ui = new(user, src, "CommanderBeacon", "Commander's Beacon", 380, 500)
 		ui.open()
+
+/// Closing the window is the other way (besides emptying selected_soldiers)
+/// to back out of Command Soldier -- otherwise the click-intercept would
+/// stay armed against a menu the player can no longer see feedback in.
+/obj/item/commander_beacon/ui_close(mob/user)
+	. = ..()
+	selected_soldiers = list()
+	_disarm_destination_click()
 
 /obj/item/commander_beacon/ui_data(mob/user)
 	var/list/data = list()
@@ -161,7 +201,7 @@
 		soldiers += list(list(
 			"ref"      = "\ref[M]",
 			"name"     = M.name,
-			"selected" = (M == selected_soldier)
+			"selected" = (M in selected_soldiers)
 		))
 	data["soldiers"] = soldiers
 	return data
@@ -217,21 +257,33 @@
 		if("set_passive")
 			set_hostility_mode("passive", user)
 			. = TRUE
+		if("set_all_guards_hostile")
+			_set_guard_beacons_hostility("hostile", user)
+			. = TRUE
+		if("set_all_guards_passive")
+			_set_guard_beacons_hostility("passive", user)
+			. = TRUE
 		if("select_soldier")
 			var/target_ref = params["ref"]
-			if(selected_soldier && "\ref[selected_soldier]" == target_ref)
-				selected_soldier = null
-				_disarm_destination_click()
-				to_chat(user, SPAN_NOTICE("You stand down -- no soldier is being individually commanded."))
-				. = TRUE
-				return
 			for(var/mob/living/carbon/human/npc/hostile/M in active_mobs)
-				if("\ref[M]" == target_ref)
-					selected_soldier = M
+				if("\ref[M]" != target_ref)
+					continue
+				if(M in selected_soldiers)
+					selected_soldiers -= M
+					to_chat(user, SPAN_NOTICE("You stop singling out [M]."))
+					if(!length(selected_soldiers))
+						_disarm_destination_click()
+				else
+					selected_soldiers += M
 					M.add_point_filter()
 					_arm_destination_click(user)
 					to_chat(user, SPAN_NOTICE("You single out [M] to command -- click a location anywhere visible to send them there."))
-					break
+				break
+			. = TRUE
+		if("clear_selection")
+			selected_soldiers = list()
+			_disarm_destination_click()
+			to_chat(user, SPAN_NOTICE("You stand down -- no soldiers are being individually commanded."))
 			. = TRUE
 
 /obj/item/commander_beacon/proc/activate(mob/living/user)
@@ -276,6 +328,12 @@
 		if(!QDELETED(M))
 			M.hold_position = (mode == "hold")
 			M.ordered_destination = null
+			// hold_position alone only stops FUTURE follow_commander() calls
+			// (guarded by !hold_position) -- an already-active chase loop
+			// from before this click was never told to stop, and nothing
+			// else would ever call stop_looping() on it once hold_position
+			// is TRUE, so it would otherwise keep chasing indefinitely.
+			GLOB.move_manager.stop_looping(M)
 	if(user)
 		user.custom_emote(VISIBLE_MESSAGE, "does a military gesture towards their troops.")
 	to_chat(user, SPAN_NOTICE("Your soldiers will now [mode == "hold" ? "hold their position." : "follow you."]"))
@@ -293,17 +351,38 @@
 			M.passive_mode = (mode == "passive")
 	to_chat(user, SPAN_NOTICE("Your soldiers will now [mode == "passive" ? "hold their fire unless ordered." : "engage non-faction targets on sight."]"))
 
-/// Second half of "Command Soldier" -- arms a ONE-SHOT COMSIG_MOB_CLICKON
+/// Bulk Hostile/Passive for every guard_beacon.dm on the user's current Z
+/// level tagged to their own faction -- guard beacons are invisible and
+/// scattered, so walking around clicking each one individually isn't
+/// practical. Scoped to Z rather than every guard beacon that faction owns
+/// anywhere, so it only affects the immediate area the user is actually in.
+/obj/item/commander_beacon/proc/_set_guard_beacons_hostility(mode, mob/user)
+	var/uid = _owner_faction_uid(user)
+	if(!uid)
+		to_chat(user, SPAN_WARNING("You must be a member of a faction to do that."))
+		return
+	var/affected = 0
+	for(var/obj/structure/machinery/guard_beacon/G in world)
+		if(G.z != user.z)
+			continue
+		if(normalize_faction_uid(G.persistent_network) != uid)
+			continue
+		G.set_hostility_mode(mode, null)
+		affected++
+	if(affected)
+		to_chat(user, SPAN_NOTICE("[affected] guard beacon[affected > 1 ? "s" : ""] on this level set to [mode == "passive" ? "passive" : "hostile"]."))
+	else
+		to_chat(user, SPAN_NOTICE("No guard beacons belonging to your faction were found on this level."))
+
+/// Second half of "Command Soldier" -- arms a COMSIG_MOB_CLICKON
 /// registration on user (see click.dm's ClickOn()), called right after
 /// selecting a follower in the TGUI ("select_soldier" in ui_act() above).
 /// Deliberately mob-scoped, not an afterattack() item override -- this way
 /// the destination click works whether the beacon is held, on the belt, in
 /// a pocket, or in suit storage, matching the action button's own "doesn't
-/// need to be in-hand" reach. One-shot (disarmed the instant a click comes
-/// through, success or not) rather than staying armed indefinitely -- a
-/// persistent intercept would silently eat every future click anywhere
-/// (attacking, opening doors, moving) until manually cleared, which is far
-/// worse than just needing to hit "Command" again for a follow-up order.
+/// need to be in-hand" reach. Stays armed across repeated orders (see
+/// _on_destination_click() below) until the player empties selected_soldiers
+/// or closes the TGUI (ui_close()).
 /obj/item/commander_beacon/proc/_arm_destination_click(mob/user)
 	if(pending_click_user && pending_click_user != user)
 		UnregisterSignal(pending_click_user, COMSIG_MOB_CLICKON)
@@ -319,23 +398,34 @@
 /// itself (the mob the signal was registered on), passed automatically as
 /// the first arg. Returning COMSIG_MOB_CANCEL_CLICKON stops the click from
 /// ALSO resolving as a normal move/attack/interact on whatever was clicked.
+/// Deliberately stays armed after firing -- repeated clicks keep re-issuing
+/// orders to every currently selected soldier until the player deselects
+/// them all (ui_act()'s "select_soldier"/"clear_selection") or closes the
+/// TGUI (ui_close()).
 /obj/item/commander_beacon/proc/_on_destination_click(mob/user, atom/target, list/modifiers)
 	SIGNAL_HANDLER
-	_disarm_destination_click()
-	if(QDELETED(selected_soldier) || !(selected_soldier in active_mobs))
+	if(!length(selected_soldiers))
+		_disarm_destination_click()
 		return
 	var/turf/T = get_turf(target)
 	if(!T)
 		return
-	selected_soldier.ordered_destination = T
-	selected_soldier.hold_position = TRUE
+	var/ordered_count = 0
+	for(var/mob/living/carbon/human/npc/hostile/M in selected_soldiers)
+		if(QDELETED(M) || !(M in active_mobs))
+			continue
+		M.ordered_destination = T
+		M.hold_position = TRUE
+		ordered_count++
+	if(!ordered_count)
+		return
 	// /obj/effect/decal/point has no lifetime of its own (it's a permanent
 	// decal by default) -- same 2-second cleanup the vanilla point verb uses
 	// (mob.dm's pointed()/end_pointing_effect()), otherwise every order
 	// issued leaves another arrow behind forever.
 	QDEL_IN(new /obj/effect/decal/point(T), 2 SECONDS)
 	user.custom_emote(VISIBLE_MESSAGE, "does a military gesture towards their troops.")
-	to_chat(user, SPAN_NOTICE("[selected_soldier] moves to cover the marked position."))
+	to_chat(user, SPAN_NOTICE("[ordered_count] soldier[ordered_count > 1 ? "s" : ""] move to cover the marked position."))
 	return COMSIG_MOB_CANCEL_CLICKON
 
 /// Mirrors portable_turret.dm's already-shipped employer_faction/
@@ -461,7 +551,7 @@
 				spark(origin, 3, GLOB.alldirs)
 			qdel(m)
 	active_mobs.Cut()
-	selected_soldier = null
+	selected_soldiers = list()
 	if(user)
 		to_chat(user, SPAN_NOTICE("Your soldiers have been dismissed."))
 

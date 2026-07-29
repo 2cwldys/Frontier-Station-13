@@ -1510,6 +1510,7 @@
 #include "code\game\objects\structures\machinery\floor_light.dm"
 #include "code\game\objects\structures\machinery\floorlayer.dm"
 #include "code\game\objects\structures\machinery\from_beyond.dm"
+#include "code\game\objects\structures\machinery\guard_beacon.dm"
 #include "code\game\objects\structures\machinery\gumball.dm"
 #include "code\game\objects\structures\machinery\hologram.dm"
 #include "code\game\objects\structures\machinery\holosign.dm"

@@ -89,6 +89,44 @@
 		return FALSE
 	return islist(GLOB.persistence_faction_cache) && (uid in GLOB.persistence_faction_cache)
 
+// ------- Reboot persistence -- every cargo-spawned (non-mapload) structure
+// already auto-registers into the generic tracked-objects system for free
+// (structures.dm's /obj/structure/Initialize()), which is why position/
+// anchored already survive a reboot -- this just fills in the rest of the
+// config the default persistent_objects_get_content() (objs.dm) doesn't.
+// active_mobs is deliberately NOT restored, matching this machine's own
+// existing philosophy (soldiers aren't persisted even across a normal
+// deactivate/dismiss cycle -- only role/config is durable). -------
+
+/obj/structure/machinery/faction_barracks/persistent_objects_get_content()
+	var/list/content = ..()
+	content["preset_id"] = preset_id
+	content["hostility_mode"] = hostility_mode
+	content["persistent_network"] = persistent_network
+	content["active"] = active
+	return content
+
+/obj/structure/machinery/faction_barracks/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["preset_id"]))
+		preset_id = content["preset_id"]
+	if(!isnull(content["hostility_mode"]))
+		hostility_mode = content["hostility_mode"]
+	if(!isnull(content["persistent_network"]))
+		persistent_network = content["persistent_network"]
+	// __anchored is only applied by the caller AFTER this proc returns
+	// (persistence_objects.dm's objectsApplyTrackContent()) -- anchored
+	// itself isn't trustworthy yet here, so read the raw saved value instead.
+	var/was_anchored = !isnull(content["__anchored"]) ? content["__anchored"] : anchored
+	// Deliberately not re-checking _faction_ready() here -- if the faction
+	// turned out to be gone/invalid by boot, process()'s existing periodic
+	// check force-deactivates it within its own next tick anyway, the same
+	// self-healing path a mid-round faction disband already uses.
+	if(content["active"] && was_anchored && preset_id)
+		_set_active(TRUE)
+
 /obj/structure/machinery/faction_barracks/proc/toggle_active(mob/user)
 	if(!active)
 		if(!anchored)

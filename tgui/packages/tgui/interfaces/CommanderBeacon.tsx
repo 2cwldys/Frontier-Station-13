@@ -35,7 +35,7 @@ export const CommanderBeacon = (props) => {
     soldiers,
   } = data;
 
-  const selectedSoldier = (soldiers ?? []).find((s) => s.selected);
+  const selectedSoldiers = (soldiers ?? []).filter((s) => s.selected);
 
   let disabledReason = '';
   if (!faction_ready) {
@@ -121,20 +121,20 @@ export const CommanderBeacon = (props) => {
                 onClick={() => act('select_soldier', { ref: soldier.ref })}
               />
             ))}
-            {selectedSoldier && (
+            {selectedSoldiers.length > 0 && (
               <Box mt={1}>
                 <Box color="label">
-                  Commanding {selectedSoldier.name} -- click a location
-                  anywhere visible to send them there.
+                  Commanding {selectedSoldiers.length} soldier
+                  {selectedSoldiers.length > 1 ? 's' : ''} -- click a location
+                  anywhere visible to send them there. Keep clicking to issue
+                  more orders; deselect or close this window when done.
                 </Box>
                 <Button
                   fluid
                   mt={1}
                   icon="times"
                   content="Cancel Selection"
-                  onClick={() =>
-                    act('select_soldier', { ref: selectedSoldier.ref })
-                  }
+                  onClick={() => act('clear_selection')}
                 />
               </Box>
             )}
@@ -174,6 +174,26 @@ export const CommanderBeacon = (props) => {
             content="Passive"
             selected={hostility_mode === 'passive'}
             onClick={() => act('set_passive')}
+          />
+        </Section>
+        <Section title="Guard Beacons (this level)">
+          <Box color="label">
+            Affects guard beacons only -- posted guards on this level tagged
+            to your faction. Does not affect your own followers above.
+          </Box>
+          <Button
+            fluid
+            mt={1}
+            icon="crosshairs"
+            content="Set All Guards Hostile"
+            onClick={() => act('set_all_guards_hostile')}
+          />
+          <Button
+            fluid
+            mt={1}
+            icon="hand-paper"
+            content="Set All Guards Passive"
+            onClick={() => act('set_all_guards_passive')}
           />
         </Section>
       </Window.Content>
