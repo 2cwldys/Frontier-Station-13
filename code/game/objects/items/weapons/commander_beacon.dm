@@ -165,8 +165,14 @@
 	if(!isnull(content["persistent_network"]))
 		persistent_network = content["persistent_network"]
 
+/// get_holding_mob() rather than a bare "loc == user" -- this item is
+/// explicitly meant to work while WORN (belt/pocket/suit storage), which is
+/// the whole point of action_button_name above. When worn, loc is the
+/// belt/pocket, not the mob, so the old check silently refused every
+/// interaction from exactly the carry modes this is documented to support.
+/// Same resolution dropped() already uses.
 /obj/item/commander_beacon/attack_self(mob/user)
-	if(!istype(loc, /mob) || loc != user)
+	if(get_holding_mob() != user)
 		return
 	ui_interact(user)
 
@@ -197,10 +203,14 @@
 	var/list/preset = get_hostile_npc_preset(preset_id)
 	data["preset_name"] = preset ? preset["name"] : null
 	var/list/soldiers = list()
+	var/soldier_index = 0
 	for(var/mob/living/carbon/human/npc/hostile/M in active_mobs)
+		soldier_index++
 		soldiers += list(list(
 			"ref"      = "\ref[M]",
-			"name"     = M.name,
+			// Same-preset soldiers share a name verbatim, so the index is the
+			// only thing that tells two of them apart in the list.
+			"name"     = "#[soldier_index] [M.name]",
 			"selected" = (M in selected_soldiers)
 		))
 	data["soldiers"] = soldiers
@@ -211,7 +221,11 @@
 	if(.)
 		return
 	var/mob/living/user = usr
-	if(!istype(loc, /mob) || loc != user)
+	// See attack_self()'s note -- a worn (belt/pocket/suit storage) beacon has
+	// loc set to the container, not the mob, so the old "loc == user" check
+	// silently swallowed EVERY button press in exactly the carry modes this
+	// item documents as supported.
+	if(get_holding_mob() != user)
 		return
 	switch(action)
 		if("toggle")
@@ -263,6 +277,18 @@
 		if("set_all_guards_passive")
 			_set_guard_beacons_hostility("passive", user)
 			. = TRUE
+		if("set_turrets_enabled")
+			_set_faction_turrets_enabled(TRUE, user)
+			. = TRUE
+		if("set_turrets_disabled")
+			_set_faction_turrets_enabled(FALSE, user)
+			. = TRUE
+		if("set_turrets_lethal")
+			_set_faction_turrets_lethal(TRUE, user)
+			. = TRUE
+		if("set_turrets_stun")
+			_set_faction_turrets_lethal(FALSE, user)
+			. = TRUE
 		if("select_soldier")
 			var/target_ref = params["ref"]
 			for(var/mob/living/carbon/human/npc/hostile/M in active_mobs)
@@ -270,20 +296,31 @@
 					continue
 				if(M in selected_soldiers)
 					selected_soldiers -= M
-					to_chat(user, SPAN_NOTICE("You stop singling out [M]."))
+					to_chat(user, SPAN_NOTICE("You stop singling out [_soldier_label(M)]."))
 					if(!length(selected_soldiers))
 						_disarm_destination_click()
 				else
 					selected_soldiers += M
 					M.add_point_filter()
 					_arm_destination_click(user)
-					to_chat(user, SPAN_NOTICE("You single out [M] to command -- click a location anywhere visible to send them there."))
+					to_chat(user, SPAN_NOTICE("You single out [_soldier_label(M)] to command -- click a location to send them there, or click an enemy to engage."))
 				break
 			. = TRUE
 		if("clear_selection")
 			selected_soldiers = list()
 			_disarm_destination_click()
 			to_chat(user, SPAN_NOTICE("You stand down -- no soldiers are being individually commanded."))
+			. = TRUE
+		if("clear_attack_target")
+			var/cleared_count = 0
+			for(var/mob/living/carbon/human/npc/hostile/M in selected_soldiers)
+				if(QDELETED(M) || !(M in active_mobs))
+					continue
+				if(M.stance != HOSTILE_STANCE_IDLE)
+					M.LoseTarget()
+					cleared_count++
+			if(cleared_count)
+				to_chat(user, SPAN_NOTICE("[cleared_count] soldier[cleared_count > 1 ? "s" : ""] stand down from combat."))
 			. = TRUE
 
 /obj/item/commander_beacon/proc/activate(mob/living/user)
@@ -328,6 +365,13 @@
 		if(!QDELETED(M))
 			M.hold_position = (mode == "hold")
 			M.ordered_destination = null
+			// A soldier mid-fight never reaches think()'s IDLE branch at all,
+			// so Follow/Hold would otherwise silently do nothing until that
+			// fight ended on its own. An explicit player order outranks the
+			// AI's own target pick -- break off now so the new stance is
+			// visibly obeyed immediately.
+			if(M.stance != HOSTILE_STANCE_IDLE)
+				M.LoseTarget()
 			// hold_position alone only stops FUTURE follow_commander() calls
 			// (guarded by !hold_position) -- an already-active chase loop
 			// from before this click was never told to stop, and nothing
@@ -374,6 +418,53 @@
 	else
 		to_chat(user, SPAN_NOTICE("No guard beacons belonging to your faction were found on this level."))
 
+/// Bulk enable/disable for every faction-tagged portable turret on the
+/// user's current Z level -- same shape as _set_guard_beacons_hostility()
+/// above. set_enabled() (portable_turret.dm) is reused rather than setting
+/// the var directly so process registration/cover state stay correct.
+/obj/item/commander_beacon/proc/_set_faction_turrets_enabled(new_value, mob/user)
+	var/uid = _owner_faction_uid(user)
+	if(!uid)
+		to_chat(user, SPAN_WARNING("You must be a member of a faction to do that."))
+		return
+	var/affected = 0
+	for(var/obj/structure/machinery/porta_turret/T in world)
+		if(T.z != user.z)
+			continue
+		if(normalize_faction_uid(T.persistent_network) != uid)
+			continue
+		T.set_enabled(new_value)
+		affected++
+	if(affected)
+		to_chat(user, SPAN_NOTICE("[affected] faction turret[affected > 1 ? "s" : ""] on this level [new_value ? "enabled" : "disabled"]."))
+	else
+		to_chat(user, SPAN_NOTICE("No turrets belonging to your faction were found on this level."))
+
+/// Bulk stun/lethal for every faction-tagged, mode-switchable portable
+/// turret on the user's current Z level -- skips any turret with a
+/// hardwired gun installed (egun FALSE), the same gate the turret's own
+/// TGUI ("can_switch") already applies for a single turret.
+/obj/item/commander_beacon/proc/_set_faction_turrets_lethal(new_value, mob/user)
+	var/uid = _owner_faction_uid(user)
+	if(!uid)
+		to_chat(user, SPAN_WARNING("You must be a member of a faction to do that."))
+		return
+	var/affected = 0
+	for(var/obj/structure/machinery/porta_turret/T in world)
+		if(T.z != user.z)
+			continue
+		if(normalize_faction_uid(T.persistent_network) != uid)
+			continue
+		if(!T.egun)
+			continue
+		T.lethal = new_value
+		T.lethal_icon = new_value
+		affected++
+	if(affected)
+		to_chat(user, SPAN_NOTICE("[affected] faction turret[affected > 1 ? "s" : ""] on this level set to [new_value ? "lethal" : "stun"]."))
+	else
+		to_chat(user, SPAN_NOTICE("No mode-switchable turrets belonging to your faction were found on this level."))
+
 /// Second half of "Command Soldier" -- arms a COMSIG_MOB_CLICKON
 /// registration on user (see click.dm's ClickOn()), called right after
 /// selecting a follower in the TGUI ("select_soldier" in ui_act() above).
@@ -394,6 +485,34 @@
 		UnregisterSignal(pending_click_user, COMSIG_MOB_CLICKON)
 	pending_click_user = null
 
+/// Up to `count` distinct, non-dense turfs near `center` for a multi-soldier
+/// move order to spread across -- center itself first (so a lone soldier
+/// still lands exactly on the mark), then spiraling outward ring by ring
+/// (reuses personal_travel.dm's own ring generator rather than duplicating
+/// it). Pads with `center` itself if the immediate area is too cramped/dense
+/// to find enough distinct spots -- callers already tolerate more than one
+/// soldier sharing a tile as a degenerate fallback, this just makes it rare
+/// instead of the default outcome.
+/obj/item/commander_beacon/proc/_order_move_spread_turfs(turf/center, count)
+	var/list/turf/found = list()
+	if(!center)
+		return found
+	for(var/radius = 0 to 3)
+		for(var/list/coord in _personal_travel_ring_coords(center.x, center.y, radius))
+			var/cx = coord[1]
+			var/cy = coord[2]
+			if(cx < 1 || cx > world.maxx || cy < 1 || cy > world.maxy)
+				continue
+			var/turf/T = locate(cx, cy, center.z)
+			if(!T || T.density)
+				continue
+			found += T
+			if(length(found) >= count)
+				return found
+	while(length(found) < count)
+		found += center
+	return found
+
 /// SIGNAL_HANDLER for COMSIG_MOB_CLICKON -- source is always pending_click_user
 /// itself (the mob the signal was registered on), passed automatically as
 /// the first arg. Returning COMSIG_MOB_CANCEL_CLICKON stops the click from
@@ -407,15 +526,39 @@
 	if(!length(selected_soldiers))
 		_disarm_destination_click()
 		return
+	// Clicking a LIVING mob is always an attack order and never silently turns
+	// into "walk onto that tile." The old code fell through to the move-order
+	// path below whenever no soldier accepted the attack (dead/bot/same-pack/
+	// same-faction target), which is exactly the long-reported "ordering them
+	// to attack also makes them move to the enemy's turf."
+	if(isliving(target))
+		_order_attack_target(target, user)
+		return COMSIG_MOB_CANCEL_CLICKON
 	var/turf/T = get_turf(target)
 	if(!T)
 		return
+	// Spread multiple soldiers around the marked point instead of piling
+	// every one of them onto the exact same tile -- same "don't stack"
+	// reasoning as patrol_anchor_turf's own wander radius (hostile_npc.dm).
+	// Center turf first (so a lone soldier still lands exactly on the mark),
+	// then spirals outward.
+	var/list/turf/spread_turfs = _order_move_spread_turfs(T, length(selected_soldiers))
+	var/spread_index = 1
 	var/ordered_count = 0
 	for(var/mob/living/carbon/human/npc/hostile/M in selected_soldiers)
+		// Never skip a selected soldier silently -- a soldier that quietly
+		// does nothing is indistinguishable from a broken one, which is what
+		// made "one of my two soldiers ignores orders" impossible to diagnose.
 		if(QDELETED(M) || !(M in active_mobs))
+			to_chat(user, SPAN_WARNING("[_soldier_label(M)] is no longer under your command."))
 			continue
-		M.ordered_destination = T
-		M.hold_position = TRUE
+		// order_move_to() (hostile_npc.dm) rather than setting the vars
+		// inline -- it also breaks off any fight in progress and promotes the
+		// soldier to fast thinking, so the order actually starts immediately
+		// instead of waiting for combat to end and/or the next slow AI tick.
+		M.order_move_to(spread_turfs[spread_index] || T)
+		spread_index++
+		to_chat(user, SPAN_NOTICE("[_soldier_label(M)] moves to cover the marked position."))
 		ordered_count++
 	if(!ordered_count)
 		return
@@ -425,8 +568,41 @@
 	// issued leaves another arrow behind forever.
 	QDEL_IN(new /obj/effect/decal/point(T), 2 SECONDS)
 	user.custom_emote(VISIBLE_MESSAGE, "does a military gesture towards their troops.")
-	to_chat(user, SPAN_NOTICE("[ordered_count] soldier[ordered_count > 1 ? "s" : ""] move to cover the marked position."))
 	return COMSIG_MOB_CANCEL_CLICKON
+
+/// "#N Name" for a soldier, N being its 1-based position in active_mobs.
+/// Soldiers summoned from one preset all share the same name
+/// (apply_hostile_preset() copies it verbatim), so without an index the
+/// player cannot tell two of them apart in the UI or in any order feedback.
+/obj/item/commander_beacon/proc/_soldier_label(mob/living/carbon/human/npc/hostile/M)
+	if(QDELETED(M))
+		return "A dismissed soldier"
+	var/idx = active_mobs.Find(M)
+	return idx ? "#[idx] [M.name]" : "[M.name] (unlisted)"
+
+/// Orders every currently selected soldier to attack `target`. Reports the
+/// outcome for EVERY selected soldier individually -- accepted or refused,
+/// with the reason -- so a soldier that ends up doing nothing always says
+/// why instead of looking broken.
+/obj/item/commander_beacon/proc/_order_attack_target(mob/living/target, mob/user)
+	var/ordered_count = 0
+	for(var/mob/living/carbon/human/npc/hostile/M in selected_soldiers)
+		if(QDELETED(M) || !(M in active_mobs))
+			to_chat(user, SPAN_WARNING("[_soldier_label(M)] is no longer under your command."))
+			continue
+		if(!M.is_valid_ordered_attack_target(target))
+			if(M.is_same_persistence_faction(target))
+				to_chat(user, SPAN_WARNING("[_soldier_label(M)] refuses -- [target] is recognized as friendly forces."))
+			else
+				to_chat(user, SPAN_WARNING("[_soldier_label(M)] won't engage [target]."))
+			continue
+		M.order_attack_target(target)
+		to_chat(user, SPAN_NOTICE("[_soldier_label(M)] moves to engage [target]."))
+		ordered_count++
+	if(!ordered_count)
+		return FALSE
+	user.custom_emote(VISIBLE_MESSAGE, "gestures sharply towards [target].")
+	return TRUE
 
 /// Mirrors portable_turret.dm's already-shipped employer_faction/
 /// normalize_faction_uid() bridge -- returns null if the user holds no ID,
@@ -493,6 +669,18 @@
 	var/turf/T = get_turf(src)
 	if(!T)
 		return
+	// Don't stack soldier #2 inside soldier #1 -- two dense mobs on one tile
+	// start out immediately blocking each other's pathing (see hostile_npc.dm's
+	// CanPass() note), so spread out to a free neighbour when this tile is
+	// already occupied by one of ours.
+	if(locate(/mob/living/carbon/human/npc/hostile) in T)
+		for(var/turf/candidate in orange(1, T))
+			if(candidate.density)
+				continue
+			if(locate(/mob/living) in candidate)
+				continue
+			T = candidate
+			break
 	var/mob/living/carbon/human/npc/hostile/H = spawn_hostile_npc_from_preset(preset_id, T, summoner_faction)
 	if(!H)
 		return
@@ -508,13 +696,28 @@
 /// instead of leaving them to walk toward/idle by a corpse forever. Their
 /// faction and current Follow/Hold order are otherwise untouched.
 /obj/item/commander_beacon/proc/release_followers()
-	for(var/mob/living/carbon/human/npc/hostile/M in active_mobs)
+	for(var/mob/living/carbon/human/npc/hostile/M in active_mobs.Copy())
 		if(QDELETED(M))
 			continue
 		M.commander = null
+		// Without this, a soldier that was on a "Hold Position"/"Command
+		// Soldier" order when released stays stuck -- hold_position gates
+		// EVERY idle branch in think(), including the patrol_anchor_turf
+		// fallback being assigned right below, so it would otherwise never
+		// actually be reached.
+		M.hold_position = FALSE
 		M.ordered_destination = null
 		M.patrol_anchor_turf = get_turf(M)
 		M.visible_message(SPAN_NOTICE("[M] looks around, no longer awaiting orders."))
+		// Otherwise never removed here -- silently leaks a "soldier slot"
+		// against max_active_mobs even for a later reactivation.
+		active_mobs -= M
+		// Same staleness fix as soldier_died() -- a released follower that
+		// was individually selected must not linger in selected_soldiers.
+		if(M in selected_soldiers)
+			selected_soldiers -= M
+	if(!length(selected_soldiers))
+		_disarm_destination_click()
 
 /// Deactivates if the beacon actually leaves the owner's possession
 /// entirely (dropped on the floor, thrown, given/stolen to someone else) --
@@ -533,6 +736,17 @@
 	SIGNAL_HANDLER
 	UnregisterSignal(mob_ref, COMSIG_QDELETING)
 	active_mobs -= mob_ref
+	// Without this, a dead soldier that was individually selected via
+	// "Command Soldier" lingers in selected_soldiers forever (nothing else
+	// ever clears a single stale entry) -- every subsequent click silently
+	// no-ops for it with no feedback, since it's filtered out by the
+	// QDELETED()/active_mobs membership check wherever selected_soldiers is
+	// consumed, but the click-intercept stays armed as if it were still doing
+	// something.
+	if(mob_ref in selected_soldiers)
+		selected_soldiers -= mob_ref
+		if(!length(selected_soldiers))
+			_disarm_destination_click()
 
 /// The explicit "get rid of them" action -- also called from the TGUI's
 /// "Deactivate" button (ui_act()'s "toggle") alongside deactivate() itself,

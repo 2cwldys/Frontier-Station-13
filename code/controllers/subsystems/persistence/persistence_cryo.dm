@@ -191,6 +191,16 @@
 	H.persistence_in_cryo     = TRUE
 	announce_faction_cryo_enter(H)
 
+	// Auto clock-out -- covers every caller of this proc uniformly (normal
+	// storage, AFK/disconnect force-store, prison freeze/arrest force-store),
+	// since they all funnel through here. Silent -- announce_faction_cryo_enter()
+	// above already covers the "entered cryo" notification; this doesn't add
+	// a second faction-wide message for what's a system side-effect, not a
+	// deliberate clock-out action (see the ID Card Modification toggle for that).
+	var/clock_faction = persistence_get_player_faction(H.ckey)
+	if(clock_faction)
+		factionSetClockedIn(H.ckey, clock_faction, FALSE)
+
 	// If the mob is inside a cryopod, clear its occupant reference so the pod resets properly
 	if(istype(H.loc, /obj/structure/machinery/cryopod))
 		var/obj/structure/machinery/cryopod/cryo_pod = H.loc
@@ -375,6 +385,12 @@
 	/// persistence_find_saved_cryopod()/persistence_find_available_cryopod()
 	/// below. Mutually exclusive with persistent_network/personal_ckey.
 	var/crew_tagged = FALSE
+	/// TRUE if this specific pod has been manually disabled via the Faction
+	/// Tagger -- refuses ALL occupants (go_in()) regardless of network/
+	/// personal/crew tag state, until re-enabled. Orthogonal to those tags --
+	/// a disabled pod keeps whatever tag it already had, it just can't be
+	/// entered.
+	var/tagger_disabled = FALSE
 	/// Never expire spawned cryopods
 	persistant_objects_expiration_time_days = 36500
 
@@ -399,7 +415,7 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 /// persistence_find_saved_cryopod(), which must still resolve a prisoner's
 /// own saved cell) -- see persistence_cryopod_discovery_ignore above.
 /proc/_cryopod_ignored_for_discovery(obj/structure/machinery/cryopod/pod)
-	return is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore) || is_type_in_list(pod, GLOB.persistence_cryopod_discovery_ignore)
+	return pod.tagger_disabled || is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore) || is_type_in_list(pod, GLOB.persistence_cryopod_discovery_ignore)
 
 // Faction assignment is configured via the faction tagger tool now (see
 // faction_tagger_set() in persistence_faction_tagger.dm). This admin-only
@@ -437,7 +453,8 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 		"persistent_spawn"   = persistent_spawn,
 		"personal_ckey"      = personal_ckey,
 		"personal_char_name" = personal_char_name,
-		"crew_tagged"        = crew_tagged
+		"crew_tagged"        = crew_tagged,
+		"tagger_disabled"    = tagger_disabled
 	)
 
 /// On load: if a map-placed cryopod already exists at this position, configure it and qdel self.
@@ -466,6 +483,8 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 					existing.personal_char_name = content["personal_char_name"]
 				if(!isnull(content["crew_tagged"]))
 					existing.crew_tagged = content["crew_tagged"]
+				if(!isnull(content["tagger_disabled"]))
+					existing.tagger_disabled = content["tagger_disabled"]
 				// Hand off DB ownership so finalize updates this entry instead of purging it
 				existing.persistent_objects_track_id = src.persistent_objects_track_id
 				SSpersistence.objectsRegisterTrack(existing, src.persistent_objects_author_ckey)
@@ -483,6 +502,8 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 		personal_char_name = content["personal_char_name"]
 	if(!isnull(content["crew_tagged"]))
 		crew_tagged = content["crew_tagged"]
+	if(!isnull(content["tagger_disabled"]))
+		tagger_disabled = content["tagger_disabled"]
 
 /**
  * Look up the primary faction UID for a player from the ss13_faction_members table.
@@ -525,6 +546,8 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 	if(!pod)
 		return null
 	if(is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore))
+		return null
+	if(pod.tagger_disabled)
 		return null
 	if(pod.occupant)
 		return null
@@ -638,7 +661,7 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 		if(pz >= 1 && pz <= world.maxz)
 			var/turf/T = locate(entry["last_pod_x"], entry["last_pod_y"], pz)
 			var/obj/structure/machinery/cryopod/pod = T ? (locate(/obj/structure/machinery/cryopod) in T) : null
-			if(pod && !is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore) && !pod.occupant && !(pod.stat & (NOPOWER|BROKEN)))
+			if(pod && !is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore) && !pod.tagger_disabled && !pod.occupant && !(pod.stat & (NOPOWER|BROKEN)))
 				var/personal_ok = !pod.personal_ckey || (pod.personal_ckey == ckey && pod.personal_char_name == char_name)
 				var/crew_ok = !pod.crew_tagged || _drydock_crew_check_identity(ckey, char_name, pod.z)
 				var/network_ok = TRUE

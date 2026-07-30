@@ -1,3 +1,16 @@
+/// TRUE for the duration of objectsInstantiateRows()'s restore loop --
+/// suppresses /obj/structure/Initialize()'s auto-register/clear-tombstone
+/// side effect (structures.dm), which otherwise has no way to tell "this is
+/// persistence recreating a tracked object" apart from "this is a genuine
+/// new placement that should un-tombstone its tile." Boot-time restore is
+/// already covered by !GLOB.persistence_ready, but objectsApplyZ() (ship
+/// retrieve) runs long after that flips TRUE, with no equivalent protection
+/// until now -- without this, recreating a tracked object on a tile that
+/// coincidentally matches a different, already-tombstoned map structure
+/// silently erases that unrelated tombstone, letting the ship template's
+/// own original copy respawn unopposed on the next retrieve.
+GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
+
 /**
  * Initializes persistent objects.
  * This includes cleaning up expired objects from the database and instanciating all active tracks.
@@ -47,6 +60,7 @@
  */
 /datum/controller/subsystem/persistence/proc/objectsInstantiateRows(list/persistent_data, quiet = FALSE)
 	PRIVATE_PROC(TRUE)
+	GLOB.persistence_restoring_tracked_objects = TRUE
 	var/instantiated = 0
 	// Recreated here via a plain new() (below) rather than a template mapload,
 	// so mapload=FALSE and Initialize() never returns INITIALIZE_HINT_LATELOAD
@@ -132,6 +146,7 @@
 			log_subsystem_persistence_error("Persistent objects: Failed to instantiate [data["type"]] (id=[data["id"]]): [e]")
 	if(length(atmos_batch))
 		SSmachinery.setup_atmos_machinery(atmos_batch, quiet)
+	GLOB.persistence_restoring_tracked_objects = FALSE
 	return instantiated
 
 /**

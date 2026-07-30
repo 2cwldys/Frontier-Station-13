@@ -1,6 +1,7 @@
 import {
   Box,
   Button,
+  Dropdown,
   LabeledList,
   NoticeBox,
   NumberInput,
@@ -36,6 +37,7 @@ type FactionMember = {
   real_name: string;
   job_title: string | null;
   rank: number;
+  clocked_in: BooleanLike;
 };
 
 type FactionIdPurge = {
@@ -53,6 +55,8 @@ type FoundingPetition = {
   supporter_count: number;
   is_founder: BooleanLike;
   already_supported: BooleanLike;
+  is_company: BooleanLike;
+  required_supporters: number;
 };
 
 type Shareholder = {
@@ -76,9 +80,19 @@ type FactionData = {
   id_purges: FactionIdPurge[];
   is_founder: BooleanLike;
   master_card_lost: BooleanLike;
+  can_print_master_card: BooleanLike;
+  can_disband_faction: BooleanLike;
   color: string | null;
+  allowed_cargo_category?: string | null;
+  cargo_category_options?: string[];
+  cargo_category_cooldown_remaining?: number;
+  allies?: KnownFaction[];
+  incoming_alliance_requests?: KnownFaction[];
+  outgoing_alliance_requests?: KnownFaction[];
+  alliance_targets?: KnownFaction[];
   faction_creation_enabled: BooleanLike;
   founding_required: number;
+  founding_required_company: number;
   petitions: FoundingPetition[];
   stock_listed: BooleanLike;
   stock_ticker: string | null;
@@ -93,10 +107,16 @@ type FactionData = {
 const FoundingSection = (props: {
   faction_creation_enabled: BooleanLike;
   founding_required: number;
+  founding_required_company: number;
   petitions: FoundingPetition[];
 }) => {
   const { act } = useBackend<FactionData>();
-  const { faction_creation_enabled, founding_required, petitions } = props;
+  const {
+    faction_creation_enabled,
+    founding_required,
+    founding_required_company,
+    petitions,
+  } = props;
   return (
     <Section title="Found a New Faction">
       {!faction_creation_enabled && (
@@ -109,16 +129,27 @@ const FoundingSection = (props: {
           icon="plus"
           color="good"
           disabled={!faction_creation_enabled}
-          tooltip="Starts a founding petition for 100,000 credits from your own bank account (charged only once other players consent). You become its first command-rank member."
-          onClick={() => act('start_founding')}
+          tooltip={`Starts a founding petition for 25,000 credits (needs ${founding_required_company} supporters). You become its first command-rank member, and it's automatically listed on the stock exchange in your name. Stays limited to one cargo order category.`}
+          onClick={() => act('start_founding', { tier: 'company' })}
         >
-          Start Founding Petition (100,000 cr)
+          Start Company (25,000 cr)
+        </Button>
+        <Button
+          icon="plus"
+          color="good"
+          ml={1}
+          disabled={!faction_creation_enabled}
+          tooltip={`Starts a founding petition for 100,000 credits (needs ${founding_required} supporters) from your own bank account, charged only once other players consent. You become its first command-rank member, and it gets unrestricted cargo ordering across every category.`}
+          onClick={() => act('start_founding', { tier: 'full' })}
+        >
+          Start Full Faction (100,000 cr)
         </Button>
       </Box>
       {petitions.length > 0 && (
         <Table mt={1}>
           <Table.Row header>
             <Table.Cell>Faction</Table.Cell>
+            <Table.Cell>Tier</Table.Cell>
             <Table.Cell>Founder</Table.Cell>
             <Table.Cell>Support</Table.Cell>
             <Table.Cell />
@@ -128,9 +159,12 @@ const FoundingSection = (props: {
               <Table.Cell bold>
                 {p.faction_name} ({p.abbreviation})
               </Table.Cell>
+              <Table.Cell color={p.is_company ? 'label' : 'good'}>
+                {p.is_company ? 'Company' : 'Full Faction'}
+              </Table.Cell>
               <Table.Cell color="label">{p.founder_name}</Table.Cell>
               <Table.Cell>
-                {p.supporter_count}/{founding_required}
+                {p.supporter_count}/{p.required_supporters}
               </Table.Cell>
               <Table.Cell>
                 {p.is_founder ? (
@@ -179,6 +213,7 @@ export const FactionManagement = (props) => {
   const { act, data } = useBackend<FactionData>();
   const [transferTarget, setTransferTarget] = useState('');
   const [transferAmount, setTransferAmount] = useState(0);
+  const [allianceTarget, setAllianceTarget] = useState('');
 
   const {
     faction_uid,
@@ -192,11 +227,19 @@ export const FactionManagement = (props) => {
     known_factions,
     members,
     cards_epoch,
-    is_founder,
-    master_card_lost,
+    can_print_master_card,
+    can_disband_faction,
     color,
+    allowed_cargo_category,
+    cargo_category_options,
+    cargo_category_cooldown_remaining,
+    allies,
+    incoming_alliance_requests,
+    outgoing_alliance_requests,
+    alliance_targets,
     faction_creation_enabled,
     founding_required,
+    founding_required_company,
     petitions,
     stock_listed,
     stock_ticker,
@@ -211,6 +254,7 @@ export const FactionManagement = (props) => {
     <FoundingSection
       faction_creation_enabled={faction_creation_enabled}
       founding_required={founding_required}
+      founding_required_company={founding_required_company}
       petitions={petitions ?? []}
     />
   );
@@ -333,6 +377,28 @@ export const FactionManagement = (props) => {
                 </>
               )}
             </LabeledList.Item>
+            {cargo_category_options && cargo_category_options.length > 0 && (
+              <LabeledList.Item label="Cargo Specialization">
+                {allowed_cargo_category || 'None chosen -- cannot order from cargo yet'}
+                {canManage && (
+                  <Dropdown
+                    ml={1}
+                    width="160px"
+                    options={cargo_category_options}
+                    displayText="Change..."
+                    onSelected={(value) =>
+                      act('set_cargo_category', { category: value })
+                    }
+                  />
+                )}
+                {!!cargo_category_cooldown_remaining && cargo_category_cooldown_remaining > 0 && (
+                  <Box mt={1} color="bad">
+                    Locked for {Math.ceil(cargo_category_cooldown_remaining / 86400)}{' '}
+                    more day(s).
+                  </Box>
+                )}
+              </LabeledList.Item>
+            )}
             <LabeledList.Item label="Stock Exchange">
               {stock_listed ? (
                 <>
@@ -411,15 +477,26 @@ export const FactionManagement = (props) => {
               >
                 Invalidate All Charge Cards
               </Button>
-              {(!!is_founder || op_rank === 99) && !!master_card_lost && (
+              {!!can_print_master_card && (
                 <Button
                   icon="id-card"
                   color="good"
                   ml={1}
-                  tooltip="Prints a replacement faction master card. Only available to the original founder (or an admin), and only while the current one is reported lost (Panic Purge)."
+                  tooltip="Prints a replacement faction master card. Only available to the original founder, the majority shareholder, the designated leader, or an admin, and only while the current one is reported lost (Panic Purge) or none has ever been printed."
                   onClick={() => act('print_master_card')}
                 >
                   Print Master Card
+                </Button>
+              )}
+              {!!can_disband_faction && (
+                <Button
+                  icon="trash"
+                  color="bad"
+                  ml={1}
+                  tooltip="Permanently disbands this faction -- treasury, jobs, beacon claims, drydock ship ownership, and stock listing all gone. Only available to the original founder, the majority shareholder, the designated leader, or an admin. Cannot be undone."
+                  onClick={() => act('disband_faction')}
+                >
+                  Disband Faction
                 </Button>
               )}
             </Box>
@@ -471,6 +548,122 @@ export const FactionManagement = (props) => {
             </Box>
           )}
         </Section>
+
+        {alliance_targets && (
+          <Section title="Alliances">
+            <Box bold mb={1}>
+              Allies
+            </Box>
+            {!allies || allies.length === 0 ? (
+              <Box color="label" mb={1}>
+                No allied factions.
+              </Box>
+            ) : (
+              allies.map((f) => (
+                <Box key={f.uid} mb={1}>
+                  {f.name}
+                  {canManage && (
+                    <Button
+                      ml={1}
+                      color="bad"
+                      icon="link-slash"
+                      onClick={() => act('break_alliance', { uid: f.uid })}
+                    >
+                      Break
+                    </Button>
+                  )}
+                </Box>
+              ))
+            )}
+            {!!incoming_alliance_requests && incoming_alliance_requests.length > 0 && (
+              <>
+                <Box bold mt={1} mb={1}>
+                  Incoming Requests
+                </Box>
+                {incoming_alliance_requests.map((f) => (
+                  <Box key={f.uid} mb={1}>
+                    {f.name}
+                    {canManage && (
+                      <>
+                        <Button
+                          ml={1}
+                          color="good"
+                          icon="handshake"
+                          onClick={() => act('accept_alliance', { uid: f.uid })}
+                        >
+                          Accept
+                        </Button>
+                        <Button
+                          ml={1}
+                          icon="xmark"
+                          onClick={() => act('decline_alliance', { uid: f.uid })}
+                        >
+                          Decline
+                        </Button>
+                      </>
+                    )}
+                  </Box>
+                ))}
+              </>
+            )}
+            {!!outgoing_alliance_requests && outgoing_alliance_requests.length > 0 && (
+              <>
+                <Box bold mt={1} mb={1}>
+                  Outgoing Requests
+                </Box>
+                {outgoing_alliance_requests.map((f) => (
+                  <Box key={f.uid} mb={1}>
+                    {f.name} -- Pending
+                    {canManage && (
+                      <Button
+                        ml={1}
+                        icon="xmark"
+                        onClick={() => act('withdraw_alliance', { uid: f.uid })}
+                      >
+                        Withdraw
+                      </Button>
+                    )}
+                  </Box>
+                ))}
+              </>
+            )}
+            {canManage && alliance_targets.length > 0 && (
+              <Box mt={1}>
+                <Box bold mb={1}>
+                  Propose Alliance
+                </Box>
+                <Stack>
+                  <Stack.Item>
+                    <select
+                      value={allianceTarget}
+                      onChange={(e) => setAllianceTarget(e.target.value)}
+                      style={{ marginRight: '4px' }}
+                    >
+                      <option value="">-- Select faction --</option>
+                      {alliance_targets.map((f) => (
+                        <option key={f.uid} value={f.uid}>
+                          {f.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Stack.Item>
+                  <Stack.Item>
+                    <Button
+                      color="good"
+                      disabled={!allianceTarget}
+                      onClick={() => {
+                        act('propose_alliance', { uid: allianceTarget });
+                        setAllianceTarget('');
+                      }}
+                    >
+                      Propose
+                    </Button>
+                  </Stack.Item>
+                </Stack>
+              </Box>
+            )}
+          </Section>
+        )}
 
         {/* Jobs Section */}
         <Section
@@ -589,6 +782,41 @@ export const FactionManagement = (props) => {
                       >
                         Revoke ID
                       </Button>
+                      <Button
+                        compact
+                        color="bad"
+                        icon="user-slash"
+                        ml={1}
+                        disabled={member.rank >= 2 && op_rank !== 99}
+                        tooltip={
+                          member.rank >= 2 && op_rank !== 99
+                            ? 'This member holds command rank -- only an admin can remove them.'
+                            : "Revokes this member's ID and erases their membership record entirely -- they would need to be issued a new ID to rejoin."
+                        }
+                        onClick={() =>
+                          act('remove_member', {
+                            target_ckey: member.ckey,
+                          })
+                        }
+                      >
+                        Remove
+                      </Button>
+                      {!!member.clocked_in && (
+                        <Button
+                          compact
+                          color="average"
+                          icon="clock"
+                          ml={1}
+                          tooltip="Clocks this member out -- they stop receiving payroll until they clock back in themselves."
+                          onClick={() =>
+                            act('force_clock_out', {
+                              target_ckey: member.ckey,
+                            })
+                          }
+                        >
+                          Clock Out
+                        </Button>
+                      )}
                     </Table.Cell>
                   )}
                 </Table.Row>

@@ -13,6 +13,19 @@ scripts/debug-compile.ps1                # standalone: self-fixes via headless c
 - Full log: `scripts/debug-compile.log`
 - Wraps the Juke chain (`tools/build/build.bat` minus its interactive `pause`). tgui bundles rebuild automatically when `tgui/packages/**` changes; DM compiles when `code/**` or maps change.
 
+## SQL migrations (mandatory)
+
+Whenever a change set **adds a new `SQL/migrate-2023/V*.sql` file, or edits an existing one**, apply it before handing back:
+
+```
+scripts/db_update.ps1
+```
+
+- Re-runs every `V*.sql` in order against the `aurora-db` container. Already-applied migrations are skipped silently (`mariadb --force`), so it is **idempotent and safe to run at any time** -- re-running after a no-op change costs nothing.
+- Ends with `Done. N file(s) processed, N hard error(s).` A non-zero hard-error count means a connection failure (check the `aurora-db` container is running), not a bad migration.
+- Writing the migration file alone changes nothing at runtime: the new table/column simply won't exist, and the DM code reading it fails silently at runtime rather than at compile time -- `debug-compile.ps1` will still report `RESULT: CLEAN`. Nothing will tell you the step was skipped.
+- Migrations are numbered sequentially (`V132__personal_cargo_category.sql`); check the highest existing `V*` number before naming a new one.
+
 ## Persistence debugging
 
 Persistence subsystem activity (init steps, save/restore errors, panics) logs to

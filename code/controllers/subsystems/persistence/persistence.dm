@@ -713,6 +713,14 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/faction_founding_e)
 		log_subsystem_persistence_panic("Unhandled exception during faction founding petition initialization: [faction_founding_e]")
 
+#ifdef FACTION_ALLIANCES
+	log_subsystem_persistence_info("Starting faction alliance initialization...")
+	try
+		factionAlliancesInitialize()
+	catch(var/exception/faction_alliances_e)
+		log_subsystem_persistence_panic("Unhandled exception during faction alliance initialization: [faction_alliances_e]")
+#endif //FACTION_ALLIANCES
+
 	log_subsystem_persistence_info("Starting faction creation toggle initialization...")
 	try
 		factionCreationToggleInitialize()

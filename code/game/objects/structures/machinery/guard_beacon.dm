@@ -23,6 +23,10 @@
  * dir is already saved/restored for free by the generic tracked-objects
  * system, and reactivation only actually spawns the guard a couple seconds
  * later via the async start_maintaining() loop, well after dir is restored.
+ *
+ * Deactivating (power off or Destroy()) immediately dismisses the current
+ * guard too (fading portal + sparks VFX, the same as the explicit "Dismiss"
+ * action, not a silent qdel) -- powering back on posts a fresh guard.
  */
 /obj/structure/machinery/guard_beacon
 	name = "guard beacon"
@@ -146,6 +150,7 @@
 		spawning_enabled = FALSE
 		if(user)
 			to_chat(user, SPAN_NOTICE("\The [src] powers down."))
+		dismiss_soldiers(user)
 
 /// Force-deactivates if anchor or faction-tag prerequisites are lost
 /// mid-operation -- same choke-point precedent as faction_barracks.dm.
@@ -160,6 +165,16 @@
 		return
 	spawning_enabled = TRUE
 	spawn()
+		// A reboot-restored beacon (persistent_objects_apply_content(), called
+		// mid-objectsInitialize()) can call this well before
+		// SSpersistence.Initialize() has gotten to factionInitialize() --
+		// spawning too early left the restored guard's gear untinted, since
+		// get_faction_color() (persistence_faction_tagger.dm) silently returns
+		// null until GLOB.persistence_faction_cache is populated. Waiting here
+		// costs nothing during normal (already-booted) activation, since
+		// persistence_ready is already TRUE by then.
+		while(!GLOB.persistence_ready && spawning_enabled && src)
+			sleep(1 SECOND)
 		while(spawning_enabled && active && src)
 			for(var/i = length(active_mobs); i >= 1; i--)
 				var/mob/living/M = active_mobs[i]
@@ -225,8 +240,10 @@
 	if(user)
 		to_chat(user, SPAN_NOTICE("\The [src] will now face [dir2text(new_dir)]."))
 
-/// Powering off only stops replenishment -- see faction_barracks.dm's
-/// identical reasoning. This is the explicit "get rid of them" action.
+/// Dismisses the current guard (fading portal + sparks VFX, not a silent
+/// qdel) -- called both by the explicit "Dismiss" UI button and
+/// automatically whenever the beacon powers off or is destroyed (see
+/// _set_active()/Destroy()). Safe to call with an empty active_mobs list.
 /obj/structure/machinery/guard_beacon/proc/dismiss_soldiers(mob/user)
 	for(var/mob/m in active_mobs)
 		UnregisterSignal(m, COMSIG_QDELETING)

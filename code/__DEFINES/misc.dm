@@ -298,6 +298,12 @@
 /// Distinct OTHER ckeys (not the founder) required before a founding
 /// petition auto-finalizes into a real faction.
 #define FACTION_FOUNDING_REQUIRED_SUPPORTERS 10
+/// "Company" founding tier -- cheaper, fewer supporters, and (unlike the
+/// full tier above) stays limited to a single cargo category rather than
+/// getting unrestricted access. See faction_founding_cost()/
+/// faction_founding_required_supporters() (persistence_factions.dm).
+#define FACTION_CREATION_COST_COMPANY 25000
+#define FACTION_FOUNDING_REQUIRED_SUPPORTERS_COMPANY 5
 
 #define PROGRAM_STATE_DISABLED -1
 #define PROGRAM_STATE_KILLED 0

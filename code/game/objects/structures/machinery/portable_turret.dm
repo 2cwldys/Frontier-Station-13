@@ -653,6 +653,9 @@
 	if(isbrain(L) && !isturf(L.loc)) // Don't target cyborg brains / MMIs
 		return TURRET_NOT_TARGET
 
+	if(istype(L, /mob/living/bot))	// medbot/cleanbot/farmbot/etc -- utility bots, not real threats, not silicon-typed so the check above never catches them
+		return TURRET_NOT_TARGET
+
 	if(L.stat && !emagged)		//if the perp is dead/dying, no need to bother really
 		return TURRET_NOT_TARGET	//move onto next potential victim!
 
@@ -707,8 +710,13 @@
 			if(!allow_nonfaction_humans)
 				return TURRET_NOT_TARGET // Wildlife-only mode: no human ever qualifies, faction or not
 			var/L_uid = get_living_persistence_faction_uid(L)
+#ifdef FACTION_ALLIANCES
+			if(L_uid && (L_uid == persistent_network || factions_are_allied(L_uid, persistent_network)))
+				return TURRET_NOT_TARGET // exempt the turret's own faction (or an allied one), including a same-faction hostile_npc soldier (no ID card of their own)
+#else
 			if(L_uid && L_uid == persistent_network)
 				return TURRET_NOT_TARGET // exempt the turret's own faction, including a same-faction hostile_npc soldier (no ID card of their own)
+#endif //FACTION_ALLIANCES
 			// else: allowed through, existing assess_perp threat-level logic below decides as normal
 
 	if(isanimal(L) || issmall(L)) // Animals are not so dangerous

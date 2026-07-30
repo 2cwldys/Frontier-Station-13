@@ -287,6 +287,9 @@
 				to_chat(user, SPAN_WARNING("Faction raiding is currently disabled -- you cannot enter that territory."))
 				play_raid_blocked_sound(user)
 				return TRUE
+			if(is_centcom_level(target_z) && !can_access_hub_depot(user))
+				to_chat(user, SPAN_WARNING("That sector is restricted to Hub personnel."))
+				return TRUE
 			var/turf/anchor = personal_travel_find_space_landing(target_z)
 			if(!anchor)
 				to_chat(user, SPAN_WARNING("No safe landing point could be found there."))

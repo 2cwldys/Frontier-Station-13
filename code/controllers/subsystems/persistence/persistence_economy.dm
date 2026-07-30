@@ -157,6 +157,39 @@ GLOBAL_LIST_EMPTY(persistence_economy_cache)
 				_economySaveOneAccount(account, "_dept_[dept]_", "[dept] Department")
 				return
 
+/// Credits a ckey+char_name's account that may have no live /datum/money_account
+/// object yet -- SSeconomy.get_account_by_ckey_and_name() only ever finds an
+/// account once that specific character has actually spawned THIS boot
+/// (restoreAccountFromPersistence() is spawn-triggered, nothing bulk-loads
+/// every saved account into memory at round start), so a real, currently-
+/// offline-this-session player would otherwise silently receive nothing --
+/// confirmed as a real gap, e.g. a faction stock buyout paying out
+/// shareholders who haven't logged in yet this round. Writes the DB row
+/// directly AND the boot-time economy cache (persistence_economy_cache) --
+/// the latter matters because restoreAccountFromPersistence() reads FROM
+/// that cache (not a fresh DB query) if this same character spawns later
+/// in the same round, so skipping it would let a late spawn silently
+/// overwrite this credit with the stale pre-credit cached balance. Callers
+/// should always try SSeconomy.get_account_by_ckey_and_name() first and
+/// only fall back to this when it returns null.
+/datum/controller/subsystem/persistence/proc/economyCreditOfflineAccount(ckey, char_name, amount)
+	if(!ckey || !char_name || !amount)
+		return FALSE
+	if(!databaseCheckConnection("economyCreditOfflineAccount"))
+		return FALSE
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"UPDATE ss13_money_accounts SET money = money + :amount WHERE ckey = :ckey AND char_name = :char_name",
+		list("amount" = amount, "ckey" = ckey, "char_name" = char_name)
+	)
+	q.Execute()
+	var/ok = databaseCheckQueryResult(q, "economyCreditOfflineAccount")
+	qdel(q)
+	if(ok)
+		var/list/cached = GLOB.persistence_economy_cache["[ckey]|[char_name]"]
+		if(islist(cached))
+			cached["money"] = (cached["money"] || 0) + amount
+	return ok
+
 /**
  * Attempt to restore a previously saved money account for the given mob.
  * Returns the restored account if found, null otherwise.

@@ -25,6 +25,7 @@ type FactionTaggerData = {
   factions: Faction[];
   is_cryopod: BooleanLike;
   persistent_spawn: BooleanLike;
+  cryopod_disabled: BooleanLike;
   is_telecomms: BooleanLike;
   is_public_comms: BooleanLike;
   is_autodoc: BooleanLike;
@@ -63,6 +64,7 @@ export const FactionTagger = (props) => {
     factions = [],
     is_cryopod,
     persistent_spawn,
+    cryopod_disabled,
     is_telecomms,
     is_public_comms,
     is_autodoc,
@@ -208,6 +210,19 @@ export const FactionTagger = (props) => {
               {persistent_spawn
                 ? 'Clear Public Spawn Point'
                 : 'Mark Public Spawn Point'}
+            </Button>
+          </Section>
+        )}
+        {!!(is_admin && is_cryopod) && (
+          <Section title="Admin: Cryopod Access">
+            <Button
+              icon={cryopod_disabled ? 'check' : 'ban'}
+              color={cryopod_disabled ? 'good' : 'bad'}
+              onClick={() => act('toggle_cryopod_disabled')}
+            >
+              {cryopod_disabled
+                ? 'Re-enable Cryopod'
+                : 'Disable Cryopod (Refuse Occupants)'}
             </Button>
           </Section>
         )}

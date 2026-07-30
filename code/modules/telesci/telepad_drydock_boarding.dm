@@ -282,8 +282,13 @@
 		// not just the exterior-only default a stranger gets.
 		var/obj/item/card/id/ID = L.GetIdCard()
 		var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+#ifdef FACTION_ALLIANCES
+		if(B.faction_uid && own_faction && (B.faction_uid == own_faction || factions_are_allied(own_faction, B.faction_uid)))
+			return DRYDOCK_PICK_MODE_OPEN
+#else
 		if(B.faction_uid && own_faction && B.faction_uid == own_faction)
 			return DRYDOCK_PICK_MODE_OPEN
+#endif //FACTION_ALLIANCES
 		// Admin-toggled raiding kill-switch (GLOB.faction_raiding_enabled,
 		// persistence_factions.dm) -- the Hub's own beacon subtype is always
 		// exempt (istype check below), and a faction can opt its own
@@ -339,7 +344,11 @@
 		return FALSE
 	var/obj/item/card/id/ID = L.GetIdCard()
 	var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+#ifdef FACTION_ALLIANCES
+	return !(B.faction_uid && own_faction && (B.faction_uid == own_faction || factions_are_allied(own_faction, B.faction_uid)))
+#else
 	return !(B.faction_uid && own_faction && B.faction_uid == own_faction)
+#endif //FACTION_ALLIANCES
 
 /// Plays the raiding-prohibited announcer cue to L, gated by ASFX_ANNOUNCER
 /// like every other announcer line -- call alongside _drydock_raid_blocked()'s
@@ -892,6 +901,9 @@
 	if(_drydock_raid_blocked(L, target_z))
 		to_chat(L, SPAN_WARNING("Faction raiding is currently disabled -- you cannot disembark into that territory."))
 		play_raid_blocked_sound(L)
+		return FALSE
+	if(is_centcom_level(target_z) && !can_access_hub_depot(L))
+		to_chat(L, SPAN_WARNING("That sector is restricted to Hub personnel."))
 		return FALSE
 	var/is_dock_target = (shuttle_datum && marker.status == SHIP_STATUS_LANDED && target_z == GET_Z(shuttle_datum.current_location))
 	var/is_hub_target = (zone_security_get(target_z) == ZONE_HIGHSEC)

@@ -126,9 +126,17 @@ export const CommanderBeacon = (props) => {
                 <Box color="label">
                   Commanding {selectedSoldiers.length} soldier
                   {selectedSoldiers.length > 1 ? 's' : ''} -- click a location
-                  anywhere visible to send them there. Keep clicking to issue
-                  more orders; deselect or close this window when done.
+                  anywhere visible to send them there, or click an enemy to
+                  focus them down. Keep clicking to issue more orders;
+                  deselect or close this window when done.
                 </Box>
+                <Button
+                  fluid
+                  mt={1}
+                  icon="crosshairs"
+                  content="Clear Target"
+                  onClick={() => act('clear_attack_target')}
+                />
                 <Button
                   fluid
                   mt={1}
@@ -194,6 +202,40 @@ export const CommanderBeacon = (props) => {
             icon="hand-paper"
             content="Set All Guards Passive"
             onClick={() => act('set_all_guards_passive')}
+          />
+        </Section>
+        <Section title="Faction Turrets (this level)">
+          <Box color="label">
+            Affects every portable turret on this level tagged to your
+            faction -- not just guard beacons or your own followers above.
+          </Box>
+          <Button
+            fluid
+            mt={1}
+            icon="power-off"
+            content="Enable Turrets"
+            onClick={() => act('set_turrets_enabled')}
+          />
+          <Button
+            fluid
+            mt={1}
+            icon="ban"
+            content="Disable Turrets"
+            onClick={() => act('set_turrets_disabled')}
+          />
+          <Button
+            fluid
+            mt={1}
+            icon="skull"
+            content="Set Turrets Lethal"
+            onClick={() => act('set_turrets_lethal')}
+          />
+          <Button
+            fluid
+            mt={1}
+            icon="bolt"
+            content="Set Turrets Stun"
+            onClick={() => act('set_turrets_stun')}
           />
         </Section>
       </Window.Content>

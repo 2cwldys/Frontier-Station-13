@@ -92,8 +92,13 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 			var/mob/living/carbon/human/H = user
 			var/obj/item/card/id/ID = H.GetIdCard()
 			var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+#ifdef FACTION_ALLIANCES
+			if(own_faction && (own_faction == normalize_faction_uid(B.faction_uid) || factions_are_allied(own_faction, B.faction_uid)))
+				continue
+#else
 			if(own_faction && own_faction == normalize_faction_uid(B.faction_uid))
 				continue
+#endif //FACTION_ALLIANCES
 		return TRUE
 	return FALSE
 

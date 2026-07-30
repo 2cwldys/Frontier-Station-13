@@ -19,6 +19,15 @@
 	var/is_centcom = FALSE
 	var/show_assignments = FALSE
 
+/// world.time of each ckey's last MANUAL clock in/out ("toggle_clock" below
+/// only) -- keyed "[ckey]|[faction_uid]", not persisted (resets each server
+/// session, same as e.g. travel_pad's last_used_by_ckey). Automatic
+/// clock-outs (entering cryo, being imprisoned -- persistStoreCharacter(),
+/// persistence_cryo.dm) always bypass this -- they call
+/// factionSetClockedIn() directly, never through this action.
+GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
+#define FACTION_CLOCK_TOGGLE_COOLDOWN (5 MINUTES)
+
 /datum/computer_file/program/card_mod/ui_data(mob/user)
 	var/list/data = initial_data()
 
@@ -61,6 +70,26 @@
 					"accesses" = accesses)))
 			data["regions"] = regions
 
+	// Faction membership state -- deliberately in ui_data(), NOT
+	// ui_static_data() below, even though it's keyed off the same
+	// computer.persistent_network as the faction_jobs block there. These
+	// three flip the instant a player uses Dispense/Leave/Clock In-Out, and
+	// static data is a send-once-then-cached channel in this tgui framework
+	// (see ui_static_data()'s own doc comment, code/modules/tgui/external.dm)
+	// -- putting live-changing booleans there means the client never learns
+	// they changed until the program is fully closed and reopened.
+	var/net = computer ? normalize_faction_uid(computer.persistent_network) : ""
+	if(net)
+		var/already_member = user.ckey ? !!get_faction_member(user.ckey, net) : FALSE
+		data["can_dispense_faction_id"] = !already_member
+		data["can_leave_faction"] = already_member
+		var/list/clock_fmember = already_member ? get_faction_member(user.ckey, net) : null
+		data["clocked_in"] = clock_fmember ? !!clock_fmember["clocked_in"] : FALSE
+	else
+		data["can_dispense_faction_id"] = FALSE
+		data["can_leave_faction"] = FALSE
+		data["clocked_in"] = FALSE
+
 	return data
 
 /datum/computer_file/program/card_mod/ui_static_data(mob/user)
@@ -78,18 +107,14 @@
 		data["faction_jobs"]    = faction_jobs_formatted
 		data["faction_network"] = net
 		data["faction_name"]    = get_faction_name(net)
-		// Show dispense button when the user has no member record for this faction yet
-		var/mob/ui_user = usr
-		var/already_member = (ui_user && ui_user.ckey) ? !!get_faction_member(ui_user.ckey, net) : FALSE
-		data["can_dispense_faction_id"] = !already_member
 		// Officer field: rank >= 1 in this faction, or admin -- gates job assignment UI
+		var/mob/ui_user = usr
 		var/list/op_fmember = (ui_user && ui_user.ckey) ? get_faction_member(ui_user.ckey, net) : null
 		data["faction_officer"] = (op_fmember && (op_fmember["rank"] || 0) >= 1) || check_rights(R_ADMIN, 0, ui_user)
 	else
 		data["faction_jobs"]    = list()
 		data["faction_network"] = null
 		data["faction_name"]    = null
-		data["can_dispense_faction_id"] = FALSE
 		data["faction_officer"] = FALSE
 	return data
 
@@ -256,6 +281,17 @@
 				to_chat(usr, SPAN_WARNING("No crew record found for [user.real_name]. Cannot print replacement ID."))
 				return
 
+			// Refuse outright (before anything is revoked) if this would join
+			// them to a DIFFERENT faction than the one they already belong to
+			// -- single-faction membership. Reprinting for your OWN faction's
+			// console is unaffected (get_faction_member() already matches).
+			var/repl_net = computer ? normalize_faction_uid(computer.persistent_network) : ""
+			if(repl_net && !get_faction_member(user.ckey, repl_net))
+				var/repl_existing_faction = persistence_get_player_faction(user.ckey)
+				if(repl_existing_faction && normalize_faction_uid(repl_existing_faction) != repl_net)
+					to_chat(usr, SPAN_WARNING("You are already a part of a faction, leave that one first before you can join this one!"))
+					return
+
 			// Revoke any existing ID cards for this person in the world
 			for(var/obj/item/card/id/old_card in world)
 				if(!old_card.revoked && old_card.registered_name == user.real_name)
@@ -269,7 +305,6 @@
 			new_card.registered_name = user.real_name
 			new_card.assignment = R.rank || "Civilian"
 			new_card.rank = R.rank || "Civilian"
-			var/repl_net = computer ? normalize_faction_uid(computer.persistent_network) : ""
 			if(repl_net)
 				new_card.employer_faction = repl_net
 				// A replacement card only STAMPS employer_faction -- it never
@@ -393,6 +428,13 @@
 			var/faction_name = get_faction_name(disp_net)
 			// If already a member, reprint instead
 			var/already_member = !!get_faction_member(user.ckey, disp_net)
+			// Refuse joining a DIFFERENT faction than the one already belonged
+			// to -- single-faction membership, same guard as print_replacement.
+			if(!already_member)
+				var/disp_existing_faction = persistence_get_player_faction(user.ckey)
+				if(disp_existing_faction && normalize_faction_uid(disp_existing_faction) != disp_net)
+					to_chat(user, SPAN_WARNING("You are already a part of a faction, leave that one first before you can join this one!"))
+					return
 			// Revoke any existing faction ID cards for this person
 			for(var/obj/item/card/id/old_card in world)
 				if(!old_card.revoked && old_card.registered_name == user.real_name && old_card.employer_faction == disp_net)
@@ -498,6 +540,71 @@
 			log_admin("[user.key] received a [disp_net] faction ID from [computer] at [dispense_area ? dispense_area.name : "unknown"].")
 			. = TRUE
 
+		// ── Leave faction (self-service, direct inverse of dispense above) ──
+		// Revokes the user's own live faction ID(s) and erases their
+		// membership record -- no rank restriction, anyone can leave their
+		// own faction. Notifies the rest of the faction the same way an
+		// alliance event does (notify_faction_members(), persistence_factions.dm).
+		if("leave_faction")
+			if(!computer || !computer.persistent_network)
+				return
+			var/leave_net = normalize_faction_uid(computer.persistent_network)
+			if(!user.ckey || !user.real_name)
+				return
+			if(!get_faction_member(user.ckey, leave_net))
+				to_chat(user, SPAN_WARNING("You aren't a member of [get_faction_name(leave_net)]."))
+				return
+
+			var/leave_confirm = tgui_alert(user, "Leave [get_faction_name(leave_net)]? Your faction ID access will be revoked and your membership record erased. You would need to be re-issued an ID to rejoin.", "Leave Faction", list("Leave", "Cancel"))
+			if(leave_confirm != "Leave") return
+
+			if(!SSpersistence.factionRemoveMember(user.ckey, leave_net))
+				to_chat(user, SPAN_WARNING("Failed to leave -- database error. Your ID access is unchanged. Try again shortly."))
+				return
+
+			for(var/obj/item/card/id/old_card in world)
+				if(!old_card.revoked && old_card.registered_name == user.real_name && normalize_faction_uid(old_card.employer_faction) == leave_net)
+					old_card.revoked = TRUE
+					old_card.access = list()
+					old_card.update_name()
+			notify_faction_members(leave_net, SPAN_WARNING("[user.real_name] has left [get_faction_name(leave_net)]."))
+
+			to_chat(user, SPAN_GOOD("You have left [get_faction_name(leave_net)]."))
+			log_game("[key_name(user)] left faction '[leave_net]' via ID Card Modification.")
+			. = TRUE
+
+		// ── Clock in / out (gates factionPayroll(), persistence_factions.dm) ──
+		// No confirm dialog -- fully reversible, routine action, unlike
+		// Leave Faction above. Broadcasts to the rest of the faction the same
+		// way an alliance event does; the automatic clock-out on entering
+		// cryo (persistStoreCharacter(), persistence_cryo.dm) deliberately
+		// stays silent since that's a system side-effect, not a deliberate
+		// clock-out.
+		if("toggle_clock")
+			if(!computer || !computer.persistent_network)
+				return
+			var/clock_net = normalize_faction_uid(computer.persistent_network)
+			var/list/clock_member = user.ckey ? get_faction_member(user.ckey, clock_net) : null
+			if(!clock_member)
+				to_chat(user, SPAN_WARNING("You aren't a member of [get_faction_name(clock_net)]."))
+				return
+			var/clock_cooldown_key = "[user.ckey]|[clock_net]"
+			var/clock_last_toggle = GLOB.faction_clock_toggle_cooldown[clock_cooldown_key]
+			if(clock_last_toggle && (world.time - clock_last_toggle < FACTION_CLOCK_TOGGLE_COOLDOWN))
+				to_chat(user, SPAN_WARNING("You can't clock [clock_member["clocked_in"] ? "out" : "in"] again so soon -- try again in [DisplayTimeText(FACTION_CLOCK_TOGGLE_COOLDOWN - (world.time - clock_last_toggle))]."))
+				return
+			var/new_clock_state = !clock_member["clocked_in"]
+			if(!SSpersistence.factionSetClockedIn(user.ckey, clock_net, new_clock_state))
+				to_chat(user, SPAN_WARNING("Failed to clock [new_clock_state ? "in" : "out"] -- database error. Try again shortly."))
+				return
+			// Cooldown only actually starts on a confirmed success -- a failed
+			// attempt above shouldn't cost the player 5 minutes for nothing.
+			GLOB.faction_clock_toggle_cooldown[clock_cooldown_key] = world.time
+			notify_faction_members(clock_net, SPAN_NOTICE("[user.real_name] has clocked [new_clock_state ? "in" : "out"] with [get_faction_name(clock_net)]."))
+			to_chat(user, SPAN_GOOD(new_clock_state ? "You clock in with [get_faction_name(clock_net)]." : "You clock out from [get_faction_name(clock_net)]."))
+			log_game("[key_name(user)] clocked [new_clock_state ? "in" : "out"] with faction '[clock_net]' via ID Card Modification.")
+			. = TRUE
+
 		// ── Faction job assign ────────────────────────────────────────────
 		if("faction_assign")
 			if(!computer || !can_run(user, 1, ACCESS_CHANGE_IDS) || !id_card || !computer.persistent_network)
@@ -565,6 +672,16 @@
 		to_chat(user, SPAN_WARNING("No crew record found for [user.real_name]. Cannot print replacement."))
 		return
 
+	// Refuse outright (before anything is revoked) if this would join them
+	// to a DIFFERENT faction than the one they already belong to -- see
+	// print_replacement's identical guard above.
+	var/verb_repl_net = computer ? normalize_faction_uid(computer.persistent_network) : ""
+	if(verb_repl_net && !get_faction_member(user.ckey, verb_repl_net))
+		var/verb_existing_faction = persistence_get_player_faction(user.ckey)
+		if(verb_existing_faction && normalize_faction_uid(verb_existing_faction) != verb_repl_net)
+			to_chat(user, SPAN_WARNING("You are already a part of a faction, leave that one first before you can join this one!"))
+			return
+
 	// Revoke existing cards
 	for(var/obj/item/card/id/old_card in world)
 		if(!old_card.revoked && old_card.registered_name == user.real_name)
@@ -578,7 +695,6 @@
 	new_card.registered_name = user.real_name
 	new_card.assignment = R.rank || "Civilian"
 	new_card.rank = R.rank || "Civilian"
-	var/verb_repl_net = computer ? normalize_faction_uid(computer.persistent_network) : ""
 	if(verb_repl_net)
 		new_card.employer_faction = verb_repl_net
 		// See print_replacement's identical fix -- a replacement card only

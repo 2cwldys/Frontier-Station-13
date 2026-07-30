@@ -200,6 +200,10 @@
 		to_chat(L, SPAN_WARNING("Select a destination pad first."))
 		return FALSE
 
+	if(is_centcom_level(target.z) && !can_access_hub_depot(L))
+		to_chat(L, SPAN_WARNING("That pad's destination is restricted to Hub personnel."))
+		return FALSE
+
 	var/turf/destination = get_turf(target)
 	if(!destination || destination.density)
 		to_chat(L, SPAN_WARNING("The destination pad is obstructed."))

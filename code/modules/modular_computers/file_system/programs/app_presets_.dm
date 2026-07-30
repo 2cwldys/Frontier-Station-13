@@ -45,6 +45,8 @@ ABSTRACT_TYPE(/datum/modular_computer_app_presets)
 	/datum/computer_file/program/chat_client,\
 	/datum/computer_file/program/civilian/cargoorder,\
 	/datum/computer_file/program/map,\
+	/datum/computer_file/program/drydock,\
+	/datum/computer_file/program/personal_travel,\
 )
 
 #define COMPUTER_APP_PRESET_HORIZON_ENGINEERING list(\

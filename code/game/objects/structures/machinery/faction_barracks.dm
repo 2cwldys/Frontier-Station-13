@@ -14,10 +14,10 @@
  * with no actual power grid at all. No fuel/consumable either -- confirmed
  * with the user as a binary anchor+power+tag gate only.
  *
- * Deactivating (power off or Destroy()) stops the maintenance loop but does
- * NOT retroactively remove already-spawned soldiers -- they remain until
- * they die/despawn on their own, same philosophy as the cloaking device
- * leaving a ship's prior state alone when powered off.
+ * Deactivating (power off or Destroy()) immediately dismisses any current
+ * soldiers too (fading portal + sparks VFX, the same as the explicit
+ * "Dismiss Soldiers" action, not a silent qdel) -- powering back on starts
+ * fresh from zero.
  */
 /obj/structure/machinery/faction_barracks
 	name = "faction barracks"
@@ -150,6 +150,7 @@
 	else
 		spawning_enabled = FALSE
 		visible_message(SPAN_NOTICE("\The [src] powers down."))
+		dismiss_soldiers(user)
 	update_icon()
 
 /// Force-deactivates if anchor or faction-tag prerequisites are lost mid-
@@ -171,6 +172,16 @@
 		return
 	spawning_enabled = TRUE
 	spawn()
+		// A reboot-restored barracks (persistent_objects_apply_content(),
+		// called mid-objectsInitialize()) can call this well before
+		// SSpersistence.Initialize() has gotten to factionInitialize() --
+		// spawning too early left the very first restored soldier's gear
+		// untinted, since get_faction_color() (persistence_faction_tagger.dm)
+		// silently returns null until GLOB.persistence_faction_cache is
+		// populated. Waiting here costs nothing during normal (already-booted)
+		// activation, since persistence_ready is already TRUE by then.
+		while(!GLOB.persistence_ready && spawning_enabled && src)
+			sleep(1 SECOND)
 		while(spawning_enabled && active && src)
 			for(var/i = length(active_mobs); i >= 1; i--)
 				var/mob/living/M = active_mobs[i]
@@ -219,9 +230,10 @@
 			M.passive_mode = (mode == "passive")
 	to_chat(user, SPAN_NOTICE("\The [src]'s soldiers will now [mode == "passive" ? "hold their fire unless ordered." : "engage non-faction targets on sight."]"))
 
-/// Powering off only stops replenishment -- existing soldiers are left
-/// standing (see the module doc comment). This is the explicit "get rid of
-/// them" action for when that's actually what's wanted.
+/// Dismisses every current soldier (fading portal + sparks VFX, not a
+/// silent qdel) -- called both by the explicit "Dismiss Soldiers" UI button
+/// and automatically whenever the barracks powers off or is destroyed (see
+/// _set_active()/Destroy()). Safe to call with an empty active_mobs list.
 /obj/structure/machinery/faction_barracks/proc/dismiss_soldiers(mob/user)
 	for(var/mob/m in active_mobs)
 		UnregisterSignal(m, COMSIG_QDELETING)

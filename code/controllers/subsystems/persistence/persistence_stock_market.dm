@@ -225,6 +225,12 @@ GLOBAL_LIST_EMPTY(persistence_stock_holdings_cache)
 		var/datum/money_account/acc = SSeconomy.get_account_by_ckey_and_name(h["ckey"], h["char_name"])
 		if(acc)
 			acc.adjust_money(payout)
+		else
+			// No live account object -- this character hasn't spawned this
+			// boot, but they still own real shares and are still owed the
+			// buyout. Credits the DB row (and the boot-time economy cache)
+			// directly instead of silently paying out nothing.
+			SSpersistence.economyCreditOfflineAccount(h["ckey"], h["char_name"], payout)
 		SSpersistence.stockMarketSaveHolding(h["ckey"], h["char_name"], company_id, 0, 0)
 		SSpersistence.stockMarketLogTrade(h["ckey"], h["char_name"], company_id, FALSE, h["shares"], C.current_price)
 		var/list/cache_held = GLOB.persistence_stock_holdings_cache["[h["ckey"]]|[h["char_name"]]"]

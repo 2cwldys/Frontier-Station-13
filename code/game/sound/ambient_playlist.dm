@@ -135,35 +135,46 @@ GLOBAL_LIST_INIT(ambient_playlist_durations, list(
 	var/track = pick_next_ambient_track()
 	ambient_playlist_last_track = track
 
-	if(fade_in)
-		SEND_SOUND(src, sound(track, repeat = 0, wait = TRUE, volume = 0, channel = CHANNEL_AMBIENT_PLAYLIST))
-		sleep(3)
-		// status is NOT a valid sound() constructor argument on this BYOND
-		// version -- passing it that way threw "bad arg name 'status'" at
-		// runtime every single time, silently aborting the rest of this proc
-		// (including the addtimer below), which is why the playlist only
-		// ever played one track and never advanced. Match the working
-		// pattern already used elsewhere in this codebase
-		// (set_sound_channel_volume(), sound_channels.dm): construct the
-		// sound datum first, then assign .status as a property.
-		var/sound/fade_update = sound(null, fade = AMBIENT_PLAYLIST_FADE_TIME, volume = prefs.ambient_playlist_vol, channel = CHANNEL_AMBIENT_PLAYLIST)
-		fade_update.status = SOUND_UPDATE
-		SEND_SOUND(src, fade_update)
-	else
-		// The volume= on this play isn't reliably honored by itself (matches
-		// every other case in this system where only an explicit SOUND_UPDATE
-		// actually stuck) -- reinforce it once the sound is confirmed active
-		// rather than trusting the play call alone, which was landing at
-		// BYOND's default (100) instead.
-		// wait = TRUE matches the old (known-working) code's first-track call --
-		// omitting it broke playback entirely on CHANNEL_AMBIENT_PLAYLIST's very
-		// first-ever use for a client. Harmless now that only one sound is ever
-		// in flight per channel at a time (no batch to accidentally re-chain).
-		SEND_SOUND(src, sound(track, repeat = 0, wait = TRUE, volume = prefs.ambient_playlist_vol, channel = CHANNEL_AMBIENT_PLAYLIST))
-		sleep(3)
-		var/sound/reinforce_update = sound(null, volume = prefs.ambient_playlist_vol, channel = CHANNEL_AMBIENT_PLAYLIST)
-		reinforce_update.status = SOUND_UPDATE
-		SEND_SOUND(src, reinforce_update)
+	// Everything sound-related below is wrapped so a thrown exception can
+	// never skip the addtimer() reschedule at the end of this proc -- without
+	// this, any hiccup (not just the "status" one below, already fixed, but
+	// any future/unknown one) would silently kill the chain forever, since
+	// nothing else ever calls this proc again once ambient_playlist_running
+	// is stuck TRUE (see start_ambient_playlist()'s own guard). Mirrors
+	// SSmob_ai's identical per-entity guard (controllers/subsystems/mob_ai.dm)
+	// around its own recurring think() call.
+	try
+		if(fade_in)
+			SEND_SOUND(src, sound(track, repeat = 0, wait = TRUE, volume = 0, channel = CHANNEL_AMBIENT_PLAYLIST))
+			sleep(3)
+			// status is NOT a valid sound() constructor argument on this BYOND
+			// version -- passing it that way threw "bad arg name 'status'" at
+			// runtime every single time, silently aborting the rest of this proc
+			// (including the addtimer below), which is why the playlist only
+			// ever played one track and never advanced. Match the working
+			// pattern already used elsewhere in this codebase
+			// (set_sound_channel_volume(), sound_channels.dm): construct the
+			// sound datum first, then assign .status as a property.
+			var/sound/fade_update = sound(null, fade = AMBIENT_PLAYLIST_FADE_TIME, volume = prefs.ambient_playlist_vol, channel = CHANNEL_AMBIENT_PLAYLIST)
+			fade_update.status = SOUND_UPDATE
+			SEND_SOUND(src, fade_update)
+		else
+			// The volume= on this play isn't reliably honored by itself (matches
+			// every other case in this system where only an explicit SOUND_UPDATE
+			// actually stuck) -- reinforce it once the sound is confirmed active
+			// rather than trusting the play call alone, which was landing at
+			// BYOND's default (100) instead.
+			// wait = TRUE matches the old (known-working) code's first-track call --
+			// omitting it broke playback entirely on CHANNEL_AMBIENT_PLAYLIST's very
+			// first-ever use for a client. Harmless now that only one sound is ever
+			// in flight per channel at a time (no batch to accidentally re-chain).
+			SEND_SOUND(src, sound(track, repeat = 0, wait = TRUE, volume = prefs.ambient_playlist_vol, channel = CHANNEL_AMBIENT_PLAYLIST))
+			sleep(3)
+			var/sound/reinforce_update = sound(null, volume = prefs.ambient_playlist_vol, channel = CHANNEL_AMBIENT_PLAYLIST)
+			reinforce_update.status = SOUND_UPDATE
+			SEND_SOUND(src, reinforce_update)
+	catch(var/exception/e)
+		LOG_DEBUG("Ambient playlist: play_next_ambient_track threw for [key_name(src)]: [e]")
 
 	var/duration = GLOB.ambient_playlist_durations[track] || AMBIENT_PLAYLIST_FALLBACK_DURATION
 	ambient_playlist_next_track_timer_id = addtimer(CALLBACK(src, PROC_REF(play_next_ambient_track)), duration, TIMER_UNIQUE | TIMER_OVERRIDE | TIMER_STOPPABLE)
