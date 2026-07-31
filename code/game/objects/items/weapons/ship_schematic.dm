@@ -285,7 +285,7 @@
 	if(!SSpersistence.drydockBankSchematic(DS.shuttle_id, user))
 		to_chat(user, SPAN_WARNING("\The [target] refuses the deposit."))
 		return
-	to_chat(user, SPAN_GOOD("You deposit \the [src] into \the [target] -- [DS.display_name()] is now in safekeeping, withdrawable from any Drydock terminal."))
+	to_chat(user, SPAN_GOOD("\The [src] is banked in \the [target] -- withdrawable from any Drydock terminal."))
 	qdel(src)
 
 /obj/item/ship_schematic/persistent_objects_get_content()

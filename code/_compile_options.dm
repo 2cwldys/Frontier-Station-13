@@ -19,6 +19,11 @@
 // combat drones. Off by default.
 #define FACTION_AI_CLONE_SOLDIERS
 
+// If defined, admins (R_ADMIN) examining a hostile NPC see a live "[NPC AI]"
+// state dump (stance, order, scheduling, move loop, commanding beacon).
+// Defined by default -- comment out to strip it entirely from the build.
+//#define NPC_AI_DEBUG_EXAMINE
+
 // If defined, real (non-Hub) factions are limited to ONE cargo order
 // category, chosen at founding and changeable later (command rank, 1-month
 // real-world cooldown, or admin override anytime). Off -- every

@@ -1142,7 +1142,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		schematic.titled_to_name = faction_uid ? get_faction_name(faction_uid) : owner_char_name
 		schematic.refresh_name()
 		user.put_in_hands(schematic)
-		to_chat(user, SPAN_GOOD("Purchased '[template.name]' -- its schematic is in your hands. Use it to stash/retrieve, or retrieve it via the Drydock program."))
+		to_chat(user, SPAN_GOOD("Purchased '[template.name]' -- schematic in hand."))
 	log_drydock("drydockBuy: [acting] bought '[template_id]' (owner=[owner_ckey ? "[owner_ckey] (\"[owner_char_name]\")" : "none"], faction=[faction_uid || "none"], shuttle_id=[new_id]).")
 	return TRUE
 
@@ -1513,7 +1513,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		qdel(uq)
 
 	if(user)
-		to_chat(user, SPAN_GOOD("Ship retrieved -- fly it in using its own navigation console. It's still initializing; you'll be notified once it's ready to board."))
+		to_chat(user, SPAN_GOOD("Ship retrieved -- fly it in via its nav console. You'll be notified when it's ready to board."))
 		message_admins("[key_name(user)] retrieved drydock ship '[DS.display_name()]' (#[shuttle_id]) at ([marker.x],[marker.y],[new_z]). [ADMIN_JMP(marker)]")
 	log_drydock("drydockRetrieve: shuttle_id=[shuttle_id] deployed at z=[DS.z], overmap ([DS.overmap_x],[DS.overmap_y]) (acting=[acting]).")
 	return TRUE

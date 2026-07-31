@@ -1074,6 +1074,7 @@
 	attacked_times++
 	return TRUE
 
+#ifdef NPC_AI_DEBUG_EXAMINE
 /// Admin-only live AI state dump. This mob's failure modes are all "holds a
 /// valid order but silently can't act on it," which look identical from the
 /// outside -- this shows exactly which state it's actually in (stance, live
@@ -1104,6 +1105,7 @@
 		beacon_desc = "active=[(src in B.active_mobs) ? "YES" : "NO"] | selected=[(src in B.selected_soldiers) ? "YES" : "no"] | beacon_soldiers=[length(B.active_mobs)] | beacon_selected=[length(B.selected_soldiers)]"
 		break
 	. += SPAN_NOTICE("<b>\[NPC AI\]</b> [beacon_desc]")
+#endif
 
 #ifdef FACTION_AI_CLONE_SOLDIERS
 /// Faction-owned soldiers are lore-flavored as cloned combat drones --
