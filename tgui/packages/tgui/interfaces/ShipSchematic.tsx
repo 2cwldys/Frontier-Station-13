@@ -1,0 +1,220 @@
+import { Box, Button, LabeledList, Section } from 'tgui-core/components';
+import type { BooleanLike } from 'tgui-core/react';
+import { useBackend } from '../backend';
+import { Window } from '../layouts';
+
+type CrewEntry = { ckey: string; char_name: string; label: string | null };
+
+type ShipSchematicData = {
+  repossessed: BooleanLike;
+  valid: BooleanLike;
+  display_name?: string;
+  stashed?: BooleanLike;
+  ready?: BooleanLike;
+  titled_to_name?: string;
+  shuttle_id?: number;
+  save_in_progress?: BooleanLike;
+  busy?: BooleanLike;
+  sub_shuttle_tags?: string[];
+  can_board?: BooleanLike;
+  board_cooldown?: number;
+  can_disembark?: BooleanLike;
+  aboard_this_ship?: BooleanLike;
+  crew?: CrewEntry[];
+};
+
+export const ShipSchematic = (props) => {
+  const { act, data } = useBackend<ShipSchematicData>();
+  const {
+    repossessed,
+    valid,
+    display_name,
+    stashed,
+    ready,
+    titled_to_name,
+    save_in_progress,
+    busy,
+    sub_shuttle_tags = [],
+    can_board,
+    board_cooldown,
+    can_disembark,
+    aboard_this_ship,
+    crew = [],
+  } = data;
+
+  return (
+    <Window width={400} height={560} title="Ship Schematic">
+      <Window.Content scrollable>
+        {!!repossessed && (
+          <Section title="Status">
+            <Box color="bad" bold>
+              REPOSSESSED -- this schematic has been seized and no longer
+              functions.
+            </Box>
+          </Section>
+        )}
+        {!repossessed && !valid && (
+          <Section title="Status">
+            <Box color="bad" bold>
+              This schematic is voided -- it no longer corresponds to any
+              ship.
+            </Box>
+          </Section>
+        )}
+        {!repossessed && !!valid && (
+          <>
+            <Section title={display_name}>
+              <LabeledList>
+                <LabeledList.Item label="Title Belongs To">
+                  {titled_to_name || 'Unknown'}
+                </LabeledList.Item>
+                <LabeledList.Item label="Status">
+                  <Box bold color={stashed ? 'good' : 'label'}>
+                    {stashed ? 'Stashed' : ready ? 'Deployed' : 'Initializing...'}
+                  </Box>
+                </LabeledList.Item>
+              </LabeledList>
+              <Button
+                fluid
+                mt={1}
+                icon="street-view"
+                disabled={!stashed || !!busy || !!save_in_progress}
+                tooltip={
+                  busy
+                    ? 'Retrieve/stash in progress -- please wait.'
+                    : save_in_progress
+                      ? 'World save in progress -- please wait.'
+                      : undefined
+                }
+                onClick={() => act('retrieve')}
+              >
+                Retrieve
+              </Button>
+              <Button
+                fluid
+                mt={1}
+                icon="box"
+                disabled={!!stashed || !!busy || !!save_in_progress}
+                tooltip={
+                  busy
+                    ? 'Retrieve/stash in progress -- please wait.'
+                    : save_in_progress
+                      ? 'World save in progress -- please wait.'
+                      : undefined
+                }
+                onClick={() => act('stash')}
+              >
+                Stash
+              </Button>
+            </Section>
+            <Section title="Boarding">
+              {!aboard_this_ship && (
+                <Button
+                  fluid
+                  mt={1}
+                  icon="street-view"
+                  disabled={!can_board}
+                  onClick={() => act('board')}
+                >
+                  {can_board
+                    ? 'Enter Ship'
+                    : `Enter Ship (${board_cooldown}s)`}
+                </Button>
+              )}
+              <Button
+                fluid
+                mt={1}
+                icon="user-plus"
+                disabled={!can_disembark}
+                tooltip={
+                  !can_disembark
+                    ? 'You are not on board a drydock ship.'
+                    : undefined
+                }
+                onClick={() => act('invite_board')}
+              >
+                Invite to Board
+              </Button>
+              <Button
+                fluid
+                mt={1}
+                icon="right-from-bracket"
+                disabled={!can_disembark}
+                onClick={() => act('disembark')}
+              >
+                Exit Ship
+              </Button>
+            </Section>
+            <Section title="Identity">
+              <Button fluid icon="pen" onClick={() => act('rename_ship')}>
+                Rename Ship
+              </Button>
+              {sub_shuttle_tags.length > 0 && (
+                <Button
+                  fluid
+                  mt={1}
+                  icon="pen"
+                  onClick={() => act('rename_subship')}
+                >
+                  Rename Sub-ship
+                </Button>
+              )}
+            </Section>
+            <Section title="Crew">
+              <LabeledList>
+                {crew.length === 0 && (
+                  <LabeledList.Item label="Crew">No crew added.</LabeledList.Item>
+                )}
+                {crew.map((c) => (
+                  <LabeledList.Item key={`${c.ckey}|${c.char_name}`} label={c.char_name}>
+                    {c.ckey}
+                    {c.label ? ` (${c.label})` : ''}
+                    <Button
+                      ml={1}
+                      color="bad"
+                      onClick={() =>
+                        act('remove_crew', { ckey: c.ckey, char_name: c.char_name })
+                      }
+                    >
+                      Remove
+                    </Button>
+                  </LabeledList.Item>
+                ))}
+              </LabeledList>
+              <Button fluid mt={1} icon="user-plus" onClick={() => act('add_crew')}>
+                Add Crew
+              </Button>
+            </Section>
+            <Section title="Danger Zone">
+              <Button
+                fluid
+                color="bad"
+                disabled={!stashed || !!busy}
+                tooltip={busy ? 'Retrieve/stash in progress -- please wait.' : undefined}
+                onClick={() => act('sell')}
+              >
+                Remove
+              </Button>
+              <Button
+                fluid
+                mt={1}
+                color="bad"
+                icon="radiation"
+                disabled={!!busy}
+                tooltip={busy ? 'Retrieve/stash in progress -- please wait.' : undefined}
+                onClick={() => act('scuttle')}
+              >
+                Scuttle
+              </Button>
+            </Section>
+            <Box mt={1} color="label">
+              Deposit this schematic into any console or laptop to bank it
+              for safekeeping -- it can be withdrawn again from the Drydock
+              program.
+            </Box>
+          </>
+        )}
+      </Window.Content>
+    </Window>
+  );
+};

@@ -256,6 +256,22 @@ export const FirstResponder = (props) => {
                       Return to Owner
                     </Button>
                     <Button
+                      icon="file-import"
+                      disabled={!can_secure || !is_hub || !can_scuttle_ships}
+                      tooltip={
+                        can_scuttle_ships
+                          ? 'Withdraw this schematic in person.'
+                          : 'Requires officer rank or higher in the Hub.'
+                      }
+                      onClick={() =>
+                        act('withdraw_schematic', {
+                          shuttle_id: ship.shuttle_id,
+                        })
+                      }
+                    >
+                      Withdraw Schematic
+                    </Button>
+                    <Button
                       icon="radiation"
                       color="bad"
                       disabled={!can_secure || !is_hub || !can_scuttle_ships}

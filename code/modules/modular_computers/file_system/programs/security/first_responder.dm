@@ -333,6 +333,35 @@
 				to_chat(user, SPAN_WARNING("Failed to scuttle [ship_name]."))
 			return TRUE
 
+		if("withdraw_schematic")
+			// Lets a Hub officer physically withdraw a still-repossessed
+			// ship's schematic in person -- e.g. to look it over, or hand it
+			// straight back to the owner as part of processing a return --
+			// instead of sending them off to find a Drydock console, whose
+			// own withdraw_schematic (drydock.dm) still refuses while
+			// repossessed. Same officer-rank gate as scuttle_repossessed.
+			if(!can_run(user, TRUE, ACCESS_SECURITY, PROGRAM_ACCESS_ONE))
+				return TRUE
+			if(normalize_faction_uid(computer.persistent_network) != "hub")
+				to_chat(user, SPAN_WARNING("Requires a Hub-network terminal."))
+				return TRUE
+			if(!can_configure_faction_shackle(user, "hub", 1))
+				to_chat(user, SPAN_WARNING("Withdrawing a repossessed ship's schematic requires officer rank or higher in the Hub."))
+				return TRUE
+			var/shuttle_id = text2num(params["shuttle_id"])
+			if(!shuttle_id)
+				return TRUE
+			var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
+			if(!DS || !DS.repossessed)
+				to_chat(user, SPAN_WARNING("That ship is no longer repossessed."))
+				return TRUE
+			var/ship_name = DS.display_name()
+			if(SSpersistence.drydockWithdrawSchematic(shuttle_id, user, hub_authority = TRUE))
+				log_and_message_admins("[key_name(user)] withdrew the schematic for repossessed ship [ship_name] (#[shuttle_id]) via First Responder (Hub officer authority)", user)
+			else
+				to_chat(user, SPAN_WARNING("Failed to withdraw the schematic for [ship_name]."))
+			return TRUE
+
 /// Finds a passable turf adjacent to the target (the target itself as a
 /// last resort). Skips dense turfs and turfs holding dense anchored objects.
 /datum/computer_file/program/security/first_responder/proc/first_responder_clear_turf_near(turf/target)
@@ -419,14 +448,20 @@
 			. += DS
 
 /// Shared force-stash + repossess + notify tail, used by both the single-
-/// vessel and the picker paths of handle_ship_seizure_tap() below.
+/// vessel and the picker paths of handle_ship_seizure_tap() below, plus
+/// handle_ship_seizure_tap_item()'s direct-schematic-tap path. target is
+/// null when the schematic that was tapped wasn't sitting in anyone's
+/// inventory (dropped on the ground, stored in a container, etc).
 /datum/computer_file/program/security/first_responder/proc/_seize_deployed_vessel(datum/drydock_ship/DS, mob/target, mob/user)
 	if(!SSpersistence.drydockStash(DS.shuttle_id, user, force = TRUE))
 		to_chat(user, SPAN_WARNING("Failed to stash [DS.display_name()]."))
 		return
 	SSpersistence.drydockRepossess(DS.shuttle_id, user)
 	to_chat(user, SPAN_GOOD("[DS.display_name()] stashed and repossessed by the Hub."))
-	log_and_message_admins("[key_name(user)] repossessed [target]'s ship [DS.display_name()] via First Responder", user)
+	if(target)
+		log_and_message_admins("[key_name(user)] repossessed [target]'s ship [DS.display_name()] via First Responder", user)
+	else
+		log_and_message_admins("[key_name(user)] repossessed [DS.display_name()] via First Responder (schematic tapped directly)", user)
 
 /// Tap handler for tap_mode == "stash"/"repossess" (interaction.dm's
 /// modular_computer/attack() branches here instead of toggle_prisoner_tag()
@@ -474,6 +509,27 @@
 			return
 
 	_seize_deployed_vessel(DS, target, user)
+
+/// Direct-item counterpart to handle_ship_seizure_tap() above -- fires when
+/// the schematic itself is tapped with the device (ship_schematic.dm's
+/// attackby()) rather than tapping whoever's currently holding it. Resolves
+/// the ship straight off the item, so no inventory search is needed.
+/datum/computer_file/program/security/first_responder/proc/handle_ship_seizure_tap_item(obj/item/ship_schematic/schematic, mob/user)
+	if(!can_run(user, TRUE, ACCESS_SECURITY, PROGRAM_ACCESS_ONE))
+		return
+	var/net = computer ? normalize_faction_uid(computer.persistent_network) : null
+	if(net != "hub")
+		to_chat(user, SPAN_WARNING("Ship seizure requires a Hub-network terminal."))
+		return
+	var/datum/drydock_ship/DS = schematic.resolve_ship()
+	if(!DS)
+		to_chat(user, SPAN_WARNING("[schematic] doesn't correspond to any live ship."))
+		return
+	if(DS.stashed)
+		to_chat(user, SPAN_WARNING("[DS.display_name()] isn't currently deployed -- there's nothing to seize."))
+		return
+	var/mob/holder = ismob(schematic.loc) ? schematic.loc : null
+	_seize_deployed_vessel(DS, holder, user)
 
 #undef FIRST_RESPONDER_COOLDOWN
 #undef FIRST_RESPONDER_OFFENSE_MAX_AGE

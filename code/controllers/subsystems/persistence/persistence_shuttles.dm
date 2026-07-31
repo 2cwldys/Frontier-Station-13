@@ -137,6 +137,27 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	/// otherwise. A stable account number, unlike a live mob/ID reference.
 	var/owner_account_number
 	var/faction_uid
+	/// DB DATETIME string, set once at drydockBuy() time and never touched
+	/// again -- used as a staleness guard by /obj/item/ship_schematic
+	/// (ship_schematic.dm), since shuttle_id itself gets reused once a ship
+	/// is scuttled/sold (V099__drydock_shuttle_id_reuse.sql). A schematic
+	/// whose bound_purchased_at no longer matches this means its shuttle_id
+	/// slot was freed and reassigned to an unrelated later ship.
+	var/purchased_at
+	/// TRUE once a valid /obj/item/ship_schematic for this ship has been
+	/// deposited at a Drydock console/laptop (see ship_schematic.dm's
+	/// resolve_attackby() and drydock.dm's "withdraw_schematic" ui_act) --
+	/// the physical item is destroyed on deposit, and a fresh one can only
+	/// be minted again by whoever satisfies the historical owner_ckey/
+	/// owner_char_name/faction_uid check (repurposed as the recovery-path
+	/// identity check now that day-to-day control is item-based).
+	var/schematic_banked = FALSE
+	/// DB DATETIME string, set each time drydockRename() successfully
+	/// changes the main ship name/class -- get_drydock_rename_cooldown_remaining()
+	/// reads the live DB column directly for the actual 30-day gate (real
+	/// calendar time, survives reboots), this in-memory copy is just for
+	/// display. Sub-ship renaming is untouched by this cooldown.
+	var/renamed_at
 	/// TRUE once the Hub has repossessed this ship (see drydockRepossess(),
 	/// below) -- faction_uid is forced to "hub" and owner_ckey/owner_char_name
 	/// are cleared while this is set, with the previous values snapshotted
@@ -172,12 +193,31 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	/// crew-list OR clause in _drydock_board_core() (telepad_drydock_boarding.dm).
 	var/list/crew_ckeys = list()
 
-/// TRUE if user is personally the owning CHARACTER (not just the owning
-/// account) -- both owner_ckey AND owner_char_name must match. Used
-/// throughout instead of a bare ckey check so a player's other characters
-/// under the same ckey don't inherit access to a ship one character bought.
+/// Finds a live, valid /obj/item/ship_schematic (ship_schematic.dm) bound to
+/// this ship anywhere in user's inventory -- held, worn, in a backpack, in a
+/// pocket. Carrying it anywhere on your person is enough, same as an ID
+/// card granting access from a wallet; only actually USING it (in an active
+/// hand) additionally requires it be readily at hand. Returns the item if
+/// found, null otherwise.
+/datum/drydock_ship/proc/find_schematic_on(mob/user)
+	if(!user)
+		return null
+	for(var/obj/item/ship_schematic/S in user.get_all_contents())
+		if(S.resolve_ship() == src)
+			return S
+	return null
+
+/// TRUE if user currently possesses a valid (non-repossessed, non-stale)
+/// ship_schematic bound to this ship -- the sole ownership check for BOTH
+/// personal and faction ships. owner_ckey/owner_char_name/faction_uid are
+/// kept only as historical provenance (shown on the schematic's own examine
+/// text -- "The title belongs to: ...") and as the recovery-path identity
+/// check for withdrawing a banked schematic back out of safekeeping
+/// (drydock.dm's "withdraw_schematic") -- deliberately the only place that
+/// old identity-based logic still gates anything, since a lost/destroyed
+/// schematic has no other way back short of an admin's intervention.
 /datum/drydock_ship/proc/owned_by(mob/user)
-	return owner_ckey && user && owner_ckey == user.ckey && owner_char_name == user.real_name
+	return !!find_schematic_on(user)
 
 /// Shown everywhere a ship's own name appears (overmap marker, admin logs,
 /// chat messages, the Drydock program's own list) -- custom_name if set,
@@ -359,7 +399,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return
 
 	var/datum/db_query/q = SSdbcore.NewQuery(
-		"SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed, z, overmap_x, overmap_y, custom_name, custom_class, repossessed, prev_owner_ckey, prev_owner_char_name, prev_faction_uid, owner_account_number FROM ss13_drydock_ships",
+		"SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed, z, overmap_x, overmap_y, custom_name, custom_class, repossessed, prev_owner_ckey, prev_owner_char_name, prev_faction_uid, owner_account_number, purchased_at, schematic_banked, renamed_at FROM ss13_drydock_ships",
 		list()
 	)
 	q.Execute()
@@ -384,6 +424,9 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		DS.prev_owner_char_name = q.item[14]
 		DS.prev_faction_uid = q.item[15]
 		DS.owner_account_number = text2num(q.item[16])
+		DS.purchased_at = q.item[17]
+		DS.schematic_banked = !!text2num(q.item[18])
+		DS.renamed_at = q.item[19]
 
 		if(!DS.stashed)
 			log_drydock("drydockShipLedgerRestore: shuttle_id=[DS.shuttle_id] ('[DS.template_id]') was still stashed=0 at boot -- graceful shutdown's auto-stash sweep didn't run (crash/hard kill). Forcing back to stashed; interior recovers from the last autosave.")
@@ -465,7 +508,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	if(!DS)
 		log_drydock_warning("drydockAddCrew: refused -- unknown shuttle_id=[shuttle_id] (acting=[acting]).")
 		return FALSE
-	if(!(check_rights(R_ADMIN, 0, user) || DS.owned_by(user) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
+	if(!(check_rights(R_ADMIN, 0, user) || DS.owned_by(user)))
 		if(user)
 			to_chat(user, SPAN_WARNING("You don't have permission to manage this ship's crew."))
 		log_drydock_warning("drydockAddCrew: refused -- [acting] lacks permission for shuttle_id=[shuttle_id].")
@@ -506,7 +549,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	if(!DS)
 		log_drydock_warning("drydockRemoveCrew: refused -- unknown shuttle_id=[shuttle_id] (acting=[acting]).")
 		return FALSE
-	if(!(check_rights(R_ADMIN, 0, user) || DS.owned_by(user) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
+	if(!(check_rights(R_ADMIN, 0, user) || DS.owned_by(user)))
 		if(user)
 			to_chat(user, SPAN_WARNING("You don't have permission to manage this ship's crew."))
 		log_drydock_warning("drydockRemoveCrew: refused -- [acting] lacks permission for shuttle_id=[shuttle_id].")
@@ -541,24 +584,51 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// overmap marker immediately (same "always reflects the current value"
 /// pattern set_faction_color() uses) -- otherwise takes effect at the next
 /// retrieve.
+/// Seconds remaining before a ship's main name/class can next be changed by
+/// a non-admin (see drydockRename()'s own re-check), 0 if clear/never-set.
+/// Live DB read (real calendar time, not world.time -- must survive
+/// reboots), same TIMESTAMPDIFF/NOW() shape already shipped for the faction
+/// cargo-category cooldown (get_faction_cargo_category_cooldown_remaining(),
+/// persistence_factions.dm) and imprisonment expiry before that
+/// (persistence_mobs.dm). Sub-ship renaming is untouched by this cooldown.
+/proc/get_drydock_rename_cooldown_remaining(shuttle_id)
+	if(!SSpersistence.databaseCheckConnection("get_drydock_rename_cooldown_remaining"))
+		return 0
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"SELECT TIMESTAMPDIFF(SECOND, NOW(), DATE_ADD(renamed_at, INTERVAL 30 DAY)) FROM ss13_drydock_ships WHERE shuttle_id = :id AND renamed_at IS NOT NULL",
+		list("id" = shuttle_id)
+	)
+	q.Execute()
+	. = 0
+	if(SSpersistence.databaseCheckQueryResult(q, "get_drydock_rename_cooldown_remaining") && q.NextRow())
+		. = max(0, text2num(q.item[1]) || 0)
+	qdel(q)
+
 /datum/controller/subsystem/persistence/proc/drydockRename(shuttle_id, new_name, new_class, mob/user)
 	var/acting = user ? key_name(user) : "SYSTEM"
 	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
 	if(!DS)
 		log_drydock_warning("drydockRename: refused -- unknown shuttle_id=[shuttle_id] (acting=[acting]).")
 		return FALSE
-	if(!(check_rights(R_ADMIN, 0, user) || DS.owned_by(user) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
+	if(!(check_rights(R_ADMIN, 0, user) || DS.owned_by(user)))
 		if(user)
 			to_chat(user, SPAN_WARNING("You don't have permission to rename this ship."))
 		log_drydock_warning("drydockRename: refused -- [acting] lacks permission for shuttle_id=[shuttle_id].")
 		return FALSE
+	if(!check_rights(R_ADMIN, 0, user))
+		var/cooldown_remaining = get_drydock_rename_cooldown_remaining(shuttle_id)
+		if(cooldown_remaining > 0)
+			if(user)
+				to_chat(user, SPAN_WARNING("This ship was renamed too recently -- try again in [round(cooldown_remaining / 86400)] day\s."))
+			log_drydock_warning("drydockRename: refused -- [acting] hit the rename cooldown for shuttle_id=[shuttle_id] ([cooldown_remaining]s remaining).")
+			return FALSE
 
 	if(!databaseCheckConnection("drydockRename"))
 		if(user)
 			to_chat(user, SPAN_WARNING("Database connection failed."))
 		return FALSE
 	var/datum/db_query/q = SSdbcore.NewQuery(
-		"UPDATE ss13_drydock_ships SET custom_name = :name, custom_class = :class WHERE shuttle_id = :id",
+		"UPDATE ss13_drydock_ships SET custom_name = :name, custom_class = :class, renamed_at = NOW() WHERE shuttle_id = :id",
 		list("name" = (new_name != "" ? new_name : null), "class" = (new_class != "" ? new_class : null), "id" = shuttle_id)
 	)
 	q.Execute()
@@ -572,11 +642,25 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	DS.custom_name = (new_name != "" ? new_name : null)
 	DS.custom_class = (new_class != "" ? new_class : null)
 
+	var/datum/db_query/rq = SSdbcore.NewQuery("SELECT renamed_at FROM ss13_drydock_ships WHERE shuttle_id = :id", list("id" = shuttle_id))
+	rq.Execute()
+	if(databaseCheckQueryResult(rq, "drydockRename renamed_at read-back") && rq.NextRow())
+		DS.renamed_at = rq.item[1]
+	qdel(rq)
+
 	if(!DS.stashed)
 		var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
 		if(istype(marker))
 			marker.name = DS.display_name()
 			marker.class = DS.custom_class
+
+	// Keep the live schematic's own displayed name in sync -- otherwise it'd
+	// still read the old name (examine, inventory, in-hand) until the next
+	// mint/withdraw/repossess happened to call refresh_name() on it. Same
+	// world-scan pattern drydockRepossess() uses just above.
+	for(var/obj/item/ship_schematic/S in world)
+		if(S.shuttle_id == shuttle_id && S.bound_purchased_at == DS.purchased_at && !S.repossessed)
+			S.refresh_name()
 
 	if(user)
 		to_chat(user, SPAN_GOOD("Ship identity updated."))
@@ -604,7 +688,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return FALSE
 
 	var/datum/db_query/q = SSdbcore.NewQuery(
-		"UPDATE ss13_drydock_ships SET repossessed = 1, prev_owner_ckey = :prev_ckey, prev_owner_char_name = :prev_char, prev_faction_uid = :prev_faction, owner_ckey = NULL, owner_char_name = NULL, faction_uid = :hub WHERE shuttle_id = :id",
+		"UPDATE ss13_drydock_ships SET repossessed = 1, prev_owner_ckey = :prev_ckey, prev_owner_char_name = :prev_char, prev_faction_uid = :prev_faction, owner_ckey = NULL, owner_char_name = NULL, faction_uid = :hub, schematic_banked = 1 WHERE shuttle_id = :id",
 		list("prev_ckey" = DS.owner_ckey, "prev_char" = DS.owner_char_name, "prev_faction" = DS.faction_uid, "hub" = "hub", "id" = shuttle_id)
 	)
 	q.Execute()
@@ -622,8 +706,23 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	DS.owner_char_name = null
 	DS.faction_uid = "hub"
 	DS.repossessed = TRUE
+	// Forced into the bank alongside the seizure -- whatever schematic is out
+	// there (found below, wherever it physically is) gets killed permanently,
+	// and there's deliberately no personal replacement minted for the seizing
+	// officer (the ship becomes Hub property, not personally theirs). Banking
+	// it is what lets drydockReturnToOwner() leave the restored owner with a
+	// working "withdraw_schematic" recovery path afterward instead of a
+	// ship with no schematic and no way to get one back short of an admin.
+	DS.schematic_banked = TRUE
 
-	log_drydock("drydockRepossess: [acting] repossessed shuttle_id=[shuttle_id] for the Hub.")
+	var/invalidated = 0
+	for(var/obj/item/ship_schematic/S in world)
+		if(S.shuttle_id == shuttle_id && S.bound_purchased_at == DS.purchased_at && !S.repossessed)
+			S.repossessed = TRUE
+			S.refresh_name()
+			invalidated++
+
+	log_drydock("drydockRepossess: [acting] repossessed shuttle_id=[shuttle_id] for the Hub ([invalidated] live schematic(s) invalidated).")
 	return TRUE
 
 /// Reverses drydockRepossess() -- restores whatever ownership was snapshotted
@@ -663,6 +762,72 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	log_drydock("drydockReturnToOwner: [acting] returned shuttle_id=[shuttle_id] to its original owner.")
 	return TRUE
 
+/// Called by ship_schematic.dm's resolve_attackby() when a valid, live
+/// schematic is deposited into a Drydock console/laptop -- caller is
+/// responsible for destroying the physical item; this just records the ship
+/// as banked so drydock.dm's "withdraw_schematic" knows to offer a reprint.
+/// Refuses while deployed -- banking a schematic for a ship still out in the
+/// field would leave it inaccessible to everyone until someone withdraws a
+/// fresh one, so it must be stashed first (checked again here, not just in
+/// the item's own afterattack(), same defense-in-depth every other proc in
+/// this file already applies).
+/datum/controller/subsystem/persistence/proc/drydockBankSchematic(shuttle_id, mob/user)
+	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
+	if(!DS || DS.schematic_banked || !DS.stashed)
+		return FALSE
+	if(!databaseCheckConnection("drydockBankSchematic"))
+		if(user)
+			to_chat(user, SPAN_WARNING("Database connection failed."))
+		return FALSE
+	var/datum/db_query/q = SSdbcore.NewQuery("UPDATE ss13_drydock_ships SET schematic_banked = 1 WHERE shuttle_id = :id", list("id" = shuttle_id))
+	q.Execute()
+	if(!databaseCheckQueryResult(q, "drydockBankSchematic update"))
+		qdel(q)
+		if(user)
+			to_chat(user, SPAN_WARNING("Database error -- deposit not saved."))
+		return FALSE
+	qdel(q)
+	DS.schematic_banked = TRUE
+	log_drydock("drydockBankSchematic: [user ? key_name(user) : "SYSTEM"] deposited the schematic for shuttle_id=[shuttle_id].")
+	return TRUE
+
+/// Reverses drydockBankSchematic() -- mints a fresh /obj/item/ship_schematic
+/// for shuttle_id and hands it to user, clearing schematic_banked. Caller
+/// (drydock.dm's "withdraw_schematic") is responsible for the historical
+/// owner_ckey/owner_char_name/faction_uid identity check beforehand, the
+/// same division of labor drydockRepossess() already has with its own
+/// caller (First Responder). Refuses while still repossessed for a normal
+/// call -- return the ship to its owner first -- unless hub_authority is
+/// set (First Responder's own "withdraw_schematic", mirroring
+/// drydockScuttle()'s identical hub_authority bypass in this same file),
+/// which lets a Hub officer withdraw a still-repossessed ship's schematic
+/// directly, e.g. to hand it back to the owner in person.
+/datum/controller/subsystem/persistence/proc/drydockWithdrawSchematic(shuttle_id, mob/user, hub_authority = FALSE)
+	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
+	if(!DS || !DS.schematic_banked || (DS.repossessed && !hub_authority) || !user)
+		return FALSE
+	if(!databaseCheckConnection("drydockWithdrawSchematic"))
+		to_chat(user, SPAN_WARNING("Database connection failed."))
+		return FALSE
+	var/datum/db_query/q = SSdbcore.NewQuery("UPDATE ss13_drydock_ships SET schematic_banked = 0 WHERE shuttle_id = :id", list("id" = shuttle_id))
+	q.Execute()
+	if(!databaseCheckQueryResult(q, "drydockWithdrawSchematic update"))
+		qdel(q)
+		to_chat(user, SPAN_WARNING("Database error -- withdrawal not saved."))
+		return FALSE
+	qdel(q)
+	DS.schematic_banked = FALSE
+
+	var/obj/item/ship_schematic/schematic = new(get_turf(user))
+	schematic.shuttle_id = shuttle_id
+	schematic.bound_purchased_at = DS.purchased_at
+	schematic.titled_to_name = DS.faction_uid ? get_faction_name(DS.faction_uid) : DS.owner_char_name
+	schematic.refresh_name()
+	user.put_in_hands(schematic)
+	to_chat(user, SPAN_GOOD("Withdrew the schematic for [DS.display_name()]."))
+	log_drydock("drydockWithdrawSchematic: [key_name(user)] withdrew the schematic for shuttle_id=[shuttle_id].")
+	return TRUE
+
 /// Renames a sub-ship mapped into this hull's own hangar (see
 /// /datum/map_template/drydock_ship/sub_shuttle_tags, drydock_ship.dm) --
 /// bound entirely to the parent ship, so this just updates the persisted
@@ -675,7 +840,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	if(!DS)
 		log_drydock_warning("drydockRenameSubship: refused -- unknown shuttle_id=[shuttle_id] (acting=[acting]).")
 		return FALSE
-	if(!(check_rights(R_ADMIN, 0, user) || DS.owned_by(user) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
+	if(!(check_rights(R_ADMIN, 0, user) || DS.owned_by(user)))
 		if(user)
 			to_chat(user, SPAN_WARNING("You don't have permission to rename this ship's sub-ship."))
 		log_drydock_warning("drydockRenameSubship: refused -- [acting] lacks permission for shuttle_id=[shuttle_id].")
@@ -932,7 +1097,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		attempts_left--
 		new_id = _drydockNextFreeShuttleId()
 		var/datum/db_query/q = SSdbcore.NewQuery(
-			"INSERT INTO ss13_drydock_ships (shuttle_id, template_id, owner_ckey, owner_char_name, owner_account_number, faction_uid, stashed) VALUES (:id, :tid, :ckey, :char_name, :account, :faction, 1)",
+			"INSERT INTO ss13_drydock_ships (shuttle_id, template_id, owner_ckey, owner_char_name, owner_account_number, faction_uid, stashed, purchased_at) VALUES (:id, :tid, :ckey, :char_name, :account, :faction, 1, NOW())",
 			list("id" = new_id, "tid" = template_id, "ckey" = owner_ckey, "char_name" = owner_char_name, "account" = owner_account_number, "faction" = faction_uid)
 		)
 		q.Execute()
@@ -948,6 +1113,17 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			return FALSE
 		log_drydock_warning("drydockBuy: insert collided on shuttle_id=[new_id] for '[template_id]' (acting=[acting]), retrying with a fresh slot.")
 
+	// Read the DB-assigned purchased_at back rather than stamping our own
+	// timestamp string -- this exact value is what gets snapshotted onto the
+	// buyer's schematic below, and must match byte-for-byte what a later
+	// resolve_ship() staleness comparison reads back out of the same column.
+	var/purchased_at
+	var/datum/db_query/pq = SSdbcore.NewQuery("SELECT purchased_at FROM ss13_drydock_ships WHERE shuttle_id = :id", list("id" = new_id))
+	pq.Execute()
+	if(databaseCheckQueryResult(pq, "drydockBuy purchased_at read-back") && pq.NextRow())
+		purchased_at = pq.item[1]
+	qdel(pq)
+
 	var/datum/drydock_ship/DS = new()
 	DS.shuttle_id  = new_id
 	DS.template_id = template_id
@@ -956,10 +1132,17 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	DS.owner_account_number = owner_account_number
 	DS.faction_uid = faction_uid
 	DS.stashed     = TRUE
+	DS.purchased_at = purchased_at
 	GLOB.drydock_ships["[new_id]"] = DS
 
 	if(user)
-		to_chat(user, SPAN_GOOD("Purchased '[template.name]' -- retrieve it from the Drydock program."))
+		var/obj/item/ship_schematic/schematic = new(get_turf(user))
+		schematic.shuttle_id = new_id
+		schematic.bound_purchased_at = purchased_at
+		schematic.titled_to_name = faction_uid ? get_faction_name(faction_uid) : owner_char_name
+		schematic.refresh_name()
+		user.put_in_hands(schematic)
+		to_chat(user, SPAN_GOOD("Purchased '[template.name]' -- its schematic is in your hands. Use it to stash/retrieve, or retrieve it via the Drydock program."))
 	log_drydock("drydockBuy: [acting] bought '[template_id]' (owner=[owner_ckey ? "[owner_ckey] (\"[owner_char_name]\")" : "none"], faction=[faction_uid || "none"], shuttle_id=[new_id]).")
 	return TRUE
 
@@ -1066,7 +1249,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			to_chat(user, SPAN_WARNING("That ship is already deployed."))
 		log_drydock_warning("drydockRetrieve: refused -- shuttle_id=[shuttle_id] ('[DS.template_id]') already deployed (acting=[acting]).")
 		return FALSE
-	if(!(check_rights(R_ADMIN, 0, user) || DS.owned_by(user) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
+	if(!(check_rights(R_ADMIN, 0, user) || DS.owned_by(user)))
 		if(user)
 			to_chat(user, SPAN_WARNING("You don't have permission to retrieve this ship."))
 		log_drydock_warning("drydockRetrieve: refused -- [acting] lacks permission for shuttle_id=[shuttle_id] (owner=[DS.owner_ckey || "none"], faction=[DS.faction_uid || "none"]).")
@@ -1556,7 +1739,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			to_chat(user, SPAN_WARNING("That ship is already stashed."))
 		log_drydock_warning("drydockStash: refused -- shuttle_id=[shuttle_id] already stashed (acting=[acting]).")
 		return FALSE
-	if(!force && !(check_rights(R_ADMIN, 0, user) || DS.owned_by(user) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
+	if(!force && !(check_rights(R_ADMIN, 0, user) || DS.owned_by(user)))
 		if(user)
 			to_chat(user, SPAN_WARNING("You don't have permission to stash this ship."))
 		log_drydock_warning("drydockStash: refused -- [acting] lacks permission for shuttle_id=[shuttle_id] (owner=[DS.owner_ckey || "none"], faction=[DS.faction_uid || "none"]).")
@@ -1713,6 +1896,73 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// verified Hub officer rank before calling in, so it bypasses both the
 /// ownership permission check and the fee -- an officer doing their job
 /// shouldn't have to personally pay 25000cr to destroy seized contraband.
+/// Permanently deletes a stashed ship from storage with no fee (unlike
+/// drydockScuttle() below, which charges DRYDOCK_SCUTTLE_FEE and works
+/// whether deployed or stashed) -- extracted from drydock.dm's old inline
+/// "sell" ui_act branch so ship_schematic.dm's own sell action can call it
+/// without duplicating the DB cleanup. Self-contained gating, same shape as
+/// drydockScuttle(): looks up the ship and checks permission/busy-state
+/// itself rather than trusting the caller already did. Confirmation dialogs
+/// stay in whichever UI calls this, same as drydockScuttle()'s own.
+/datum/controller/subsystem/persistence/proc/drydockSell(shuttle_id, mob/user)
+	var/acting = user ? key_name(user) : "SYSTEM"
+	if(!databaseCheckConnection("drydockSell"))
+		if(user)
+			to_chat(user, SPAN_WARNING("Database connection failed."))
+		return FALSE
+
+	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
+	if(!DS)
+		log_drydock_warning("drydockSell: refused -- unknown shuttle_id=[shuttle_id] (acting=[acting]).")
+		return FALSE
+	var/ship_display_name = DS.display_name()
+	if(!DS.stashed)
+		if(user)
+			to_chat(user, SPAN_WARNING("Stash the ship before removing it."))
+		log_drydock_warning("drydockSell: refused -- shuttle_id=[shuttle_id] still deployed (acting=[acting]).")
+		return FALSE
+	if(!(check_rights(R_ADMIN, 0, user) || DS.owned_by(user)))
+		if(user)
+			to_chat(user, SPAN_WARNING("You don't have permission to remove this ship."))
+		log_drydock_warning("drydockSell: refused -- [acting] lacks permission for shuttle_id=[shuttle_id].")
+		return FALSE
+	if(_drydock_ship_busy(shuttle_id))
+		if(user)
+			to_chat(user, SPAN_WARNING("That ship is still being retrieved/stashed -- wait for it to finish."))
+		log_drydock_warning("drydockSell: refused -- shuttle_id=[shuttle_id] busy (acting=[acting]).")
+		return FALSE
+
+	var/datum/db_query/dq = SSdbcore.NewQuery("DELETE FROM ss13_drydock_ships WHERE shuttle_id = :id", list("id" = shuttle_id))
+	dq.Execute()
+	if(!databaseCheckQueryResult(dq, "drydockSell delete"))
+		log_drydock_error("drydockSell: DB delete failed for shuttle_id=[shuttle_id].")
+		qdel(dq)
+		return FALSE
+	qdel(dq)
+
+	// Purge the ship's saved interior too -- a sold ship's scope must never
+	// resurrect onto some future hull that happens to reuse the same
+	// shuttle_id.
+	purgeShipScopeRows("ship:d:[shuttle_id]")
+	var/datum/db_query/bdq = SSdbcore.NewQuery("DELETE FROM ss13_drydock_ships_backup WHERE shuttle_id = :id", list("id" = shuttle_id))
+	bdq.Execute()
+	databaseCheckQueryResult(bdq, "drydockSell backup delete")
+	qdel(bdq)
+	var/datum/db_query/crdq = SSdbcore.NewQuery("DELETE FROM ss13_ship_crew WHERE shuttle_id = :id", list("id" = shuttle_id))
+	crdq.Execute()
+	databaseCheckQueryResult(crdq, "drydockSell crew delete")
+	qdel(crdq)
+	// A stashed ship's ledger datum still lives in GLOB.drydock_ships (keyed
+	// by string, see drydockScuttle's identical fix) -- without this it
+	// would linger there after the DB row is gone.
+	GLOB.drydock_ships -= "[shuttle_id]"
+
+	if(user)
+		to_chat(user, SPAN_GOOD("Ship removed."))
+	message_admins("[acting] permanently removed drydock ship '[ship_display_name]' (#[shuttle_id]) from storage (no fee).[user ? " [ADMIN_JMP(user)]" : ""]")
+	log_drydock("drydockSell: [acting] permanently deleted shuttle_id=[shuttle_id] from the drydock DB.")
+	return TRUE
+
 /datum/controller/subsystem/persistence/proc/drydockScuttle(shuttle_id, mob/user, hub_authority = FALSE)
 	var/acting = user ? key_name(user) : "SYSTEM"
 	log_drydock("drydockScuttle: [acting] attempting to scuttle shuttle_id=[shuttle_id][hub_authority ? " (Hub authority)" : ""].")
@@ -1721,7 +1971,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	if(!DS)
 		log_drydock_warning("drydockScuttle: refused -- unknown shuttle_id=[shuttle_id] (acting=[acting]).")
 		return FALSE
-	if(!(hub_authority || check_rights(R_ADMIN, 0, user) || DS.owned_by(user) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
+	if(!(hub_authority || check_rights(R_ADMIN, 0, user) || DS.owned_by(user)))
 		if(user)
 			to_chat(user, SPAN_WARNING("You don't have permission to scuttle this ship."))
 		log_drydock_warning("drydockScuttle: refused -- [acting] lacks permission for shuttle_id=[shuttle_id].")
@@ -2007,3 +2257,71 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	log_admin("[key_name(usr)] set the drydock deployed-ship cap to [new_cap].")
 	message_admins("[key_name(usr)] set the drydock deployed-ship cap to [new_cap ? new_cap : "no limit"].")
 	log_drydock("set_drydock_ship_cap: [key_name(usr)] set cap to [new_cap].")
+
+/// One-time migration helper for the ship_schematic.dm ownership revision --
+/// mints a schematic (ship_schematic.dm) for every existing personally- or
+/// faction-owned ship that doesn't already have one (a live one somewhere in
+/// the world, or one already banked). Skips repossessed ships entirely (the
+/// Hub already holds those, nothing to backfill). Delivers directly to the
+/// owning character if they're currently online with a living body; for a
+/// faction ship, falls back to any of that faction's networked consoles;
+/// failing both, banks the ship instead of leaving it in limbo, so the
+/// eventual owner can just use "Withdraw Schematic" (drydock.dm) themselves
+/// once reachable -- no further admin action needed. Safe to re-run --
+/// already-handled ships are skipped every time.
+/datum/admins/proc/backfill_ship_schematics()
+	set name = "Backfill Ship Schematics"
+	set category = "Persistence"
+	if(!check_rights(R_ADMIN))
+		return
+
+	var/minted = 0
+	var/skipped = 0
+	var/list/banked_instead = list()
+	for(var/sid in GLOB.drydock_ships)
+		var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
+		if(!DS || DS.repossessed || DS.schematic_banked || !DS.purchased_at)
+			continue
+
+		var/already_exists = FALSE
+		for(var/obj/item/ship_schematic/S in world)
+			if(S.shuttle_id == DS.shuttle_id && S.bound_purchased_at == DS.purchased_at && !S.repossessed)
+				already_exists = TRUE
+				break
+		if(already_exists)
+			skipped++
+			continue
+
+		var/turf/spawn_turf
+		var/mob/deliver_to
+		if(DS.owner_ckey)
+			for(var/mob/M in GLOB.mob_list)
+				if(M.ckey == DS.owner_ckey && M.real_name == DS.owner_char_name && isturf(M.loc))
+					deliver_to = M
+					spawn_turf = get_turf(M)
+					break
+		else if(DS.faction_uid)
+			for(var/obj/item/modular_computer/MC in world)
+				if(normalize_faction_uid(MC.persistent_network) == DS.faction_uid)
+					spawn_turf = get_turf(MC)
+					break
+
+		if(!spawn_turf)
+			SSpersistence.drydockBankSchematic(DS.shuttle_id, null)
+			banked_instead += "[DS.display_name()] (#[DS.shuttle_id])"
+			continue
+
+		var/obj/item/ship_schematic/schematic = new(spawn_turf)
+		schematic.shuttle_id = DS.shuttle_id
+		schematic.bound_purchased_at = DS.purchased_at
+		schematic.titled_to_name = DS.faction_uid ? get_faction_name(DS.faction_uid) : DS.owner_char_name
+		schematic.refresh_name()
+		if(deliver_to)
+			deliver_to.put_in_hands(schematic)
+		minted++
+
+	var/summary = "Backfill complete: [minted] schematic(s) minted, [skipped] already had one."
+	if(length(banked_instead))
+		summary += " [length(banked_instead)] had no reachable owner/faction console -- banked instead, recoverable via Withdraw Schematic once reachable: [banked_instead.Join("; ")]."
+	to_chat(usr, SPAN_GOOD(summary))
+	log_and_message_admins("ran Backfill Ship Schematics -- [summary]", usr)
