@@ -1,3 +1,16 @@
+/// TRUE for the duration of objectsInstantiateRows()'s restore loop --
+/// suppresses /obj/structure/Initialize()'s auto-register/clear-tombstone
+/// side effect (structures.dm), which otherwise has no way to tell "this is
+/// persistence recreating a tracked object" apart from "this is a genuine
+/// new placement that should un-tombstone its tile." Boot-time restore is
+/// already covered by !GLOB.persistence_ready, but objectsApplyZ() (ship
+/// retrieve) runs long after that flips TRUE, with no equivalent protection
+/// until now -- without this, recreating a tracked object on a tile that
+/// coincidentally matches a different, already-tombstoned map structure
+/// silently erases that unrelated tombstone, letting the ship template's
+/// own original copy respawn unopposed on the next retrieve.
+GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
+
 /**
  * Initializes persistent objects.
  * This includes cleaning up expired objects from the database and instanciating all active tracks.
@@ -45,9 +58,20 @@
  * register them for tracking. Shared by the boot restore (objectsInitialize())
  * and the per-ship-Z apply (objectsApplyZ()). Returns the count instantiated.
  */
-/datum/controller/subsystem/persistence/proc/objectsInstantiateRows(list/persistent_data)
+/datum/controller/subsystem/persistence/proc/objectsInstantiateRows(list/persistent_data, quiet = FALSE)
 	PRIVATE_PROC(TRUE)
+	GLOB.persistence_restoring_tracked_objects = TRUE
 	var/instantiated = 0
+	// Recreated here via a plain new() (below) rather than a template mapload,
+	// so mapload=FALSE and Initialize() never returns INITIALIZE_HINT_LATELOAD
+	// for these specific instances -- atmos_init()/build_network() would
+	// otherwise never run for any persisted atmos machine (a fuel tank, pipe
+	// segment, engine part) at all, leaving it permanently isolated from any
+	// pipe network. Collected below and batch-initialized after the loop,
+	// same shape as the existing SSmachinery.makepowernets() fix already
+	// applied for the equivalent cable/powernet problem (shipInteriorApply(),
+	// persistence_ship_interiors.dm).
+	var/list/atmos_batch = list()
 	for (var/data in persistent_data)
 		CHECK_TICK
 		try
@@ -115,9 +139,14 @@
 			instance.persistent_objects_track_id = data["id"]
 			objectsApplyTrackContent(instance, data["content"], data["x"], data["y"], data["z"])
 			objectsRegisterTrack(instance, data["author_ckey"])
+			if(istype(instance, /obj/structure/machinery/atmospherics))
+				atmos_batch += instance
 			instantiated++
 		catch(var/exception/e)
 			log_subsystem_persistence_error("Persistent objects: Failed to instantiate [data["type"]] (id=[data["id"]]): [e]")
+	if(length(atmos_batch))
+		SSmachinery.setup_atmos_machinery(atmos_batch, quiet)
+	GLOB.persistence_restoring_tracked_objects = FALSE
 	return instantiated
 
 /**
@@ -129,7 +158,7 @@
 	var/list/scope_rows = objectsDatabaseGetActiveEntries(scope)
 	if(!islist(scope_rows) || !length(scope_rows))
 		return
-	var/instantiated = objectsInstantiateRows(scope_rows)
+	var/instantiated = objectsInstantiateRows(scope_rows, TRUE)
 	log_subsystem_persistence_info("Persistent objects: Applied [instantiated] ship tracked objects to z=[z] ([scope]).")
 
 /**

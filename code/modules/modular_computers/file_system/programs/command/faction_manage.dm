@@ -5,23 +5,30 @@
  * Reads computer.persistent_network for the faction context -- no per-program var.
  *
  * Two actions are open to anyone regardless of membership: "start_founding"
- * and "support_founding" -- self-service faction founding. Founding is a
- * global program feature, independent of the current console's own
+ * and "support_founding" -- self-service faction founding, in one of two
+ * tiers (params["tier"] == "company" or "full"). Founding is a global
+ * program feature, independent of the current console's own
  * shackle/registration state -- it's visible and usable from ANY console
  * (see ui_data()'s "petitions" list), not just one shackled to a brand-new
  * unregistered UID. Starting a petition costs nothing up front; it takes
- * FACTION_FOUNDING_REQUIRED_SUPPORTERS other distinct players consenting
- * (tap with a handheld running this program, or self-consent at an open
- * terminal) before it actually creates the faction, at which point
- * FACTION_CREATION_COST is charged to the founder and becomes the new
- * faction's starting balance, and a bearer faction master card
- * (cards_ids.dm) is printed.
+ * that tier's required supporter count (see faction_founding_required_
+ * supporters(), persistence_factions.dm) of other distinct players
+ * consenting (tap with a handheld running this program, or self-consent at
+ * an open terminal) before it actually creates the faction, at which point
+ * that tier's cost (faction_founding_cost()) is charged to the founder and
+ * becomes the new faction's starting balance, and a bearer faction master
+ * card (cards_ids.dm) is printed. The ONLY other difference between tiers:
+ * a full-tier faction gets unrestricted cargo ordering across every
+ * category (FACTION_CARGO_CATEGORY_ALL) on success, permanently -- a
+ * Company stays limited to the single category it picks during founding,
+ * same as every faction already works under FACTION_CARGO_SPECIALIZATION.
  */
 
-// FACTION_CREATION_COST and FACTION_FOUNDING_REQUIRED_SUPPORTERS are
-// declared in code/__DEFINES/misc.dm -- persistence_factions.dm (which
-// also needs them, for the founding sweep) is #included earlier in the
-// .dme than this file.
+// FACTION_CREATION_COST/FACTION_FOUNDING_REQUIRED_SUPPORTERS (full tier) and
+// FACTION_CREATION_COST_COMPANY/FACTION_FOUNDING_REQUIRED_SUPPORTERS_COMPANY
+// (company tier) are declared in code/__DEFINES/misc.dm --
+// persistence_factions.dm (which also needs them, for the founding sweep)
+// is #included earlier in the .dme than this file.
 
 /// "Pay Dividends" can never distribute more than this fraction of the
 /// treasury's current balance -- always leaves at least 1% behind so a
@@ -75,6 +82,7 @@
 	// (e.g. Hub), not just a console shackled to a brand-new unregistered UID.
 	data["faction_creation_enabled"] = GLOB.faction_creation_enabled
 	data["founding_required"] = FACTION_FOUNDING_REQUIRED_SUPPORTERS
+	data["founding_required_company"] = FACTION_FOUNDING_REQUIRED_SUPPORTERS_COMPANY
 	data["petitions"] = list()
 	if(islist(GLOB.persistence_faction_founding_petitions))
 		for(var/target_uid in GLOB.persistence_faction_founding_petitions)
@@ -86,7 +94,9 @@
 				"abbreviation"      = p["abbreviation"],
 				"supporter_count"   = length(p["supporters"]),
 				"is_founder"        = (user.ckey == p["founder_ckey"]),
-				"already_supported" = (user.ckey in p["supporters"])
+				"already_supported" = (user.ckey in p["supporters"]),
+				"is_company"        = p["is_company"],
+				"required_supporters" = faction_founding_required_supporters(p["is_company"])
 			))
 			// Opportunistic retry -- if the threshold was already met but a
 			// prior finalize attempt failed (founder was broke/offline),
@@ -95,7 +105,7 @@
 			// The real safety net is SSpersistence's periodic founding sweep
 			// (persistence_factions.dm, forceSaveAll()) -- this just makes it
 			// instant while the founder happens to be looking at the screen.
-			if(user.ckey == p["founder_ckey"] && length(p["supporters"]) >= FACTION_FOUNDING_REQUIRED_SUPPORTERS)
+			if(user.ckey == p["founder_ckey"] && length(p["supporters"]) >= faction_founding_required_supporters(p["is_company"]))
 				SSpersistence.tryFinalizeFounding(target_uid)
 
 	if(!net)
@@ -121,6 +131,21 @@
 		var/raw_balance = get_faction_account_balance(net)
 		data["balance"] = isnull(raw_balance) ? 0 : raw_balance
 
+#ifdef FACTION_CARGO_SPECIALIZATION
+		var/allowed_category = get_faction_allowed_cargo_category(net)
+		if(allowed_category == FACTION_CARGO_CATEGORY_ALL)
+			data["allowed_cargo_category"] = "All Categories"
+		else
+			var/singleton/cargo_category/allowed_cc = allowed_category ? SScargo.cargo_categories[allowed_category] : null
+			data["allowed_cargo_category"] = allowed_cc ? allowed_cc.display_name : null
+		var/list/cargo_category_options = list()
+		for(var/cat_name in SScargo.cargo_categories)
+			var/singleton/cargo_category/cc = SScargo.cargo_categories[cat_name]
+			cargo_category_options += cc.display_name
+		data["cargo_category_options"] = cargo_category_options
+		data["cargo_category_cooldown_remaining"] = get_faction_cargo_category_cooldown_remaining(net)
+#endif //FACTION_CARGO_SPECIALIZATION
+
 		var/list/jobs_out = list()
 		for(var/list/j in get_faction_jobs(net))
 			var/list/acc_descs = list()
@@ -141,6 +166,43 @@
 				if(fuid != net)
 					factions_out += list(list("uid" = fuid, "name" = get_faction_name(fuid)))
 		data["known_factions"] = factions_out
+
+#ifdef FACTION_ALLIANCES
+		var/list/allies_out = list()
+		if(islist(GLOB.persistence_faction_alliances[net]))
+			for(var/allied_uid in GLOB.persistence_faction_alliances[net])
+				allies_out += list(list("uid" = allied_uid, "name" = get_faction_name(allied_uid)))
+		data["allies"] = allies_out
+
+		var/list/incoming_out = list()
+		var/list/outgoing_out = list()
+		if(islist(GLOB.persistence_faction_alliance_requests))
+			for(var/list/req in GLOB.persistence_faction_alliance_requests)
+				if(req["target"] == net)
+					incoming_out += list(list("uid" = req["proposer"], "name" = get_faction_name(req["proposer"])))
+				else if(req["proposer"] == net)
+					outgoing_out += list(list("uid" = req["target"], "name" = get_faction_name(req["target"])))
+		data["incoming_alliance_requests"] = incoming_out
+		data["outgoing_alliance_requests"] = outgoing_out
+
+		// Propose-target picker -- known_factions minus already-allied and
+		// already-pending-either-direction.
+		var/list/alliance_targets = list()
+		for(var/list/kf in factions_out)
+			var/kf_uid = kf["uid"]
+			if(factions_are_allied(net, kf_uid))
+				continue
+			var/already_pending = FALSE
+			if(islist(GLOB.persistence_faction_alliance_requests))
+				for(var/list/req2 in GLOB.persistence_faction_alliance_requests)
+					if((req2["proposer"] == net && req2["target"] == kf_uid) || (req2["proposer"] == kf_uid && req2["target"] == net))
+						already_pending = TRUE
+						break
+			if(already_pending)
+				continue
+			alliance_targets += list(kf)
+		data["alliance_targets"] = alliance_targets
+#endif //FACTION_ALLIANCES
 
 		// Payroll info — send elapsed deciseconds since last payroll (0 = not yet this session)
 		var/list/fp_cache = GLOB.persistence_faction_cache[net]
@@ -192,22 +254,33 @@
 		var/list/members_out = list()
 		if(GLOB.config.sql_enabled && SSdbcore.Connect())
 			var/datum/db_query/mq = SSdbcore.NewQuery(
-				"SELECT ckey, real_name, job_title, rank FROM ss13_faction_members WHERE faction_uid = :uid ORDER BY rank DESC, real_name ASC",
+				"SELECT ckey, real_name, job_title, rank, clocked_in FROM ss13_faction_members WHERE faction_uid = :uid ORDER BY rank DESC, real_name ASC",
 				list("uid" = net)
 			)
 			mq.Execute()
 			while(mq.NextRow())
 				members_out += list(list(
-					"ckey"      = mq.item[1],
-					"real_name" = mq.item[2],
-					"job_title" = mq.item[3],
-					"rank"      = text2num(mq.item[4]) || 0
+					"ckey"       = mq.item[1],
+					"real_name"  = mq.item[2],
+					"job_title"  = mq.item[3],
+					"rank"       = text2num(mq.item[4]) || 0,
+					"clocked_in" = !!text2num(mq.item[5])
 				))
 			qdel(mq)
 		data["members"] = members_out
 		data["cards_epoch"] = get_faction_cards_epoch(net)
 		data["is_founder"] = (user.ckey == get_faction_founder_ckey(net))
 		data["master_card_lost"] = get_faction_master_card_lost(net)
+		// Mirrors print_master_card's ui_act() gate exactly, computed
+		// server-side so the TGUI doesn't need to re-derive the four-way
+		// identity OR plus the "lost, or never printed yet" check in JS.
+		data["can_print_master_card"] = (op_rank == 99 || user.ckey == get_faction_founder_ckey(net) || is_faction_ceo(net, user.ckey, user.real_name) || is_faction_designated_leader(net, user.ckey, user.real_name)) && (get_faction_master_card_lost(net) || !has_live_faction_master_card(net))
+		// Same four-way top-authority bar as Print Master Card, minus the
+		// master-card-lost condition (irrelevant here) -- disbanding is at
+		// least as consequential, so it gets the strict bar rather than the
+		// usual op_rank >= 2 officer gate. Visible (and usable) to nobody
+		// else.
+		data["can_disband_faction"] = (op_rank == 99 || user.ckey == get_faction_founder_ckey(net) || is_faction_ceo(net, user.ckey, user.real_name) || is_faction_designated_leader(net, user.ckey, user.real_name))
 		data["color"] = get_faction_color(net)
 
 		// Panic Purge audit trail -- officer+-visible record of who purged
@@ -240,6 +313,8 @@
 		data["id_purges"]      = list()
 		data["is_founder"]        = FALSE
 		data["master_card_lost"]  = FALSE
+		data["can_print_master_card"] = FALSE
+		data["can_disband_faction"] = FALSE
 		data["color"]             = null
 		data["stock_listed"]        = FALSE
 		data["stock_ticker"]        = null
@@ -308,13 +383,20 @@
 				return
 			if(!user.ckey || !user.real_name)
 				return
+			// Tier is chosen by which of the two TSX buttons was clicked --
+			// resolved up front since it drives the cost check immediately
+			// below. Unrecognized/missing tier defaults to the full faction
+			// tier (matches the button's own default act() call shape).
+			var/cf_is_company = (params["tier"] == "company")
+			var/cf_cost = faction_founding_cost(cf_is_company)
+			var/cf_required = faction_founding_required_supporters(cf_is_company)
 			var/obj/item/card/id/cf_id = user.GetIdCard()
 			if(!cf_id || !cf_id.associated_account_number)
 				to_chat(user, SPAN_WARNING("No linked bank account."))
 				return
 			var/datum/money_account/cf_acc = SSeconomy.get_account(cf_id.associated_account_number)
-			if(!cf_acc || cf_acc.money < FACTION_CREATION_COST)
-				to_chat(user, SPAN_WARNING("Insufficient funds -- founding a new faction costs [FACTION_CREATION_COST] credits, charged once the petition succeeds."))
+			if(!cf_acc || cf_acc.money < cf_cost)
+				to_chat(user, SPAN_WARNING("Insufficient funds -- founding a [cf_is_company ? "company" : "new faction"] costs [cf_cost] credits, charged once the petition succeeds."))
 				return
 
 			var/cf_uid_raw = tgui_input_text(user, "Faction network UID (lowercase, underscores for spaces):", "Start Founding Petition", max_length = 64)
@@ -343,6 +425,21 @@
 			var/cf_abbr = tgui_input_text(user, "Abbreviation (2-4 letters, e.g. 'HUB'):", "Start Founding Petition", max_length = 8)
 			if(!cf_abbr) return
 
+			var/cf_category = null
+#ifdef FACTION_CARGO_SPECIALIZATION
+			// Full-tier founders skip this entirely -- they get unrestricted
+			// access to every category automatically on success (see
+			// tryFinalizeFounding()), so there's nothing to pick.
+			if(cf_is_company)
+				var/list/cf_category_options = list()
+				for(var/cat_name in SScargo.cargo_categories)
+					var/singleton/cargo_category/cf_cc = SScargo.cargo_categories[cat_name]
+					cf_category_options[cf_cc.display_name] = cf_cc.name
+				var/cf_category_pick = tgui_input_list(user, "Cargo order specialization -- the ONE category your company will be able to order from cargo. Changeable later, locked for 1 month after each change:", "Start Founding Petition", cf_category_options)
+				if(!cf_category_pick) return
+				cf_category = cf_category_options[cf_category_pick]
+#endif //FACTION_CARGO_SPECIALIZATION
+
 			// Re-validate after the async prompts -- registration state and
 			// the player's balance could both have changed while typing.
 			if(islist(GLOB.persistence_faction_cache) && (cf_uid in GLOB.persistence_faction_cache))
@@ -351,7 +448,7 @@
 			if(islist(GLOB.persistence_faction_founding_petitions) && (cf_uid in GLOB.persistence_faction_founding_petitions))
 				to_chat(user, SPAN_WARNING("Someone else started a founding petition for this network while you were typing."))
 				return
-			if(!cf_acc || cf_acc.money < FACTION_CREATION_COST)
+			if(!cf_acc || cf_acc.money < cf_cost)
 				to_chat(user, SPAN_WARNING("Insufficient funds."))
 				return
 
@@ -359,11 +456,11 @@
 				to_chat(user, SPAN_WARNING("Database connection failed."))
 				return
 
-			if(!SSpersistence.startFoundingPetition(cf_uid, user.ckey, user.real_name, cf_name, cf_abbr))
+			if(!SSpersistence.startFoundingPetition(cf_uid, user.ckey, user.real_name, cf_name, cf_abbr, cf_category, cf_is_company))
 				to_chat(user, SPAN_WARNING("Failed to start the founding petition -- database error. Try again shortly."))
 				return
-			to_chat(user, SPAN_GOOD("Founding petition started for '[cf_name]'. Gather [FACTION_FOUNDING_REQUIRED_SUPPORTERS] other players' support -- tap them with a device running Faction Management, or have them visit this terminal directly."))
-			log_game("[key_name(user)] started a founding petition for '[cf_uid]' ([cf_name]).")
+			to_chat(user, SPAN_GOOD("Founding petition started for '[cf_name]'. Gather [cf_required] other players' support -- tap them with a device running Faction Management, or have them visit this terminal directly."))
+			log_game("[key_name(user)] started a [cf_is_company ? "Company" : "Full Faction"] founding petition for '[cf_uid]' ([cf_name]).")
 			. = TRUE
 
 		// ---- Support Founding ---------------------------------------------------
@@ -688,6 +785,90 @@
 			to_chat(user, SPAN_GOOD("Payroll mode set to [new_state ? "Automatic" : "Manual"] for [get_faction_name(net)]."))
 			. = TRUE
 
+#ifdef FACTION_CARGO_SPECIALIZATION
+		// ---- Cargo Specialization ---------------------------------------------
+		if("set_cargo_category")
+			if(op_rank < 2) return
+			// Full-tier (100K) founding grants permanent unrestricted access --
+			// officers can't self-service it back down to a single category
+			// (accidentally or otherwise). Admin override (Manage Faction
+			// Account -> Set Cargo Category) is untouched by this check.
+			if(faction_cargo_unrestricted(net))
+				to_chat(user, SPAN_WARNING("[get_faction_name(net)] has unrestricted cargo access from its founding tier -- this can't be changed to a single category."))
+				return
+			var/picked_display_name = params["category"]
+			var/resolved_category
+			for(var/cat_name in SScargo.cargo_categories)
+				var/singleton/cargo_category/cc = SScargo.cargo_categories[cat_name]
+				if(cc.display_name == picked_display_name)
+					resolved_category = cc.name
+					break
+			if(!resolved_category)
+				return
+			if(!set_faction_allowed_cargo_category(net, resolved_category))
+				var/remaining = get_faction_cargo_category_cooldown_remaining(net)
+				to_chat(user, SPAN_WARNING("Cargo specialization can't be changed yet -- [DisplayTimeText(remaining SECONDS)] remaining."))
+				return
+			to_chat(user, SPAN_GOOD("[get_faction_name(net)]'s cargo specialization set to '[picked_display_name]'."))
+			. = TRUE
+#endif //FACTION_CARGO_SPECIALIZATION
+
+#ifdef FACTION_ALLIANCES
+		// ---- Alliances ----------------------------------------------------------
+		if("propose_alliance")
+			if(op_rank < 2) return
+			var/target_uid = params["uid"]
+			if(!target_uid || !(target_uid in GLOB.persistence_faction_cache)) return
+			var/result = propose_faction_alliance(net, target_uid)
+			if(result == "allied")
+				to_chat(user, SPAN_GOOD("[get_faction_name(net)] and [get_faction_name(target_uid)] are now allied -- [get_faction_name(target_uid)] had already proposed to you."))
+				notify_faction_members(target_uid, SPAN_GOOD("[get_faction_name(net)] has accepted your alliance proposal -- your factions are now allied."))
+			else if(result == "proposed")
+				to_chat(user, SPAN_GOOD("Alliance proposed to [get_faction_name(target_uid)] -- awaiting their acceptance."))
+				notify_faction_members(target_uid, SPAN_NOTICE("[get_faction_name(net)] has proposed an alliance with your faction. Visit Faction Management to respond."))
+			else
+				to_chat(user, SPAN_WARNING("Unable to propose an alliance right now."))
+			. = TRUE
+
+		if("accept_alliance")
+			if(op_rank < 2) return
+			var/proposer_uid = params["uid"]
+			if(!proposer_uid) return
+			if(!accept_faction_alliance(net, proposer_uid))
+				to_chat(user, SPAN_WARNING("Unable to accept -- that request no longer exists."))
+				return
+			to_chat(user, SPAN_GOOD("[get_faction_name(net)] and [get_faction_name(proposer_uid)] are now allied."))
+			notify_faction_members(proposer_uid, SPAN_GOOD("[get_faction_name(net)] has accepted your alliance proposal -- your factions are now allied."))
+			. = TRUE
+
+		if("decline_alliance")
+			if(op_rank < 2) return
+			var/proposer_uid = params["uid"]
+			if(!proposer_uid) return
+			cancel_faction_alliance_request(proposer_uid, net)
+			to_chat(user, SPAN_NOTICE("Alliance request from [get_faction_name(proposer_uid)] declined."))
+			notify_faction_members(proposer_uid, SPAN_WARNING("[get_faction_name(net)] has declined your alliance proposal."))
+			. = TRUE
+
+		if("withdraw_alliance")
+			if(op_rank < 2) return
+			var/target_uid = params["uid"]
+			if(!target_uid) return
+			cancel_faction_alliance_request(net, target_uid)
+			to_chat(user, SPAN_NOTICE("Alliance proposal to [get_faction_name(target_uid)] withdrawn."))
+			notify_faction_members(target_uid, SPAN_WARNING("[get_faction_name(net)] has withdrawn its alliance proposal to your faction."))
+			. = TRUE
+
+		if("break_alliance")
+			if(op_rank < 2) return
+			var/ally_uid = params["uid"]
+			if(!ally_uid) return
+			break_faction_alliance(net, ally_uid)
+			notify_faction_members(ally_uid, SPAN_WARNING("[get_faction_name(net)] has broken its alliance with your faction."))
+			to_chat(user, SPAN_NOTICE("Alliance with [get_faction_name(ally_uid)] broken."))
+			. = TRUE
+#endif //FACTION_ALLIANCES
+
 		// ---- List on Stock Exchange -------------------------------------------
 		// Opens this faction's own real stock listing -- distinct from the
 		// AI-simulated companies (stock_market.dm/persistence_stock_market.dm):
@@ -910,6 +1091,73 @@
 			log_game("[key_name(user)] revoked faction ID access for '[target_name]' (ckey: [target_ckey]) in faction '[net]' via faction_manage ([revoked_now] live cards caught).")
 			. = TRUE
 
+		// ---- Remove Member: revoke ID AND erase the membership record -----
+		// Unlike revoke_member_id above, this actually removes them from
+		// ss13_faction_members -- get_faction_member()/get_effective_faction_rank()
+		// stop seeing them as a member at all, and a future replacement ID
+		// re-registers them fresh rather than just reprinting. A fellow
+		// command-rank (2+) member can't be removed this way -- only an
+		// admin can; self-removal is refused outright, pointed at Leave
+		// Faction (card.dm) instead.
+		if("remove_member")
+			if(op_rank < 2) return
+			var/remove_target_ckey = ckey(params["target_ckey"])
+			if(!remove_target_ckey) return
+			if(remove_target_ckey == user.ckey)
+				to_chat(user, SPAN_WARNING("You can't remove yourself this way -- leave the faction from your ID card instead."))
+				return
+			var/list/remove_target_member = get_faction_member(remove_target_ckey, net)
+			if(!remove_target_member)
+				to_chat(user, SPAN_WARNING("That ckey is not a member of [get_faction_name(net)]."))
+				return
+			var/remove_target_name = remove_target_member["real_name"]
+			if((remove_target_member["rank"] || 0) >= 2 && op_rank != 99)
+				to_chat(user, SPAN_WARNING("[remove_target_name] holds command rank -- only an admin can remove a fellow command-rank member."))
+				return
+
+			var/remove_confirm = tgui_alert(user, "Remove [remove_target_name] from [get_faction_name(net)] entirely? This revokes their ID access and erases their membership record -- they would need to be issued a new ID to rejoin.", "Remove Member", list("Remove", "Cancel"))
+			if(remove_confirm != "Remove") return
+
+			if(!SSpersistence.factionRemoveMember(remove_target_ckey, net))
+				to_chat(user, SPAN_WARNING("Failed to remove [remove_target_name] -- database error. Try again shortly."))
+				return
+			_revoke_member_id_now(net, remove_target_ckey, remove_target_name, user.ckey)
+
+			to_chat(user, SPAN_GOOD("Removed [remove_target_name] from [get_faction_name(net)]."))
+			log_game("[key_name(user)] removed '[remove_target_name]' (ckey: [remove_target_ckey]) from faction '[net]' via faction_manage.")
+			message_admins("[key_name_admin(user)] removed '[remove_target_name]' from faction '[net]'.")
+			. = TRUE
+
+		// ---- Force Clock Out (command rank -- see toggle_clock, card.dm, for
+		// the self-service equivalent) ---------------------------------------
+		// No confirm dialog and no command-rank-vs-command-rank restriction
+		// like Remove Member above -- unlike removal this is trivially
+		// self-reversible (the target just clocks back in) and not a
+		// destructive action, so the bar is just op_rank >= 2. Doesn't go
+		// through the 5-minute manual-toggle cooldown -- that's specifically
+		// an anti-spam measure on the self-service action, not something a
+		// legitimate command override should be throttled by.
+		if("force_clock_out")
+			if(op_rank < 2) return
+			var/clockout_target_ckey = ckey(params["target_ckey"])
+			if(!clockout_target_ckey) return
+			var/list/clockout_target_member = get_faction_member(clockout_target_ckey, net)
+			if(!clockout_target_member)
+				to_chat(user, SPAN_WARNING("That ckey is not a member of [get_faction_name(net)]."))
+				return
+			var/clockout_target_name = clockout_target_member["real_name"]
+			if(!clockout_target_member["clocked_in"])
+				to_chat(user, SPAN_WARNING("[clockout_target_name] isn't clocked in."))
+				return
+
+			if(!SSpersistence.factionSetClockedIn(clockout_target_ckey, net, FALSE))
+				to_chat(user, SPAN_WARNING("Failed to clock out [clockout_target_name] -- database error. Try again shortly."))
+				return
+			notify_faction_members(net, SPAN_NOTICE("[clockout_target_name] has been clocked out of [get_faction_name(net)] by [user.real_name]."))
+			to_chat(user, SPAN_GOOD("Clocked out [clockout_target_name]."))
+			log_game("[key_name(user)] force-clocked out '[clockout_target_name]' (ckey: [clockout_target_ckey]) from faction '[net]' via faction_manage.")
+			. = TRUE
+
 		// ---- Panic Purge: revoke every ID this faction has ever issued -----
 		// Exempts the issuer's own card (matching revoke_member_id's own
 		// self-protection) -- an officer triggering this shouldn't lock
@@ -964,7 +1212,7 @@
 			SSpersistence.databaseCheckQueryResult(auditq, "faction_manage panic_purge_ids audit")
 			qdel(auditq)
 
-			to_chat(user, SPAN_GOOD("Panic purge complete: [total_live] live ID card[total_live == 1 ? "" : "s"] revoked across [length(roster)] member[length(roster) == 1 ? "" : "s"] (your own ID was not touched), and the faction master card has been revoked. Offline members will be caught automatically when next restored. Only [get_faction_name(net)]'s original founder can print a replacement master card."))
+			to_chat(user, SPAN_GOOD("Panic purge complete: [total_live] live ID card[total_live == 1 ? "" : "s"] revoked across [length(roster)] member[length(roster) == 1 ? "" : "s"] (your own ID was not touched), and the faction master card has been revoked. Offline members will be caught automatically when next restored. Only [get_faction_name(net)]'s original founder, its majority shareholder, its designated leader, or an admin can print a replacement master card."))
 			log_game("[key_name(user)] PANIC PURGED all faction IDs for '[net]' via faction_manage -- [total_live] live cards revoked across [length(roster)] members (issuer exempted), master card revoked.")
 			message_admins("[key_name_admin(user)] triggered a panic ID purge for faction '[net]' -- [total_live] live cards revoked across [length(roster)] members, master card revoked.")
 			. = TRUE
@@ -977,14 +1225,21 @@
 		// (op_rank == 99) bypass the founder check too -- the master card is
 		// a bearer item with no identity check on it at all, so admin
 		// recourse matters when the founder's gone, banned, or otherwise
-		// unreachable. Either way, master_card_lost still has to be true
-		// first -- nobody, admins included, can mint a second valid card
-		// while the current one is still out there and unrevoked.
+		// unreachable. The majority shareholder (is_faction_ceo()) and any
+		// admin-designated leader (is_faction_designated_leader() -- the
+		// recourse for factions made via the admin "create faction" verb,
+		// which have no organic founder to fall back on) can print it too.
+		// master_card_lost still has to be true, UNLESS no live master card
+		// exists for this faction at all yet (true for every admin-made
+		// faction until its first print) -- nobody can mint a second valid
+		// card while the current one is still out there and unrevoked, but
+		// a faction that never had one printed shouldn't be stuck waiting on
+		// a Panic Purge that has nothing to purge.
 		if("print_master_card")
-			if(op_rank != 99 && user.ckey != get_faction_founder_ckey(net) && !is_faction_ceo(net, user.ckey, user.real_name))
-				to_chat(user, SPAN_WARNING("Only [get_faction_name(net)]'s original founder, its majority shareholder, or an admin can print a replacement master card."))
+			if(op_rank != 99 && user.ckey != get_faction_founder_ckey(net) && !is_faction_ceo(net, user.ckey, user.real_name) && !is_faction_designated_leader(net, user.ckey, user.real_name))
+				to_chat(user, SPAN_WARNING("Only [get_faction_name(net)]'s original founder, its majority shareholder, its designated leader, or an admin can print a replacement master card."))
 				return
-			if(!get_faction_master_card_lost(net))
+			if(!get_faction_master_card_lost(net) && has_live_faction_master_card(net))
 				to_chat(user, SPAN_WARNING("The current master card hasn't been reported lost -- use Panic Purge first if it's been compromised."))
 				return
 			var/turf/spawn_turf = get_turf(computer) || get_turf(user)
@@ -998,6 +1253,35 @@
 			to_chat(user, SPAN_GOOD("Printed a new master card for [get_faction_name(net)]."))
 			log_game("[key_name(user)] printed a replacement faction master card for '[net]' via faction_manage.")
 			message_admins("[key_name_admin(user)] printed a replacement master card for faction '[net]'.")
+			. = TRUE
+
+		// ---- Disband Faction ---------------------------------------------------
+		// Same four-way top-authority bar as Print Master Card -- founder,
+		// majority shareholder, admin-designated leader, or an admin. Never
+		// trust the client-side can_disband_faction flag; re-check here.
+		// Permanently deletes the faction via the same removeFactionCompletely()
+		// the admin "Remove Faction" verb already uses (treasury/stock listing
+		// buyout, drydock ship release, every tagged machine released, DB row
+		// gone) -- there is no undo.
+		if("disband_faction")
+			if(op_rank != 99 && user.ckey != get_faction_founder_ckey(net) && !is_faction_ceo(net, user.ckey, user.real_name) && !is_faction_designated_leader(net, user.ckey, user.real_name))
+				return
+			var/fname_confirm = get_faction_name(net)
+			var/confirm = tgui_alert(user, "Permanently disband [fname_confirm]? This deletes its treasury, jobs, beacon claims, drydock ship ownership, and stock listing -- EVERYTHING. This cannot be undone.", "Disband Faction", list("Disband", "Cancel"))
+			if(confirm != "Disband") return
+			// Re-validate after the async alert -- the faction (or this user's
+			// standing in it) could have changed while the dialog was open.
+			if(!islist(GLOB.persistence_faction_cache) || !(net in GLOB.persistence_faction_cache))
+				to_chat(user, SPAN_WARNING("This faction no longer exists."))
+				return
+			if(op_rank != 99 && user.ckey != get_faction_founder_ckey(net) && !is_faction_ceo(net, user.ckey, user.real_name) && !is_faction_designated_leader(net, user.ckey, user.real_name))
+				return
+			if(!SSpersistence.removeFactionCompletely(net, user))
+				to_chat(user, SPAN_WARNING("Failed to disband -- database error."))
+				return
+			to_chat(user, SPAN_GOOD("[fname_confirm] has been disbanded."))
+			log_game("[key_name(user)] disbanded faction '[net]' ([fname_confirm]) via Faction Management.")
+			message_admins("[key_name_admin(user)] disbanded faction '[net]' ([fname_confirm]) via Faction Management.")
 			. = TRUE
 
 /// Tapping a mob with a handheld running Faction Management while a
@@ -1038,9 +1322,10 @@
 		if(notify_target)
 			to_chat(notify_target, SPAN_WARNING("There is no active founding petition here."))
 		return FALSE
+	var/required_supporters = faction_founding_required_supporters(petition["is_company"])
 	if(ckey == petition["founder_ckey"])
 		if(notify_target)
-			to_chat(notify_target, SPAN_WARNING("You started this petition -- it needs [FACTION_FOUNDING_REQUIRED_SUPPORTERS] OTHER supporters."))
+			to_chat(notify_target, SPAN_WARNING("You started this petition -- it needs [required_supporters] OTHER supporters."))
 		return FALSE
 	if(ckey in petition["supporters"])
 		if(notify_target)
@@ -1049,7 +1334,7 @@
 	if(!SSpersistence.addFoundingSupporter(faction_uid, ckey))
 		return FALSE
 	if(notify_target)
-		to_chat(notify_target, SPAN_GOOD("You support the founding of '[petition["faction_name"]]'. ([length(petition["supporters"])]/[FACTION_FOUNDING_REQUIRED_SUPPORTERS])"))
-	if(length(petition["supporters"]) >= FACTION_FOUNDING_REQUIRED_SUPPORTERS)
+		to_chat(notify_target, SPAN_GOOD("You support the founding of '[petition["faction_name"]]'. ([length(petition["supporters"])]/[required_supporters])"))
+	if(length(petition["supporters"]) >= required_supporters)
 		SSpersistence.tryFinalizeFounding(faction_uid)
 	return TRUE

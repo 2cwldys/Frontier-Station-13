@@ -222,6 +222,12 @@
 /// instance, since each program instance belongs to one PDA/holder, not a
 /// shared machine.
 #define PERSONAL_TRAVEL_COOLDOWN (2 MINUTES + 30 SECONDS)
+/// How close (tiles) a Sector View eye/pod camera must be to a non-own ship
+/// before it's revealed -- see personal_travel.dm's _refresh_sensor_view()
+/// and sector_view.dm's refresh_sector_view(). Far-away ships stay hidden
+/// (no passive long-range scouting); this just lets a pilot get close enough
+/// to target one for warp/travel, since that's click-to-prime only.
+#define SECTOR_VIEW_SHIP_PROXIMITY_RANGE 4
 /// How long after taking or dealing real combat damage the program refuses
 /// every action -- "can't teleport out of a fight."
 #define PERSONAL_TRAVEL_COMBAT_LOCKOUT 10 MINUTES
@@ -292,6 +298,12 @@
 /// Distinct OTHER ckeys (not the founder) required before a founding
 /// petition auto-finalizes into a real faction.
 #define FACTION_FOUNDING_REQUIRED_SUPPORTERS 10
+/// "Company" founding tier -- cheaper, fewer supporters, and (unlike the
+/// full tier above) stays limited to a single cargo category rather than
+/// getting unrestricted access. See faction_founding_cost()/
+/// faction_founding_required_supporters() (persistence_factions.dm).
+#define FACTION_CREATION_COST_COMPANY 25000
+#define FACTION_FOUNDING_REQUIRED_SUPPORTERS_COMPANY 5
 
 #define PROGRAM_STATE_DISABLED -1
 #define PROGRAM_STATE_KILLED 0

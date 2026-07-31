@@ -50,11 +50,66 @@
 	/// Metric tonnes, very rough number, affects acceleration provided by engines
 	var/vessel_mass = 10000
 
+	/// TRUE when a cloaking device (or similar) has made this object
+	/// completely undetectable -- checked independently by every detection
+	/// surface (contact_sensors.dm, sensors.dm, helm.dm, overmap_shuttle.dm,
+	/// personal_travel.dm, sector_view.dm), since none of them share a single
+	/// central enumeration helper. See is_detectable()/set_cloaked() below.
+	var/cloaked = FALSE
+
 	var/image/targeted_overlay
 
 /obj/effect/overmap/Destroy()
 	QDEL_NULL(targeted_overlay)
 	return ..()
+
+/// Central check every detection surface should call alongside (not instead
+/// of) its own existing scannable/requires_contact logic. viewer is optional
+/// (omitting it preserves the old context-free "cloaked hides from
+/// everyone" behavior) and may be either a mob (a specific viewer is asking
+/// -- sees this ship if they're its own owner/faction/crew, or physically
+/// aboard it) or another overmap ship (a console's own shared identification
+/// tick with no specific mob in scope -- sees this ship if the two ships
+/// share ownership/faction, see _drydock_ships_share_ownership()).
+/// _drydock_full_access_check()/_drydock_ships_share_ownership()
+/// (telepad_drydock_boarding.dm) are the shared access rules.
+/obj/effect/overmap/proc/is_detectable(viewer)
+	if(!cloaked)
+		return TRUE
+	if(!viewer)
+		return FALSE
+	if(ismob(viewer))
+		var/mob/M = viewer
+		if(GET_Z(M) in map_z)
+			return TRUE
+		return _drydock_full_access_check(M, length(map_z) ? map_z[1] : GET_Z(src))
+	if(istype(viewer, /obj/effect/overmap/visitable))
+		var/obj/effect/overmap/visitable/asking_ship = viewer
+		var/asking_z = length(asking_ship.map_z) ? asking_ship.map_z[1] : GET_Z(asking_ship)
+		return _drydock_ships_share_ownership(asking_z, length(map_z) ? map_z[1] : GET_Z(src))
+	return FALSE
+
+/// Flips the cloak state. Powering on immediately purges any sensor console
+/// that had already identified this object, rather than just blocking future
+/// scans -- see _purge_existing_sensor_contacts().
+/obj/effect/overmap/proc/set_cloaked(new_state)
+	if(cloaked == new_state)
+		return
+	cloaked = new_state
+	if(cloaked)
+		_purge_existing_sensor_contacts()
+
+/// Removes any existing sensor-console identification of this object, so
+/// cloaking is immediate rather than only preventing future identification.
+/// Mirrors the existing "sensors lost power" cleanup at
+/// contact_sensors.dm's qdel(record) -- overmap_contact/Destroy() already
+/// correctly detargets weapons locks and strips pushed images from viewers.
+/obj/effect/overmap/proc/_purge_existing_sensor_contacts()
+	for(var/obj/structure/machinery/computer/ship/sensors/S in world)
+		var/datum/overmap_contact/record = S.contact_datums[src]
+		if(record)
+			qdel(record)
+		S.objects_in_view -= src
 
 //Overlay of how this object should look on other skyboxes
 /obj/effect/overmap/proc/get_skybox_representation()
@@ -207,6 +262,13 @@
 	closeToolTip(usr)
 
 /obj/effect/overmap/visitable/proc/target(var/obj/effect/overmap/O, var/obj/structure/machinery/computer/ship/C)
+	// Ship-to-site bombardment only -- ship targets (including drydock
+	// ships) are untouched, matching this codebase's own deliberate "log,
+	// don't block" stance on ship-to-ship combat (see the fire handler's
+	// highsec offense check, _targeting_console.dm).
+	if(istype(O, /obj/effect/overmap/visitable/sector) && site_bombardment_protected(O, usr))
+		to_chat(usr, SPAN_WARNING("Tactical sensors refuse to establish a lock -- the target is under active protection."))
+		return
 	C.targeting = TRUE
 	usr.visible_message(SPAN_WARNING("[usr] starts calibrating the targeting systems, swiping around the holographic screen..."), SPAN_WARNING("You start calibrating the targeting systems, swiping around the screen as you focus..."))
 	if(do_after(usr, 5 SECONDS))

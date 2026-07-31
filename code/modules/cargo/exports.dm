@@ -40,6 +40,11 @@ then the player gets the profit from selling his own wasted time.
 	// We go backwards, so it'll be innermost objects sold first
 	for(var/i in reverseRange(contents))
 		var/atom/movable/thing = i
+		// Structural/machinery items found nested inside an otherwise-exported
+		// container (e.g. a girder packed in a crate) are left completely
+		// untouched -- not priced, not deleted -- rather than sold for free.
+		if(is_cargo_export_excluded(thing))
+			continue
 		var/the_cost = get_cargo_export_price(thing)
 		if(dry_run)
 			cost += the_cost

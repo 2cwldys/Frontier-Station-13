@@ -62,7 +62,16 @@ SUBSYSTEM_DEF(mob_ai)
 
 	mutexes += mob_weakref
 
-	mob_to_process.think()
+	// An uncaught runtime anywhere in think()'s call chain would otherwise
+	// unwind past the "mutexes -= mob_weakref" line below, permanently
+	// leaking this mob's mutex -- fire()'s filter loop excludes any mob
+	// still holding one from every future run, with nothing left to ever
+	// clear it. Mobs running real player-facing item/combat code (e.g.
+	// hostile_npc.dm) are exception-prone enough for this to matter.
+	try
+		mob_to_process.think()
+	catch(var/exception/e)
+		LOG_DEBUG("SSmob_ai: [mob_to_process] ([mob_to_process.type]) think() threw: [e]")
 
 	mutexes -= mob_weakref
 

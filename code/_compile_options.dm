@@ -10,6 +10,40 @@
 // If defined, the sunlight system is enabled. Caution: this uses a LOT of memory.
 //#define ENABLE_SUNLIGHT
 
+// If defined, the Missions Board's "kill" mission type is offered/active again.
+// Disabled by default -- missions currently only offer "fetch" and "visit".
+//#define ENABLE_KILL_MISSIONS
+
+// If defined, faction-affiliated hostile NPCs (commander's beacon/faction
+// barracks soldiers) show an extra examine line marking them as cloned
+// combat drones. Off by default.
+#define FACTION_AI_CLONE_SOLDIERS
+
+// If defined, admins (R_ADMIN) examining a hostile NPC see a live "[NPC AI]"
+// state dump (stance, order, scheduling, move loop, commanding beacon).
+// Defined by default -- comment out to strip it entirely from the build.
+//#define NPC_AI_DEBUG_EXAMINE
+
+// If defined, real (non-Hub) factions are limited to ONE cargo order
+// category, chosen at founding and changeable later (command rank, 1-month
+// real-world cooldown, or admin override anytime). Off -- every
+// faction console orders from every category, same as today.
+#define FACTION_CARGO_SPECIALIZATION
+
+// Sentinel value for allowed_cargo_category meaning "no restriction" --
+// admin-only ("Manage Faction Account" -> "Set Cargo Category"), for
+// granting a real faction the same unrestricted ordering Hub already gets
+// hardcoded by uid, without actually making it Hub.
+#define FACTION_CARGO_CATEGORY_ALL "*all*"
+
+// If defined, two factions can become allied via a Faction Management
+// propose/accept handshake -- either side can break it anytime. Allied
+// factions can access each other's station under the faction raiding gate,
+// their hostile NPCs treat each other as friendly, and their tagged turrets
+// don't fire on each other. Off -- no faction is ever allied
+// with another.
+#define FACTION_ALLIANCES
+
 // We want to use external resources. Kthx.
 #define PRELOAD_RSC 0
 

@@ -243,7 +243,24 @@ ABSTRACT_TYPE(/obj/item/rfd)
 	if(disabled && !isrobot(user))
 		return FALSE
 	var/area/Area = get_area(A)
-	if(Area.centcomm_area || istype(Area, /area/shuttle) || istype(Area, /turf/space/transit))
+	if(istype(Area, /turf/space/transit))
+		to_chat(user, SPAN_NOTICE("\The [src] can't be used here."))
+		return FALSE
+	// A deployed drydock ship's own piloting/helm area is /area/shuttle-typed
+	// (the shuttle-move system needs it to be), but it's the player's own
+	// vessel, not one of the station's round-critical shuttles (escape,
+	// cargo, crew transfer, mining) -- those live on the station's own Z,
+	// never a GLOB.persistence_ship_z-tagged one, so they stay off-limits.
+	if(istype(Area, /area/shuttle))
+		var/turf/target_turf = get_turf(A)
+		if(!target_turf || !GLOB.persistence_ship_z["[target_turf.z]"])
+			to_chat(user, SPAN_NOTICE("\The [src] can't be used here."))
+			return FALSE
+	// CentCom is otherwise off-limits, but a Hub faction member above the
+	// base/Civilian rank tier (get_effective_faction_rank(), same carve-out
+	// airlock.dm's allowed() already grants for CentCom access codes) is
+	// trusted to use it here.
+	if(Area.centcomm_area && get_effective_faction_rank(user, "hub") <= 0)
 		to_chat(user, SPAN_NOTICE("\The [src] can't be used here."))
 		return FALSE
 	if(is_type_in_list(A, valid_atoms))

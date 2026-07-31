@@ -19,8 +19,8 @@ GLOBAL_LIST_EMPTY(cargo_export_prices)
 
 /**
  * Load the export price list into the cache, seeding it from the existing
- * hardcoded /datum/export subtypes on first boot (empty table) so nothing
- * regresses to the base price on day one.
+ * hardcoded /datum/export subtypes on this map's true first boot ever, so
+ * nothing regresses to the base price on day one.
  * Called from SSpersistence.Initialize().
  */
 /datum/controller/subsystem/persistence/proc/cargoExportsInitialize()
@@ -30,18 +30,28 @@ GLOBAL_LIST_EMPTY(cargo_export_prices)
 	if(!databaseCheckConnection("cargoExportsInitialize"))
 		return
 
-	var/datum/db_query/countq = SSdbcore.NewQuery(
-		"SELECT COUNT(*) FROM ss13_cargo_exports WHERE map_path = :mp",
+	// Tracked separately from ss13_cargo_exports' own row count -- a plain
+	// count can't tell "never configured yet" from "an admin just wiped it
+	// clean" (both are 0 rows), which previously meant a full "Wipe All
+	// Exports" got silently undone by the very next boot re-seeding
+	// everything right back.
+	var/datum/db_query/seedcheckq = SSdbcore.NewQuery(
+		"SELECT 1 FROM ss13_cargo_exports_seeded WHERE map_path = :mp",
 		list("mp" = "[SSatlas.current_map.path]")
 	)
-	countq.Execute()
-	var/existing_count = 0
-	if(databaseCheckQueryResult(countq, "cargoExportsInitialize count") && countq.NextRow())
-		existing_count = text2num(countq.item[1])
-	qdel(countq)
+	seedcheckq.Execute()
+	var/already_seeded = databaseCheckQueryResult(seedcheckq, "cargoExportsInitialize seed check") && seedcheckq.NextRow()
+	qdel(seedcheckq)
 
-	if(!existing_count)
+	if(!already_seeded)
 		_cargoExportsSeedDefaults()
+		var/datum/db_query/markq = SSdbcore.NewQuery(
+			"INSERT INTO ss13_cargo_exports_seeded (map_path) VALUES (:mp) ON DUPLICATE KEY UPDATE map_path = map_path",
+			list("mp" = "[SSatlas.current_map.path]")
+		)
+		markq.Execute()
+		databaseCheckQueryResult(markq, "cargoExportsInitialize seed mark")
+		qdel(markq)
 
 	var/datum/db_query/query = SSdbcore.NewQuery(
 		"SELECT type_path, price, label, is_illegal FROM ss13_cargo_exports WHERE map_path = :mp",
@@ -101,15 +111,29 @@ GLOBAL_LIST_EMPTY(cargo_export_prices)
 /proc/get_cargo_export_price(atom/movable/thing)
 	if(!thing)
 		return 0
+	var/unit_price = CARGO_EXPORT_BASE_PRICE
 	var/t = thing.type
 	while(t)
 		if("[t]" in GLOB.cargo_export_prices)
 			var/list/entry = GLOB.cargo_export_prices["[t]"]
-			if(entry["illegal"] && !piracy_beacon_active_on_z(GET_Z(thing)))
-				return CARGO_EXPORT_BASE_PRICE
-			return entry["price"]
+			unit_price = (entry["illegal"] && !piracy_beacon_active_on_z(GET_Z(thing))) ? CARGO_EXPORT_BASE_PRICE : entry["price"]
+			break
 		t = type2parent(t)
-	return CARGO_EXPORT_BASE_PRICE
+	// Stacks must pay out per unit, not a single flat price for the whole
+	// pile -- previously nothing here (or in export_item_and_contents(), the
+	// only caller) ever consulted amount, so a stack of 50 sold for the same
+	// price as a stack of 1.
+	if(istype(thing, /obj/item/stack))
+		var/obj/item/stack/stack = thing
+		unit_price *= max(stack.amount, 1)
+	return unit_price
+
+/// Structural/infrastructure that should never be scooped up and sold by a
+/// cargo export scan, even packed inside a crate placed on the pad --
+/// installed machinery (including atmos pipe networks) and bare structural
+/// framework are part of the ship/station, not cargo.
+/proc/is_cargo_export_excluded(atom/movable/thing)
+	return istype(thing, /obj/structure/machinery) || istype(thing, /obj/structure/lattice) || istype(thing, /obj/structure/girder)
 
 /**
  * Sets (or clears, if price is null) the export price for a type path,

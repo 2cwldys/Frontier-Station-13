@@ -21,6 +21,7 @@ type FactionBeaconData = {
   site_name: string | null;
   public_territory: BooleanLike;
   faction_raiding_enabled: BooleanLike;
+  hazard_eviction_active: BooleanLike;
 };
 
 export const FactionBeacon = (props) => {
@@ -42,6 +43,7 @@ export const FactionBeacon = (props) => {
     site_name,
     public_territory,
     faction_raiding_enabled,
+    hazard_eviction_active,
   } = data;
   const [withdrawAmount, setWithdrawAmount] = useState(0);
 
@@ -217,6 +219,11 @@ export const FactionBeacon = (props) => {
               maxValue={10}
               onChange={(value) => act('set_security_radius', { radius: value })}
             />
+            <Box mt={1} color={hazard_eviction_active ? 'good' : 'bad'}>
+              Hazard eviction: {hazard_eviction_active ? 'Active' : 'Inactive'}
+              {!hazard_eviction_active &&
+                ' -- raise the radius above 0 and reach medsec or better to start clearing hazards in range.'}
+            </Box>
           </Section>
         )}
       </Window.Content>

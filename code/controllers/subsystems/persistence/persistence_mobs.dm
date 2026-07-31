@@ -319,7 +319,17 @@ GLOBAL_LIST_INIT(persistence_inventory_slots, list(
 	"r_hand"    = slot_r_hand,
 	"s_store"   = slot_s_store,
 	"l_store"   = slot_l_store,
-	"r_store"   = slot_r_store
+	"r_store"   = slot_r_store,
+	// Restraints -- previously missing entirely, so a character rebuilt from
+	// the database (as opposed to reconnecting to their still-resident mob
+	// object) always came back unrestrained even if cuffed at store time.
+	// get_equipped_item()/equip_to_slot()'s existing slot_handcuffed/
+	// slot_legcuffed cases (human/inventory.dm) already set the handcuffed/
+	// legcuffed var and call handcuff_update()/legcuff_update() (visual
+	// overlay + restrained() mechanics) -- no extra restore-side code needed
+	// beyond listing the slots here.
+	"handcuffed" = slot_handcuffed,
+	"legcuffed"  = slot_legcuffed
 ))
 
 /**
@@ -395,7 +405,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		return
 
 	var/datum/db_query/query = SSdbcore.NewQuery(
-		"SELECT ckey, char_name, x, y, z, char_state, in_lace, lace_pod_x, lace_pod_y, lace_pod_z, last_pod_x, last_pod_y, last_pod_z FROM ss13_mob_position",
+		"SELECT ckey, char_name, x, y, z, char_state, in_lace, lace_pod_x, lace_pod_y, lace_pod_z, last_pod_x, last_pod_y, last_pod_z, imprisoned, imprisoned_until, imprisoned_by_faction_uid FROM ss13_mob_position",
 		list()
 	)
 	query.Execute()
@@ -408,17 +418,20 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	while(query.NextRow())
 		var/key = "[query.item[1]]|[query.item[2]]"
 		GLOB.persistence_position_cache[key] = list(
-			"x"           = text2num(query.item[3]),
-			"y"           = text2num(query.item[4]),
-			"z"           = text2num(query.item[5]),
-			"char_state"  = query.item[6] || "alive",
-			"in_lace"     = text2num(query.item[7]),
-			"lace_pod_x"  = text2num(query.item[8]),
-			"lace_pod_y"  = text2num(query.item[9]),
-			"lace_pod_z"  = text2num(query.item[10]),
-			"last_pod_x"  = text2num(query.item[11]),
-			"last_pod_y"  = text2num(query.item[12]),
-			"last_pod_z"  = text2num(query.item[13])
+			"x"                         = text2num(query.item[3]),
+			"y"                         = text2num(query.item[4]),
+			"z"                         = text2num(query.item[5]),
+			"char_state"                = query.item[6] || "alive",
+			"in_lace"                   = text2num(query.item[7]),
+			"lace_pod_x"                = text2num(query.item[8]),
+			"lace_pod_y"                = text2num(query.item[9]),
+			"lace_pod_z"                = text2num(query.item[10]),
+			"last_pod_x"                = text2num(query.item[11]),
+			"last_pod_y"                = text2num(query.item[12]),
+			"last_pod_z"                = text2num(query.item[13]),
+			"imprisoned"                = text2num(query.item[14]),
+			"imprisoned_until"          = query.item[15],
+			"imprisoned_by_faction_uid" = query.item[16]
 		)
 		loaded++
 
@@ -605,6 +618,161 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	entry["last_pod_x"] = pod.x
 	entry["last_pod_y"] = pod.y
 	entry["last_pod_z"] = pod.z
+
+/**
+ * Sets (or clears) a character's imprisonment -- used by the cryogenic
+ * prison storage machine (cryopod_prison.dm). until_minutes null/0 combined
+ * with imprisoned=TRUE means an indefinite sentence; a positive until_minutes
+ * computes the release DATETIME as NOW() + that many minutes in SQL, so wall-
+ * clock expiry math never has to happen in DM. faction_uid records WHICH
+ * faction currently holds this character -- imprisonment is exclusive per
+ * faction (see cryopod_prison.dm's cross-faction refusal check); always
+ * cleared to NULL when imprisoned=FALSE regardless of what's passed. Mirrors
+ * persistence_set_char_state()'s exact shape.
+ */
+/proc/persistence_set_imprisoned(ckey, char_name, imprisoned, until_minutes = null, faction_uid = null)
+	if(!GLOB.config.sql_enabled || !ckey || !char_name)
+		return
+	if(!SSpersistence.databaseCheckConnection("persistence_set_imprisoned"))
+		return
+
+	faction_uid = imprisoned ? normalize_faction_uid(faction_uid) : null
+
+	var/datum/db_query/upd
+	if(!imprisoned)
+		upd = SSdbcore.NewQuery(
+			"UPDATE ss13_mob_position SET imprisoned = 0, imprisoned_until = NULL, imprisoned_by_faction_uid = NULL WHERE ckey = :ckey AND char_name = :char_name",
+			list("ckey" = ckey, "char_name" = char_name)
+		)
+	else if(isnull(until_minutes) || until_minutes <= 0)
+		upd = SSdbcore.NewQuery(
+			"UPDATE ss13_mob_position SET imprisoned = 1, imprisoned_until = NULL, imprisoned_by_faction_uid = :faction WHERE ckey = :ckey AND char_name = :char_name",
+			list("ckey" = ckey, "char_name" = char_name, "faction" = faction_uid)
+		)
+	else
+		upd = SSdbcore.NewQuery(
+			"UPDATE ss13_mob_position SET imprisoned = 1, imprisoned_until = DATE_ADD(NOW(), INTERVAL :minutes MINUTE), imprisoned_by_faction_uid = :faction WHERE ckey = :ckey AND char_name = :char_name",
+			list("ckey" = ckey, "char_name" = char_name, "minutes" = until_minutes, "faction" = faction_uid)
+		)
+	upd.Execute()
+	SSpersistence.databaseCheckQueryResult(upd, "persistence_set_imprisoned")
+	qdel(upd)
+
+	var/key = "[ckey]|[char_name]"
+	var/list/entry = GLOB.persistence_position_cache[key]
+	if(!islist(entry))
+		entry = list()
+		GLOB.persistence_position_cache[key] = entry
+	entry["imprisoned"] = imprisoned ? 1 : 0
+	entry["imprisoned_by_faction_uid"] = faction_uid
+	// The actual release DATETIME is never cached -- persistence_character_
+	// imprisonment_status() always re-reads it live from SQL, since NOW()-
+	// relative expiry is exactly what the database should be doing, not DM.
+	entry["imprisoned_until"] = null
+
+/**
+ * Shared core for the two public procs below -- always re-verified live
+ * against SQL (wall-clock expiry) and against whether the specific prison
+ * pod this character was stored in still physically exists. Returns null if
+ * not imprisoned at all (including a sentence that just expired, or whose
+ * pod is gone -- both cleared here rather than waiting for a sweep, a
+ * safety valve against ever being permanently trapped), or
+ * list("indefinite"=, "remaining_seconds"=, "cell"=) if still genuinely
+ * on the books -- regardless of that cell's own locked/unlocked state,
+ * which the two wrappers below interpret differently.
+ */
+/proc/_persistence_imprisonment_core(ckey, char_name)
+	if(!GLOB.config.sql_enabled || !ckey || !char_name)
+		return null
+	var/list/entry = GLOB.persistence_position_cache["[ckey]|[char_name]"]
+	if(!islist(entry) || !entry["imprisoned"])
+		return null
+	if(!SSpersistence.databaseCheckConnection("_persistence_imprisonment_core"))
+		return null
+
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		{"SELECT imprisoned_until IS NULL AS indefinite, TIMESTAMPDIFF(SECOND, NOW(), imprisoned_until) AS remaining
+		FROM ss13_mob_position WHERE ckey = :ckey AND char_name = :char_name AND imprisoned = 1"},
+		list("ckey" = ckey, "char_name" = char_name)
+	)
+	q.Execute()
+	if(!SSpersistence.databaseCheckQueryResult(q, "_persistence_imprisonment_core") || !q.NextRow())
+		qdel(q)
+		return null
+	var/indefinite = text2num(q.item[1])
+	var/remaining = text2num(q.item[2])
+	qdel(q)
+
+	if(!indefinite && remaining <= 0)
+		// Sentence expired -- clear it now rather than waiting for a sweep.
+		persistence_set_imprisoned(ckey, char_name, FALSE)
+		return null
+
+	// Pod-existence check -- a destroyed/missing cell means auto-freed
+	// regardless of remaining time (confirmed with the user).
+	var/list/pos = GLOB.persistence_position_cache["[ckey]|[char_name]"]
+	var/pod_pz = pos ? pos["last_pod_z"] : null
+	var/obj/structure/machinery/cryopod/prison/cell
+	if(pod_pz && pod_pz >= 1 && pod_pz <= world.maxz)
+		var/turf/T = locate(pos["last_pod_x"], pos["last_pod_y"], pod_pz)
+		if(T)
+			cell = locate(/obj/structure/machinery/cryopod/prison) in T
+	if(!cell)
+		persistence_set_imprisoned(ckey, char_name, FALSE)
+		return null
+
+	return list(
+		"indefinite"        = !!indefinite,
+		"remaining_seconds" = indefinite ? 0 : remaining,
+		"cell"              = cell,
+		"faction_uid"       = pos["imprisoned_by_faction_uid"]
+	)
+
+/**
+ * "Should this character's Play button be blocked right now" -- returns null
+ * (may play) or list("indefinite"=, "remaining_seconds"=). Unlocked is a
+ * furlough/parole-style bypass, not a release (confirmed with the user):
+ * the character may spawn/play despite their sentence, but the sentence
+ * itself (and the row backing it) is left untouched, so re-locking the pod
+ * -- or the pod vanishing entirely, per the core check -- resumes/ends
+ * enforcement exactly where the timer already is. Single source of truth
+ * for both the lobby Play-button gate (persistent_menu.dm) and
+ * PersistentAutoSpawn()'s defense-in-depth check.
+ */
+/proc/persistence_character_imprisonment_status(ckey, char_name)
+	var/list/core = _persistence_imprisonment_core(ckey, char_name)
+	if(!core)
+		return null
+	if(!core["cell"].frozen)
+		return null
+	return list("indefinite" = core["indefinite"], "remaining_seconds" = core["remaining_seconds"])
+
+/**
+ * Full imprisonment record for management UIs (the prison pod's own TGUI,
+ * the Prison Management program) -- unlike persistence_character_imprisonment_status(),
+ * this does NOT hide an unlocked/paroled prisoner (an operator still needs
+ * to see and manage them), and additionally reports the tied cell's locked
+ * state and a reference to it. Returns null if not currently imprisoned at
+ * all (same expiry/pod-missing clearing as the core proc).
+ */
+/proc/persistence_character_imprisonment_record(ckey, char_name)
+	var/list/core = _persistence_imprisonment_core(ckey, char_name)
+	if(!core)
+		return null
+	return list(
+		"indefinite"        = core["indefinite"],
+		"remaining_seconds" = core["remaining_seconds"],
+		"frozen"            = core["cell"].frozen,
+		"cell"              = core["cell"],
+		"faction_uid"       = core["faction_uid"]
+	)
+
+/// TRUE if ckey/char_name currently has an unexpired sentence -- the one
+/// live check every enforcement point (movement, speech, emotes) re-runs,
+/// so natural expiry lifts every restriction on its own without needing a
+/// separate timer/callback to unset anything.
+/proc/persistence_character_actively_imprisoned(ckey, char_name)
+	return !!_persistence_imprisonment_core(ckey, char_name)
 
 /**
  * Restore mob to their last saved position, or spawn at default landmark.

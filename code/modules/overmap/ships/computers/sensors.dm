@@ -179,7 +179,7 @@
 		for(var/obj/effect/overmap/contact in potential_contacts)
 			if(linked == contact)
 				continue
-			if(!contact.scannable)
+			if(!contact.scannable || !contact.is_detectable(user))
 				continue
 
 			var/obj/effect/overmap/visitable/ship/landable/contact_landable = contact

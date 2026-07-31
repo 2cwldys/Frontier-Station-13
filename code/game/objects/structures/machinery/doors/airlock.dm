@@ -2198,6 +2198,18 @@ About the new airlock wires panel:
 		if(isnull(faction_access))
 			return FALSE // not a member of this faction at all
 		return has_access(req_access, req_one_access, faction_access)
+	// Hub faction members above base/Civilian rank -- treat as holding every
+	// CentCom access code, on any door that actually gates on one (ordinary
+	// station doors are untouched). Doesn't apply to req_access_faction
+	// doors above; those already returned by this point. Rank comes from
+	// get_effective_faction_rank() (persistence_factions.dm) -- 0 is the
+	// default membership tier with no job title/promotion ("Civilian" on
+	// the ID card), so this deliberately requires > 0, not just membership.
+	if(length(req_access) || length(req_one_access))
+		var/list/all_centcom_access = get_all_centcom_access()
+		if((req_access && (req_access & all_centcom_access)) || (req_one_access && (req_one_access & all_centcom_access)))
+			if(get_effective_faction_rank(M, "hub") > 0)
+				return TRUE
 	return ..()
 
 #undef AIRLOCK_CRUSH_DIVISOR

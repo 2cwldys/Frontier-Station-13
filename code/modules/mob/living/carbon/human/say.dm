@@ -161,7 +161,11 @@
 		message = jointext(words, " ")
 		. = TRUE
 
-	if(silent || (sdisabilities & MUTE))
+	// A still-sentenced prisoner is silent even once thawed -- live-checked
+	// (not a flag to keep synced) so it lifts on its own the instant the
+	// sentence ends or someone ejects them, same as the movement block
+	// (cryopod_prison.dm's relaymove()/go_out()).
+	if(silent || (sdisabilities & MUTE) || (istype(loc, /obj/structure/machinery/cryopod/prison) && persistence_character_actively_imprisoned(ckey || persistence_stored_ckey, real_name)))
 		message = ""
 		. = TRUE
 

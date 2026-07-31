@@ -136,6 +136,13 @@
 	var/has_skybox_image = FALSE
 	var/obj/effect/overmap/visitable/ship/affected_ship
 	var/announce_to_sensor_console = FALSE
+	/// The overmap hazard (asteroid field etc.) that spawned this event via
+	/// setup_for_overmap(), if any -- lets overmap_event_handler kill every
+	/// event this specific hazard caused the instant it's deleted (a faction
+	/// beacon eviction, map-edge cleanup, etc.), regardless of whether the
+	/// affected ship's current overmap turf still matches the hazard's turf
+	/// at that exact instant.
+	var/obj/effect/overmap/event/source_hazard
 
 /datum/event/nothing
 	no_fake = 1
@@ -284,6 +291,7 @@
 	endWhen = INFINITY
 	affecting_z = ship.map_z
 	affected_ship = ship
+	source_hazard = hazard
 	announce_to_sensor_console = istype(ship, /obj/effect/overmap/visitable/ship/landable)
 	if(announce_to_sensor_console)
 		announceWhen = -1

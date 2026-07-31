@@ -52,9 +52,11 @@
 	if(A != current_location)
 		next_location = A
 
-/datum/shuttle/autodock/overmap/proc/get_possible_destinations()
+/datum/shuttle/autodock/overmap/proc/get_possible_destinations(mob/user)
 	var/list/res = list()
 	for (var/obj/effect/overmap/visitable/S in range(get_turf(waypoint_sector(current_location)), range))
+		if(istype(S, /obj/effect/overmap/visitable/ship) && !S.is_detectable(user))
+			continue
 		var/list/waypoints = S.get_waypoints(name)
 		for(var/obj/effect/shuttle_landmark/LZ in waypoints)
 			if(LZ.is_valid(src))

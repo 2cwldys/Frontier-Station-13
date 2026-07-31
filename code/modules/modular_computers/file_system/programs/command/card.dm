@@ -19,6 +19,15 @@
 	var/is_centcom = FALSE
 	var/show_assignments = FALSE
 
+/// world.time of each ckey's last MANUAL clock in/out ("toggle_clock" below
+/// only) -- keyed "[ckey]|[faction_uid]", not persisted (resets each server
+/// session, same as e.g. travel_pad's last_used_by_ckey). Automatic
+/// clock-outs (entering cryo, being imprisoned -- persistStoreCharacter(),
+/// persistence_cryo.dm) always bypass this -- they call
+/// factionSetClockedIn() directly, never through this action.
+GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
+#define FACTION_CLOCK_TOGGLE_COOLDOWN (5 MINUTES)
+
 /datum/computer_file/program/card_mod/ui_data(mob/user)
 	var/list/data = initial_data()
 
@@ -61,6 +70,26 @@
 					"accesses" = accesses)))
 			data["regions"] = regions
 
+	// Faction membership state -- deliberately in ui_data(), NOT
+	// ui_static_data() below, even though it's keyed off the same
+	// computer.persistent_network as the faction_jobs block there. These
+	// three flip the instant a player uses Dispense/Leave/Clock In-Out, and
+	// static data is a send-once-then-cached channel in this tgui framework
+	// (see ui_static_data()'s own doc comment, code/modules/tgui/external.dm)
+	// -- putting live-changing booleans there means the client never learns
+	// they changed until the program is fully closed and reopened.
+	var/net = computer ? normalize_faction_uid(computer.persistent_network) : ""
+	if(net)
+		var/already_member = user.ckey ? !!get_faction_member(user.ckey, net) : FALSE
+		data["can_dispense_faction_id"] = !already_member
+		data["can_leave_faction"] = already_member
+		var/list/clock_fmember = already_member ? get_faction_member(user.ckey, net) : null
+		data["clocked_in"] = clock_fmember ? !!clock_fmember["clocked_in"] : FALSE
+	else
+		data["can_dispense_faction_id"] = FALSE
+		data["can_leave_faction"] = FALSE
+		data["clocked_in"] = FALSE
+
 	return data
 
 /datum/computer_file/program/card_mod/ui_static_data(mob/user)
@@ -78,18 +107,14 @@
 		data["faction_jobs"]    = faction_jobs_formatted
 		data["faction_network"] = net
 		data["faction_name"]    = get_faction_name(net)
-		// Show dispense button when the user has no member record for this faction yet
-		var/mob/ui_user = usr
-		var/already_member = (ui_user && ui_user.ckey) ? !!get_faction_member(ui_user.ckey, net) : FALSE
-		data["can_dispense_faction_id"] = !already_member
 		// Officer field: rank >= 1 in this faction, or admin -- gates job assignment UI
+		var/mob/ui_user = usr
 		var/list/op_fmember = (ui_user && ui_user.ckey) ? get_faction_member(ui_user.ckey, net) : null
 		data["faction_officer"] = (op_fmember && (op_fmember["rank"] || 0) >= 1) || check_rights(R_ADMIN, 0, ui_user)
 	else
 		data["faction_jobs"]    = list()
 		data["faction_network"] = null
 		data["faction_name"]    = null
-		data["can_dispense_faction_id"] = FALSE
 		data["faction_officer"] = FALSE
 	return data
 
@@ -256,6 +281,17 @@
 				to_chat(usr, SPAN_WARNING("No crew record found for [user.real_name]. Cannot print replacement ID."))
 				return
 
+			// Refuse outright (before anything is revoked) if this would join
+			// them to a DIFFERENT faction than the one they already belong to
+			// -- single-faction membership. Reprinting for your OWN faction's
+			// console is unaffected (get_faction_member() already matches).
+			var/repl_net = computer ? normalize_faction_uid(computer.persistent_network) : ""
+			if(repl_net && !get_faction_member(user.ckey, repl_net))
+				var/repl_existing_faction = persistence_get_player_faction(user.ckey)
+				if(repl_existing_faction && normalize_faction_uid(repl_existing_faction) != repl_net)
+					to_chat(usr, SPAN_WARNING("You are already a part of a faction, leave that one first before you can join this one!"))
+					return
+
 			// Revoke any existing ID cards for this person in the world
 			for(var/obj/item/card/id/old_card in world)
 				if(!old_card.revoked && old_card.registered_name == user.real_name)
@@ -269,7 +305,6 @@
 			new_card.registered_name = user.real_name
 			new_card.assignment = R.rank || "Civilian"
 			new_card.rank = R.rank || "Civilian"
-			var/repl_net = computer ? normalize_faction_uid(computer.persistent_network) : ""
 			if(repl_net)
 				new_card.employer_faction = repl_net
 				// A replacement card only STAMPS employer_faction -- it never
@@ -319,11 +354,15 @@
 			// 2. Check mind.initial_account — set earlier this session by a previous ID operation
 			if(!rep_acct && user.mind && user.mind.initial_account)
 				rep_acct = user.mind.initial_account.account_number
-			// 3. Only if still nothing, create a brand-new account
+			// 3. Only if still nothing, create a brand-new account -- capture the
+			// return value directly (see dispense_faction_id's identical fix
+			// above) instead of re-deriving via user.mind.initial_account,
+			// which silently left the card's associated_account_number at 0
+			// whenever user.mind was null at this exact moment.
 			if(!rep_acct)
-				SSeconomy.create_and_assign_account(user)
-				if(user.mind && user.mind.initial_account)
-					rep_acct = user.mind.initial_account.account_number
+				var/datum/money_account/new_acct = SSeconomy.create_and_assign_account(user)
+				if(new_acct)
+					rep_acct = new_acct.account_number
 					rep_is_new = TRUE
 			new_card.associated_account_number = rep_acct
 
@@ -337,14 +376,25 @@
 			if(!placed_in_slot)
 				user.put_in_hands(new_card)
 
-			if(rep_is_new && rep_acct)
-				tgui_alert(user, "A personal Idris bank account has been created.\n\nAccount Number: #[rep_acct]\n\nYou will be asked to set a PIN next. Write this number down.", "Account Created", list("Set PIN"))
+			// Resolve the live account datum regardless of which step above found
+			// it -- the cache-lookup path (step 1) never touches
+			// user.mind.initial_account, so that var can't be trusted as "the
+			// account we just resolved" the way the fresh-create path could.
+			var/datum/money_account/rep_account = rep_acct ? SSeconomy.get_account(rep_acct) : null
+			// Fires the first time EVER a player sees this popup, not just when
+			// the account itself happens to be brand new -- most accounts are
+			// actually minted silently at roundstart (job.dm's setup_account()),
+			// so gating this on rep_is_new alone almost never actually showed it.
+			var/rep_show_intro = rep_account && !rep_account.intro_shown
+			if(rep_show_intro)
+				rep_account.intro_shown = TRUE
+				tgui_alert(user, "[rep_is_new ? "A new personal Idris bank account has been created for you." : "This ID has been linked to your existing personal Idris bank account."]\n\nAccount Number: #[rep_acct]\n\nYou will be asked to set a PIN next. Write this number down.", "Idris Bank Account", list("Set PIN"))
 				var/rep_pin = tgui_input_text(user, "Set a PIN for ATM access (4-8 digits). Leave blank to skip.", "Set ATM PIN", "", max_length = 8)
 				var/pin_display = "(random -- set at ATM)"
 				if(rep_pin && length(rep_pin) >= 4 && text2num(rep_pin))
-					if(user.mind?.initial_account)
-						user.mind.initial_account.remote_access_pin = text2num(rep_pin)
+					rep_account.remote_access_pin = text2num(rep_pin)
 					pin_display = rep_pin
+				SSpersistence.economySaveAccountNow(rep_account)
 				var/rep_note = "Idris Account: #[rep_acct] | PIN: [pin_display] | Insert ID at any Idris ATM."
 				if(GLOB.config.sql_enabled && SSdbcore.Connect())
 					var/datum/db_query/rn_q = SSdbcore.NewQuery(
@@ -378,6 +428,13 @@
 			var/faction_name = get_faction_name(disp_net)
 			// If already a member, reprint instead
 			var/already_member = !!get_faction_member(user.ckey, disp_net)
+			// Refuse joining a DIFFERENT faction than the one already belonged
+			// to -- single-faction membership, same guard as print_replacement.
+			if(!already_member)
+				var/disp_existing_faction = persistence_get_player_faction(user.ckey)
+				if(disp_existing_faction && normalize_faction_uid(disp_existing_faction) != disp_net)
+					to_chat(user, SPAN_WARNING("You are already a part of a faction, leave that one first before you can join this one!"))
+					return
 			// Revoke any existing faction ID cards for this person
 			for(var/obj/item/card/id/old_card in world)
 				if(!old_card.revoked && old_card.registered_name == user.real_name && old_card.employer_faction == disp_net)
@@ -395,10 +452,17 @@
 			if(!dispense_acct && user.mind && user.mind.initial_account)
 				dispense_acct = user.mind.initial_account.account_number
 			if(!dispense_acct)
-				// Not in cache — create a fresh unique account and save to DB via economy persistence
-				SSeconomy.create_and_assign_account(user)
-				if(user.mind && user.mind.initial_account)
-					dispense_acct = user.mind.initial_account.account_number
+				// Not in cache — create a fresh unique account and save to DB via
+				// economy persistence. Capture the return value directly instead
+				// of re-deriving it via user.mind.initial_account -- that assign
+				// only happens inside create_and_assign_account()'s own
+				// `if(mob.mind)` guard, so a null mind at this exact moment used
+				// to leave the card stamped with associated_account_number = 0
+				// (a real account existed, just never linked to the card) --
+				// silently dead for any future payment, including vending.
+				var/datum/money_account/new_acct = SSeconomy.create_and_assign_account(user)
+				if(new_acct)
+					dispense_acct = new_acct.account_number
 					acct_is_new = TRUE
 
 			// Dispense new blank faction ID
@@ -421,11 +485,22 @@
 			SSpersistence.factionRegisterMember(user.ckey, user.real_name, disp_net)
 			if(dispense_acct)
 				SSpersistence.factionUpdateMemberAccount(user.ckey, disp_net, dispense_acct)
-			if(acct_is_new && dispense_acct)
+			// Resolve the live account datum regardless of which step above found
+			// it -- the cache-lookup path (step 1) never touches
+			// user.mind.initial_account, so that var can't be trusted as "the
+			// account we just resolved" the way the fresh-create path could.
+			var/datum/money_account/acct = dispense_acct ? SSeconomy.get_account(dispense_acct) : null
+			// Fires the first time EVER a player sees this popup, not just when
+			// the account itself happens to be brand new -- most accounts are
+			// actually minted silently at roundstart (job.dm's setup_account()),
+			// so gating this on acct_is_new alone almost never actually showed it.
+			var/show_intro = acct && !acct.intro_shown
+			if(show_intro)
+				acct.intro_shown = TRUE
 				// Walk the player through setting their PIN and safekeeping their account info
 				tgui_alert(user,
-					"A personal Idris bank account has been created.\n\nAccount Number: #[dispense_acct]\n\nYou will be asked to set a PIN next. Write this number down.",
-					"Account Created", list("Set PIN"))
+					"[acct_is_new ? "A new personal Idris bank account has been created for you." : "This ID has been linked to your existing personal Idris bank account."]\n\nAccount Number: #[dispense_acct]\n\nYou will be asked to set a PIN next. Write this number down.",
+					"Idris Bank Account", list("Set PIN"))
 
 				var/chosen_pin = tgui_input_text(user,
 					"Set a PIN for remote ATM access (4-8 digits).\nLeave blank to skip — a random PIN will be assigned.",
@@ -433,9 +508,9 @@
 
 				var/pin_display = "(random — set at ATM)"
 				if(chosen_pin && length(chosen_pin) >= 4 && text2num(chosen_pin))
-					if(user.mind?.initial_account)
-						user.mind.initial_account.remote_access_pin = text2num(chosen_pin)
+					acct.remote_access_pin = text2num(chosen_pin)
 					pin_display = chosen_pin
+				SSpersistence.economySaveAccountNow(acct)
 
 				// Save account info persistently to ss13_crew_records
 				var/acct_note = "Idris Account: #[dispense_acct] | PIN: [pin_display] | Use any Idris SelfServ Teller (insert ID, no PIN needed if card is present)."
@@ -463,6 +538,71 @@
 
 			var/area/dispense_area = get_area(computer)
 			log_admin("[user.key] received a [disp_net] faction ID from [computer] at [dispense_area ? dispense_area.name : "unknown"].")
+			. = TRUE
+
+		// ── Leave faction (self-service, direct inverse of dispense above) ──
+		// Revokes the user's own live faction ID(s) and erases their
+		// membership record -- no rank restriction, anyone can leave their
+		// own faction. Notifies the rest of the faction the same way an
+		// alliance event does (notify_faction_members(), persistence_factions.dm).
+		if("leave_faction")
+			if(!computer || !computer.persistent_network)
+				return
+			var/leave_net = normalize_faction_uid(computer.persistent_network)
+			if(!user.ckey || !user.real_name)
+				return
+			if(!get_faction_member(user.ckey, leave_net))
+				to_chat(user, SPAN_WARNING("You aren't a member of [get_faction_name(leave_net)]."))
+				return
+
+			var/leave_confirm = tgui_alert(user, "Leave [get_faction_name(leave_net)]? Your faction ID access will be revoked and your membership record erased. You would need to be re-issued an ID to rejoin.", "Leave Faction", list("Leave", "Cancel"))
+			if(leave_confirm != "Leave") return
+
+			if(!SSpersistence.factionRemoveMember(user.ckey, leave_net))
+				to_chat(user, SPAN_WARNING("Failed to leave -- database error. Your ID access is unchanged. Try again shortly."))
+				return
+
+			for(var/obj/item/card/id/old_card in world)
+				if(!old_card.revoked && old_card.registered_name == user.real_name && normalize_faction_uid(old_card.employer_faction) == leave_net)
+					old_card.revoked = TRUE
+					old_card.access = list()
+					old_card.update_name()
+			notify_faction_members(leave_net, SPAN_WARNING("[user.real_name] has left [get_faction_name(leave_net)]."))
+
+			to_chat(user, SPAN_GOOD("You have left [get_faction_name(leave_net)]."))
+			log_game("[key_name(user)] left faction '[leave_net]' via ID Card Modification.")
+			. = TRUE
+
+		// ── Clock in / out (gates factionPayroll(), persistence_factions.dm) ──
+		// No confirm dialog -- fully reversible, routine action, unlike
+		// Leave Faction above. Broadcasts to the rest of the faction the same
+		// way an alliance event does; the automatic clock-out on entering
+		// cryo (persistStoreCharacter(), persistence_cryo.dm) deliberately
+		// stays silent since that's a system side-effect, not a deliberate
+		// clock-out.
+		if("toggle_clock")
+			if(!computer || !computer.persistent_network)
+				return
+			var/clock_net = normalize_faction_uid(computer.persistent_network)
+			var/list/clock_member = user.ckey ? get_faction_member(user.ckey, clock_net) : null
+			if(!clock_member)
+				to_chat(user, SPAN_WARNING("You aren't a member of [get_faction_name(clock_net)]."))
+				return
+			var/clock_cooldown_key = "[user.ckey]|[clock_net]"
+			var/clock_last_toggle = GLOB.faction_clock_toggle_cooldown[clock_cooldown_key]
+			if(clock_last_toggle && (world.time - clock_last_toggle < FACTION_CLOCK_TOGGLE_COOLDOWN))
+				to_chat(user, SPAN_WARNING("You can't clock [clock_member["clocked_in"] ? "out" : "in"] again so soon -- try again in [DisplayTimeText(FACTION_CLOCK_TOGGLE_COOLDOWN - (world.time - clock_last_toggle))]."))
+				return
+			var/new_clock_state = !clock_member["clocked_in"]
+			if(!SSpersistence.factionSetClockedIn(user.ckey, clock_net, new_clock_state))
+				to_chat(user, SPAN_WARNING("Failed to clock [new_clock_state ? "in" : "out"] -- database error. Try again shortly."))
+				return
+			// Cooldown only actually starts on a confirmed success -- a failed
+			// attempt above shouldn't cost the player 5 minutes for nothing.
+			GLOB.faction_clock_toggle_cooldown[clock_cooldown_key] = world.time
+			notify_faction_members(clock_net, SPAN_NOTICE("[user.real_name] has clocked [new_clock_state ? "in" : "out"] with [get_faction_name(clock_net)]."))
+			to_chat(user, SPAN_GOOD(new_clock_state ? "You clock in with [get_faction_name(clock_net)]." : "You clock out from [get_faction_name(clock_net)]."))
+			log_game("[key_name(user)] clocked [new_clock_state ? "in" : "out"] with faction '[clock_net]' via ID Card Modification.")
 			. = TRUE
 
 		// ── Faction job assign ────────────────────────────────────────────
@@ -532,6 +672,16 @@
 		to_chat(user, SPAN_WARNING("No crew record found for [user.real_name]. Cannot print replacement."))
 		return
 
+	// Refuse outright (before anything is revoked) if this would join them
+	// to a DIFFERENT faction than the one they already belong to -- see
+	// print_replacement's identical guard above.
+	var/verb_repl_net = computer ? normalize_faction_uid(computer.persistent_network) : ""
+	if(verb_repl_net && !get_faction_member(user.ckey, verb_repl_net))
+		var/verb_existing_faction = persistence_get_player_faction(user.ckey)
+		if(verb_existing_faction && normalize_faction_uid(verb_existing_faction) != verb_repl_net)
+			to_chat(user, SPAN_WARNING("You are already a part of a faction, leave that one first before you can join this one!"))
+			return
+
 	// Revoke existing cards
 	for(var/obj/item/card/id/old_card in world)
 		if(!old_card.revoked && old_card.registered_name == user.real_name)
@@ -545,7 +695,6 @@
 	new_card.registered_name = user.real_name
 	new_card.assignment = R.rank || "Civilian"
 	new_card.rank = R.rank || "Civilian"
-	var/verb_repl_net = computer ? normalize_faction_uid(computer.persistent_network) : ""
 	if(verb_repl_net)
 		new_card.employer_faction = verb_repl_net
 		// See print_replacement's identical fix -- a replacement card only
@@ -577,16 +726,55 @@
 
 	// Link existing bank account -- only mint a new one if the player has none anywhere
 	var/verb_acct = 0
+	var/verb_is_new = FALSE
 	var/list/verb_econ = GLOB.persistence_economy_cache["[user.ckey]|[user.real_name]"]
 	if(islist(verb_econ))
 		verb_acct = verb_econ["account_number"] || 0
 	if(!verb_acct && user.mind && user.mind.initial_account)
 		verb_acct = user.mind.initial_account.account_number
 	if(!verb_acct)
-		SSeconomy.create_and_assign_account(user)
-		if(user.mind && user.mind.initial_account)
-			verb_acct = user.mind.initial_account.account_number
+		// Capture the return value directly (see dispense_faction_id's
+		// identical fix) instead of re-deriving via user.mind.initial_account,
+		// which silently left associated_account_number at 0 whenever
+		// user.mind was null at this exact moment.
+		var/datum/money_account/new_acct = SSeconomy.create_and_assign_account(user)
+		if(new_acct)
+			verb_acct = new_acct.account_number
+			verb_is_new = TRUE
 	new_card.associated_account_number = verb_acct
+
+	// Resolve the live account datum regardless of which step above found it,
+	// and show the same one-time account-info/PIN-setup popup the tgui
+	// print_replacement action has -- this verb is just another entry point
+	// to the same self-service replacement flow, so it should onboard a
+	// player exactly the same way (most accounts are actually minted
+	// silently at roundstart, job.dm's setup_account(), so this can't be
+	// gated on verb_is_new alone or it'll almost never show).
+	var/datum/money_account/verb_account = verb_acct ? SSeconomy.get_account(verb_acct) : null
+	if(verb_account && !verb_account.intro_shown)
+		verb_account.intro_shown = TRUE
+		tgui_alert(user, "[verb_is_new ? "A new personal Idris bank account has been created for you." : "This ID has been linked to your existing personal Idris bank account."]\n\nAccount Number: #[verb_acct]\n\nYou will be asked to set a PIN next. Write this number down.", "Idris Bank Account", list("Set PIN"))
+		var/verb_pin = tgui_input_text(user, "Set a PIN for ATM access (4-8 digits). Leave blank to skip.", "Set ATM PIN", "", max_length = 8)
+		var/verb_pin_display = "(random -- set at ATM)"
+		if(verb_pin && length(verb_pin) >= 4 && text2num(verb_pin))
+			verb_account.remote_access_pin = text2num(verb_pin)
+			verb_pin_display = verb_pin
+		SSpersistence.economySaveAccountNow(verb_account)
+		var/verb_note = "Idris Account: #[verb_acct] | PIN: [verb_pin_display] | Insert ID at any Idris ATM."
+		if(GLOB.config.sql_enabled && SSdbcore.Connect())
+			var/datum/db_query/vn_q = SSdbcore.NewQuery(
+				{"INSERT INTO ss13_crew_records (ckey, char_name, ccia_notes, saved_at)
+				VALUES (:ckey, :name, :note, NOW())
+				ON DUPLICATE KEY UPDATE ccia_notes = VALUES(ccia_notes), saved_at = NOW()"},
+				list("ckey" = user.ckey, "name" = user.real_name, "note" = verb_note)
+			)
+			vn_q.Execute()
+			qdel(vn_q)
+		R.ccia_record = verb_note
+		to_chat(user, SPAN_GOOD("[icon2html(new_card, user)] KEEP SAFE -- Account: #[verb_acct] | PIN: [verb_pin_display]"))
+		to_chat(user, SPAN_NOTICE("Saved in your crew record. Access at any Idris SelfServ Teller."))
+	else if(verb_acct)
+		to_chat(user, SPAN_NOTICE("Existing bank account #[verb_acct] linked to this ID."))
 
 	user.put_in_hands(new_card)
 	to_chat(user, SPAN_GOOD("Replacement ID card printed. Previous card(s) revoked."))

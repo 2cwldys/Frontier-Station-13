@@ -37,7 +37,14 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	if(!databaseCheckConnection("factionInitialize"))
 		return
 
-	// Load faction info + balances
+	// Load faction info + balances -- CORE columns only, stable since long
+	// before the recent burst of schema growth (cargo category/leader/
+	// company-tier). Keep this list frozen to long-established columns: a
+	// missing NEW column here would fail the whole query and silently empty
+	// the entire faction cache (every faction-uid lookup in the game then
+	// treats every faction as nonexistent), which is exactly the cascade
+	// _factionLoadExtendedColumns() below exists to avoid. Add future new
+	// ss13_factions columns to that proc, not this query.
 	try
 		var/datum/db_query/q = SSdbcore.NewQuery(
 			{"SELECT f.uid, f.name, f.abbreviation, COALESCE(a.balance, 0), COALESCE(a.cards_epoch, 0), f.founder_ckey, COALESCE(a.master_card_lost, 0), f.color, COALESCE(f.auto_payroll, 1)
@@ -58,9 +65,20 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 					"founder_ckey"     = q.item[6],
 					"master_card_lost" = !!text2num(q.item[7]),
 					"color"            = q.item[8],
-					"auto_payroll"     = !!text2num(q.item[9])
+					"auto_payroll"     = !!text2num(q.item[9]),
+					// Safe defaults for the newer, migration-dependent columns
+					// -- _factionLoadExtendedColumns() below fills these in
+					// for real if the schema has caught up; if it hasn't,
+					// every OTHER faction feature (membership, rank, ID
+					// tagging, balances, payroll) keeps working normally
+					// instead of the whole cache going empty.
+					"allowed_cargo_category" = null,
+					"leader_ckey"      = null,
+					"leader_char_name" = null,
+					"is_company_tier"  = FALSE
 				)
 			GLOB.persistence_faction_cache = loaded // only replace on confirmed success
+			_factionLoadExtendedColumns()
 		else
 			message_admins("Faction load query failed -- factions may be running on stale/empty data. Check DB schema (db_update?).")
 		qdel(q)
@@ -104,10 +122,14 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 		message_admins("Faction jobs load threw an exception: [faction_jobs_e] -- faction jobs may be running on stale/empty data.")
 		log_subsystem_persistence_error("Factions: failed to load faction jobs: [faction_jobs_e]")
 
-	// Load faction members (include account_number for payroll; column may not exist yet on old DBs)
+	// Load faction members -- CORE columns only (account_number is a newer,
+	// migration-dependent column, split out below via _factionLoadAccountNumbers()
+	// so a schema that hasn't caught up yet only leaves payroll account
+	// numbers at their 0 default instead of failing the whole members load,
+	// same reasoning as _factionLoadExtendedColumns() above).
 	try
 		var/datum/db_query/mq = SSdbcore.NewQuery(
-			"SELECT ckey, faction_uid, real_name, job_title, rank, IFNULL(account_number, 0) FROM ss13_faction_members",
+			"SELECT ckey, faction_uid, real_name, job_title, rank FROM ss13_faction_members",
 			list()
 		)
 		mq.Execute()
@@ -119,9 +141,11 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 					"real_name"      = mq.item[3],
 					"job_title"      = mq.item[4],
 					"rank"           = text2num(mq.item[5]) || 0,
-					"account_number" = text2num(mq.item[6]) || 0
+					"account_number" = 0,
+					"clocked_in"     = FALSE
 				)
 			GLOB.persistence_faction_members_cache = loaded_members // only replace on confirmed success
+			_factionLoadAccountNumbers()
 		else
 			message_admins("Faction members load query failed -- faction members may be running on stale/empty data. Check DB schema (db_update?).")
 		qdel(mq)
@@ -130,6 +154,65 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 		log_subsystem_persistence_error("Factions: failed to load faction members: [faction_members_e]")
 
 	log_subsystem_persistence_info("Factions: Loaded [length(GLOB.persistence_faction_cache)] factions, [length(GLOB.persistence_faction_members_cache)] members.")
+
+/// Best-effort enrichment of GLOB.persistence_faction_cache with newer,
+/// migration-dependent ss13_factions columns (allowed_cargo_category/
+/// leader_ckey/leader_char_name/is_company_tier) -- kept in its own query,
+/// separate from factionInitialize()'s core faction load, specifically so a
+/// schema that hasn't caught up yet (a migration that hasn't been run)
+/// only leaves THESE particular fields at their safe defaults instead of
+/// failing the entire faction cache load. Add the next new ss13_factions
+/// column here, not to the core query.
+/datum/controller/subsystem/persistence/proc/_factionLoadExtendedColumns()
+	PRIVATE_PROC(TRUE)
+	try
+		var/datum/db_query/eq = SSdbcore.NewQuery(
+			"SELECT uid, allowed_cargo_category, leader_ckey, leader_char_name, is_company_tier FROM ss13_factions",
+			list()
+		)
+		eq.Execute()
+		if(databaseCheckQueryResult(eq, "factionInitialize extended columns"))
+			while(eq.NextRow())
+				var/uid = normalize_faction_uid(eq.item[1])
+				if(!(uid in GLOB.persistence_faction_cache))
+					continue
+				GLOB.persistence_faction_cache[uid]["allowed_cargo_category"] = eq.item[2]
+				GLOB.persistence_faction_cache[uid]["leader_ckey"] = eq.item[3]
+				GLOB.persistence_faction_cache[uid]["leader_char_name"] = eq.item[4]
+				GLOB.persistence_faction_cache[uid]["is_company_tier"] = !!text2num(eq.item[5])
+		else
+			message_admins("Faction extended-columns load failed -- cargo category/leader/company-tier data unavailable until the schema is updated (db_update?). Core faction data is unaffected.")
+		qdel(eq)
+	catch(var/exception/ext_e)
+		message_admins("Faction extended-columns load threw an exception: [ext_e] -- cargo category/leader/company-tier data unavailable. Core faction data is unaffected.")
+		log_subsystem_persistence_error("Factions: failed to load extended columns: [ext_e]")
+
+/// Best-effort enrichment of GLOB.persistence_faction_members_cache with the
+/// newer, migration-dependent account_number column -- same reasoning as
+/// _factionLoadExtendedColumns() above, split out so a schema that hasn't
+/// caught up only leaves payroll account numbers at their 0 default instead
+/// of failing the entire members load.
+/datum/controller/subsystem/persistence/proc/_factionLoadAccountNumbers()
+	PRIVATE_PROC(TRUE)
+	try
+		var/datum/db_query/aq = SSdbcore.NewQuery(
+			"SELECT ckey, faction_uid, account_number, clocked_in FROM ss13_faction_members",
+			list()
+		)
+		aq.Execute()
+		if(databaseCheckQueryResult(aq, "factionInitialize account numbers"))
+			while(aq.NextRow())
+				var/mkey = "[aq.item[1]]|[normalize_faction_uid(aq.item[2])]"
+				if(!(mkey in GLOB.persistence_faction_members_cache))
+					continue
+				GLOB.persistence_faction_members_cache[mkey]["account_number"] = text2num(aq.item[3]) || 0
+				GLOB.persistence_faction_members_cache[mkey]["clocked_in"] = !!text2num(aq.item[4])
+		else
+			message_admins("Faction member account-number load failed -- payroll account numbers unavailable until the schema is updated (db_update?). Core member data is unaffected.")
+		qdel(aq)
+	catch(var/exception/acct_e)
+		message_admins("Faction member account-number load threw an exception: [acct_e] -- payroll account numbers unavailable. Core member data is unaffected.")
+		log_subsystem_persistence_error("Factions: failed to load member account numbers: [acct_e]")
 
 // ============================================================
 // FINALIZE
@@ -165,6 +248,18 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 // FOUNDING PETITIONS
 // ============================================================
 
+/// Resolves the founding cost/supporter-threshold for a petition's tier --
+/// FACTION_CREATION_COST_COMPANY/FACTION_FOUNDING_REQUIRED_SUPPORTERS_COMPANY
+/// (25,000cr/5) for a Company, or the original full-faction constants
+/// (100,000cr/10) otherwise. The only OTHER difference between tiers --
+/// cargo access -- is handled directly in tryFinalizeFounding() via
+/// FACTION_CARGO_CATEGORY_ALL, not through these helpers.
+/proc/faction_founding_cost(is_company)
+	return is_company ? FACTION_CREATION_COST_COMPANY : FACTION_CREATION_COST
+
+/proc/faction_founding_required_supporters(is_company)
+	return is_company ? FACTION_FOUNDING_REQUIRED_SUPPORTERS_COMPANY : FACTION_FOUNDING_REQUIRED_SUPPORTERS
+
 /datum/controller/subsystem/persistence/proc/factionFoundingInitialize()
 	PRIVATE_PROC(TRUE)
 	GLOB.persistence_faction_founding_petitions = list()
@@ -174,7 +269,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 
 	try
 		var/datum/db_query/q = SSdbcore.NewQuery(
-			"SELECT faction_uid, founder_ckey, founder_name, faction_name, abbreviation FROM ss13_faction_founding_petitions",
+			"SELECT faction_uid, founder_ckey, founder_name, faction_name, abbreviation, cargo_category, is_company FROM ss13_faction_founding_petitions",
 			list()
 		)
 		q.Execute()
@@ -185,6 +280,8 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 					"founder_name" = q.item[3],
 					"faction_name" = q.item[4],
 					"abbreviation" = q.item[5],
+					"cargo_category" = q.item[6],
+					"is_company"   = !!text2num(q.item[7]),
 					"supporters"   = list()
 				)
 		qdel(q)
@@ -208,13 +305,13 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 
 	log_subsystem_persistence_info("Factions: Loaded [length(GLOB.persistence_faction_founding_petitions)] founding petitions.")
 
-/datum/controller/subsystem/persistence/proc/startFoundingPetition(faction_uid, founder_ckey, founder_name, faction_name, abbreviation)
+/datum/controller/subsystem/persistence/proc/startFoundingPetition(faction_uid, founder_ckey, founder_name, faction_name, abbreviation, cargo_category, is_company = FALSE)
 	faction_uid = normalize_faction_uid(faction_uid)
 	if(!databaseCheckConnection("startFoundingPetition"))
 		return FALSE
 	var/datum/db_query/q = SSdbcore.NewQuery(
-		"INSERT INTO ss13_faction_founding_petitions (faction_uid, founder_ckey, founder_name, faction_name, abbreviation) VALUES (:uid, :ckey, :name, :fname, :abbr)",
-		list("uid" = faction_uid, "ckey" = founder_ckey, "name" = founder_name, "fname" = faction_name, "abbr" = abbreviation)
+		"INSERT INTO ss13_faction_founding_petitions (faction_uid, founder_ckey, founder_name, faction_name, abbreviation, cargo_category, is_company) VALUES (:uid, :ckey, :name, :fname, :abbr, :cat, :company)",
+		list("uid" = faction_uid, "ckey" = founder_ckey, "name" = founder_name, "fname" = faction_name, "abbr" = abbreviation, "cat" = cargo_category, "company" = is_company ? 1 : 0)
 	)
 	q.Execute()
 	var/ok = databaseCheckQueryResult(q, "startFoundingPetition")
@@ -225,6 +322,8 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 			"founder_name" = founder_name,
 			"faction_name" = faction_name,
 			"abbreviation" = abbreviation,
+			"cargo_category" = cargo_category,
+			"is_company"   = is_company,
 			"supporters"   = list()
 		)
 	return ok
@@ -282,7 +381,9 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	var/list/petition = GLOB.persistence_faction_founding_petitions[faction_uid]
 	if(!petition)
 		return FALSE
-	if(length(petition["supporters"]) < FACTION_FOUNDING_REQUIRED_SUPPORTERS)
+	var/is_company = petition["is_company"]
+	var/founding_cost = faction_founding_cost(is_company)
+	if(length(petition["supporters"]) < faction_founding_required_supporters(is_company))
 		return FALSE
 	if(islist(GLOB.persistence_faction_cache) && (faction_uid in GLOB.persistence_faction_cache))
 		cancelFoundingPetition(faction_uid)
@@ -309,17 +410,28 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 		qdel(aq)
 
 	var/datum/money_account/acc = acct_num ? SSeconomy.get_account(acct_num) : null
-	if(!acc || acc.money < FACTION_CREATION_COST)
+	if(!acc || acc.money < founding_cost)
 		return FALSE // stays queued -- retried next sweep/poll
 
 	if(!databaseCheckConnection("tryFinalizeFounding"))
 		return FALSE
 
-	SSeconomy.charge_to_account(acct_num, "Faction Founding", "Founded faction '[petition["faction_name"]]'", null, -FACTION_CREATION_COST)
+	SSeconomy.charge_to_account(acct_num, "Faction Founding", "Founded faction '[petition["faction_name"]]'", null, -founding_cost)
+
+	// Full-tier (non-Company) factions get unrestricted cargo access across
+	// every category, the same FACTION_CARGO_CATEGORY_ALL sentinel Hub and
+	// the admin "(All)" override already use -- a Company stays limited to
+	// the single category it picked during founding, same as every faction
+	// works today. Meaningless (and left alone) when the feature is off.
+	var/founding_category = petition["cargo_category"]
+#ifdef FACTION_CARGO_SPECIALIZATION
+	if(!is_company)
+		founding_category = FACTION_CARGO_CATEGORY_ALL
+#endif //FACTION_CARGO_SPECIALIZATION
 
 	var/datum/db_query/cf_q1 = SSdbcore.NewQuery(
-		"INSERT INTO ss13_factions (uid, name, abbreviation, is_lore, founder_ckey) VALUES (:uid, :name, :abbr, 0, :founder)",
-		list("uid" = faction_uid, "name" = petition["faction_name"], "abbr" = petition["abbreviation"], "founder" = founder_ckey)
+		"INSERT INTO ss13_factions (uid, name, abbreviation, is_lore, founder_ckey, allowed_cargo_category, cargo_category_changed_at, is_company_tier) VALUES (:uid, :name, :abbr, 0, :founder, :cat, NOW(), :company)",
+		list("uid" = faction_uid, "name" = petition["faction_name"], "abbr" = petition["abbreviation"], "founder" = founder_ckey, "cat" = founding_category, "company" = is_company ? 1 : 0)
 	)
 	cf_q1.Execute()
 	databaseCheckQueryResult(cf_q1, "tryFinalizeFounding insert")
@@ -327,7 +439,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 
 	var/datum/db_query/cf_q2 = SSdbcore.NewQuery(
 		"INSERT INTO ss13_faction_accounts (faction_uid, balance) VALUES (:uid, :balance) ON DUPLICATE KEY UPDATE balance = VALUES(balance), saved_at = NOW()",
-		list("uid" = faction_uid, "balance" = FACTION_CREATION_COST)
+		list("uid" = faction_uid, "balance" = founding_cost)
 	)
 	cf_q2.Execute()
 	databaseCheckQueryResult(cf_q2, "tryFinalizeFounding account")
@@ -335,7 +447,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 
 	if(!islist(GLOB.persistence_faction_cache))
 		GLOB.persistence_faction_cache = list()
-	GLOB.persistence_faction_cache[faction_uid] = list("name" = petition["faction_name"], "abbreviation" = petition["abbreviation"], "balance" = FACTION_CREATION_COST, "founder_ckey" = founder_ckey, "master_card_lost" = FALSE)
+	GLOB.persistence_faction_cache[faction_uid] = list("name" = petition["faction_name"], "abbreviation" = petition["abbreviation"], "balance" = founding_cost, "founder_ckey" = founder_ckey, "master_card_lost" = FALSE, "allowed_cargo_category" = founding_category, "is_company_tier" = is_company)
 	if(!islist(GLOB.persistence_faction_jobs_cache))
 		GLOB.persistence_faction_jobs_cache = list()
 	GLOB.persistence_faction_jobs_cache[faction_uid] = list()
@@ -349,6 +461,21 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	// delivery lookup already uses.
 	var/client/founder_client = GLOB.directory[founder_ckey]
 	var/mob/founder_mob = founder_client ? founder_client.mob : null
+
+	// Company tier only -- auto-list on the stock exchange and seed the
+	// founder at 100% shares (CEO), the exact same two steps the manual
+	// "List on Stock Exchange" officer action performs (faction_manage.dm).
+	// Both procs are offline-safe (founder_mob may be null here) -- matches
+	// this whole proc's own offline-safe design. A listing failure is
+	// logged but never blocks faction creation itself, same as a failed
+	// master card spawn a few lines below.
+	if(is_company)
+		var/list_fail = stockMarketListFaction(faction_uid, founder_mob)
+		if(list_fail)
+			message_admins("Company '[petition["faction_name"]]' ([faction_uid]) founded, but auto-listing on the stock exchange failed: [list_fail]")
+		else
+			factionGrantShareholder(faction_uid, founder_ckey, petition["founder_name"], 100, "Company Founding", null)
+
 	var/turf/spawn_turf = founder_mob ? get_turf(founder_mob) : null
 	if(!spawn_turf)
 		for(var/obj/item/modular_computer/MC in world)
@@ -363,9 +490,9 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 		message_admins("Faction '[petition["faction_name"]]' ([faction_uid]) founded, but no valid location was found to print its master card -- spawn one manually.")
 
 	if(founder_mob)
-		to_chat(founder_mob, SPAN_GOOD("Founding petition successful! '[petition["faction_name"]]' ([faction_uid]) is now a registered faction with a starting balance of [FACTION_CREATION_COST] credits.[spawn_turf ? " A faction master card has been printed." : ""]"))
-	log_game("Founding petition for '[faction_uid]' ([petition["faction_name"]]) succeeded -- founder [petition["founder_name"]] ([founder_ckey]), [length(petition["supporters"])] supporters, [FACTION_CREATION_COST] credits paid.")
-	message_admins("A founding petition succeeded: '[petition["faction_name"]]' ([faction_uid]), founded by [petition["founder_name"]] ([founder_ckey]) with [length(petition["supporters"])] supporters, paying [FACTION_CREATION_COST] credits.[founder_mob ? " (<a href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[founder_mob.x];Y=[founder_mob.y];Z=[founder_mob.z]'>JMP</a>)" : ""]")
+		to_chat(founder_mob, SPAN_GOOD("Founding petition successful! '[petition["faction_name"]]' ([faction_uid]) is now a registered [is_company ? "company" : "faction"] with a starting balance of [founding_cost] credits.[spawn_turf ? " A faction master card has been printed." : ""][is_company ? " It has been automatically listed on the stock exchange -- you hold 100% of its shares." : ""]"))
+	log_game("Founding petition for '[faction_uid]' ([petition["faction_name"]]) succeeded -- founder [petition["founder_name"]] ([founder_ckey]), [length(petition["supporters"])] supporters, [founding_cost] credits paid, tier [is_company ? "Company" : "Full Faction"].")
+	message_admins("A founding petition succeeded: '[petition["faction_name"]]' ([faction_uid]), founded by [petition["founder_name"]] ([founder_ckey]) with [length(petition["supporters"])] supporters, paying [founding_cost] credits ([is_company ? "Company" : "Full Faction"] tier).[founder_mob ? " (<a href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[founder_mob.x];Y=[founder_mob.y];Z=[founder_mob.z]'>JMP</a>)" : ""]")
 
 	cancelFoundingPetition(faction_uid)
 	return TRUE
@@ -382,8 +509,210 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 		return
 	for(var/faction_uid in GLOB.persistence_faction_founding_petitions.Copy())
 		var/list/petition = GLOB.persistence_faction_founding_petitions[faction_uid]
-		if(islist(petition) && length(petition["supporters"]) >= FACTION_FOUNDING_REQUIRED_SUPPORTERS)
+		if(islist(petition) && length(petition["supporters"]) >= faction_founding_required_supporters(petition["is_company"]))
 			tryFinalizeFounding(faction_uid)
+
+/// Simple to_chat notification for faction-wide events -- messages every
+/// currently-connected human mob whose ID card marks them a member of uid,
+/// so the whole faction finds out immediately instead of only noticing next
+/// time they happen to open Faction Management. Not alliance-specific (used
+/// by Leave Faction, card.dm, too) -- kept always-compiled rather than
+/// under #ifdef FACTION_ALLIANCES, even though that's the feature that
+/// first introduced it.
+/proc/notify_faction_members(uid, message)
+	uid = normalize_faction_uid(uid)
+	if(!uid)
+		return
+	for(var/mob/living/carbon/human/H in GLOB.human_mob_list)
+		if(!H.client)
+			continue
+		var/obj/item/card/id/ID = H.GetIdCard()
+		if(!ID || !ID.employer_faction)
+			continue
+		if(normalize_faction_uid(ID.employer_faction) != uid)
+			continue
+		to_chat(H, message)
+
+// ============================================================
+// FACTION ALLIANCES
+// ============================================================
+
+#ifdef FACTION_ALLIANCES
+/// Adjacency list: uid -> list of allied uids, populated in BOTH directions
+/// regardless of which column order a row was stored under.
+GLOBAL_LIST_EMPTY(persistence_faction_alliances)
+/// Pending one-directional proposals: list(list("proposer"=uid, "target"=uid)).
+GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
+
+/datum/controller/subsystem/persistence/proc/factionAlliancesInitialize()
+	PRIVATE_PROC(TRUE)
+	GLOB.persistence_faction_alliances = list()
+	GLOB.persistence_faction_alliance_requests = list()
+
+	if(!databaseCheckConnection("factionAlliancesInitialize"))
+		return
+
+	try
+		var/datum/db_query/q = SSdbcore.NewQuery("SELECT faction_a, faction_b FROM ss13_faction_alliances", list())
+		q.Execute()
+		if(databaseCheckQueryResult(q, "factionAlliancesInitialize alliances"))
+			while(q.NextRow())
+				_cache_faction_alliance(q.item[1], q.item[2])
+		qdel(q)
+	catch(var/exception/alliances_e)
+		log_subsystem_persistence_error("Factions: failed to load alliances: [alliances_e]")
+
+	try
+		var/datum/db_query/rq = SSdbcore.NewQuery("SELECT proposer_uid, target_uid FROM ss13_faction_alliance_requests", list())
+		rq.Execute()
+		if(databaseCheckQueryResult(rq, "factionAlliancesInitialize requests"))
+			while(rq.NextRow())
+				GLOB.persistence_faction_alliance_requests += list(list("proposer" = rq.item[1], "target" = rq.item[2]))
+		qdel(rq)
+	catch(var/exception/requests_e)
+		log_subsystem_persistence_error("Factions: failed to load alliance requests: [requests_e]")
+
+	log_subsystem_persistence_info("Factions: Loaded [length(GLOB.persistence_faction_alliances)] allied faction(s), [length(GLOB.persistence_faction_alliance_requests)] pending alliance request(s).")
+
+/proc/_cache_faction_alliance(uid_a, uid_b)
+	if(!islist(GLOB.persistence_faction_alliances[uid_a]))
+		GLOB.persistence_faction_alliances[uid_a] = list()
+	GLOB.persistence_faction_alliances[uid_a] |= uid_b
+	if(!islist(GLOB.persistence_faction_alliances[uid_b]))
+		GLOB.persistence_faction_alliances[uid_b] = list()
+	GLOB.persistence_faction_alliances[uid_b] |= uid_a
+
+/proc/_uncache_faction_alliance(uid_a, uid_b)
+	if(islist(GLOB.persistence_faction_alliances[uid_a]))
+		GLOB.persistence_faction_alliances[uid_a] -= uid_b
+	if(islist(GLOB.persistence_faction_alliances[uid_b]))
+		GLOB.persistence_faction_alliances[uid_b] -= uid_a
+
+/// TRUE if the two faction uids are currently allied. FALSE for null/blank/
+/// identical uids -- same-faction is a different, already-handled case at
+/// every call site.
+/proc/factions_are_allied(uid_a, uid_b)
+	uid_a = normalize_faction_uid(uid_a)
+	uid_b = normalize_faction_uid(uid_b)
+	if(!uid_a || !uid_b || uid_a == uid_b)
+		return FALSE
+	return islist(GLOB.persistence_faction_alliances[uid_a]) && (uid_b in GLOB.persistence_faction_alliances[uid_a])
+
+/proc/_find_faction_alliance_request(proposer_uid, target_uid)
+	if(!islist(GLOB.persistence_faction_alliance_requests))
+		return FALSE
+	for(var/list/req in GLOB.persistence_faction_alliance_requests)
+		if(req["proposer"] == proposer_uid && req["target"] == target_uid)
+			return TRUE
+	return FALSE
+
+/// Proposes an alliance from proposer_uid to target_uid. Returns "allied" if
+/// this immediately completed a mutual handshake (the target had already
+/// proposed to the proposer -- both sides offering a hand completes it right
+/// there instead of leaving two redundant pending requests), "proposed" if a
+/// new one-directional request was created (or one already existed), or
+/// null on failure (invalid uids, already allied, or a DB error).
+/proc/propose_faction_alliance(proposer_uid, target_uid)
+	proposer_uid = normalize_faction_uid(proposer_uid)
+	target_uid = normalize_faction_uid(target_uid)
+	if(!proposer_uid || !target_uid || proposer_uid == target_uid)
+		return null
+	if(factions_are_allied(proposer_uid, target_uid))
+		return null
+	if(_find_faction_alliance_request(target_uid, proposer_uid))
+		return accept_faction_alliance(proposer_uid, target_uid) ? "allied" : null
+	if(_find_faction_alliance_request(proposer_uid, target_uid))
+		return "proposed" // already pending, nothing new to do
+	if(!SSpersistence.databaseCheckConnection("propose_faction_alliance"))
+		return null
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"INSERT INTO ss13_faction_alliance_requests (proposer_uid, target_uid) VALUES (:p, :t)",
+		list("p" = proposer_uid, "t" = target_uid)
+	)
+	q.Execute()
+	var/ok = SSpersistence.databaseCheckQueryResult(q, "propose_faction_alliance")
+	qdel(q)
+	if(!ok)
+		return null
+	GLOB.persistence_faction_alliance_requests += list(list("proposer" = proposer_uid, "target" = target_uid))
+	return "proposed"
+
+/// Called with accepting_uid = the TARGET of a pending request, finalizing
+/// the alliance with proposer_uid. Also used internally by
+/// propose_faction_alliance() when a mutual handshake completes it early.
+/proc/accept_faction_alliance(accepting_uid, proposer_uid)
+	accepting_uid = normalize_faction_uid(accepting_uid)
+	proposer_uid = normalize_faction_uid(proposer_uid)
+	if(!_find_faction_alliance_request(proposer_uid, accepting_uid))
+		return FALSE
+	if(!SSpersistence.databaseCheckConnection("accept_faction_alliance"))
+		return FALSE
+	var/uid_a = proposer_uid
+	var/uid_b = accepting_uid
+	if(uid_a > uid_b)
+		var/tmp_swap = uid_a
+		uid_a = uid_b
+		uid_b = tmp_swap
+	var/datum/db_query/insert_q = SSdbcore.NewQuery(
+		"INSERT INTO ss13_faction_alliances (faction_a, faction_b) VALUES (:a, :b) ON DUPLICATE KEY UPDATE allied_at = allied_at",
+		list("a" = uid_a, "b" = uid_b)
+	)
+	insert_q.Execute()
+	var/ok = SSpersistence.databaseCheckQueryResult(insert_q, "accept_faction_alliance insert")
+	qdel(insert_q)
+	if(!ok)
+		return FALSE
+	var/datum/db_query/del_q = SSdbcore.NewQuery(
+		"DELETE FROM ss13_faction_alliance_requests WHERE proposer_uid = :p AND target_uid = :t",
+		list("p" = proposer_uid, "t" = accepting_uid)
+	)
+	del_q.Execute()
+	SSpersistence.databaseCheckQueryResult(del_q, "accept_faction_alliance delete request")
+	qdel(del_q)
+	for(var/i = length(GLOB.persistence_faction_alliance_requests); i >= 1; i--)
+		var/list/req = GLOB.persistence_faction_alliance_requests[i]
+		if(req["proposer"] == proposer_uid && req["target"] == accepting_uid)
+			GLOB.persistence_faction_alliance_requests.Cut(i, i + 1)
+	_cache_faction_alliance(uid_a, uid_b)
+	return TRUE
+
+/// Deletes a pending request -- used by both "Decline" (target's own
+/// perspective) and "Withdraw" (proposer's own perspective); the caller
+/// supplies proposer_uid/target_uid however it likes, this doesn't care
+/// which side is acting.
+/proc/cancel_faction_alliance_request(proposer_uid, target_uid)
+	proposer_uid = normalize_faction_uid(proposer_uid)
+	target_uid = normalize_faction_uid(target_uid)
+	if(SSpersistence.databaseCheckConnection("cancel_faction_alliance_request"))
+		var/datum/db_query/q = SSdbcore.NewQuery(
+			"DELETE FROM ss13_faction_alliance_requests WHERE proposer_uid = :p AND target_uid = :t",
+			list("p" = proposer_uid, "t" = target_uid)
+		)
+		q.Execute()
+		SSpersistence.databaseCheckQueryResult(q, "cancel_faction_alliance_request")
+		qdel(q)
+	for(var/i = length(GLOB.persistence_faction_alliance_requests); i >= 1; i--)
+		var/list/req = GLOB.persistence_faction_alliance_requests[i]
+		if(req["proposer"] == proposer_uid && req["target"] == target_uid)
+			GLOB.persistence_faction_alliance_requests.Cut(i, i + 1)
+	return TRUE
+
+/// Dissolves an existing alliance -- either side can call this at any time,
+/// no cooldown, no confirmation beyond whatever the UI itself asks for.
+/proc/break_faction_alliance(uid_a, uid_b)
+	uid_a = normalize_faction_uid(uid_a)
+	uid_b = normalize_faction_uid(uid_b)
+	if(SSpersistence.databaseCheckConnection("break_faction_alliance"))
+		var/datum/db_query/q = SSdbcore.NewQuery(
+			"DELETE FROM ss13_faction_alliances WHERE (faction_a = :a AND faction_b = :b) OR (faction_a = :b AND faction_b = :a)",
+			list("a" = uid_a, "b" = uid_b)
+		)
+		q.Execute()
+		SSpersistence.databaseCheckQueryResult(q, "break_faction_alliance")
+		qdel(q)
+	_uncache_faction_alliance(uid_a, uid_b)
+	return TRUE
+#endif //FACTION_ALLIANCES
 
 // ============================================================
 // FACTION CREATION TOGGLE
@@ -573,6 +902,68 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 		qdel(mq)
 	return TRUE
 
+/// An admin-designated faction leader (list("ckey"=, "char_name"=)), or null
+/// if none is set. Distinct from founder_ckey -- set/cleared at any time via
+/// "Manage Faction Account" -> "Set Faction Leader", meant for factions
+/// created via the admin "create faction" verb that have no organic founder
+/// to fall back on for the "Print Master Card" action.
+/proc/get_faction_leader(uid)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return null
+	var/list/data = GLOB.persistence_faction_cache[uid]
+	if(!data["leader_ckey"])
+		return null
+	return list("ckey" = data["leader_ckey"], "char_name" = data["leader_char_name"])
+
+/// Whether (ckey, char_name) is the currently-designated leader of uid.
+/proc/is_faction_designated_leader(uid, ckey, char_name)
+	var/list/leader = get_faction_leader(uid)
+	if(!leader)
+		return FALSE
+	return leader["ckey"] == ckey && leader["char_name"] == char_name
+
+/// Whether uid was founded through the cheaper Company tier (vs a Full
+/// Faction) -- permanent, set once at tryFinalizeFounding() and never
+/// changed afterward. Unrelated to stock market listing/CEO status -- a
+/// Full Faction that later lists and gets a CEO is still not "company
+/// tier". FALSE for admin-made factions (no tier concept at all) and for
+/// every faction founded before this existed.
+/proc/is_company_tier_faction(uid)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return FALSE
+	return !!GLOB.persistence_faction_cache[uid]["is_company_tier"]
+
+/// Sets (or, with null/null, clears) a faction's designated leader, updating
+/// the cache and persisting it so it survives a reboot.
+/proc/set_faction_leader(uid, ckey, char_name)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return FALSE
+	GLOB.persistence_faction_cache[uid]["leader_ckey"] = ckey
+	GLOB.persistence_faction_cache[uid]["leader_char_name"] = char_name
+	if(GLOB.config.sql_enabled && SSdbcore.Connect())
+		var/datum/db_query/lq = SSdbcore.NewQuery(
+			"UPDATE ss13_factions SET leader_ckey = :ckey, leader_char_name = :name WHERE uid = :uid",
+			list("ckey" = ckey, "name" = char_name, "uid" = uid)
+		)
+		lq.Execute()
+		qdel(lq)
+	return TRUE
+
+/// Whether an unrevoked faction_master card for uid currently exists
+/// anywhere in the world -- distinguishes "never printed yet" (admin-made
+/// factions, which skip the organic founding flow that spawns one
+/// automatically) from "printed, then lost/compromised" (master_card_lost),
+/// both of which "Print Master Card" needs to treat as mintable.
+/proc/has_live_faction_master_card(uid)
+	uid = normalize_faction_uid(uid)
+	for(var/obj/item/card/id/faction_master/c in world)
+		if(!c.revoked && normalize_faction_uid(c.employer_faction) == uid)
+			return TRUE
+	return FALSE
+
 /// A faction's current color (hex string "#rrggbb"), or null if never set.
 /// Used to tint clothing/equipment tagged to this faction with the faction
 /// tagger (persistence_faction_tagger.dm) -- tagged items never store their
@@ -629,6 +1020,108 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 		qdel(q)
 	return TRUE
 
+/// FACTION_CARGO_SPECIALIZATION -- the ONE cargo order category (or null,
+/// "hasn't chosen one yet") a real faction is currently allowed to order
+/// from. Callers are responsible for excluding "hub" before calling this --
+/// it is never itself the thing that decides Hub is unrestricted.
+/proc/get_faction_allowed_cargo_category(uid)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return null
+	return GLOB.persistence_faction_cache[uid]["allowed_cargo_category"]
+
+/// Seconds remaining before a faction's cargo category can next be changed
+/// by an OFFICER (see set_faction_allowed_cargo_category()'s own re-check),
+/// 0 if clear/never-set. Live DB read (real calendar time, not world.time --
+/// must survive reboots) -- same TIMESTAMPDIFF/NOW() shape already shipped
+/// for imprisonment expiry (persistence_mobs.dm).
+/proc/get_faction_cargo_category_cooldown_remaining(uid)
+	uid = normalize_faction_uid(uid)
+	if(!SSpersistence.databaseCheckConnection("get_faction_cargo_category_cooldown_remaining"))
+		return 0
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"SELECT TIMESTAMPDIFF(SECOND, NOW(), DATE_ADD(cargo_category_changed_at, INTERVAL 1 MONTH)) FROM ss13_factions WHERE uid = :uid AND cargo_category_changed_at IS NOT NULL",
+		list("uid" = uid)
+	)
+	q.Execute()
+	. = 0
+	if(SSpersistence.databaseCheckQueryResult(q, "get_faction_cargo_category_cooldown_remaining") && q.NextRow())
+		. = max(0, text2num(q.item[1]) || 0)
+	qdel(q)
+
+/// Sets a real faction's single allowed cargo category. Refuses (returns
+/// FALSE) if the 1-month real-world cooldown since the last change hasn't
+/// elapsed yet, unless bypass_cooldown is set (admin override,
+/// manage_faction_account()) -- cargo_category_changed_at is stamped to
+/// NOW() either way, so an admin override still restarts the normal clock
+/// for the next OFFICER-initiated change rather than leaving it bypassable.
+/proc/set_faction_allowed_cargo_category(uid, category, bypass_cooldown = FALSE)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return FALSE
+	if(!bypass_cooldown && get_faction_cargo_category_cooldown_remaining(uid) > 0)
+		return FALSE
+	if(!SSpersistence.databaseCheckConnection("set_faction_allowed_cargo_category"))
+		return FALSE
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"UPDATE ss13_factions SET allowed_cargo_category = :cat, cargo_category_changed_at = NOW() WHERE uid = :uid",
+		list("uid" = uid, "cat" = category)
+	)
+	q.Execute()
+	var/ok = SSpersistence.databaseCheckQueryResult(q, "set_faction_allowed_cargo_category")
+	qdel(q)
+	if(ok)
+		GLOB.persistence_faction_cache[uid]["allowed_cargo_category"] = category
+	return ok
+
+/// Whether uid has been granted "(All)" cargo access -- an admin-only override
+/// (Set Cargo Category) that lifts the single-category restriction for a real
+/// faction without making it Hub. Distinct from Hub's own unrestricted access,
+/// which every caller already checks separately via a plain uid comparison
+/// (see get_faction_allowed_cargo_category()'s own doc comment).
+/proc/faction_cargo_unrestricted(uid)
+	return get_faction_allowed_cargo_category(uid) == FACTION_CARGO_CATEGORY_ALL
+
+/// Whether `user` is authorized to travel/warp/disembark into the CentCom
+/// ("Frontier Beacon Depot") sector -- Hub-affiliated personnel above
+/// baseline civilian rank (get_effective_faction_rank()'s own "0 = civilian
+/// member, no elevation" reading), or an admin (rank 99, same bypass every
+/// other faction-rank gate in this codebase already grants). Checked by
+/// every way of physically reaching that sector: Personal Travel's leap
+/// (personal_travel.dm), travel pad "pod warp" (telepad_travel.dm), and
+/// drydock disembark (telepad_drydock_boarding.dm).
+/proc/can_access_hub_depot(mob/user)
+	return get_effective_faction_rank(user, "hub") > 0
+
+/// Called right after a faction's stored display name changes (Rename
+/// Faction), so every physical item that baked the OLD name into its own
+/// .name at print/insert time shows the new one immediately -- ID cards
+/// (including the bearer master card, via update_name()), PDAs/consoles
+/// with a card currently inserted (card_slot.dm normally only does this
+/// naming once, at insert time), and faction charge cards. Everything else
+/// that displays a faction's name (examine text, to_chat, UI panels, access
+/// checks) already resolves it live via get_faction_name(uid) every time
+/// it's shown and needs no help. Invoices are deliberately left alone --
+/// they're historical receipts of a completed transaction, not live
+/// identity, and shouldn't be rewritten after the fact.
+/proc/refresh_faction_display_names(uid)
+	uid = normalize_faction_uid(uid)
+
+	for(var/obj/item/card/id/ID in world)
+		if(normalize_faction_uid(ID.employer_faction) != uid)
+			continue
+		ID.update_name()
+		var/obj/item/computer_hardware/card_slot/slot = ID.loc
+		if(istype(slot) && slot.parent_computer && slot.stored_card == ID)
+			var/obj/item/modular_computer/pc = slot.parent_computer
+			pc.name = "[pc.initial_name] - [ID.registered_name] ([get_faction_name(ID.employer_faction) || ID.employer_faction]) ([ID.assignment])"
+
+	for(var/obj/item/spacecash/ewallet/faction_charge_card/FC in world)
+		if(normalize_faction_uid(FC.faction_uid) != uid)
+			continue
+		FC.name = "[get_faction_name(uid)] charge card"
+		FC.owner_name = get_faction_name(uid)
+
 /// A faction charge card is valid only if it was printed under the faction's
 /// current epoch. Cards printed before this feature existed (issued_epoch
 /// defaults to 0) count as invalid as soon as any cutoff has ever been set.
@@ -663,6 +1156,47 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	_faction_balance_write(uid, GLOB.persistence_faction_cache[uid]["balance"])
 	_faction_transaction_log(uid, amount, reason)
 	return TRUE
+
+/// 10% cargo tariff/duty rate for trade happening inside a faction beacon's
+/// claimed territory (direct Z or radius reach, get_owning_faction_beacon()).
+#define CARGO_TERRITORY_TAX_RATE 0.10
+
+/// Resolves which faction (if any) should receive cargo tax for a
+/// transaction at z -- null if the territory is unclaimed, or if the trader
+/// is exempt as a member of the claiming faction. trader_faction_uid is the
+/// transaction's own faction (delivery_network/exp_net/a ship's faction_uid),
+/// checked first; trader (a mob) is a fallback for transactions with no
+/// faction of their own (personal orders) -- exempt if the mob's own ID
+/// shows membership in the claiming faction.
+/proc/get_cargo_tax_beneficiary(z, trader_faction_uid, mob/trader)
+	var/obj/structure/machinery/faction_beacon/owner = get_owning_faction_beacon(z)
+	if(!owner || !owner.faction_uid)
+		return null
+	var/owner_uid = normalize_faction_uid(owner.faction_uid)
+	if(trader_faction_uid && normalize_faction_uid(trader_faction_uid) == owner_uid)
+		return null
+	if(!trader_faction_uid && trader)
+		var/obj/item/card/id/ID = trader.GetIdCard()
+		var/mob_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+		if(mob_faction && mob_faction == owner_uid)
+			return null
+	return owner.faction_uid
+
+/// Applies the territory cargo tax to a base amount, crediting the territory
+/// faction's cut via faction_credit() as a side effect. Returns the amount
+/// the OTHER party should actually pay/receive: base_amount + tax for an
+/// import (buyer pays more), base_amount - tax for an export (seller nets
+/// less). Returns base_amount unchanged if untaxed (no claiming faction, or
+/// the trader is exempt).
+/proc/apply_cargo_territory_tax(z, base_amount, is_import, trader_faction_uid, mob/trader, reason)
+	var/beneficiary = get_cargo_tax_beneficiary(z, trader_faction_uid, trader)
+	if(!beneficiary)
+		return base_amount
+	var/tax = round(base_amount * CARGO_TERRITORY_TAX_RATE)
+	if(tax <= 0)
+		return base_amount
+	faction_credit(beneficiary, tax, reason)
+	return is_import ? (base_amount + tax) : (base_amount - tax)
 
 /// Log a faction transaction (debit negative, credit positive). Fire-and-forget.
 /proc/_faction_transaction_log(uid, amount, reason)
@@ -716,7 +1250,11 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 /proc/get_faction_name(uid)
 	uid = normalize_faction_uid(uid)
 	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
-		return uid
+		// uid is an internal lookup key (lowercased, spaces->underscores by
+		// normalize_faction_uid()) -- never display it raw. Covers the "hub"
+		// sentinel (the default/unclaimed network, which has no real founded-
+		// faction row to look up) and any other uncached/stale uid.
+		return capitalize_first_letters(replacetext(uid, "_", " "))
 	return GLOB.persistence_faction_cache[uid]["name"]
 
 // ============================================================
@@ -1043,6 +1581,16 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		return FALSE
 	if(istype(here_marker, /obj/effect/overmap/visitable/sector/exoplanet))
 		return FALSE
+	// CentCom is a bare, template-less Z built directly by atlas.dm at boot --
+	// no ruin/away_site template ever loads there, so the DB-row pinning
+	// below (meant for regenerating a ruin at the same overmap spot next
+	// boot) doesn't apply and never will. It always exists at boot
+	// regardless, so it just needs the same persistence-allow marking a
+	// real pinned site gets, with no DB row of its own.
+	if(is_centcom_level(z))
+		GLOB.persistence_pinned_site_z |= z
+		GLOB.persistence_zlevel_allow |= z
+		return TRUE
 	var/datum/map_template/here_template = GLOB.map_templates["[z]"]
 	if(!istype(here_template, /datum/map_template/ruin/away_site))
 		return FALSE
@@ -1666,6 +2214,8 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	if(site.auto_despawn_when_depleted)
 		_register_auto_despawn_asteroid(site_z, site.id)
 
+	maybe_populate_away_site_with_pirates(site_z, site.id)
+
 	return site_z
 
 // ============================================================
@@ -2233,7 +2783,10 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 	if(!check_rights(R_ADMIN))
 		return
 
-	var/list/top_actions = list("Create New Faction", "Modify Faction Balance", "Remove Faction")
+	var/list/top_actions = list("Create New Faction", "Rename Faction", "Modify Faction Balance", "Remove Faction", "Set Faction Leader")
+#ifdef FACTION_CARGO_SPECIALIZATION
+	top_actions += "Set Cargo Category"
+#endif //FACTION_CARGO_SPECIALIZATION
 	var/top = tgui_input_list(usr, "What would you like to do?", "Manage Factions", top_actions)
 	if(!top) return
 
@@ -2249,12 +2802,11 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 
 		var/new_name  = tgui_input_text(usr, "Full faction name:", "Create Faction", max_length = 64)
 		if(!new_name) return
-		new_name = lowertext(new_name)
 
 		if(islist(GLOB.persistence_faction_cache))
 			for(var/existing_uid in GLOB.persistence_faction_cache)
 				var/list/existing = GLOB.persistence_faction_cache[existing_uid]
-				if(lowertext(existing["name"]) == new_name)
+				if(lowertext(existing["name"]) == lowertext(new_name))
 					to_chat(usr, SPAN_WARNING("A faction named '[new_name]' already exists (uid '[existing_uid]')."))
 					return
 
@@ -2293,7 +2845,55 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 		to_chat(usr, SPAN_GOOD("Faction '[new_name]' ([new_uid]) created with [starting] credits."))
 		log_and_message_admins("created faction '[new_uid]' ([new_name])", usr)
 
-	//  Modify Balance 
+	//  Rename
+	else if(top == "Rename Faction")
+		if(!islist(GLOB.persistence_faction_cache) || !length(GLOB.persistence_faction_cache))
+			to_chat(usr, SPAN_WARNING("No factions exist yet. Create one first."))
+			return
+
+		var/list/faction_options = list()
+		for(var/uid in GLOB.persistence_faction_cache)
+			var/list/data = GLOB.persistence_faction_cache[uid]
+			faction_options["[data["name"]] ([uid])"] = uid
+
+		var/chosen_label = tgui_input_list(usr, "Select a faction to rename:", "Rename Faction", faction_options)
+		if(!chosen_label) return
+		var/chosen_uid = faction_options[chosen_label]
+
+		var/renamed  = tgui_input_text(usr, "New name for '[get_faction_name(chosen_uid)]':", "Rename Faction", get_faction_name(chosen_uid), max_length = 64)
+		if(!renamed) return
+
+		for(var/existing_uid in GLOB.persistence_faction_cache)
+			if(existing_uid == chosen_uid)
+				continue
+			var/list/existing = GLOB.persistence_faction_cache[existing_uid]
+			if(lowertext(existing["name"]) == lowertext(renamed))
+				to_chat(usr, SPAN_WARNING("A faction named '[renamed]' already exists (uid '[existing_uid]')."))
+				return
+
+		if(!SSpersistence.databaseCheckConnection("rename_faction"))
+			to_chat(usr, SPAN_WARNING("DB connection failed."))
+			return
+
+		var/datum/db_query/rn_q = SSdbcore.NewQuery(
+			"UPDATE ss13_factions SET name = :name WHERE uid = :uid",
+			list("name" = renamed, "uid" = chosen_uid)
+		)
+		rn_q.Execute()
+		if(!SSpersistence.databaseCheckQueryResult(rn_q, "rename_faction"))
+			qdel(rn_q)
+			to_chat(usr, SPAN_WARNING("Database write failed."))
+			return
+		qdel(rn_q)
+
+		var/old_name = GLOB.persistence_faction_cache[chosen_uid]["name"]
+		GLOB.persistence_faction_cache[chosen_uid]["name"] = renamed
+		refresh_faction_display_names(chosen_uid)
+
+		to_chat(usr, SPAN_GOOD("Renamed '[old_name]' ([chosen_uid]) to '[renamed]'."))
+		log_and_message_admins("renamed faction '[chosen_uid]' from '[old_name]' to '[renamed]'", usr)
+
+	//  Modify Balance
 	else if(top == "Modify Faction Balance")
 		if(!islist(GLOB.persistence_faction_cache) || !length(GLOB.persistence_faction_cache))
 			to_chat(usr, SPAN_WARNING("No factions exist yet. Create one first."))
@@ -2353,6 +2953,107 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 			return
 
 		to_chat(usr, SPAN_GOOD("Faction '[chosen_uid]' removed."))
+
+	//  Set Leader
+	else if(top == "Set Faction Leader")
+		if(!islist(GLOB.persistence_faction_cache) || !length(GLOB.persistence_faction_cache))
+			to_chat(usr, SPAN_WARNING("No factions exist yet. Create one first."))
+			return
+
+		var/list/faction_options = list()
+		for(var/uid in GLOB.persistence_faction_cache)
+			var/list/data = GLOB.persistence_faction_cache[uid]
+			var/leader_txt = data["leader_ckey"] ? " -- leader: [data["leader_char_name"]] ([data["leader_ckey"]])" : ""
+			faction_options["[get_faction_name(uid)][leader_txt]"] = uid
+
+		var/chosen_label = tgui_input_list(usr, "Select a faction:", "Set Faction Leader", faction_options)
+		if(!chosen_label) return
+		var/chosen_uid = faction_options[chosen_label]
+
+		var/how = tgui_input_list(usr, "How would you like to set the leader for '[get_faction_name(chosen_uid)]'?", "Set Faction Leader", list("Pick online player", "Enter ckey manually", "Clear leader"))
+		if(!how) return
+
+		if(how == "Clear leader")
+			set_faction_leader(chosen_uid, null, null)
+			to_chat(usr, SPAN_GOOD("Cleared the designated leader for [get_faction_name(chosen_uid)]."))
+			log_and_message_admins("cleared the designated leader for faction '[chosen_uid]'", usr)
+		else
+			var/target_ckey
+			var/target_name
+
+			if(how == "Pick online player")
+				var/mob/target = tgui_input_list(usr, "Choose leader:", "Set Faction Leader", GLOB.player_list)
+				if(!target) return
+				target_ckey = target.ckey
+				target_name = target.real_name
+			else
+				target_ckey = tgui_input_text(usr, "Enter ckey:", "Set Faction Leader", max_length = 32)
+				if(!target_ckey) return
+				target_ckey = ckey(target_ckey)
+
+				if(!SSpersistence.databaseCheckConnection("set_faction_leader_lookup"))
+					to_chat(usr, SPAN_WARNING("DB connection failed."))
+					return
+				var/datum/db_query/cq = SSdbcore.NewQuery(
+					"SELECT name FROM ss13_characters WHERE ckey = :ckey AND deleted_at IS NULL ORDER BY id ASC",
+					list("ckey" = target_ckey)
+				)
+				cq.Execute()
+				SSpersistence.databaseCheckQueryResult(cq, "set_faction_leader_lookup")
+				var/list/names = list()
+				while(cq.NextRow())
+					names += cq.item[1]
+				qdel(cq)
+				if(!length(names))
+					to_chat(usr, SPAN_WARNING("No saved characters found for ckey '[target_ckey]'."))
+					return
+				target_name = tgui_input_list(usr, "Select [target_ckey]'s character to designate as leader:", "Set Faction Leader", names)
+				if(!target_name) return
+
+			set_faction_leader(chosen_uid, target_ckey, target_name)
+
+			// If this faction is already listed on the stock exchange, the
+			// designated leader should also become its CEO immediately --
+			// reset the cap table to 100% in their favor rather than leaving
+			// the new leader printing master cards while someone else still
+			// holds (or shares) real equity/dividend rights over the same
+			// faction.
+			var/datum/stock_company/existing_listing = get_faction_stock_company(chosen_uid)
+			if(existing_listing)
+				SSpersistence.factionClearShareholders(chosen_uid)
+				SSpersistence.factionGrantShareholder(chosen_uid, target_ckey, target_name, 100, "Admin Reassignment", null)
+				to_chat(usr, SPAN_GOOD("Set [target_name] ([target_ckey]) as the designated leader of [get_faction_name(chosen_uid)], and reset its stock listing to 100% in their favor (making them CEO)."))
+				log_and_message_admins("set faction '[chosen_uid]' leader to [target_name] ([target_ckey]) and reset its shareholder cap table to 100% in their favor (already listed)", usr)
+			else
+				to_chat(usr, SPAN_GOOD("Set [target_name] ([target_ckey]) as the designated leader of [get_faction_name(chosen_uid)]. They can print a master card at any Faction Management console."))
+				log_and_message_admins("set faction '[chosen_uid]' leader to [target_name] ([target_ckey])", usr)
+
+#ifdef FACTION_CARGO_SPECIALIZATION
+	else if(top == "Set Cargo Category")
+		if(!islist(GLOB.persistence_faction_cache) || !length(GLOB.persistence_faction_cache))
+			to_chat(usr, SPAN_WARNING("No factions exist."))
+			return
+
+		var/list/faction_options = list()
+		for(var/uid in GLOB.persistence_faction_cache)
+			faction_options[get_faction_name(uid)] = uid
+
+		var/faction_label = tgui_input_list(usr, "Which faction?", "Set Cargo Category", faction_options)
+		if(!faction_label) return
+		var/target_uid = faction_options[faction_label]
+
+		var/list/category_options = list("(Clear -- nothing orderable)" = null, "(All -- no restriction)" = FACTION_CARGO_CATEGORY_ALL)
+		for(var/cat_name in SScargo.cargo_categories)
+			var/singleton/cargo_category/cc = SScargo.cargo_categories[cat_name]
+			category_options[cc.display_name] = cc.name
+
+		var/category_label = tgui_input_list(usr, "Cargo category for '[get_faction_name(target_uid)]':", "Set Cargo Category", category_options)
+		if(isnull(category_label)) return
+
+		set_faction_allowed_cargo_category(target_uid, category_options[category_label], bypass_cooldown = TRUE)
+		to_chat(usr, SPAN_NOTICE("'[get_faction_name(target_uid)]'s cargo category set to '[category_label]'."))
+		log_and_message_admins("set faction '[target_uid]'s allowed cargo category to '[category_label]'", usr)
+#endif //FACTION_CARGO_SPECIALIZATION
 
 	feedback_add_details("admin_verb", "MFA")
 
@@ -2623,6 +3324,47 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 		)
 	return ok
 
+/// Removes a ckey's membership record entirely -- the missing inverse of
+/// factionRegisterMember(). Distinct from _revoke_member_id_now()
+/// (faction_manage.dm), which only invalidates physical ID cards without
+/// touching this roster; callers that mean "gone for good" (Remove Member,
+/// Leave Faction) call both.
+/datum/controller/subsystem/persistence/proc/factionRemoveMember(ckey, faction_uid)
+	faction_uid = normalize_faction_uid(faction_uid)
+	if(!databaseCheckConnection("factionRemoveMember"))
+		return FALSE
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"DELETE FROM ss13_faction_members WHERE ckey = :ckey AND faction_uid = :uid",
+		list("ckey" = ckey, "uid" = faction_uid)
+	)
+	q.Execute()
+	var/ok = databaseCheckQueryResult(q, "factionRemoveMember")
+	qdel(q)
+	if(ok)
+		GLOB.persistence_faction_members_cache -= "[ckey]|[faction_uid]"
+	return ok
+
+/// Sets a member's on-shift state -- gates factionPayroll() on top of the
+/// existing online/actively-played-character requirement. Cleared
+/// automatically by persistStoreCharacter() (persistence_cryo.dm) whenever
+/// a member is stored via the persistence cryo system, normal or prison.
+/datum/controller/subsystem/persistence/proc/factionSetClockedIn(ckey, faction_uid, clocked_in)
+	faction_uid = normalize_faction_uid(faction_uid)
+	if(!databaseCheckConnection("factionSetClockedIn"))
+		return FALSE
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"UPDATE ss13_faction_members SET clocked_in = :clocked WHERE ckey = :ckey AND faction_uid = :uid",
+		list("clocked" = clocked_in ? 1 : 0, "ckey" = ckey, "uid" = faction_uid)
+	)
+	q.Execute()
+	var/ok = databaseCheckQueryResult(q, "factionSetClockedIn")
+	qdel(q)
+	if(ok)
+		var/list/member = GLOB.persistence_faction_members_cache["[ckey]|[faction_uid]"]
+		if(islist(member))
+			member["clocked_in"] = clocked_in
+	return ok
+
 /proc/get_faction_job_access(faction_uid, job_title)
 	faction_uid = normalize_faction_uid(faction_uid)
 	if(!islist(GLOB.persistence_faction_jobs_cache)) return list()
@@ -2668,7 +3410,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 		return FALSE
 	// Load members with valid account numbers
 	var/datum/db_query/mq = SSdbcore.NewQuery(
-		"SELECT ckey, real_name, job_title, account_number FROM ss13_faction_members WHERE faction_uid = :uid AND account_number > 0",
+		"SELECT ckey, real_name, job_title, account_number, clocked_in FROM ss13_faction_members WHERE faction_uid = :uid AND account_number > 0",
 		list("uid" = faction_uid)
 	)
 	mq.Execute()
@@ -2684,7 +3426,14 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 		var/mreal_name = mq.item[2]
 		var/mjob  = mq.item[3]
 		var/macct = text2num(mq.item[4]) || 0
+		var/mclocked_in = text2num(mq.item[5])
 		if(!macct || !mjob)
+			skipped++
+			continue
+		// Must be clocked in (ID Card Modification, self-service) to draw a
+		// paycheck -- being online and actively playing isn't enough on its
+		// own anymore, matches the on-shift toggle's whole purpose.
+		if(!mclocked_in)
 			skipped++
 			continue
 		var/pay = get_faction_job_pay(faction_uid, mjob)
@@ -2747,6 +3496,106 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 
 	var/fname = get_faction_name(faction_uid)
 
+	// Delist from the stock exchange first, if listed -- stockMarketRevokeFaction()
+	// buys out every holder from the faction's OWN treasury, so it needs to run
+	// while that treasury (and the faction row itself) still exists.
+	var/datum/stock_company/listed = get_faction_stock_company(faction_uid)
+	if(listed)
+		stockMarketRevokeFaction(listed.company_id, user)
+
+	// Whatever's left in the treasury after the stock buyout above (or the
+	// whole treasury, for a faction that was never listed) gets distributed
+	// rather than destroyed by the cascade delete below. Listed with a real
+	// cap table: paid to EVERY real shareholder proportionally by their
+	// equity percentage (persistence_faction_shareholders.dm -- always sums
+	// to exactly 100 for a listed faction), not just the top holder(s).
+	// Not listed (or listed with an empty cap table): goes to the leader --
+	// the founder via their current membership record (so a stale
+	// founder_ckey who has since left the faction doesn't wrongly receive
+	// it), falling back to the admin-designated leader if the founder isn't
+	// currently resolvable -- the same two identities Print Master Card
+	// already trusts as this faction's top authority. If neither resolves,
+	// the balance is destroyed, same as before this feature existed.
+	var/leftover_balance = get_faction_account_balance(faction_uid) || 0
+	if(leftover_balance > 0)
+		var/list/held = GLOB.persistence_faction_shareholders_cache[faction_uid]
+		if(islist(held) && length(held))
+			var/list/recipient_names = list()
+			for(var/list/h in held)
+				if(h["percent"] <= 0)
+					continue
+				var/share_amount = round(leftover_balance * h["percent"] / 100)
+				if(share_amount <= 0)
+					continue
+				var/datum/money_account/payout_acc = SSeconomy.get_account_by_ckey_and_name(h["ckey"], h["char_name"])
+				if(payout_acc)
+					payout_acc.adjust_money(share_amount)
+				else
+					economyCreditOfflineAccount(h["ckey"], h["char_name"], share_amount)
+				recipient_names += "[h["char_name"]] ([h["percent"]]%: [share_amount] cr)"
+			if(length(recipient_names))
+				log_and_message_admins("faction '[faction_uid]' ([fname]) disbanded with [leftover_balance] cr remaining -- distributed to shareholders by equity: [jointext(recipient_names, ", ")].", user)
+		else
+			var/leftover_founder_ckey = GLOB.persistence_faction_cache[faction_uid]["founder_ckey"]
+			var/list/founder_member = leftover_founder_ckey ? get_faction_member(leftover_founder_ckey, faction_uid) : null
+			var/payout_ckey
+			var/payout_char_name
+			if(founder_member)
+				payout_ckey = leftover_founder_ckey
+				payout_char_name = founder_member["real_name"]
+			else
+				var/list/leader = get_faction_leader(faction_uid)
+				if(leader)
+					payout_ckey = leader["ckey"]
+					payout_char_name = leader["char_name"]
+			if(payout_ckey && payout_char_name)
+				var/datum/money_account/payout_acc = SSeconomy.get_account_by_ckey_and_name(payout_ckey, payout_char_name)
+				if(payout_acc)
+					payout_acc.adjust_money(leftover_balance)
+				else
+					economyCreditOfflineAccount(payout_ckey, payout_char_name, leftover_balance)
+				log_and_message_admins("faction '[faction_uid]' ([fname]) disbanded with [leftover_balance] cr remaining -- paid to leader [payout_char_name] ([payout_ckey]).", user)
+
+	// Release every drydock ship this faction owned -- leaves any personal
+	// ownership on the same ship untouched, only clears the faction link.
+	for(var/shuttle_id in GLOB.drydock_ships)
+		var/datum/drydock_ship/DS = GLOB.drydock_ships[shuttle_id]
+		if(!DS || normalize_faction_uid(DS.faction_uid) != faction_uid)
+			continue
+		DS.faction_uid = null
+		var/datum/db_query/ship_q = SSdbcore.NewQuery(
+			"UPDATE ss13_drydock_ships SET faction_uid = NULL WHERE shuttle_id = :id",
+			list("id" = shuttle_id)
+		)
+		ship_q.Execute()
+		databaseCheckQueryResult(ship_q, "removeFactionCompletely ship release")
+		qdel(ship_q)
+
+	// Faction beacons need their own full release (security tier grants,
+	// persistence save flag, site pin, swept-object release) -- the generic
+	// faction_tagger_set(null) release below only clears faction_uid/active.
+	for(var/obj/structure/machinery/faction_beacon/B in world)
+		if(QDELETED(B) || normalize_faction_uid(B.faction_uid) != faction_uid)
+			continue
+		if(B.powered)
+			B._power_down(user, "faction disbanded")
+		B.faction_uid = ""
+		B.update_icon()
+
+	// Generic release for everything else the faction tagger can configure
+	// (airlocks, turrets, cargo/security telepads, cryopods, autodoc,
+	// telecomms, modular computers, clothing) -- declarative, so any type
+	// that adopts the tagger hook in the future is automatically covered
+	// too, same reasoning as persistence_faction_tagger.dm's own header.
+	for(var/atom/movable/AM in world)
+		if(istype(AM, /obj/structure/machinery/faction_beacon))
+			continue // already fully released above
+		if(!AM.faction_tagger_compatible())
+			continue
+		if(normalize_faction_uid(AM.faction_tagger_get_uid()) != faction_uid)
+			continue
+		AM.faction_tagger_set(null, user)
+
 	// CASCADE in DB handles faction_accounts and faction_jobs via foreign key
 	var/datum/db_query/q = SSdbcore.NewQuery(
 		"DELETE FROM ss13_factions WHERE uid = :uid",
@@ -2759,6 +3608,35 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 	// Remove from in-memory caches
 	GLOB.persistence_faction_cache      -= faction_uid
 	GLOB.persistence_faction_jobs_cache -= faction_uid
+
+#ifdef FACTION_ALLIANCES
+	// No FK cascade on the alliance tables (they're not tied to
+	// ss13_factions specifically) -- clean up manually so a removed faction
+	// doesn't leave dangling entries other factions still reference.
+	var/datum/db_query/alliance_del_q = SSdbcore.NewQuery(
+		"DELETE FROM ss13_faction_alliances WHERE faction_a = :uid OR faction_b = :uid",
+		list("uid" = faction_uid)
+	)
+	alliance_del_q.Execute()
+	databaseCheckQueryResult(alliance_del_q, "removeFactionCompletely alliances")
+	qdel(alliance_del_q)
+	var/datum/db_query/alliance_req_del_q = SSdbcore.NewQuery(
+		"DELETE FROM ss13_faction_alliance_requests WHERE proposer_uid = :uid OR target_uid = :uid",
+		list("uid" = faction_uid)
+	)
+	alliance_req_del_q.Execute()
+	databaseCheckQueryResult(alliance_req_del_q, "removeFactionCompletely alliance requests")
+	qdel(alliance_req_del_q)
+	if(islist(GLOB.persistence_faction_alliances[faction_uid]))
+		for(var/other_uid in GLOB.persistence_faction_alliances[faction_uid].Copy())
+			_uncache_faction_alliance(faction_uid, other_uid)
+	GLOB.persistence_faction_alliances -= faction_uid
+	if(islist(GLOB.persistence_faction_alliance_requests))
+		for(var/i = length(GLOB.persistence_faction_alliance_requests); i >= 1; i--)
+			var/list/req = GLOB.persistence_faction_alliance_requests[i]
+			if(req["proposer"] == faction_uid || req["target"] == faction_uid)
+				GLOB.persistence_faction_alliance_requests.Cut(i, i + 1)
+#endif //FACTION_ALLIANCES
 
 	// Revoke this faction's bearer master card, if it has one -- same
 	// revoke-by-scan idiom dispense_faction_id uses for superseded personal

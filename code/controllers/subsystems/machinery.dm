@@ -133,18 +133,20 @@ SUBSYSTEM_DEF(machinery)
 		network.add_cable(cable)
 		propagate_network(cable, cable.powernet)
 
-/datum/controller/subsystem/machinery/proc/setup_atmos_machinery(list/machines)
+/datum/controller/subsystem/machinery/proc/setup_atmos_machinery(list/machines, quiet = FALSE)
 	var/list/atmos_machines = list()
 	for (var/obj/structure/machinery/atmospherics/machine in machines)
 		if(QDELETED(machine))
 			continue
 		atmos_machines += machine
-	admin_notice(SPAN_DANGER("Initializing atmos machinery."), R_DEBUG)
+	if(!quiet)
+		admin_notice(SPAN_DANGER("Initializing atmos machinery."), R_DEBUG)
 	log_subsystem("machinery", "Initializing atmos machinery.")
 	for (var/obj/structure/machinery/atmospherics/machine as anything in atmos_machines)
 		machine.atmos_init()
 		CHECK_TICK
-	admin_notice(SPAN_DANGER("Initializing pipe networks."), R_DEBUG)
+	if(!quiet)
+		admin_notice(SPAN_DANGER("Initializing pipe networks."), R_DEBUG)
 	log_subsystem("machinery", "Initializing pipe networks.")
 	for (var/obj/structure/machinery/atmospherics/machine as anything in atmos_machines)
 		machine.build_network()

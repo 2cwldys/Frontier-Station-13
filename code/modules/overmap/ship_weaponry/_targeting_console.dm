@@ -107,7 +107,17 @@
 			if(!istype(linked.loc, /turf/unsimulated/map))
 				to_chat(usr, SPAN_WARNING("The safeties are engaged! You need to be undocked in order to fire."))
 				return
-			if(selected_entrypoint == SHIP_HAZARD_TARGET || !selected_entrypoint)
+			var/is_hazard_shot = (selected_entrypoint == SHIP_HAZARD_TARGET)
+			// Defense-in-depth safety net for ship-to-site bombardment --
+			// the primary block is at lock-on time (overmap_object.dm's
+			// target()); this catches a lock established before a beacon
+			// powered on/a zone went highsec. Ship targets (drydock ships
+			// included) and hazard shots are untouched -- see target()'s
+			// own comment for why ship-to-ship stays log-only, never blocked.
+			if(!is_hazard_shot && istype(linked.targeting, /obj/effect/overmap/visitable/sector) && site_bombardment_protected(linked.targeting, usr))
+				to_chat(usr, SPAN_WARNING("Weapons systems refuse to fire -- the target is under active protection and cannot be bombarded."))
+				return
+			if(is_hazard_shot)
 				LM = null
 			else
 				LM = selected_entrypoint
@@ -131,7 +141,17 @@
 					// this console knows who pulled the trigger. Zone comes
 					// from live overmap beacon coverage, not the ships' Zs --
 					// a moving ship's Z tier is stale by design.
-					if(usr.ckey && !zone_security_exempt(usr))
+					//
+					// Hazard shots (asteroids/environmental threats within the
+					// locked sector) are never an offense, whatever the
+					// position -- only firing at a real target (another ship,
+					// an away site, the CentCom marker) counts. Deliberately
+					// does NOT call zone_security_exempt() here, unlike the
+					// melee/admin_attack_log() version of this check --
+					// directing warship weapons at a real target in highsec is
+					// categorically more serious than personal self-defense, so
+					// even Hub security get flagged for it.
+					if(usr.ckey && !is_hazard_shot)
 						var/turf/firer_tile = get_turf(linked)
 						var/turf/victim_tile = linked.targeting ? get_turf(linked.targeting) : null
 						if(zone_security_overmap_tier(firer_tile) == ZONE_HIGHSEC || (victim_tile && zone_security_overmap_tier(victim_tile) == ZONE_HIGHSEC))

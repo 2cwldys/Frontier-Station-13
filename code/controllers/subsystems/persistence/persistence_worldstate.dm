@@ -866,9 +866,9 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 // ------- Cryopod (null guard for unconfigured pods) -------
 
 /obj/structure/machinery/cryopod/worldstate_get_content()
-	if(!persistent_network && !personal_ckey && !crew_tagged)
+	if(!persistent_network && !personal_ckey && !crew_tagged && !tagger_disabled)
 		return null
-	return list("persistent_network" = persistent_network, "persistent_spawn" = persistent_spawn, "personal_ckey" = personal_ckey, "personal_char_name" = personal_char_name, "crew_tagged" = crew_tagged)
+	return list("persistent_network" = persistent_network, "persistent_spawn" = persistent_spawn, "personal_ckey" = personal_ckey, "personal_char_name" = personal_char_name, "crew_tagged" = crew_tagged, "tagger_disabled" = tagger_disabled)
 
 /obj/structure/machinery/cryopod/worldstate_apply_content(list/content)
 	// Only apply non-empty network strings  don't let a stale empty DB value wipe the "public" default
@@ -882,6 +882,8 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		crew_tagged = content["crew_tagged"]
 	if(!isnull(content["personal_char_name"]))
 		personal_char_name = content["personal_char_name"]
+	if(!isnull(content["tagger_disabled"]))
+		tagger_disabled = content["tagger_disabled"]
 
 // ------- Conveyor switch (needs update() not update_icon()) -------
 

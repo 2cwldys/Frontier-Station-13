@@ -5,6 +5,9 @@ import { Window } from '../layouts';
 
 type Character = {
   name: string;
+  imprisoned: BooleanLike;
+  indefinite: BooleanLike;
+  remaining_seconds: number;
 };
 
 type PersistentMenuData = {
@@ -15,6 +18,16 @@ type PersistentMenuData = {
   enter_allowed: BooleanLike;
   save_in_progress: BooleanLike;
   whitelisted: BooleanLike;
+};
+
+const formatRemaining = (seconds: number) => {
+  const total = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
 };
 
 export const PersistentMenu = (props) => {
@@ -44,19 +57,24 @@ export const PersistentMenu = (props) => {
                     icon="play"
                     color="green"
                     disabled={
+                      !!char.imprisoned ||
                       !persistence_ready ||
                       !enter_allowed ||
                       !!save_in_progress ||
                       !whitelisted
                     }
                     tooltip={
-                      save_in_progress
-                        ? 'Cannot join server while a save is in progress.'
-                        : !whitelisted
-                          ? 'You are not whitelisted to join this server.'
-                          : !enter_allowed
-                            ? 'Joining is currently disabled by an administrator.'
-                            : 'Enter the world as this character'
+                      char.imprisoned
+                        ? char.indefinite
+                          ? 'This character is imprisoned indefinitely.'
+                          : `This character is imprisoned, time left: ${formatRemaining(char.remaining_seconds)}`
+                        : save_in_progress
+                          ? 'Cannot join server while a save is in progress.'
+                          : !whitelisted
+                            ? 'You are not whitelisted to join this server.'
+                            : !enter_allowed
+                              ? 'Joining is currently disabled by an administrator.'
+                              : 'Enter the world as this character'
                     }
                     onClick={() => act('play', { name: char.name })}
                   >

@@ -21,6 +21,7 @@ Nothing should ever be included before this file.
 #define MANUAL_UNIT_TEST
 #define AMAP
 #define ENABLE_SUNLIGHT
+#define ENABLE_KILL_MISSIONS
 
 #endif //SPACEMAN_DMM
 
@@ -43,5 +44,6 @@ Nothing should ever be included before this file.
 #define MANUAL_UNIT_TEST
 #define AMAP
 #define ENABLE_SUNLIGHT
+#define ENABLE_KILL_MISSIONS
 
 #endif //OPENDREAM

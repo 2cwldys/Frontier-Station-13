@@ -275,6 +275,13 @@
 
 	gfi_layer_rotation = GFI_ROTATION_DEFDIR
 	var/disconnect_time = null//Time of client loss, set by Logout(), for timekeeping
+	/// Never treated as an SSD/disconnected player for sleep-forcing
+	/// purposes (life.dm's handle_regular_status_updates()), regardless of
+	/// never having a client -- for mobs that are deliberately, permanently
+	/// keyless (AI-piloted NPC bodies), as opposed to a real player who
+	/// simply disconnected. Defaults FALSE -- no behavior change for any
+	/// mob that doesn't explicitly opt in.
+	var/deliberately_clientless = FALSE
 
 	var/mob_thinks = TRUE
 

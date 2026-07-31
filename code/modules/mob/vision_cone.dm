@@ -184,7 +184,7 @@
 		fov_mask_two.alpha = 0
 
 /mob/living/carbon/human/proc/check_fov()
-	if(resting || lying)
+	if(resting || lying || istype(buckled_to, /obj/vehicle) || istype(loc, /mob/living/heavy_vehicle) || HAS_TRAIT(src, TRAIT_COMPUTER_VIEW))
 		hide_cone()
 	else
 		show_cone()

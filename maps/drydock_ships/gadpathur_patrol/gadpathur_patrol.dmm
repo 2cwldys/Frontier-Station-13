@@ -302,7 +302,9 @@
 /turf/simulated/floor/tiled/full,
 /area/ship/gadpathur_patrol/quarters_bath)
 "cr" = (
-/obj/structure/machinery/door/airlock/highsecurity/gadpathur/cic,
+/obj/structure/machinery/door/airlock/highsecurity/gadpathur/cic{
+	req_one_access = null
+	},
 /obj/structure/machinery/door/firedoor,
 /obj/structure/machinery/atmospherics/pipe/simple/hidden/supply,
 /obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers,
@@ -379,7 +381,9 @@
 /turf/simulated/floor,
 /area/ship/gadpathur_patrol/eva)
 "cY" = (
-/obj/structure/machinery/door/airlock/highsecurity/gadpathur/armory,
+/obj/structure/machinery/door/airlock/highsecurity/gadpathur/armory{
+	req_one_access = null
+	},
 /obj/structure/machinery/atmospherics/pipe/simple/hidden/supply,
 /obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers,
 /obj/structure/cable{
@@ -423,7 +427,8 @@
 /area/shuttle/gadpathur_shuttle)
 "dD" = (
 /obj/structure/machinery/door/airlock/gadpathur/crew_prep{
-	dir = 4
+	dir = 4;
+	req_one_access = null
 	},
 /obj/structure/machinery/door/firedoor{
 	dir = 4
@@ -479,7 +484,9 @@
 /turf/simulated/floor/tiled/dark,
 /area/ship/gadpathur_patrol/officer)
 "dY" = (
-/obj/structure/machinery/door/airlock/gadpathur/quarters/crew,
+/obj/structure/machinery/door/airlock/gadpathur/quarters/crew{
+	req_one_access = null
+	},
 /obj/structure/machinery/door/firedoor,
 /turf/simulated/floor/tiled/full,
 /area/ship/gadpathur_patrol/quarters)
@@ -673,7 +680,8 @@
 /area/ship/gadpathur_patrol/corridor/starboard)
 "fM" = (
 /obj/structure/machinery/door/airlock/glass/gadpathur/cell{
-	dir = 4
+	dir = 4;
+	req_one_access = null
 	},
 /obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
 	dir = 4
@@ -880,7 +888,8 @@
 /area/ship/gadpathur_patrol/hangar)
 "hY" = (
 /obj/structure/machinery/door/airlock/gadpathur/engi{
-	dir = 8
+	dir = 8;
+	req_one_access = null
 	},
 /obj/structure/machinery/door/firedoor{
 	dir = 4
@@ -1153,7 +1162,8 @@
 /area/ship/gadpathur_patrol/corridor/starboard)
 "jP" = (
 /obj/structure/machinery/door/airlock/gadpathur/engi{
-	dir = 8
+	dir = 8;
+	req_one_access = null
 	},
 /obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
 	dir = 4
@@ -1466,7 +1476,8 @@
 /area/ship/gadpathur_patrol/hangar)
 "lY" = (
 /obj/structure/machinery/door/airlock/glass/gadpathur/situation{
-	dir = 8
+	dir = 8;
+	req_one_access = null
 	},
 /turf/simulated/floor/tiled/dark/full,
 /area/ship/gadpathur_patrol/sit_room)
@@ -1891,7 +1902,9 @@
 /obj/structure/cable/green{
 	icon_state = "1-2"
 	},
-/obj/structure/machinery/door/airlock/glass/gadpathur/engi,
+/obj/structure/machinery/door/airlock/glass/gadpathur/engi{
+	req_one_access = null
+	},
 /turf/simulated/floor/tiled/dark/full,
 /area/ship/gadpathur_patrol/reactor)
 "pD" = (
@@ -1969,7 +1982,8 @@
 /area/ship/gadpathur_patrol/cic)
 "pZ" = (
 /obj/structure/machinery/door/airlock/gadpathur/atmos{
-	dir = 4
+	dir = 4;
+	req_one_access = null
 	},
 /obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
 	dir = 4
@@ -2304,7 +2318,8 @@
 /area/ship/gadpathur_patrol/officer)
 "si" = (
 /obj/structure/machinery/door/airlock/highsecurity/gadpathur/cic{
-	dir = 4
+	dir = 4;
+	req_one_access = null
 	},
 /obj/structure/machinery/door/firedoor{
 	dir = 4
@@ -3695,7 +3710,9 @@
 	icon_state = "1-8"
 	},
 /obj/structure/plasticflaps/airtight,
-/obj/structure/machinery/door/airlock/gadpathur/engi,
+/obj/structure/machinery/door/airlock/gadpathur/engi{
+	req_one_access = null
+	},
 /turf/simulated/floor/tiled/dark/full,
 /area/ship/gadpathur_patrol/telecomms)
 "Dr" = (
@@ -3765,7 +3782,8 @@
 /area/ship/gadpathur_patrol/eva)
 "DS" = (
 /obj/structure/machinery/door/airlock/gadpathur/quarters/crew{
-	dir = 8
+	dir = 8;
+	req_one_access = null
 	},
 /obj/structure/machinery/door/firedoor{
 	dir = 4
@@ -3855,7 +3873,8 @@
 	dir = 4
 	},
 /obj/structure/machinery/door/airlock/gadpathur/crew_prep{
-	dir = 4
+	dir = 4;
+	req_one_access = null
 	},
 /obj/structure/machinery/door/firedoor{
 	dir = 4
@@ -4523,7 +4542,8 @@
 /area/ship/gadpathur_patrol/fuel)
 "JV" = (
 /obj/structure/machinery/door/airlock/gadpathur/interrogation{
-	dir = 4
+	dir = 4;
+	req_one_access = null
 	},
 /obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
 	dir = 4
@@ -4823,7 +4843,8 @@
 /area/ship/gadpathur_patrol/engineering)
 "MF" = (
 /obj/structure/machinery/door/airlock/highsecurity/gadpathur/cic{
-	dir = 4
+	dir = 4;
+	req_one_access = null
 	},
 /obj/structure/machinery/atmospherics/pipe/simple/hidden/scrubbers{
 	dir = 4
@@ -5541,7 +5562,9 @@
 /turf/simulated/wall/shuttle/dark/cardinal/gadpathur,
 /area/ship/gadpathur_patrol/crew_prep)
 "Sx" = (
-/obj/structure/machinery/door/airlock/freezer/gadpathur/morgue,
+/obj/structure/machinery/door/airlock/freezer/gadpathur/morgue{
+	req_one_access = null
+	},
 /obj/structure/machinery/atmospherics/pipe/simple/hidden/supply{
 	dir = 1
 	},
@@ -5896,7 +5919,9 @@
 	},
 /area/ship/gadpathur_patrol/thrusters/port)
 "Vf" = (
-/obj/structure/machinery/door/airlock/gadpathur/atmos,
+/obj/structure/machinery/door/airlock/gadpathur/atmos{
+	req_one_access = null
+	},
 /obj/structure/machinery/door/firedoor,
 /turf/simulated/floor/tiled/dark/full,
 /area/ship/gadpathur_patrol/atmos)
@@ -6514,7 +6539,9 @@
 /obj/structure/cable{
 	icon_state = "1-2"
 	},
-/obj/structure/machinery/door/airlock/glass/gadpathur/engi,
+/obj/structure/machinery/door/airlock/glass/gadpathur/engi{
+	req_one_access = null
+	},
 /turf/simulated/floor/tiled/dark/full,
 /area/ship/gadpathur_patrol/engineering)
 "ZY" = (

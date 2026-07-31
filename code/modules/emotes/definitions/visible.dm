@@ -84,6 +84,9 @@
 	emote_message_3p_target = "USER salutes TARGET."
 	emote_message_3p = "USER salutes."
 
+/singleton/emote/visible/salute/do_extra(var/atom/user, var/atom/target)
+	playsound(user.loc, 'sound/effects/salute.ogg', 50, 0, vary = FALSE)
+
 /singleton/emote/visible/eyebrow
 	key = "eyebrow"
 	emote_message_3p = "USER raises an eyebrow."

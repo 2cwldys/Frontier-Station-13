@@ -55,7 +55,13 @@
 #define ORGAN_ZOMBIFIED  (1<<14)
 
 // the largest bitflag, in the WORLD
-#define ORGAN_DAMAGE_STATES ORGAN_CUT_AWAY|ORGAN_BLEEDING|ORGAN_BROKEN|ORGAN_DESTROYED|ORGAN_SPLINTED|ORGAN_DEAD|ORGAN_MUTATED|ORGAN_ARTERY_CUT
+// Parenthesized deliberately -- unparenthesized, `status &= ~ORGAN_DAMAGE_STATES`
+// only clears ORGAN_CUT_AWAY (~ binds tighter than |, so `~ORGAN_CUT_AWAY|X|Y|...`
+// resolves to `(~ORGAN_CUT_AWAY)|X|Y|...`, leaving every other flag bit forced
+// to 1 regardless of status), and `status & ORGAN_DAMAGE_STATES` is
+// unconditionally truthy (& binds tighter than |, same issue). Both silently
+// broke rejuvenate()'s fracture/wound cleanup and autodoc's health check.
+#define ORGAN_DAMAGE_STATES (ORGAN_CUT_AWAY|ORGAN_BLEEDING|ORGAN_BROKEN|ORGAN_DESTROYED|ORGAN_SPLINTED|ORGAN_DEAD|ORGAN_MUTATED|ORGAN_ARTERY_CUT)
 
 // Limb behaviour defines.
 ///Can this organ be amputated?

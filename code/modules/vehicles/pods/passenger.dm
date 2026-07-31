@@ -94,6 +94,7 @@
 	M.mouse_opacity = MOUSE_OPACITY_TRANSPARENT
 	M.update_icon()
 	ADD_TRAIT(M, TRAIT_PRESSURE_IMMUNITY, "pod_occupant")
+	M.update_vision_cone() // re-checks check_fov() now that buckled_to is set -- suppresses the rider's own cone immediately instead of waiting for their next turn/move
 
 /// Restores what hide_occupant() changed -- was_cloaked is the value it
 /// returned when this occupant boarded, not a hardcoded FALSE, so a real
@@ -104,6 +105,7 @@
 	M.mouse_opacity = initial(M.mouse_opacity)
 	M.update_icon()
 	REMOVE_TRAIT(M, TRAIT_PRESSURE_IMMUNITY, "pod_occupant")
+	M.update_vision_cone() // buckled_to is already cleared by this point -- restores the normal cone immediately instead of waiting for their next turn/move
 
 /**
  * Right-click the pod to eject an occupant without needing to be the one

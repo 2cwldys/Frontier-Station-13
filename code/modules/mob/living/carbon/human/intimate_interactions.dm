@@ -98,6 +98,11 @@ GLOBAL_LIST_INIT(throat_fuck_pops, list(
 	if(!user.client)
 		return
 
+	// AI-piloted bodies (hostile NPCs, etc.) are never intimate-interaction
+	// targets -- not just "no consent needed," blocked outright.
+	if(src.deliberately_clientless)
+		return
+
 	if(GLOB.config.require_consent && !(user.client.prefs.toggles_secondary & INTIMATE_INTERACTIONS_ENABLED))
 		to_chat(user, SPAN_WARNING("You need to enable the 'Toggle Intimate Interactions' preference before you can do this."))
 		return

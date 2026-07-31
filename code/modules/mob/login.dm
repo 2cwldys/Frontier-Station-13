@@ -112,6 +112,17 @@
 		client.saved_dynamic_view = null
 		client.refit_dynamic_view()
 
+	if(client && isliving(src) && loc)
+		// Aghost round-trip (or any other ckey-swap-without-move reattach)
+		// never re-triggers /area/Entered() for this body -- loc never
+		// changed -- so whatever ambience/hum was left running from
+		// wherever the ghost was flying just carries over unreconciled,
+		// duplicating with whatever this area actually wants. Music is
+		// deliberately left alone -- only ambience/hum are reconciled here.
+		var/area/current_area = get_area(src)
+		if(istype(current_area))
+			current_area.refresh_mob_ambience(src)
+
 	if(client)
 		// The Say/Me/OOC pushboxes persist is-checked client-side
 		// (saved-params) -- a stuck checked state renders them with the

@@ -287,6 +287,9 @@
 				to_chat(user, SPAN_WARNING("Faction raiding is currently disabled -- you cannot enter that territory."))
 				play_raid_blocked_sound(user)
 				return TRUE
+			if(is_centcom_level(target_z) && !can_access_hub_depot(user))
+				to_chat(user, SPAN_WARNING("That sector is restricted to Hub personnel."))
+				return TRUE
 			var/turf/anchor = personal_travel_find_space_landing(target_z)
 			if(!anchor)
 				to_chat(user, SPAN_WARNING("No safe landing point could be found there."))
@@ -500,6 +503,23 @@
 	for(var/obj/effect/overmap/O in view(PERSONAL_TRAVEL_LEAP_RANGE, T))
 		if(!O.requires_contact)
 			continue
+		// Never give away another ship's position through this free-look
+		// trick from a distance -- only real ship navigation/sensor
+		// machinery (which gates on actual detection, contact_sensors.dm)
+		// should reveal one from afar. Your own current ship (if any) is
+		// exempt so it still renders normally, and any ship (own or not)
+		// within SECTOR_VIEW_SHIP_PROXIMITY_RANGE tiles of the eye's current
+		// position reveals too -- close enough to target for warp/travel,
+		// which is click-to-prime only and has no other way to select a
+		// destination.
+		if(istype(O, /obj/effect/overmap/visitable/ship) && O != _current_sector(user))
+			// Cloaked ships never reveal via this trick regardless of
+			// proximity -- the 4-tile exemption below exists for ordinary
+			// warp targeting, not to defeat a cloaking device.
+			if(!O.is_detectable(user))
+				continue
+			if(get_dist(O, T) > SECTOR_VIEW_SHIP_PROXIMITY_RANGE)
+				continue
 		var/image/marker = image(null, O)
 		marker.appearance = O.appearance
 		// The appearance copy inherits the effect's INVISIBILITY_OVERMAP --

@@ -51,7 +51,7 @@
 	height = bounds[MAP_MAXY] - bounds[MAP_MINX] + 1
 	return bounds
 
-/datum/map_template/proc/load_new_z(var/no_changeturf = TRUE)
+/datum/map_template/proc/load_new_z(var/no_changeturf = TRUE, quiet = FALSE)
 	var/x = round((world.maxx - width)/2)
 	var/y = round((world.maxy - height)/2)
 
@@ -95,7 +95,7 @@
 	post_exoplanet_generation(bounds)
 
 	//initialize things that are normally initialized after map load
-	init_atoms(atoms_to_initialise)
+	init_atoms(atoms_to_initialise, quiet)
 	init_shuttles(shuttle_state)
 	log_game("Z-level [name] loaded at [x], [y], [world.maxz]")
 	message_admins("Z-level [name] loaded at [x], [y], [world.maxz]")
@@ -114,7 +114,7 @@
  * (no_changeturf = FALSE), matching the load_new_z(FALSE) call sites this
  * replaces.
  */
-/datum/map_template/proc/load_into_z(z)
+/datum/map_template/proc/load_into_z(z, quiet = FALSE)
 	if(length(traits) > 1)
 		stack_trace("load_into_z() called on multi-Z template '[name]' -- the ship Z pool is single-Z by contract.")
 		return FALSE
@@ -156,7 +156,7 @@
 	require_area_resort()
 
 	//initialize things that are normally initialized after map load
-	init_atoms(atoms_to_initialise)
+	init_atoms(atoms_to_initialise, quiet)
 	init_shuttles(shuttle_state)
 	log_game("Z-level [name] loaded onto pooled z=[z] at [x], [y]")
 	message_admins("Z-level [name] loaded onto pooled z=[z] at [x], [y]")
@@ -175,7 +175,7 @@
 	SSshuttle.block_queue = pre_init_state
 	SSshuttle.clear_init_queue() // We will flush the queue unless there were other blockers, in which case they will do it.
 
-/datum/map_template/proc/init_atoms(var/list/atoms)
+/datum/map_template/proc/init_atoms(var/list/atoms, quiet = FALSE)
 	if (SSatoms.initialized == INITIALIZATION_INSSATOMS)
 		return // let proper initialisation handle it later
 
@@ -202,14 +202,14 @@
 				apcs += A
 
 	var/notsuspended
-	if(!SSmachinery.can_fire)
+	if(SSmachinery.can_fire)
 		SSmachinery.can_fire = FALSE
 		notsuspended = TRUE
 
 	SSatoms.InitializeAtoms(atoms) // The atoms should have been getting queued there. This flushes the queue.
 
 	SSmachinery.setup_powernets_for_cables(cables)
-	SSmachinery.setup_atmos_machinery(atmos_machines)
+	SSmachinery.setup_atmos_machinery(atmos_machines, quiet)
 	if(notsuspended)
 		SSmachinery.can_fire = TRUE
 

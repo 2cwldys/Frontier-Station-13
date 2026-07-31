@@ -389,6 +389,7 @@
 				var/datum/map_template/ruin/away_site/site = template
 				if(site.auto_despawn_when_depleted)
 					_register_auto_despawn_asteroid(z_before + 1, site.id)
+			maybe_populate_away_site_with_pirates(z_before + 1, template.id)
 		else
 			log_admin("Failed loading away site [template]!")
 
@@ -457,6 +458,14 @@
 		var/list/site_zs = list()
 		for(var/nz = z_before + 1 to world.maxz)
 			site_zs += nz
+
+		// Pinned sites reload the static map template fresh every boot --
+		// mobs never persist across a reboot regardless, so there's nothing
+		// to protect by skipping this. Gated entirely by whether this
+		// specific template has any matching away_site_mob_presets entry
+		// (persistence_away_site_mobs.dm) -- a pinned site an admin means to
+		// keep cleared just never gets one added, same as today.
+		maybe_populate_away_site_with_pirates(site_z, row["template"])
 
 		// Deterministic-z contract: if the number drifted (first boot after
 		// pinning, or a map/config change), move the site's rows to the new z.

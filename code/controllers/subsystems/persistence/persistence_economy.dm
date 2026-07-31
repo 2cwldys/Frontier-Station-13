@@ -23,7 +23,7 @@ GLOBAL_LIST_EMPTY(persistence_economy_cache)
 		return
 
 	var/datum/db_query/query = SSdbcore.NewQuery(
-		"SELECT ckey, char_name, account_number, money, remote_access_pin, public_account, suspended, security_level, transaction_log \
+		"SELECT ckey, char_name, account_number, money, remote_access_pin, public_account, suspended, security_level, transaction_log, intro_shown \
 		 FROM ss13_money_accounts"
 	)
 	query.Execute()
@@ -43,7 +43,8 @@ GLOBAL_LIST_EMPTY(persistence_economy_cache)
 			"public_account"    = text2num(query.item[6]),
 			"suspended"         = text2num(query.item[7]),
 			"security_level"    = text2num(query.item[8]),
-			"transaction_log"   = query.item[9]
+			"transaction_log"   = query.item[9],
+			"intro_shown"       = text2num(query.item[10])
 		)
 		var/cache_key = "[query.item[1]]|[query.item[2]]"
 		GLOB.persistence_economy_cache[cache_key] = entry
@@ -115,12 +116,12 @@ GLOBAL_LIST_EMPTY(persistence_economy_cache)
 		))
 	var/datum/db_query/upsert = SSdbcore.NewQuery(
 		"INSERT INTO ss13_money_accounts \
-		 (ckey, char_name, account_number, money, remote_access_pin, public_account, suspended, security_level, transaction_log, saved_at) \
-		 VALUES (:ckey, :char_name, :account_number, :money, :pin, :public_account, :suspended, :security_level, :tx_log, NOW()) \
+		 (ckey, char_name, account_number, money, remote_access_pin, public_account, suspended, security_level, transaction_log, intro_shown, saved_at) \
+		 VALUES (:ckey, :char_name, :account_number, :money, :pin, :public_account, :suspended, :security_level, :tx_log, :intro_shown, NOW()) \
 		 ON DUPLICATE KEY UPDATE \
 		 account_number=VALUES(account_number), money=VALUES(money), remote_access_pin=VALUES(remote_access_pin), \
 		 public_account=VALUES(public_account), suspended=VALUES(suspended), security_level=VALUES(security_level), \
-		 transaction_log=VALUES(transaction_log), saved_at=NOW()",
+		 transaction_log=VALUES(transaction_log), intro_shown=VALUES(intro_shown), saved_at=NOW()",
 		list(
 			"ckey"           = ckey_override,
 			"char_name"      = name_override,
@@ -130,7 +131,8 @@ GLOBAL_LIST_EMPTY(persistence_economy_cache)
 			"public_account" = account.public_account ? 1 : 0,
 			"suspended"      = account.suspended ? 1 : 0,
 			"security_level" = account.security_level,
-			"tx_log"         = json_encode(tx_list)
+			"tx_log"         = json_encode(tx_list),
+			"intro_shown"    = account.intro_shown ? 1 : 0
 		)
 	)
 	upsert.Execute()
@@ -154,6 +156,39 @@ GLOBAL_LIST_EMPTY(persistence_economy_cache)
 			if(SSeconomy.department_accounts[dept] == account)
 				_economySaveOneAccount(account, "_dept_[dept]_", "[dept] Department")
 				return
+
+/// Credits a ckey+char_name's account that may have no live /datum/money_account
+/// object yet -- SSeconomy.get_account_by_ckey_and_name() only ever finds an
+/// account once that specific character has actually spawned THIS boot
+/// (restoreAccountFromPersistence() is spawn-triggered, nothing bulk-loads
+/// every saved account into memory at round start), so a real, currently-
+/// offline-this-session player would otherwise silently receive nothing --
+/// confirmed as a real gap, e.g. a faction stock buyout paying out
+/// shareholders who haven't logged in yet this round. Writes the DB row
+/// directly AND the boot-time economy cache (persistence_economy_cache) --
+/// the latter matters because restoreAccountFromPersistence() reads FROM
+/// that cache (not a fresh DB query) if this same character spawns later
+/// in the same round, so skipping it would let a late spawn silently
+/// overwrite this credit with the stale pre-credit cached balance. Callers
+/// should always try SSeconomy.get_account_by_ckey_and_name() first and
+/// only fall back to this when it returns null.
+/datum/controller/subsystem/persistence/proc/economyCreditOfflineAccount(ckey, char_name, amount)
+	if(!ckey || !char_name || !amount)
+		return FALSE
+	if(!databaseCheckConnection("economyCreditOfflineAccount"))
+		return FALSE
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"UPDATE ss13_money_accounts SET money = money + :amount WHERE ckey = :ckey AND char_name = :char_name",
+		list("amount" = amount, "ckey" = ckey, "char_name" = char_name)
+	)
+	q.Execute()
+	var/ok = databaseCheckQueryResult(q, "economyCreditOfflineAccount")
+	qdel(q)
+	if(ok)
+		var/list/cached = GLOB.persistence_economy_cache["[ckey]|[char_name]"]
+		if(islist(cached))
+			cached["money"] = (cached["money"] || 0) + amount
+	return ok
 
 /**
  * Attempt to restore a previously saved money account for the given mob.
@@ -184,6 +219,7 @@ GLOBAL_LIST_EMPTY(persistence_economy_cache)
 	account.public_account   = saved["public_account"]
 	account.suspended        = saved["suspended"]
 	account.security_level   = saved["security_level"]
+	account.intro_shown      = !!saved["intro_shown"]
 
 	// Restore transaction log
 	if(saved["transaction_log"])

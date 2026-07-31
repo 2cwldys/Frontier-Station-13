@@ -122,6 +122,7 @@
 		var/obj/structure/machinery/cryopod/pod = current_target
 		data["is_cryopod"] = TRUE
 		data["persistent_spawn"] = pod.persistent_spawn && (pod.persistent_network == "public")
+		data["cryopod_disabled"] = pod.tagger_disabled
 
 	if(is_admin && istype(current_target, /obj/structure/machinery/telecomms))
 		data["is_telecomms"] = TRUE
@@ -171,6 +172,12 @@
 					to_chat(user, SPAN_WARNING("\The [current_target] is marked Public -- an admin must clear it before it can be retagged."))
 				else
 					to_chat(user, SPAN_WARNING("\The [current_target] is already tagged to [get_faction_name(old_uid)] -- you need officer access there to retag it."))
+				return
+			// Company-tier factions can tag every other machine type normally,
+			// but never a faction beacon -- they have no pinned site of their
+			// own and must operate out of a full faction's territory instead.
+			if(istype(current_target, /obj/structure/machinery/faction_beacon) && is_company_tier_faction(new_uid))
+				to_chat(user, SPAN_WARNING("Small business type-factions may not claim sectors -- [get_faction_name(new_uid)] must operate out of a full faction's pinned site instead."))
 				return
 			// Territory check: even an UNCLAIMED target (no old_uid yet) can't
 			// be claimed for a foreign faction if this Z is already under a
@@ -300,6 +307,20 @@
 				pod.persistent_spawn   = TRUE
 				to_chat(user, SPAN_GOOD("Cryopod marked as a public spawn point."))
 				log_admin("[key_name(user)] marked a cryopod at [get_turf(pod)] as a public spawn point via faction tagger.")
+			if(!pod.persistence_map_placed && GLOB.config.sql_enabled && GLOB.persistence_ready)
+				SSpersistence.objectsRegisterTrack(pod)
+			. = TRUE
+		if("toggle_cryopod_disabled")
+			if(!check_rights(R_ADMIN, 0, user) || !istype(current_target, /obj/structure/machinery/cryopod))
+				return
+			var/obj/structure/machinery/cryopod/pod = current_target
+			pod.tagger_disabled = !pod.tagger_disabled
+			if(pod.tagger_disabled)
+				to_chat(user, SPAN_GOOD("\The [pod] disabled -- it will refuse all occupants."))
+				log_admin("[key_name(user)] disabled \the [pod] at [get_turf(pod)] via faction tagger.")
+			else
+				to_chat(user, SPAN_GOOD("\The [pod] re-enabled."))
+				log_admin("[key_name(user)] re-enabled \the [pod] at [get_turf(pod)] via faction tagger.")
 			if(!pod.persistence_map_placed && GLOB.config.sql_enabled && GLOB.persistence_ready)
 				SSpersistence.objectsRegisterTrack(pod)
 			. = TRUE

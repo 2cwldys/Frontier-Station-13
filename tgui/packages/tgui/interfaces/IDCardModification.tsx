@@ -30,6 +30,8 @@ export type IDData = {
   faction_name: string | null;
   faction_officer: BooleanLike;
   can_dispense_faction_id: BooleanLike;
+  can_leave_faction: BooleanLike;
+  clocked_in: BooleanLike;
 };
 
 type Access = {
@@ -84,6 +86,29 @@ export const IDCardModification = (props) => {
                 onClick={() => act('print_replacement')}
               />
             </LabeledList.Item>
+            {!!data.can_leave_faction && (
+              <LabeledList.Item label={data.faction_name ?? 'Faction'}>
+                <Button
+                  icon={data.clocked_in ? 'clock' : 'right-to-bracket'}
+                  content={data.clocked_in ? 'Clock Out' : 'Clock In'}
+                  color={data.clocked_in ? 'bad' : 'good'}
+                  tooltip={
+                    data.clocked_in
+                      ? "Clock out -- you'll stop receiving payroll from this faction until you clock back in."
+                      : 'Clock in -- required to receive payroll from this faction. 5 minute cooldown between toggles.'
+                  }
+                  onClick={() => act('toggle_clock')}
+                />
+                <Button
+                  icon="right-from-bracket"
+                  content={`Leave ${data.faction_name ?? 'Faction'}`}
+                  color="bad"
+                  ml={1}
+                  tooltip="Leave this faction -- your ID access is revoked and your membership record erased. You would need to be re-issued an ID to rejoin."
+                  onClick={() => act('leave_faction')}
+                />
+              </LabeledList.Item>
+            )}
           </LabeledList>
         </Section>
       </NtosWindow.Content>

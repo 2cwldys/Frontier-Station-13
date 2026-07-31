@@ -105,6 +105,10 @@ GLOBAL_LIST_INIT(admin_verbs_admin, list(
 	/client/proc/fix_player_list,
 	/client/proc/reset_openturf,
 	/client/proc/view_removed_structures,
+	/datum/admins/proc/manage_faction_prisoners,
+	/datum/admins/proc/manage_hostile_npc_presets,
+	/datum/admins/proc/modify_outfit_templates,
+	/datum/admins/proc/spawn_hostile_npc,
 	/client/proc/toggle_aooc,
 	/client/proc/force_away_mission,
 	/client/proc/alooc,
@@ -213,6 +217,7 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/set_drydock_ship_cap,
 	/datum/admins/proc/generate_away_site,
 	/datum/admins/proc/remove_away_site,
+	/datum/admins/proc/manage_away_site_mob_presets,
 	/datum/admins/proc/manage_cargo_exports,
 	/datum/admins/proc/repair_dual_tagged_devices,
 	/datum/admins/proc/manage_missions,
@@ -1511,3 +1516,62 @@ GLOBAL_LIST_INIT(admin_verbs_storyteller, list(
 		if(custom_color)
 			destination_portal.icon_state = "portal_g"
 			destination_portal.color = custom_color
+
+/// Lets an admin view and release anyone currently imprisoned in a
+/// cryogenic prison storage pod (cryopod_prison.dm), regardless of which
+/// faction imprisoned them or whether their pod's own security-access gate
+/// would normally allow it -- a deliberate bypass for abuse cases. Re-verifies
+/// each candidate through persistence_character_imprisonment_status()
+/// (persistence_mobs.dm) rather than trusting the raw SQL flag, which also
+/// lazily clears anyone already expired/pod-missing off the list.
+/datum/admins/proc/manage_faction_prisoners()
+	set name = "Manage Faction Prisoners"
+	set category = "Persistence"
+	set desc = "View and release anyone currently imprisoned in cryogenic prison storage, regardless of faction."
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	if(!SSpersistence.databaseCheckConnection("manage_faction_prisoners"))
+		to_chat(usr, SPAN_WARNING("Database connection failed."))
+		return
+
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"SELECT ckey, char_name FROM ss13_mob_position WHERE imprisoned = 1",
+		list()
+	)
+	q.Execute()
+	var/list/candidates = list()
+	if(SSpersistence.databaseCheckQueryResult(q, "manage_faction_prisoners list"))
+		while(q.NextRow())
+			candidates += list(list("ckey" = q.item[1], "char_name" = q.item[2]))
+	qdel(q)
+
+	var/list/options = list()
+	for(var/list/c in candidates)
+		// _record() (not _status()) -- an unlocked/paroled prisoner should
+		// still show up here, not just ones actively blocked from playing.
+		var/list/status = persistence_character_imprisonment_record(c["ckey"], c["char_name"])
+		if(!status)
+			continue
+		var/label = status["indefinite"] \
+			? "[c["char_name"]] ([c["ckey"]]) -- indefinite[status["frozen"] ? "" : " (THAWED)"]" \
+			: "[c["char_name"]] ([c["ckey"]]) -- [round(status["remaining_seconds"] / 60)] min left[status["frozen"] ? "" : " (THAWED)"]"
+		options[label] = c
+
+	if(!length(options))
+		to_chat(usr, SPAN_NOTICE("No one is currently imprisoned."))
+		return
+
+	var/chosen_label = tgui_input_list(usr, "Select a prisoner to release:", "Manage Faction Prisoners", options)
+	if(!chosen_label)
+		return
+	var/list/chosen = options[chosen_label]
+
+	var/confirm = tgui_alert(usr, "Release [chosen["char_name"]] ([chosen["ckey"]]) from imprisonment? This bypasses the pod's own security/faction access check entirely.", "Release Prisoner", list("Release", "Cancel"))
+	if(confirm != "Release")
+		return
+
+	persistence_set_imprisoned(chosen["ckey"], chosen["char_name"], FALSE)
+	to_chat(usr, SPAN_GOOD("Released [chosen["char_name"]] ([chosen["ckey"]]) from imprisonment."))
+	log_and_message_admins("released [chosen["char_name"]] ([chosen["ckey"]]) from cryogenic prison storage via Manage Faction Prisoners.", usr)

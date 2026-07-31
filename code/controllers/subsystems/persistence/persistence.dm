@@ -575,6 +575,19 @@ SUBSYSTEM_DEF(persistence)
 	qdel(zlq)
 	if(length(GLOB.persistence_zlevel_skip))
 		log_subsystem_persistence_info("Z-Level skip list loaded: [GLOB.persistence_zlevel_skip.Join(", ")]")
+
+	// CentCom is a bare, template-less Z built directly by atlas.dm at boot --
+	// it has no DB row of its own and no ruin/away_site template to pin, so
+	// unlike every other Z it can never earn its way onto the allow list
+	// before this. Without this, CentCom only gets allow-listed reactively
+	// (persistence_pin_site_at_z(), via a faction beacon's _apply_network())
+	// -- which runs AFTER the restore passes below already skipped it for
+	// this boot.
+	for(var/z = 1 to world.maxz)
+		if(is_centcom_level(z))
+			GLOB.persistence_pinned_site_z |= z
+			GLOB.persistence_zlevel_allow |= z
+
 	if(GLOB.config.manual_area_save)
 		log_subsystem_persistence_info("MANUAL_AREA_SAVE active: only z-levels \[[GLOB.persistence_zlevel_allow.Join(", ")]\] will save/load.")
 
@@ -610,6 +623,24 @@ SUBSYSTEM_DEF(persistence)
 		missionsInitialize()
 	catch(var/exception/ms_e)
 		log_subsystem_persistence_error("Missions init failed: [ms_e] on [ms_e.file]:[ms_e.line]")
+
+	log_subsystem_persistence_info("Starting outfit template initialization...")
+	try
+		outfitTemplatesInitialize()
+	catch(var/exception/ot_e)
+		log_subsystem_persistence_error("Outfit templates init failed: [ot_e] on [ot_e.file]:[ot_e.line]")
+
+	log_subsystem_persistence_info("Starting hostile NPC preset initialization...")
+	try
+		hostileNpcPresetsInitialize()
+	catch(var/exception/hnp_e)
+		log_subsystem_persistence_error("Hostile NPC presets init failed: [hnp_e] on [hnp_e.file]:[hnp_e.line]")
+
+	log_subsystem_persistence_info("Starting away site mob preset initialization...")
+	try
+		awaySiteMobPresetsInitialize()
+	catch(var/exception/asmp_e)
+		log_subsystem_persistence_error("Away site mob presets init failed: [asmp_e] on [asmp_e.file]:[asmp_e.line]")
 
 	// Arms the "is anyone actually playing" autosave auto-pause sweep.
 	_autosave_empty_reconcile_start()
@@ -681,6 +712,14 @@ SUBSYSTEM_DEF(persistence)
 		factionFoundingInitialize()
 	catch(var/exception/faction_founding_e)
 		log_subsystem_persistence_panic("Unhandled exception during faction founding petition initialization: [faction_founding_e]")
+
+#ifdef FACTION_ALLIANCES
+	log_subsystem_persistence_info("Starting faction alliance initialization...")
+	try
+		factionAlliancesInitialize()
+	catch(var/exception/faction_alliances_e)
+		log_subsystem_persistence_panic("Unhandled exception during faction alliance initialization: [faction_alliances_e]")
+#endif //FACTION_ALLIANCES
 
 	log_subsystem_persistence_info("Starting faction creation toggle initialization...")
 	try

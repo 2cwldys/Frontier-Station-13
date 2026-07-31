@@ -825,6 +825,20 @@
 	groupable = FALSE
 	spawn_amount = 1
 
+/singleton/cargo_item/hyperspanner
+	category = "engineering"
+	name = "hyperspanner"
+	supplier = "Hub"
+	description = "A heavy-duty multi-tool for rapid structural repairs to walls, windows, machinery, and floors. Requires a power cell (sold separately)."
+	price = 100000
+	items = list(
+		/obj/item/hyperspanner
+	)
+	access = ACCESS_ENGINE
+	container_type = "box"
+	groupable = FALSE
+	spawn_amount = 1
+
 /singleton/cargo_item/solarpanelassembly
 	category = "engineering"
 	name = "solar panel assembly"

@@ -284,9 +284,11 @@
 			// Reset generic export totals before scanning
 			SScargo.reset_generic_export_totals()
 
-			// Scan everything on the telepad turf (skip the telepad machinery itself)
+			// Scan everything on the telepad turf (skip the telepad machinery itself,
+			// and anything else is_cargo_export_excluded() rules out -- structural
+			// framework like girders/lattice, not just machinery)
 			for(var/atom/movable/A in pad_turf)
-				if(istype(A, /obj/structure/machinery)) continue
+				if(is_cargo_export_excluded(A)) continue
 				SScargo.export_item_and_contents(A)
 
 			// Collect results

@@ -28,6 +28,8 @@ export type CargoData = {
   is_personal: BooleanLike;
   personal_owner_name: string | null;
   personal_balance: number | null;
+  personal_allowed_category: string | null;
+  personal_cargo_category_cooldown_remaining: number;
   is_crew: BooleanLike;
   crew_ship_name: string | null;
   crew_balance: number | null;
@@ -159,6 +161,33 @@ export const MainPage = (props) => {
             Orders from this console are paid from your personal account, not
             a faction.
           </Box>
+          {data.personal_cargo_category_cooldown_remaining > 0 ? (
+            <Box color="label" mt={0.5}>
+              Cargo specialization:{' '}
+              {data.cargo_categories.find(
+                (c) => c.name === data.personal_allowed_category,
+              )?.display_name || 'None'}{' '}
+              (locked for{' '}
+              {Math.ceil(
+                data.personal_cargo_category_cooldown_remaining / 86400,
+              )}{' '}
+              more day(s))
+            </Box>
+          ) : (
+            <Dropdown
+              mt={0.5}
+              width="100%"
+              selected={
+                data.cargo_categories.find(
+                  (c) => c.name === data.personal_allowed_category,
+                )?.display_name || 'Choose your cargo specialization'
+              }
+              options={data.cargo_categories.map((c) => c.display_name)}
+              onSelected={(display_name) =>
+                act('set_personal_cargo_category', { category: display_name })
+              }
+            />
+          )}
         </Box>
       )}
       {!!data.is_crew && (

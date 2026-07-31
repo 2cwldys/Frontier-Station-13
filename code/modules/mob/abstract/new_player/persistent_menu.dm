@@ -46,7 +46,13 @@
 			list("ckey" = ckey))
 		cq.Execute()
 		while(cq.NextRow())
-			chars_out += list(list("name" = cq.item[1]))
+			var/char_name = cq.item[1]
+			var/list/entry = list("name" = char_name)
+			var/list/status = persistence_character_imprisonment_status(ckey, char_name)
+			entry["imprisoned"] = !!status
+			entry["indefinite"] = status ? !!status["indefinite"] : FALSE
+			entry["remaining_seconds"] = status ? status["remaining_seconds"] : 0
+			chars_out += list(entry)
 		qdel(cq)
 	data["characters"] = chars_out
 
@@ -101,6 +107,16 @@
 				to_chat(NP, SPAN_WARNING("The round is not ready yet."))
 				return TRUE
 			var/char_name = params["name"]
+			// Defense-in-depth, same reasoning as the checks above -- the
+			// frontend already greys Play out per-character for this, but
+			// never trust client-side disabling alone.
+			var/ckey_check = NP.client ? NP.client.ckey : null
+			var/list/imprison_status = (ckey_check && char_name) ? persistence_character_imprisonment_status(ckey_check, char_name) : null
+			if(imprison_status)
+				to_chat(NP, imprison_status["indefinite"] \
+					? SPAN_WARNING("This character is imprisoned indefinitely.") \
+					: SPAN_WARNING("This character is imprisoned, time left: [round(imprison_status["remaining_seconds"] / 60)] minute(s)."))
+				return TRUE
 			spawning = TRUE
 			NP.PersistentAutoSpawn(char_name)
 			if(ui)

@@ -46,7 +46,12 @@
 	// Auto-register admin-placed structures for persistence so they survive restarts.
 	// mapload = map-file structures (handled by worldstate, not here).
 	// !GLOB.persistence_ready = objects being restored by objectsInitialize (avoid double-register).
-	if(!mapload && GLOB.config.sql_enabled && GLOB.persistence_ready)
+	// !GLOB.persistence_restoring_tracked_objects = the ship-retrieve-time
+	// equivalent (objectsApplyZ(), persistence_objects.dm) -- without this,
+	// recreating a tracked object here would clear an unrelated tombstone
+	// that happens to share this exact (type, x, y, z), letting the ship
+	// template's own original copy of a REMOVED structure respawn unopposed.
+	if(!mapload && GLOB.config.sql_enabled && GLOB.persistence_ready && !GLOB.persistence_restoring_tracked_objects)
 		SSpersistence.objectsRegisterTrack(src)
 		SSpersistence.clearStructureRemoval(src)
 

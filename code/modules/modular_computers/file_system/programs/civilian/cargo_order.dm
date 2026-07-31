@@ -95,14 +95,48 @@
 	if(!selected_category)
 		selected_category = SScargo.get_default_category()
 
+#ifdef FACTION_CARGO_SPECIALIZATION
+	// Real (non-Hub) faction consoles can only ever see/select their own
+	// single allowed category -- Hub keeps unrestricted access. Personally-
+	// tagged consoles get the same one-category restriction, keyed by
+	// (ckey, char_name) instead of a faction uid; crew/untagged consoles are
+	// never gated at all.
+	if(co_net && co_net != "hub" && !faction_cargo_unrestricted(co_net))
+		var/allowed_category = get_faction_allowed_cargo_category(co_net)
+		if(selected_category != allowed_category)
+			selected_category = allowed_category
+	else if(is_personal)
+		var/personal_allowed_category = get_personal_cargo_category(computer.personal_ckey, computer.personal_char_name)
+		if(personal_allowed_category && selected_category != personal_allowed_category)
+			selected_category = personal_allowed_category
+	data["personal_allowed_category"] = is_personal ? get_personal_cargo_category(computer.personal_ckey, computer.personal_char_name) : null
+	data["personal_cargo_category_cooldown_remaining"] = is_personal ? get_personal_cargo_category_cooldown_remaining(computer.personal_ckey, computer.personal_char_name) : 0
+#endif //FACTION_CARGO_SPECIALIZATION
+
 	//Pass Data for Main page
 	if(page == "main")
 		//Pass all available categories and the selected category
 		data["cargo_categories"] = SScargo.get_category_list()
+#ifdef FACTION_CARGO_SPECIALIZATION
+		if(co_net && co_net != "hub" && !faction_cargo_unrestricted(co_net))
+			var/allowed_category_for_list = get_faction_allowed_cargo_category(co_net)
+			for(var/list/cat_entry in data["cargo_categories"])
+				if(cat_entry["name"] != allowed_category_for_list)
+					data["cargo_categories"] -= cat_entry
+		else if(is_personal)
+			// Null (no pick yet) is left unfiltered -- browsing every category
+			// before your first choice is fine, only add_item/select_category
+			// actually enforce the lock.
+			var/personal_allowed_category_for_list = get_personal_cargo_category(computer.personal_ckey, computer.personal_char_name)
+			if(personal_allowed_category_for_list)
+				for(var/list/cat_entry in data["cargo_categories"])
+					if(cat_entry["name"] != personal_allowed_category_for_list)
+						data["cargo_categories"] -= cat_entry
+#endif //FACTION_CARGO_SPECIALIZATION
 		data["selected_category"] = selected_category
 
 		//Pass a list of items in the selected category
-		data["category_items"] = SScargo.get_items_for_category(selected_category)
+		data["category_items"] = selected_category ? SScargo.get_items_for_category(selected_category) : list()
 		if(!can_order_syndicate_uplink())
 			for(var/list/entry in data["category_items"])
 				var/singleton/cargo_item/ci = SScargo.cargo_items[entry["name"]]
@@ -173,7 +207,22 @@
 				if(!I.associated_account_number)
 					status_message = "Unable to submit order. No linked bank account on your ID."
 					return TRUE
-				var/transfer_error = SSeconomy.transfer_money(I.associated_account_number, SScargo.supply_account.account_number, "Cargo order", "Cargo Order Console", co.get_value(0))
+				// Taxed if this console sits inside a faction's claimed
+				// territory the ordering player isn't a member of -- charged
+				// as a separate deduction alongside the unchanged base
+				// transfer below, so Operations still only ever sees the
+				// base price.
+				var/base_price = co.get_value(0)
+				var/beneficiary = get_cargo_tax_beneficiary(GET_Z(computer), null, usr)
+				var/tax = beneficiary ? round(base_price * CARGO_TERRITORY_TAX_RATE) : 0
+				if(tax > 0)
+					var/datum/money_account/buyer_acc = SSeconomy.get_account(I.associated_account_number)
+					if(!buyer_acc || buyer_acc.money < base_price + tax)
+						status_message = "Unable to submit order. Insufficient funds to cover order plus territory tax."
+						return TRUE
+					buyer_acc.adjust_money(-tax)
+					faction_credit(beneficiary, tax, "Personal cargo order territory tax")
+				var/transfer_error = SSeconomy.transfer_money(I.associated_account_number, SScargo.supply_account.account_number, "Cargo order", "Cargo Order Console", base_price)
 				if(transfer_error)
 					status_message = "Unable to submit order. [transfer_error]"
 					return TRUE
@@ -245,6 +294,26 @@
 				LOG_DEBUG("Cargo Order: Warning - Attempted to order piracy-beacon-gated item [ci.name] without an eligible console.")
 				qdel(coi)
 				return TRUE
+#ifdef FACTION_CARGO_SPECIALIZATION
+			var/co_net_add = computer ? normalize_faction_uid(computer.persistent_network) : null
+			if(ci && co_net_add && co_net_add != "hub" && !faction_cargo_unrestricted(co_net_add))
+				var/allowed_category_add = get_faction_allowed_cargo_category(co_net_add)
+				if(!allowed_category_add || ci.category != allowed_category_add)
+					status_message = "Unable to locate item in sales database - Internal Error 602."
+					LOG_DEBUG("Cargo Order: Warning - Attempted to order item [ci.name] from a category not allowed for faction '[co_net_add]'.")
+					qdel(coi)
+					return TRUE
+			else if(ci && computer && computer.personal_ckey)
+				var/personal_allowed_category_add = get_personal_cargo_category(computer.personal_ckey, computer.personal_char_name)
+				if(!personal_allowed_category_add)
+					status_message = "You must choose a cargo specialization below before you can order anything."
+					qdel(coi)
+					return TRUE
+				else if(ci.category != personal_allowed_category_add)
+					status_message = "You can only order from your chosen cargo specialization."
+					qdel(coi)
+					return TRUE
+#endif //FACTION_CARGO_SPECIALIZATION
 			if(ci)
 				coi.ci = ci
 				coi.calculate_price()
@@ -291,7 +360,43 @@
 
 		//Change the displayed item category
 		if("select_category")
+#ifdef FACTION_CARGO_SPECIALIZATION
+			var/co_net_sel = computer ? normalize_faction_uid(computer.persistent_network) : null
+			if(co_net_sel && co_net_sel != "hub" && !faction_cargo_unrestricted(co_net_sel))
+				var/allowed_category_sel = get_faction_allowed_cargo_category(co_net_sel)
+				if(params["select_category"] != allowed_category_sel)
+					return TRUE // refuse -- not this faction's allowed category
+			else if(computer && computer.personal_ckey)
+				var/personal_allowed_category_sel = get_personal_cargo_category(computer.personal_ckey, computer.personal_char_name)
+				if(personal_allowed_category_sel && params["select_category"] != personal_allowed_category_sel)
+					return TRUE // refuse -- browsing other categories is fine pre-pick, but not once locked in
+#endif //FACTION_CARGO_SPECIALIZATION
 			selected_category = params["select_category"]
+			return TRUE
+
+		//Set/change this personally-tagged console's own single allowed
+		//category (FACTION_CARGO_SPECIALIZATION) -- ui_interact() already
+		//refuses non-owners from ever reaching this program's UI at all, so
+		//usr is guaranteed to be personal_ckey/personal_char_name here.
+		if("set_personal_cargo_category")
+#ifdef FACTION_CARGO_SPECIALIZATION
+			if(!computer || !computer.personal_ckey)
+				return TRUE
+			var/resolved_category
+			for(var/cat_name in SScargo.cargo_categories)
+				var/singleton/cargo_category/cc = SScargo.cargo_categories[cat_name]
+				if(cc.display_name == params["category"])
+					resolved_category = cc.name
+					break
+			if(!resolved_category)
+				return TRUE
+			if(!set_personal_cargo_category(computer.personal_ckey, computer.personal_char_name, resolved_category))
+				var/remaining = get_personal_cargo_category_cooldown_remaining(computer.personal_ckey, computer.personal_char_name)
+				status_message = "Cargo specialization can't be changed yet -- [DisplayTimeText(remaining SECONDS)] remaining."
+			else
+				status_message = "Cargo specialization set to '[params["category"]]'."
+				selected_category = resolved_category
+#endif //FACTION_CARGO_SPECIALIZATION
 			return TRUE
 
 		//Pick which of the console's own-scope cargo telepads this order should

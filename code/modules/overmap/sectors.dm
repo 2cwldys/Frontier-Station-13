@@ -398,6 +398,12 @@ GLOBAL_VAR_INIT(building_overmap, FALSE)
 
 	SSatlas.current_map.sealed_levels |= SSatlas.current_map.overmap_z
 
+	// CentCom (admin_levels) never loads a real map file, so nothing can
+	// physically spawn there to pick up its map_z the normal way -- this
+	// marker hardcodes map_z itself (find_z_levels() override) instead, so
+	// it can be spawned here unconditionally now that the overmap exists.
+	new /obj/effect/overmap/visitable/sector/centcom()
+
 	log_module_sectors("Overmap build complete.")
 	return 1
 
@@ -427,12 +433,21 @@ GLOBAL_VAR_INIT(building_overmap, FALSE)
 	var/list/xy = CircularRandomCoordinate(radius, round)
 	var/dx = xy[1]
 	var/dy = xy[2]
-	var/x = center_x + dx
-	var/y = center_y + dy
+	// Clamp the center into bounds first -- if the caller's anchor is itself
+	// outside [low,high] (eg a sector deliberately pinned outside the normal
+	// placement band), the "mirror across center" fallback below still lands
+	// outside bounds for every possible offset, so the final clamp() used to
+	// deterministically collapse every call onto the single corner tile
+	// (low_x,low_y) regardless of radius, instead of scattering near the
+	// intended anchor.
+	var/cx = clamp(center_x, low_x, high_x)
+	var/cy = clamp(center_y, low_y, high_y)
+	var/x = cx + dx
+	var/y = cy + dy
 	if (x < low_x || x > high_x)
-		x = center_x - dx
+		x = cx - dx
 	if (y < low_y || y > high_y)
-		y = center_y - dy
+		y = cy - dy
 	return list(
 		clamp(x, low_x, high_x),
 		clamp(y, low_y, high_y)

@@ -489,14 +489,20 @@
 	go_in(usr, usr, TRUE) //if you're going in of your own volition, you're probably willing
 
 /obj/structure/machinery/cryopod/proc/go_in(mob/user, mob/living/M, var/willing = FALSE) // user refers to the person doing the putting into, M refers to the person being put in
+	if(tagger_disabled)
+		to_chat(user, SPAN_WARNING("\The [src] is disabled and refuses to accept occupants."))
+		return
 	if(!M.bucklecheck(user)) //We must make sure the person is unbuckled before they go in
 		return
 	if(M.stat == DEAD)
 		to_chat(user, SPAN_WARNING("Dead people can not be put into \the [src]."))
 		return
 	// Faction-owned pods only accept their own members. Single choke point for
-	// every physical entry path (grab, mouse-drop, Enter Pod verb).
-	if(persistent_network && persistent_network != "public" && GLOB.config.sql_enabled)
+	// every physical entry path (grab, mouse-drop, Enter Pod verb). Exempts
+	// prison cells -- the entire point of a prison is holding people who
+	// AREN'T members of the imprisoning faction, so this would otherwise make
+	// it impossible to ever put an outsider in one to begin with.
+	if(persistent_network && persistent_network != "public" && GLOB.config.sql_enabled && !istype(src, /obj/structure/machinery/cryopod/prison))
 		var/effective_ckey = M.ckey
 		if(!effective_ckey && ishuman(M))
 			var/mob/living/carbon/human/HM = M

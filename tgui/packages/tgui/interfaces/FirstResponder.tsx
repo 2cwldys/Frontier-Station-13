@@ -11,11 +11,20 @@ import { useState } from 'react';
 import { useBackend } from '../backend';
 import { NtosWindow } from '../layouts';
 
+type SectorInfo = {
+  name: string;
+  x: number;
+  y: number;
+};
+
 type OffenseEntry = {
   index: number;
   name: string;
   age: string;
   tracked: BooleanLike;
+  type: 'offense' | 'distress' | 'emergency';
+  can_jump: BooleanLike;
+  sector_info: SectorInfo | null;
 };
 
 type TaggedEntry = {
@@ -247,6 +256,22 @@ export const FirstResponder = (props) => {
                       Return to Owner
                     </Button>
                     <Button
+                      icon="file-import"
+                      disabled={!can_secure || !is_hub || !can_scuttle_ships}
+                      tooltip={
+                        can_scuttle_ships
+                          ? 'Withdraw this schematic in person.'
+                          : 'Requires officer rank or higher in the Hub.'
+                      }
+                      onClick={() =>
+                        act('withdraw_schematic', {
+                          shuttle_id: ship.shuttle_id,
+                        })
+                      }
+                    >
+                      Withdraw Schematic
+                    </Button>
+                    <Button
                       icon="radiation"
                       color="bad"
                       disabled={!can_secure || !is_hub || !can_scuttle_ships}
@@ -325,6 +350,7 @@ export const FirstResponder = (props) => {
           {offenses.length > 0 && (
             <Table>
               <Table.Row header>
+                <Table.Cell>Type</Table.Cell>
                 <Table.Cell>Offender</Table.Cell>
                 <Table.Cell>When</Table.Cell>
                 <Table.Cell>Signal</Table.Cell>
@@ -332,6 +358,22 @@ export const FirstResponder = (props) => {
               </Table.Row>
               {offenses.map((offense) => (
                 <Table.Row key={offense.index} className="candystripe">
+                  <Table.Cell
+                    bold
+                    color={
+                      offense.type === 'emergency'
+                        ? 'good'
+                        : offense.type === 'distress'
+                          ? 'average'
+                          : 'bad'
+                    }
+                  >
+                    {offense.type === 'emergency'
+                      ? 'EMERGENCY'
+                      : offense.type === 'distress'
+                        ? 'DISTRESS'
+                        : 'OFFENSE'}
+                  </Table.Cell>
                   <Table.Cell bold>{offense.name}</Table.Cell>
                   <Table.Cell>{offense.age}</Table.Cell>
                   <Table.Cell
@@ -340,23 +382,34 @@ export const FirstResponder = (props) => {
                     {offense.tracked ? 'live track' : 'last known'}
                   </Table.Cell>
                   <Table.Cell>
-                    <Button
-                      icon="bolt"
-                      color="bad"
-                      disabled={!can_secure || !is_hub || cooldown > 0}
-                      tooltip={
-                        !can_secure
-                          ? 'Requires Hub security access.'
-                          : is_hub
-                            ? 'Open a bluespace portal near this offender.'
-                            : 'Response jumps require a Hub-network terminal.'
-                      }
-                      onClick={() =>
-                        act('respond', { index: offense.index })
-                      }
-                    >
-                      Respond
-                    </Button>
+                    {offense.can_jump ? (
+                      <Button
+                        icon="bolt"
+                        color="bad"
+                        disabled={!can_secure || !is_hub || cooldown > 0}
+                        tooltip={
+                          !can_secure
+                            ? 'Requires Hub security access.'
+                            : is_hub
+                              ? 'Open a bluespace portal near this offender.'
+                              : 'Response jumps require a Hub-network terminal.'
+                        }
+                        onClick={() =>
+                          act('respond', { index: offense.index })
+                        }
+                      >
+                        Respond
+                      </Button>
+                    ) : offense.sector_info ? (
+                      <Box color="label" inline>
+                        Outside Hub jurisdiction -- {offense.sector_info.name}{' '}
+                        ({offense.sector_info.x}, {offense.sector_info.y})
+                      </Box>
+                    ) : (
+                      <Box color="label" inline>
+                        Outside Hub jurisdiction -- location unknown
+                      </Box>
+                    )}
                   </Table.Cell>
                 </Table.Row>
               ))}
