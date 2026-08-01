@@ -4,7 +4,11 @@ import { useState } from 'react';
 import { useBackend } from '../backend';
 import { NtosWindow } from '../layouts';
 
-type Withdrawable = { shuttle_id: number; display_name: string };
+type Withdrawable = {
+  shuttle_id: number;
+  display_name: string;
+  reported_stolen: BooleanLike;
+};
 
 type Template = {
   template_id: string;
@@ -44,7 +48,7 @@ export const ShuttleDrydock = (props) => {
   );
 
   return (
-    <NtosWindow width={420} height={360}>
+    <NtosWindow width={420} height={400}>
       <NtosWindow.Content scrollable>
         <Section title="Drydock Market">
           <Box mb={1} bold>
@@ -82,7 +86,9 @@ export const ShuttleDrydock = (props) => {
           <Box color="label" mb={1}>
             Ships whose schematic is currently in safekeeping -- deposited
             voluntarily, or banked after a Hub repossession was returned to
-            its owner.
+            its owner. Withdraw it back into your own hands, or formally give
+            its title to someone else (e.g. completing a legitimate sale --
+            the recipient won't be mistaken for a thief).
           </Box>
           <LabeledList>
             {data.withdrawable.length ? (
@@ -95,6 +101,21 @@ export const ShuttleDrydock = (props) => {
                     }
                   >
                     Withdraw Schematic
+                  </Button>
+                  <Button
+                    ml={1}
+                    icon="right-left"
+                    disabled={!!row.reported_stolen}
+                    tooltip={
+                      row.reported_stolen
+                        ? 'This ship is reported stolen -- return it to its rightful owner first.'
+                        : undefined
+                    }
+                    onClick={() =>
+                      act('give_schematic', { shuttle_id: row.shuttle_id })
+                    }
+                  >
+                    Give Title
                   </Button>
                 </LabeledList.Item>
               ))

@@ -192,6 +192,23 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	/// characters. See drydockAddCrew()/drydockRemoveCrew() below and the
 	/// crew-list OR clause in _drydock_board_core() (telepad_drydock_boarding.dm).
 	var/list/crew_ckeys = list()
+	/// Set ONCE at purchase (drydockBuy()) and never touched again by any
+	/// other proc -- the permanent record of who legitimately bought this
+	/// ship first. Distinct from owner_ckey/owner_char_name/faction_uid
+	/// above, which are the CURRENT (mutable) owner: banking a schematic
+	/// you're not titled to (drydockBankSchematic()) reassigns those to you,
+	/// but never these. Only drydockGiveSchematic() (a deliberate,
+	/// console-only "sign over the title" action) can move title_*.
+	var/title_ckey
+	var/title_char_name
+	/// Null for a personally-titled ship -- never a character-identity
+	/// concept, same as faction_uid above.
+	var/title_faction_uid
+	/// TRUE if this ship's schematic has been Stashed, Retrieved, or
+	/// deposited by someone other than the title-holder (is_title_holder())
+	/// since it last returned to their hands -- see _drydockFlagIfStolen()
+	/// and drydockClearStolenFlag() below.
+	var/reported_stolen = FALSE
 
 /// Finds a live, valid /obj/item/ship_schematic (ship_schematic.dm) bound to
 /// this ship anywhere in user's inventory -- held, worn, in a backpack, in a
@@ -209,28 +226,73 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 /// TRUE if user currently possesses a valid (non-repossessed, non-stale)
 /// ship_schematic bound to this ship -- the sole ownership check for BOTH
-/// personal and faction ships. owner_ckey/owner_char_name/faction_uid are
-/// kept only as historical provenance (shown on the schematic's own examine
-/// text -- "The title belongs to: ...") and as the recovery-path identity
-/// check for withdrawing a banked schematic back out of safekeeping
-/// (drydock.dm's "withdraw_schematic") -- deliberately the only place that
-/// old identity-based logic still gates anything, since a lost/destroyed
-/// schematic has no other way back short of an admin's intervention.
+/// personal and faction ships, day-to-day. owner_ckey/owner_char_name/
+/// faction_uid (the CURRENT owner) are only consulted as the recovery-path
+/// identity check for withdrawing a banked schematic back out of safekeeping
+/// (drydock.dm's "withdraw_schematic") -- a lost/destroyed schematic has no
+/// other way back short of an admin's intervention or is_title_holder()
+/// below. See title_ckey/title_char_name/title_faction_uid's doc comment for
+/// how title (permanent) differs from ownership (mutable, possession-driven).
 /datum/drydock_ship/proc/owned_by(mob/user)
 	return !!find_schematic_on(user)
 
+/// TRUE if user is this ship's permanent title-holder -- the original buyer
+/// (character identity) for a personally-titled ship, or ANY current member
+/// of title_faction_uid (plain membership, no rank requirement) for a
+/// faction-titled one. Purely a provenance/theft-detection concept, NOT a
+/// standing recovery right: used to decide whether Stash/Retrieve/Deposit
+/// should flag reported_stolen (_drydockFlagIfStolen()) and whether
+/// examining/opening the schematic should clear an existing stolen flag.
+/// Deliberately NOT consulted for withdrawing or giving away a banked
+/// schematic -- those check the CURRENT owner identity instead (drydock.dm),
+/// so a thief who successfully banks a stolen ship keeps full control of it.
+/datum/drydock_ship/proc/is_title_holder(mob/user)
+	if(!user)
+		return FALSE
+	if(title_faction_uid)
+		var/obj/item/card/id/ID = user.GetIdCard()
+		var/user_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+		return user_faction == title_faction_uid
+	return title_ckey && user.ckey == title_ckey && user.real_name == title_char_name
+
 /// Shown everywhere a ship's own name appears (overmap marker, admin logs,
-/// chat messages, the Drydock program's own list) -- custom_name if set,
-/// else the template's own default name, with " (FactionName)" appended for
-/// a faction-owned ship. Never appended for a personally-owned ship.
+/// chat messages, the Drydock program's own list, the schematic item's own
+/// name) -- custom_name if set, else the template's own default name, with
+/// " (FactionName)" appended for a faction-owned ship (never for personal),
+/// then " (Stolen)" appended last while reported_stolen is set. The stolen
+/// tag is purely computed here, at display time -- it's never stored as part
+/// of custom_name, so there is no rename input that can strip it; renaming
+/// only ever changes what "base" is, not whether the tag gets appended on
+/// top of it. See _drydockRefreshDisplayedName() for keeping cached copies
+/// of this (the overmap marker, the schematic's own .name) in sync whenever
+/// something -- a rename, or reported_stolen flipping -- changes what this
+/// proc would now return.
 /datum/drydock_ship/proc/display_name()
 	var/base = custom_name
 	if(!base)
 		var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[template_id]
 		base = template ? initial(template.name) : template_id
 	if(faction_uid)
-		return "[base] ([get_faction_name(faction_uid)])"
+		base = "[base] ([get_faction_name(faction_uid)])"
+	if(reported_stolen)
+		base = "[base] (Stolen)"
 	return base
+
+/// Refreshes every live, cached copy of this ship's display_name() -- the
+/// overmap marker (if currently deployed) and any live, valid schematic
+/// bound to it anywhere in the world -- after something changes what
+/// display_name() computes (a rename, or reported_stolen flipping).
+/// Otherwise either would keep showing a stale name until an unrelated event
+/// (the next rename, a mint/withdraw/repossess) happened to touch it.
+/datum/controller/subsystem/persistence/proc/_drydockRefreshDisplayedName(datum/drydock_ship/DS)
+	if(!DS.stashed)
+		var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
+		if(istype(marker))
+			marker.name = DS.display_name()
+			marker.class = DS.custom_class
+	for(var/obj/item/ship_schematic/S in world)
+		if(S.shuttle_id == DS.shuttle_id && S.bound_purchased_at == DS.purchased_at && !S.repossessed)
+			S.refresh_name()
 
 /// TRUE if sector is within 1 tile of the CentCom/Frontier Beacon Depot
 /// marker's own fixed position (code/modules/overmap/centcom_overmap.dm).
@@ -399,7 +461,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return
 
 	var/datum/db_query/q = SSdbcore.NewQuery(
-		"SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed, z, overmap_x, overmap_y, custom_name, custom_class, repossessed, prev_owner_ckey, prev_owner_char_name, prev_faction_uid, owner_account_number, purchased_at, schematic_banked, renamed_at FROM ss13_drydock_ships",
+		"SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed, z, overmap_x, overmap_y, custom_name, custom_class, repossessed, prev_owner_ckey, prev_owner_char_name, prev_faction_uid, owner_account_number, purchased_at, schematic_banked, renamed_at, title_ckey, title_char_name, title_faction_uid, reported_stolen FROM ss13_drydock_ships",
 		list()
 	)
 	q.Execute()
@@ -427,6 +489,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		DS.purchased_at = q.item[17]
 		DS.schematic_banked = !!text2num(q.item[18])
 		DS.renamed_at = q.item[19]
+		DS.title_ckey = q.item[20]
+		DS.title_char_name = q.item[21]
+		DS.title_faction_uid = q.item[22]
+		DS.reported_stolen = !!text2num(q.item[23])
 
 		if(!DS.stashed)
 			log_drydock("drydockShipLedgerRestore: shuttle_id=[DS.shuttle_id] ('[DS.template_id]') was still stashed=0 at boot -- graceful shutdown's auto-stash sweep didn't run (crash/hard kill). Forcing back to stashed; interior recovers from the last autosave.")
@@ -648,19 +714,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		DS.renamed_at = rq.item[1]
 	qdel(rq)
 
-	if(!DS.stashed)
-		var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
-		if(istype(marker))
-			marker.name = DS.display_name()
-			marker.class = DS.custom_class
-
-	// Keep the live schematic's own displayed name in sync -- otherwise it'd
-	// still read the old name (examine, inventory, in-hand) until the next
-	// mint/withdraw/repossess happened to call refresh_name() on it. Same
-	// world-scan pattern drydockRepossess() uses just above.
-	for(var/obj/item/ship_schematic/S in world)
-		if(S.shuttle_id == shuttle_id && S.bound_purchased_at == DS.purchased_at && !S.repossessed)
-			S.refresh_name()
+	_drydockRefreshDisplayedName(DS)
 
 	if(user)
 		to_chat(user, SPAN_GOOD("Ship identity updated."))
@@ -788,7 +842,131 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return FALSE
 	qdel(q)
 	DS.schematic_banked = TRUE
+
+	// A non-title-holder banking someone else's ship is exactly what makes
+	// it "theirs now" going forward (they become the recoverable-from-a-
+	// console owner) -- but the permanent title never moves, and the
+	// schematic gets flagged reported_stolen until it's back with the
+	// title-holder or formally given away (drydockGiveSchematic()).
+	if(user && !DS.is_title_holder(user))
+		DS.owner_ckey = user.ckey
+		DS.owner_char_name = user.real_name
+		DS.faction_uid = null
+		var/datum/db_query/oq = SSdbcore.NewQuery(
+			"UPDATE ss13_drydock_ships SET owner_ckey = :ck, owner_char_name = :cn, faction_uid = NULL WHERE shuttle_id = :id",
+			list("ck" = user.ckey, "cn" = user.real_name, "id" = shuttle_id)
+		)
+		oq.Execute()
+		databaseCheckQueryResult(oq, "drydockBankSchematic ownership transfer")
+		qdel(oq)
+		log_drydock("drydockBankSchematic: [key_name(user)] (not the title-holder) banked shuttle_id=[shuttle_id] -- current ownership transferred to them.")
+
+	_drydockFlagIfStolen(DS, user)
 	log_drydock("drydockBankSchematic: [user ? key_name(user) : "SYSTEM"] deposited the schematic for shuttle_id=[shuttle_id].")
+	return TRUE
+
+/// Shared by drydockStash()/drydockRetrieve()/drydockBankSchematic() -- marks
+/// a ship reported_stolen the first time someone who ISN'T its title-holder
+/// (is_title_holder(), persistence_shuttles.dm) performs one of those three
+/// actions on it. Admin actions and SYSTEM-triggered calls (user == null,
+/// e.g. backup restores) never flag. Cleared by drydockClearStolenFlag(),
+/// called from ship_schematic.dm's passive examine/ui_data detection.
+/datum/controller/subsystem/persistence/proc/_drydockFlagIfStolen(datum/drydock_ship/DS, mob/user)
+	if(!user || DS.reported_stolen || check_rights(R_ADMIN, 0, user) || DS.is_title_holder(user))
+		return
+	if(!databaseCheckConnection("_drydockFlagIfStolen"))
+		return
+	var/datum/db_query/q = SSdbcore.NewQuery("UPDATE ss13_drydock_ships SET reported_stolen = 1 WHERE shuttle_id = :id", list("id" = DS.shuttle_id))
+	q.Execute()
+	if(!databaseCheckQueryResult(q, "_drydockFlagIfStolen update"))
+		qdel(q)
+		return
+	qdel(q)
+	DS.reported_stolen = TRUE
+	_drydockRefreshDisplayedName(DS)
+	log_drydock("_drydockFlagIfStolen: [key_name(user)] (not the title-holder) flagged shuttle_id=[DS.shuttle_id] as stolen.")
+
+/// Reverses _drydockFlagIfStolen() -- called from ship_schematic.dm once the
+/// title-holder is confirmed to actually be holding their own schematic
+/// again (examining it or opening its TGUI while it's on their person).
+/datum/controller/subsystem/persistence/proc/drydockClearStolenFlag(shuttle_id)
+	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
+	if(!DS || !DS.reported_stolen)
+		return
+	if(!databaseCheckConnection("drydockClearStolenFlag"))
+		return
+	var/datum/db_query/q = SSdbcore.NewQuery("UPDATE ss13_drydock_ships SET reported_stolen = 0 WHERE shuttle_id = :id", list("id" = shuttle_id))
+	q.Execute()
+	if(!databaseCheckQueryResult(q, "drydockClearStolenFlag update"))
+		qdel(q)
+		return
+	qdel(q)
+	DS.reported_stolen = FALSE
+	_drydockRefreshDisplayedName(DS)
+	log_drydock("drydockClearStolenFlag: shuttle_id=[shuttle_id] is back with its title-holder -- stolen flag cleared.")
+
+/// Lets shuttle_id's CURRENT owner (not necessarily its permanent
+/// title-holder -- see the gate below) formally sign the ship's title over
+/// to someone else -- console-only (requires the ship already banked), the
+/// deliberate "sign over the title" counterpart to just physically handing
+/// someone the schematic (which, per is_title_holder(), never moves title on
+/// its own). Personal-target only. Refuses outright while reported_stolen --
+/// handing off a stolen ship is still handing off a stolen ship, so this can
+/// never be used to launder one; it only ever succeeds on a ship that was
+/// never stolen (or already recovered by its title-holder, clearing the
+/// flag), never as a shortcut around that.
+/datum/controller/subsystem/persistence/proc/drydockGiveSchematic(shuttle_id, target_ckey, target_char_name, mob/user)
+	var/acting = user ? key_name(user) : "SYSTEM"
+	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
+	if(!DS || !DS.schematic_banked || DS.repossessed)
+		return FALSE
+	// Gated on the CURRENT owner identity, same as drydockWithdrawSchematic()'s
+	// caller-side check -- NOT the permanent title. Whoever the system
+	// currently recognizes as owner controls this ship's fate, including a
+	// thief who successfully banked a stolen ship (drydockBankSchematic()
+	// already reassigned current ownership to them). The title-holder alone,
+	// having lost current ownership, has no say here anymore.
+	if(!(check_rights(R_ADMIN, 0, user) || (DS.owner_ckey == user.ckey && DS.owner_char_name == user.real_name) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
+		if(user)
+			to_chat(user, SPAN_WARNING("You don't have permission to give away this ship's title."))
+		log_drydock_warning("drydockGiveSchematic: refused -- [acting] isn't the current owner of shuttle_id=[shuttle_id].")
+		return FALSE
+	if(DS.reported_stolen && !check_rights(R_ADMIN, 0, user))
+		if(user)
+			to_chat(user, SPAN_WARNING("This ship is reported stolen -- its title can't be legitimately transferred until it's back with its rightful owner."))
+		log_drydock_warning("drydockGiveSchematic: refused -- shuttle_id=[shuttle_id] is reported_stolen (acting=[acting]).")
+		return FALSE
+	target_ckey = ckey(target_ckey)
+	if(!target_ckey || !target_char_name)
+		return FALSE
+
+	if(!databaseCheckConnection("drydockGiveSchematic"))
+		if(user)
+			to_chat(user, SPAN_WARNING("Database connection failed."))
+		return FALSE
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"UPDATE ss13_drydock_ships SET title_ckey = :ck, title_char_name = :cn, title_faction_uid = NULL, owner_ckey = :ck, owner_char_name = :cn, faction_uid = NULL, reported_stolen = 0 WHERE shuttle_id = :id",
+		list("ck" = target_ckey, "cn" = target_char_name, "id" = shuttle_id)
+	)
+	q.Execute()
+	if(!databaseCheckQueryResult(q, "drydockGiveSchematic update"))
+		qdel(q)
+		if(user)
+			to_chat(user, SPAN_WARNING("Database error -- transfer not saved."))
+		return FALSE
+	qdel(q)
+
+	DS.title_ckey = target_ckey
+	DS.title_char_name = target_char_name
+	DS.title_faction_uid = null
+	DS.owner_ckey = target_ckey
+	DS.owner_char_name = target_char_name
+	DS.faction_uid = null
+	DS.reported_stolen = FALSE
+
+	if(user)
+		to_chat(user, SPAN_GOOD("Title for [DS.display_name()] transferred to '[target_char_name]'."))
+	log_drydock("drydockGiveSchematic: [acting] transferred title for shuttle_id=[shuttle_id] to '[target_char_name]' ([target_ckey]).")
 	return TRUE
 
 /// Reverses drydockBankSchematic() -- mints a fresh /obj/item/ship_schematic
@@ -821,7 +999,6 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	var/obj/item/ship_schematic/schematic = new(get_turf(user))
 	schematic.shuttle_id = shuttle_id
 	schematic.bound_purchased_at = DS.purchased_at
-	schematic.titled_to_name = DS.faction_uid ? get_faction_name(DS.faction_uid) : DS.owner_char_name
 	schematic.refresh_name()
 	user.put_in_hands(schematic)
 	to_chat(user, SPAN_GOOD("Withdrew the schematic for [DS.display_name()]."))
@@ -1097,8 +1274,8 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		attempts_left--
 		new_id = _drydockNextFreeShuttleId()
 		var/datum/db_query/q = SSdbcore.NewQuery(
-			"INSERT INTO ss13_drydock_ships (shuttle_id, template_id, owner_ckey, owner_char_name, owner_account_number, faction_uid, stashed, purchased_at) VALUES (:id, :tid, :ckey, :char_name, :account, :faction, 1, NOW())",
-			list("id" = new_id, "tid" = template_id, "ckey" = owner_ckey, "char_name" = owner_char_name, "account" = owner_account_number, "faction" = faction_uid)
+			"INSERT INTO ss13_drydock_ships (shuttle_id, template_id, owner_ckey, owner_char_name, owner_account_number, faction_uid, stashed, purchased_at, title_ckey, title_char_name, title_faction_uid) VALUES (:id, :tid, :ckey, :char_name, :account, :faction, 1, NOW(), :t_ckey, :t_char, :t_faction)",
+			list("id" = new_id, "tid" = template_id, "ckey" = owner_ckey, "char_name" = owner_char_name, "account" = owner_account_number, "faction" = faction_uid, "t_ckey" = owner_ckey, "t_char" = owner_char_name, "t_faction" = faction_uid)
 		)
 		q.Execute()
 		var/succeeded = databaseCheckQueryResult(q, "drydockBuy insert")
@@ -1133,13 +1310,15 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	DS.faction_uid = faction_uid
 	DS.stashed     = TRUE
 	DS.purchased_at = purchased_at
+	DS.title_ckey = owner_ckey
+	DS.title_char_name = owner_char_name
+	DS.title_faction_uid = faction_uid
 	GLOB.drydock_ships["[new_id]"] = DS
 
 	if(user)
 		var/obj/item/ship_schematic/schematic = new(get_turf(user))
 		schematic.shuttle_id = new_id
 		schematic.bound_purchased_at = purchased_at
-		schematic.titled_to_name = faction_uid ? get_faction_name(faction_uid) : owner_char_name
 		schematic.refresh_name()
 		user.put_in_hands(schematic)
 		to_chat(user, SPAN_GOOD("Purchased '[template.name]' -- schematic in hand."))
@@ -1253,6 +1432,11 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		if(user)
 			to_chat(user, SPAN_WARNING("You don't have permission to retrieve this ship."))
 		log_drydock_warning("drydockRetrieve: refused -- [acting] lacks permission for shuttle_id=[shuttle_id] (owner=[DS.owner_ckey || "none"], faction=[DS.faction_uid || "none"]).")
+		return FALSE
+	if(!DS.custom_name && !check_rights(R_ADMIN, 0, user))
+		if(user)
+			to_chat(user, SPAN_WARNING("Rename this ship before retrieving it -- use the schematic's Rename Ship option."))
+		log_drydock_warning("drydockRetrieve: refused -- shuttle_id=[shuttle_id] hasn't been renamed from its default yet (acting=[acting]).")
 		return FALSE
 	if(ship_template_already_deployed(DS.template_id))
 		if(user)
@@ -1515,6 +1699,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	if(user)
 		to_chat(user, SPAN_GOOD("Ship retrieved -- fly it in via its nav console. You'll be notified when it's ready to board."))
 		message_admins("[key_name(user)] retrieved drydock ship '[DS.display_name()]' (#[shuttle_id]) at ([marker.x],[marker.y],[new_z]). [ADMIN_JMP(marker)]")
+	_drydockFlagIfStolen(DS, user)
 	log_drydock("drydockRetrieve: shuttle_id=[shuttle_id] deployed at z=[DS.z], overmap ([DS.overmap_x],[DS.overmap_y]) (acting=[acting]).")
 	return TRUE
 
@@ -1849,6 +2034,11 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	if(user)
 		to_chat(user, SPAN_GOOD("Ship stashed."))
 		message_admins("[key_name(user)] stashed drydock ship '[DS.display_name()]' (#[shuttle_id]). [stash_jmp]")
+	// force=TRUE is a system/officer-authority override (shutdown sweep,
+	// admin Force Stash, First Responder seizure) -- never the acting user
+	// exercising their own claim, so it should never itself flag theft.
+	if(!force)
+		_drydockFlagIfStolen(DS, user)
 	log_drydock("drydockStash: shuttle_id=[shuttle_id] fully stashed and torn down (acting=[acting]).")
 	return TRUE
 
@@ -2314,7 +2504,6 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		var/obj/item/ship_schematic/schematic = new(spawn_turf)
 		schematic.shuttle_id = DS.shuttle_id
 		schematic.bound_purchased_at = DS.purchased_at
-		schematic.titled_to_name = DS.faction_uid ? get_faction_name(DS.faction_uid) : DS.owner_char_name
 		schematic.refresh_name()
 		if(deliver_to)
 			deliver_to.put_in_hands(schematic)
