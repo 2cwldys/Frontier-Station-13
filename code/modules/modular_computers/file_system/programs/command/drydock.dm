@@ -3,7 +3,7 @@
  * Ownership of a drydock ship is entirely object-based now -- whoever holds
  * a valid /obj/item/ship_schematic (ship_schematic.dm) for a ship can
  * retrieve/stash/board/invite/disembark/rename/manage crew/sell/scuttle it
- * directly from the schematic's own TGUI. This console program only covers
+ * directly from the schematic's own TGUI. This console program covers
  * things that genuinely can't live on an item: Buying a ship (there is no
  * schematic to act on before one is minted), Withdrawing a banked schematic
  * (the recovery path for when there's no physical item to act on yet --
@@ -18,18 +18,34 @@
  * physically getting the schematic back. See SSpersistence.drydockBuy()/
  * drydockWithdrawSchematic()/drydockGiveSchematic() (persistence_shuttles.dm)
  * for the actual backend engine.
+ *
+ * It also duplicates the schematic's Enter/Invite/Exit boarding actions --
+ * boarding rights were never exclusive to holding the item: a ship's
+ * separate crew list (DS.crew_ckeys, drydockAddCrew()/drydockRemoveCrew(),
+ * persistence_shuttles.dm) grants specific characters access without ever
+ * handing them ownership or a schematic. Without this, a crew member would
+ * have no UI at all to exercise access the backend already grants them --
+ * _drydock_board_resolve_ship() (telepad_drydock_boarding.dm) already
+ * searches every ship the calling mob has access to (owner, faction, or
+ * crew) and prompts a picker if more than one is in range, so this console
+ * just needs its own copy of the same three-button wiring, no new backend
+ * logic required.
  */
 /datum/computer_file/program/drydock
 	filename = "drydock"
 	filedesc = "Ship Drydock"
 	program_icon_state = "generic"
 	program_key_icon_state = "blue_key"
-	extended_desc = "Buy a drydock ship, withdraw a banked schematic, or give a banked ship's title to someone else."
+	extended_desc = "Buy a drydock ship, withdraw a banked schematic, give a banked ship's title to someone else, or board/disembark a ship you have crew access to."
 	usage_flags = PROGRAM_CONSOLE | PROGRAM_LAPTOP | PROGRAM_TABLET
 	requires_ntnet = FALSE
 	size = 4
 	tgui_id = "ShuttleDrydock"
 	ui_auto_update = TRUE
+	/// Per-ckey Enter Ship cooldown -- independent of the schematic's own
+	/// last_boarded_by_ckey (ship_schematic.dm); the console and a schematic
+	/// are separate physical entry points, so each tracks its own cooldown.
+	var/list/last_boarded_by_ckey = list()
 
 /datum/computer_file/program/drydock/ui_data(mob/user)
 	var/list/data = initial_data()
@@ -45,6 +61,14 @@
 	data["faction_balance"] = own_faction ? get_faction_account_balance(own_faction) : null
 	data["is_admin"] = check_rights(R_ADMIN, 0, user)
 	data["can_buy_faction"] = own_faction && can_configure_faction_shackle(user, own_faction, 1)
+
+	var/board_ready_at = last_boarded_by_ckey[user.ckey] ? (last_boarded_by_ckey[user.ckey] + 30) : 0
+	data["can_board"] = world.time >= board_ready_at
+	data["board_cooldown"] = max(0, round((board_ready_at - world.time) / 10))
+	// Doubles as the "hide Enter Ship" signal too -- there's no single ship
+	// this console is bound to, so "already aboard some drydock ship" is the
+	// closest equivalent to the schematic's own per-ship aboard_this_ship.
+	data["can_disembark"] = !!_drydock_ship_at(GET_Z(user))
 
 	data["templates"] = list()
 	for(var/tid in SSmapping.drydock_ship_templates)
@@ -149,4 +173,19 @@
 				return TRUE
 			log_drydock("drydock ui_act: [key_name(user)] requested give_schematic for shuttle_id=[shuttle_id] to '[target_char_name]' ([target_ckey]).")
 			SSpersistence.drydockGiveSchematic(shuttle_id, target_ckey, target_char_name, user)
+			return TRUE
+
+		if("board")
+			log_drydock("drydock ui_act: [key_name(user)] requested Enter Ship.")
+			_drydock_board_core(user, null, last_boarded_by_ckey)
+			return TRUE
+
+		if("invite_board")
+			log_drydock("drydock ui_act: [key_name(user)] requested Invite to Board.")
+			_drydock_invite_board_core(user, last_boarded_by_ckey)
+			return TRUE
+
+		if("disembark")
+			log_drydock("drydock ui_act: [key_name(user)] requested Exit Ship.")
+			_drydock_disembark_core(user)
 			return TRUE

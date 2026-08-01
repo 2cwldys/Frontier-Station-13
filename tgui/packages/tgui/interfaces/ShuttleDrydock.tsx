@@ -24,6 +24,9 @@ type DrydockData = {
   can_buy_faction: BooleanLike;
   templates: Template[];
   withdrawable: Withdrawable[];
+  can_board: BooleanLike;
+  board_cooldown: number;
+  can_disembark: BooleanLike;
 };
 
 export const ShuttleDrydock = (props) => {
@@ -48,7 +51,7 @@ export const ShuttleDrydock = (props) => {
   );
 
   return (
-    <NtosWindow width={420} height={400}>
+    <NtosWindow width={420} height={480}>
       <NtosWindow.Content scrollable>
         <Section title="Drydock Market">
           <Box mb={1} bold>
@@ -81,6 +84,48 @@ export const ShuttleDrydock = (props) => {
               <LabeledList.Item label="">None available.</LabeledList.Item>
             )}
           </LabeledList>
+        </Section>
+        <Section title="Boarding">
+          <Box color="label" mb={1}>
+            For crew granted access without a schematic in hand (see the
+            schematic's own "Add Crew"). Works the same as boarding from the
+            schematic itself.
+          </Box>
+          {!data.can_disembark && (
+            <Button
+              fluid
+              icon="street-view"
+              disabled={!data.can_board}
+              onClick={() => act('board')}
+            >
+              {data.can_board
+                ? 'Enter Ship'
+                : `Enter Ship (${data.board_cooldown}s)`}
+            </Button>
+          )}
+          <Button
+            fluid
+            mt={1}
+            icon="user-plus"
+            disabled={!data.can_disembark}
+            tooltip={
+              !data.can_disembark
+                ? 'You are not on board a drydock ship.'
+                : undefined
+            }
+            onClick={() => act('invite_board')}
+          >
+            Invite to Board
+          </Button>
+          <Button
+            fluid
+            mt={1}
+            icon="right-from-bracket"
+            disabled={!data.can_disembark}
+            onClick={() => act('disembark')}
+          >
+            Exit Ship
+          </Button>
         </Section>
         <Section title="Recoverable Schematics">
           <Box color="label" mb={1}>
