@@ -234,19 +234,26 @@
 		return
 	switch(action)
 		if("toggle")
-			if(world.time < toggle_cooldown_until)
-				to_chat(user, SPAN_WARNING("\The [src] is still recalibrating -- wait a moment before toggling it again."))
-				return TRUE
 			if(spawning_enabled)
+				// Deactivating is ALWAYS allowed. The cooldown exists to stop a
+				// squad being dismissed right before a loss and re-summoned
+				// fresh once the danger has passed -- that only requires gating
+				// the way back ON. Blocking a player from standing their own
+				// soldiers down serves no purpose, so the lockout STARTS here
+				// rather than being checked here.
+				//
 				// Only the deliberate button press dismisses -- deactivate()
 				// is also called from dropped()/faction-loss, which should
 				// keep leaving followers standing behind, per its own doc
 				// comment.
 				deactivate(user)
 				dismiss_soldiers(user)
+				toggle_cooldown_until = world.time + 5 MINUTES
 			else
+				if(world.time < toggle_cooldown_until)
+					to_chat(user, SPAN_WARNING("\The [src] is still recalibrating -- wait a moment before summoning again."))
+					return TRUE
 				activate(user)
-			toggle_cooldown_until = world.time + 5 MINUTES
 			. = TRUE
 		if("set_preset")
 			var/list/available = get_hostile_npc_presets_for_faction(_owner_faction_uid(user))
