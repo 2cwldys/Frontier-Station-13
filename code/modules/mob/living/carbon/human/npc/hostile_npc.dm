@@ -127,6 +127,11 @@
 	/// to this specific tile if bumped/pushed/thrown off it. Null for every
 	/// other spawner.
 	var/turf/guard_post_turf
+	/// The weapon this soldier was equipped with at spawn. Tracked so a
+	/// disarmed soldier recovers ITS OWN weapon (try_recover_weapon()) rather
+	/// than hoovering up whatever happens to be lying nearby, which would be
+	/// trivially baitable by dropping junk in front of it.
+	var/obj/item/primary_weapon
 
 /mob/living/carbon/human/npc/hostile/Initialize(mapload)
 	. = ..()
@@ -178,6 +183,7 @@
 	ordered_destination = null
 	patrol_anchor_turf = null
 	patrol_destination = null
+	primary_weapon = null
 	return ..()
 
 /// Applies a hostile NPC preset (persistence_hostile_npcs.dm's cached list
@@ -225,6 +231,12 @@
 	update_body()
 	regenerate_icons()
 
+	// Remember what they were issued so try_recover_weapon() can go pick up
+	// THIS weapon specifically after a disarm.
+	var/obj/item/issued_weapon = get_active_hand()
+	if(istype(issued_weapon))
+		primary_weapon = issued_weapon
+
 	// A real player would always grip a two-handed weapon with both hands
 	// in combat for the accuracy/recoil/delay bonus -- make sure a freshly
 	// equipped NPC does too, rather than fighting gimped forever.
@@ -260,6 +272,12 @@
 		resting = FALSE
 		update_canmove()
 		update_icon()
+
+	// A disarmed soldier retrieves its weapon rather than spending the rest of
+	// the round throwing punches next to its own rifle. Only consumes the tick
+	// while actively fetching -- an armed soldier falls straight through.
+	if(try_recover_weapon())
+		return
 
 	// An explicit player order outranks the AI's own target pick, and must be
 	// handled ABOVE the stance switch. Inside it, ordered_destination is only
@@ -864,6 +882,71 @@
 	if(!istype(W))
 		W = get_inactive_hand()
 	return istype(W) ? W : null
+
+/// Re-grips a two-handed gun already in the active hand. toggle_wield()
+/// (gun.dm) hard-requires the gun be in the ACTIVE hand with the inactive
+/// hand EMPTY, so both are checked here rather than assumed.
+/mob/living/carbon/human/npc/hostile/proc/_rewield_active_gun()
+	var/obj/item/gun/G = get_active_hand()
+	if(!istype(G) || !G.is_wieldable || G.wielded)
+		return
+	if(get_inactive_hand())
+		return
+	G.toggle_wield(src)
+
+/// Recovers a dropped weapon after a disarm, and restores a two-handed grip.
+///
+/// Returns TRUE only when this tick was SPENT recovering (walking to the
+/// weapon, or picking it up), so think() can hand the tick over. Returns
+/// FALSE when already properly armed, or when there's nothing to recover --
+/// an intentionally unarmed soldier still fights with fists exactly as before.
+///
+/// Without this a disarmed soldier degraded permanently to unarmed melee and
+/// would keep closing to punching range while its own rifle lay on the floor
+/// beside it -- toggle_wield() was only ever called once, at spawn, and
+/// nothing anywhere picked a weapon back up.
+/mob/living/carbon/human/npc/hostile/proc/try_recover_weapon()
+	// Already holding something in the active hand -- just make sure a
+	// two-hander is actually gripped with both hands. Also covers a grip lost
+	// to anything else (e.g. a reload that shuffles hands).
+	if(get_active_hand())
+		_rewield_active_gun()
+		return FALSE
+
+	// Weapon ended up in the offhand -- swap it across, since toggle_wield()
+	// refuses to work on anything but the active hand.
+	if(get_inactive_hand())
+		swap_hand()
+		_rewield_active_gun()
+		return FALSE
+
+	// Both hands empty. Prefer the weapon this soldier was actually issued,
+	// and only if it's genuinely lying loose -- isturf() rules out one that's
+	// been picked up by someone else or stuffed in a bag.
+	var/obj/item/recover_target
+	if(primary_weapon && !QDELETED(primary_weapon) && isturf(primary_weapon.loc) \
+		&& primary_weapon.z == z && get_dist(src, primary_weapon) <= 3)
+		recover_target = primary_weapon
+	else
+		// Fallback for a disarm that flung the gun clear, or an issued weapon
+		// that's been destroyed -- anything immediately underfoot/adjacent.
+		for(var/obj/item/gun/G in range(1, src))
+			if(!isturf(G.loc))
+				continue
+			recover_target = G
+			break
+
+	if(!recover_target)
+		return FALSE
+
+	if(!Adjacent(recover_target))
+		GLOB.move_manager.move_to(src, recover_target, 0, move_speed, INFINITY)
+		return TRUE
+
+	GLOB.move_manager.stop_looping(src)
+	put_in_active_hand(recover_target)
+	_rewield_active_gun()
+	return TRUE
 
 /// Real line-of-sight check between src and target -- walks getline()'s
 /// (__HELPERS/unsorted.dm) proper Bresenham straight line between the two
