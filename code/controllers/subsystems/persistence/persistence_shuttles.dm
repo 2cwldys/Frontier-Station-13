@@ -1818,6 +1818,29 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		marker.start_y = home.y
 		marker.forceMove(home)
 		log_drydock("shipPlaceOvermapMarker: placed marker at ([home.x],[home.y]), radius=[radius] of anchor sector.")
+		// Beacon hazard eviction (_evict_hazards_in_range()/_evict_ship_hazards_in_range(),
+		// faction_beacon.dm) only runs periodically (process(), ~every 30s) or
+		// on a network claim -- neither is guaranteed to have already run at
+		// the exact instant this ship shows up. A ship materializing inside a
+		// beacon's supposedly hazard-free radius must actually BE hazard-free
+		// right now, not "probably clear as of up to 30 seconds ago" -- force
+		// the check synchronously instead of trusting the timer.
+		_drydockEvictHazardsForShip(marker)
+
+/// Forces every currently active, powered, hazard-eviction-active faction
+/// beacon whose security_radius reaches marker's new position to immediately
+/// re-run its own hazard eviction (both the tile-level and ship-event-level
+/// sweeps) -- see shipPlaceOvermapMarker()'s call site above for why this
+/// can't just wait for the next periodic sweep.
+/datum/controller/subsystem/persistence/proc/_drydockEvictHazardsForShip(obj/effect/overmap/visitable/ship/landable/marker)
+	for(var/obj/structure/machinery/faction_beacon/B in world)
+		if(!B._hazard_eviction_active())
+			continue
+		var/obj/effect/overmap/visitable/beacon_sector = GLOB.map_sectors["[GET_Z(B)]"]
+		if(!istype(beacon_sector) || get_dist(marker, beacon_sector) > B.security_radius)
+			continue
+		B._evict_hazards_in_range()
+		B._evict_ship_hazards_in_range()
 
 /// Up to 10 random tries within radius of anchor_sector for a turf holding
 /// neither another ship marker nor an active overmap hazard. Returns null if
