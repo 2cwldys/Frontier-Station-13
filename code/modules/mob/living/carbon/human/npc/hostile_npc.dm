@@ -345,10 +345,22 @@
 	for(var/obj/structure/machinery/optable/O in T)
 		var/mob/living/carbon/human/occ = O.occupant?.resolve()
 		if(occ && occ != src)
-			continue // table's occupant is someone else -- irrelevant to us
-		if(occ == src && !O.suppressing)
-			return FALSE // confirmed done -- stand up and walk off
-		return TRUE // not yet registered (hold so it CAN register), or actively suppressing
+			continue // someone else's patient -- irrelevant to us
+		if(occ == src)
+			return O.suppressing // ours: hold only while a cycle is running
+		// Nobody registered on this table yet. Only hold if we were actually
+		// PLACED here -- move_patient_to_table() sets resting TRUE, and the
+		// table's own (much slower) process() tick needs us still lying when
+		// it next runs or it can never claim us.
+		//
+		// A soldier merely STANDING on an empty table tile is not a patient.
+		// This used to fall through to a bare "return TRUE" for any null
+		// occupant, which froze think() before the stance switch on every
+		// tick -- so walking onto an unoccupied operating table permanently
+		// stopped a soldier following, fighting, and taking orders, while its
+		// stance/commander/move loop all still looked perfectly healthy.
+		if(resting || lying)
+			return TRUE
 	return FALSE
 
 /mob/living/carbon/human/npc/hostile/proc/get_targets(dist = 10)
@@ -1096,6 +1108,22 @@
 	. += SPAN_NOTICE("<b>\[NPC AI\]</b> target=[last_found_target || "none"] (ordered=[target_is_ordered ? "YES" : "no"]) | passive=[passive_mode ? "YES" : "no"] | ff_blocked_since=[friendly_fire_blocked_since]")
 	. += SPAN_NOTICE("<b>\[NPC AI\]</b> thinking=[thinking_enabled ? "YES" : "NO"] | fast=[is_fast_processing ? "YES" : "no"] | in_slow_list=[(src in SSmob_ai.processing) ? "YES" : "no"] | in_fast_list=[(src in SSmob_fast_ai.processing) ? "YES" : "no"]")
 	. += SPAN_NOTICE("<b>\[NPC AI\]</b> move_loop=[loop_desc] | order_stuck_for=[order_progress_time ? "[(world.time - order_progress_time) / 10]s" : "n/a"] | unstick_tried=[order_unstick_attempted ? "YES" : "no"]")
+	// Movement capability. think() returns at its very first line on any
+	// non-zero stat, and /mob/living/Move() hard-returns on buckled_to
+	// (living.dm) -- either makes a mob that is being correctly TOLD to move
+	// silently not move, with every AI field above still reading healthy.
+	. += SPAN_NOTICE("<b>\[NPC AI\]</b> stat=[stat] | canmove=[canmove ? "YES" : "NO"] | lying=[lying ? "YES" : "no"] | resting=[resting ? "YES" : "no"] | buckled_to=[buckled_to || "none"] | anchored=[anchored ? "YES" : "no"]")
+	. += SPAN_NOTICE("<b>\[NPC AI\]</b> weakened=[weakened] | stunned=[stunned] | paralysis=[paralysis] | on_medical_table=[is_on_medical_table() ? "YES" : "no"]")
+	// Live pathing probe -- get_step_to() is the exact call the move loop
+	// itself makes each tick (movement_types.dm). If it yields nothing while
+	// a loop is active and distance is beyond min_dist, the loop is running
+	// and simply cannot produce a step, which is the whole answer.
+	if(commander && !QDELETED(commander))
+		var/turf/probe_step = get_step_to(src, commander)
+		. += SPAN_NOTICE("<b>\[NPC AI\]</b> dist_to_cmdr=[get_dist(src, commander)] | same_z=[(z == commander.z) ? "YES" : "NO"] | get_step_to=[probe_step ? "[probe_step.x],[probe_step.y]" : "NULL (no path!)"] | clear_path=[has_clear_path_to(commander) ? "YES" : "no"]")
+	if(istype(active_loop, /datum/move_loop/has_target/dist_bound))
+		var/datum/move_loop/has_target/dist_bound/DB = active_loop
+		. += SPAN_NOTICE("<b>\[NPC AI\]</b> loop_min_dist=[DB.distance] | loop_wants_move=[DB.check_dist() ? "YES" : "NO (thinks it arrived)"] | loop_delay=[DB.delay] | loop_running=[(DB.status & MOVELOOP_STATUS_RUNNING) ? "YES" : "NO"]")
 	// Beacon-side membership -- the AI state above can look perfect while an
 	// order never reaches this mob at all, which is only visible from here.
 	var/beacon_desc = "no commanding beacon found"

@@ -860,7 +860,17 @@
 
 		else if(sleeping)
 			handle_dreams()
-			if(mind)
+			// A deliberately_clientless NPC (hostile_npc.dm's faction soldiers)
+			// has no client AND no mind, so the SSD-retention logic below would
+			// hold it asleep FOREVER: `sleeping` never decrements, so
+			// set_stat(UNCONSCIOUS) above never lifts, and SSmob_ai's
+			// "if(!M.frozen && !M.stat)" gate then skips its think() for good --
+			// leaving a mob whose AI state still reads perfectly healthy but
+			// never runs again. Same exemption the SSD check at the top of this
+			// proc already makes for these mobs.
+			if(deliberately_clientless)
+				AdjustSleeping(-1)
+			else if(mind)
 				//Are they SSD? If so we'll keep them asleep but work off some of that sleep var in case of stoxin or similar.
 				if(client || sleeping > 3 || istype(bg))
 					if(sleeping_indefinitely)
