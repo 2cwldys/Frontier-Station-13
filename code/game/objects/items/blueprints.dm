@@ -1,3 +1,19 @@
+/// Refreshes the displayed name/desc of every blueprint item sitting on `z`
+/// after that site has been renamed. Blueprints bake the site name at init,
+/// and neither rename path (manage_persistent_overmap_sites(), the faction
+/// beacon's "rename_site") goes through update_name(), so no signal is ever
+/// emitted for anything to listen to. Called directly by those paths instead.
+///
+/// A world scan is fine here -- renaming a site is a rare, deliberate admin/
+/// player action, not something on any hot path.
+/proc/refresh_site_blueprints(z)
+	if(!z)
+		return
+	for(var/obj/item/blueprints/B in world)
+		if(GET_Z(B) != z)
+			continue
+		B.refresh_site_naming()
+
 /obj/item/blueprints
 	name = "blueprints"
 	desc = "Blueprints of the station. There is a \"Classified\" stamp and several coffee stains on it."
@@ -31,6 +47,12 @@
 	if(use_check_and_message(usr, USE_DISALLOW_SILICONS) || usr.get_active_hand() != src)
 		return
 	add_fingerprint(user)
+
+	// Re-derive the site name on every use. The name is baked at init, and a
+	// site renamed since then never notified anything -- see
+	// refresh_site_naming(). Cheap, and matches the per-use refresh the
+	// outpost subtype already does for its own prefix.
+	refresh_site_naming()
 
 	// Beacon-claimed territory requires a matching faction ID to use the
 	// blueprints at all -- blocks the whole tool (menu included) upfront,
@@ -89,16 +111,42 @@
 			return
 	to_chat(user, SPAN_WARNING("The markings on this are useless!"))
 
+/// Live sector name for wherever these blueprints currently are, or null.
+/// Deliberately a fresh lookup every time rather than a value cached at init:
+/// a site can be renamed at runtime (manage_persistent_overmap_sites(), the
+/// faction beacon's "rename_site"), and both of those paths assign
+/// marker.name directly without going through update_name(), so nothing is
+/// ever notified.
+/obj/item/blueprints/proc/get_site_name()
+	if(!SSatlas.current_map.use_overmap)
+		return null
+	var/obj/effect/overmap/visitable/sector/S = GLOB.map_sectors["[GET_Z(src)]"]
+	return S ? S.name : null
+
+/// Rebuilds name/desc/area_prefix from the CURRENT site name. Idempotent --
+/// it assigns from initial(name) rather than appending, because the old
+/// `name += " - [S.name]"` accumulated another suffix every time it ran.
+///
+/// Also fixes a staleness that bit even on a clean boot: load_new_z() flushes
+/// atom init before map.dm applies a site's saved custom_name, so blueprints
+/// baked the pre-rename name at every single startup.
+/obj/item/blueprints/proc/refresh_site_naming()
+	var/site_name = get_site_name()
+	if(!site_name)
+		return FALSE
+	name = "[initial(name)] - [site_name]"
+	desc = "Blueprints of \the [site_name]. There is a \"Classified\" stamp and several coffee stains on it."
+	area_prefix = site_name
+	return TRUE
+
 /obj/item/blueprints/proc/set_valid_z_levels()
 	if(SSatlas.current_map.use_overmap)
 		var/obj/effect/overmap/visitable/sector/S = GLOB.map_sectors["[GET_Z(src)]"]
 		if(!S) //Blueprints are useless now, but keep them around for fluff
 			desc = "Some dusty old blueprints. The markings are old, and seem entirely irrelevant for your wherabouts."
 			return FALSE
-		name += " - [S.name]"
-		desc = "Blueprints of \the [S.name]. There is a \"Classified\" stamp and several coffee stains on it."
+		refresh_site_naming()
 		valid_z_levels += S.map_z
-		area_prefix = S.name
 		return TRUE
 	desc = "Blueprints of the [station_name()]. There is a \"Classified\" stamp and several coffee stains on it."
 	area_prefix = station_name()
@@ -132,6 +180,12 @@
 		area_prefix = "Outpost"
 	. = ..()
 
+/// Outpost blueprints choose their own prefix per-use in attack_self()
+/// (planet name / "Pinned Site" / "Outpost"), so the generic sector-name
+/// refresh must not overwrite it.
+/obj/item/blueprints/outpost/refresh_site_naming()
+	return FALSE
+
 /obj/item/blueprints/outpost/set_valid_z_levels()
 	if(!SSatlas.current_map.use_overmap)
 		desc = "Some dusty old blueprints. The markings are old, and seem entirely irrelevant for your wherabouts."
@@ -150,6 +204,12 @@
 	var/shuttle_name
 	///The actual overmap shuttle type, for setting on preset blueprints.
 	var/obj/effect/overmap/visitable/ship/landable/shuttle_type
+
+/// Shuttle blueprints track their linked shuttle's name live via
+/// COMSIG_BASENAME_SETNAME (update_linked_name()), not the sector name, so the
+/// generic sector-name refresh must not overwrite it.
+/obj/item/blueprints/shuttle/refresh_site_naming()
+	return FALSE
 
 /obj/item/blueprints/shuttle/mechanics_hints(mob/user, distance, is_adjacent)
 	. += ..()

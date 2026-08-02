@@ -398,6 +398,7 @@
 			to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
 			return TRUE
 		controller._link_to_airpump(src, user)
+		MT.set_buffer(null)
 		return TRUE
 
 	if(attacking_item.tool_behaviour == TOOL_WELDER)

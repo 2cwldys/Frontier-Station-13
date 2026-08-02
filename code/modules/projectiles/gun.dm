@@ -403,10 +403,10 @@ ABSTRACT_TYPE(/obj/item/gun)
  * * Makes the user face their target (duh).
  */
 /// Below this wear_durability, a gun starts risking a jam on each shot.
-#define GUN_JAM_DURABILITY_THRESHOLD 25
+#define GUN_JAM_DURABILITY_THRESHOLD 15
 /// Jam chance at the lowest non-zero durability (1) -- scales linearly
 /// down to 0% at GUN_JAM_DURABILITY_THRESHOLD.
-#define GUN_JAM_MAX_CHANCE 75
+#define GUN_JAM_MAX_CHANCE 50
 
 /// Shared pre-shot gate for ballistic and energy guns alike (neither
 /// subtype overrides fire_checks()) -- durability-broken guns refuse to
@@ -474,6 +474,7 @@ ABSTRACT_TYPE(/obj/item/gun)
 
 	//actually attempt to shoot
 	var/turf/targloc = get_turf(target) //cache this in case target gets deleted during shooting, e.g. if it was a securitron that got destroyed.
+	var/fired_any = FALSE
 	for(var/i in 1 to burst)
 		var/obj/projectile = consume_next_projectile(user)
 		if(!projectile)
@@ -493,6 +494,7 @@ ABSTRACT_TYPE(/obj/item/gun)
 			if(i > 1 && burst_delay < 3 && burst < 5)
 				show_emote = FALSE
 			handle_post_fire(user, target, pointblank, reflex, show_emote)
+			fired_any = TRUE
 			update_icon()
 
 		if(i < burst)
@@ -501,6 +503,11 @@ ABSTRACT_TYPE(/obj/item/gun)
 		if(!(target && target.loc))
 			target = targloc
 			pointblank = 0
+
+	// Wear applies once per trigger pull, not once per round -- otherwise a
+	// burst-3 weapon would wear (and start jamming) 3x faster than semi-auto.
+	if(fired_any)
+		SEND_SIGNAL(src, COMSIG_GUN_FIRED, user)
 
 	update_held_icon()
 
@@ -522,6 +529,7 @@ ABSTRACT_TYPE(/obj/item/gun)
 	next_fire_time = world.time + shoot_time
 
 	var/turf/targloc = get_turf(target) //cache this in case target gets deleted during shooting, e.g. if it was a securitron that got destroyed.
+	var/fired_any = FALSE
 	for(var/i in 1 to burst)
 		var/obj/projectile = consume_next_projectile()
 		if(!projectile)
@@ -540,11 +548,14 @@ ABSTRACT_TYPE(/obj/item/gun)
 			P.suppressed =  suppressed
 
 			if(!P.preparePixelProjectile(target, get_turf(src)))
+				if(fired_any)
+					SEND_SIGNAL(src, COMSIG_GUN_FIRED, null)
 				return FALSE
 			P.fired_from = src
 			P.fire()
 
 			handle_post_fire() // should be safe to not include arguments here, as there are failsafes in effect (?)
+			fired_any = TRUE
 
 			var/prev_light = light_range
 			if (muzzle_flash)
@@ -558,6 +569,11 @@ ABSTRACT_TYPE(/obj/item/gun)
 
 		if(!target?.loc)
 			target = targloc
+
+	// Wear applies once per trigger pull, not once per round -- see Fire()'s
+	// matching fired_any.
+	if(fired_any)
+		SEND_SIGNAL(src, COMSIG_GUN_FIRED, null)
 
 	//update timing
 	next_fire_time = world.time + shoot_time
@@ -601,7 +617,10 @@ ABSTRACT_TYPE(/obj/item/gun)
 	degrade_durability(durability_per_use)
 
 /obj/item/gun/proc/handle_post_fire(mob/user, atom/target, var/pointblank = FALSE, var/reflex = FALSE, var/playemote = TRUE)
-	SEND_SIGNAL(src, COMSIG_GUN_FIRED, user)
+	// COMSIG_GUN_FIRED (wear) is sent once per Fire()/Fire_userless() call
+	// instead of here -- this proc runs once per ROUND within a burst, which
+	// used to mean a burst-3 weapon wore out (and so started jamming) 3x
+	// faster per trigger pull than semi-auto. See Fire()'s fired_any.
 	play_fire_sound()
 	if(!suppressed)
 		if(playemote)

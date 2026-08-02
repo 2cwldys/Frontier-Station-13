@@ -60,7 +60,28 @@
 		addtimer(CALLBACK(src, PROC_REF(signalDoor), tag_exterior_door, "update"), 1 SECONDS)
 		addtimer(CALLBACK(src, PROC_REF(signalDoor), tag_interior_door, "update"), 1 SECONDS)
 
+//re-reads the per-slot tags live from the controller -- multitool linking
+//(airlock_control.dm's _link_to_controller() procs) always happens after
+//this program is first created, so the New()-time snapshot below is stale
+//the moment anything gets linked; this keeps signalDoor()/receive_signal()
+//addressing whatever is actually linked right now instead of a guess made
+//before any linking occurred
+/datum/computer/file/embedded_program/airlock/proc/_sync_tags()
+	var/obj/structure/machinery/embedded_controller/radio/airlock/controller = master
+	if(!istype(controller))
+		return
+	id_tag = controller.id_tag
+	tag_exterior_door = controller.tag_exterior_door? controller.tag_exterior_door : "[id_tag]_outer"
+	tag_interior_door = controller.tag_interior_door? controller.tag_interior_door : "[id_tag]_inner"
+	tag_airpump = controller.tag_airpump? controller.tag_airpump : "[id_tag]_pump"
+	tag_chamber_sensor = controller.tag_chamber_sensor? controller.tag_chamber_sensor : "[id_tag]_sensor"
+	tag_exterior_sensor = controller.tag_exterior_sensor
+	tag_interior_sensor = controller.tag_interior_sensor
+	tag_airlock_mech_sensor = controller.tag_airlock_mech_sensor? controller.tag_airlock_mech_sensor : "[id_tag]_airlock_mech"
+	tag_shuttle_mech_sensor = controller.tag_shuttle_mech_sensor? controller.tag_shuttle_mech_sensor : "[id_tag]_shuttle_mech"
+
 /datum/computer/file/embedded_program/airlock/receive_signal(datum/signal/signal, receive_method, receive_param)
+	_sync_tags()
 	var/receive_tag = signal.data["tag"]
 	if(!receive_tag) return
 
@@ -114,6 +135,7 @@
 
 
 /datum/computer/file/embedded_program/airlock/receive_user_command(command)
+	_sync_tags()
 	var/shutdown_pump = 0
 	switch(command)
 		if("cycle_ext")

@@ -122,17 +122,30 @@ GLOBAL_PROTECT(config)
 
 GLOBAL_LIST_INIT(world_api_rate_limit, list())
 
+/// Checks addr against SSfail2topic and returns a ready-to-return
+/// json_encode()'d 429 response if it's currently rate limited, or null if
+/// not -- callers should "return ." immediately when this returns non-null.
+/// Factored out so /world/Topic() below can apply this at every point where
+/// a request could still turn out to be garbage/unresolvable (which must
+/// stay protected), while also skipping it entirely once a request resolves
+/// to a specific command explicitly marked no_fail2topic (see api_command.dm)
+/// -- e.g. get_serverstatus, meant for frequent, low-cost, unauthenticated
+/// polling (Discord Rich Presence tools and similar), which would otherwise
+/// trip fail2topic's abuse detection just from normal, legitimate use.
+/proc/_topic_fail2topic_response(addr)
+	if (SSfail2topic.IsRateLimited(addr))
+		var/list/response = list("statuscode" = 429, "response" = "Rate limited.")
+		return json_encode(response)
+	return null
+
 /world/Topic(T, addr, master, key)
 	var/list/response[] = list()
 	var/list/queryparams[]
+	var/limited
 
 	if (!SSfail2topic)
 		response["statuscode"] = 500
 		response["response"] = "Server not initialized."
-		return json_encode(response)
-	else if (SSfail2topic.IsRateLimited(addr))
-		response["statuscode"] = 429
-		response["response"] = "Rate limited."
 		return json_encode(response)
 
 	if (length(T) > 2000)
@@ -156,6 +169,9 @@ GLOBAL_LIST_INIT(world_api_rate_limit, list())
 		return tgs_topic_return
 	else if (!queryparams.len)
 		log_debug("API - Bad Request - Invalid/no JSON data sent.")
+		limited = _topic_fail2topic_response(addr)
+		if (limited)
+			return limited
 		response["statuscode"] = 400
 		response["response"] = "Bad Request - Invalid/no JSON data sent."
 		return json_encode(response)
@@ -166,6 +182,9 @@ GLOBAL_LIST_INIT(world_api_rate_limit, list())
 
 	if (isnull(query))
 		log_debug("API - Bad Request - No query specified")
+		limited = _topic_fail2topic_response(addr)
+		if (limited)
+			return limited
 		response["statuscode"] = 400
 		response["response"] = "Bad Request - No query specified"
 		return json_encode(response)
@@ -175,9 +194,19 @@ GLOBAL_LIST_INIT(world_api_rate_limit, list())
 	//Check if that command exists
 	if (isnull(command))
 		log_debug("API: Unknown command called: [query]")
+		limited = _topic_fail2topic_response(addr)
+		if (limited)
+			return limited
 		response["statuscode"] = 501
 		response["response"] = "Not Implemented"
 		return json_encode(response)
+
+	// Only known, explicitly-flagged-safe commands skip fail2topic -- every
+	// other resolvable command still gets the same protection as before.
+	if (!command.no_fail2topic)
+		limited = _topic_fail2topic_response(addr)
+		if (limited)
+			return limited
 
 	var/unauthed = command.check_auth(addr, auth)
 	if (unauthed)

@@ -377,11 +377,15 @@ emp_act
 		if(ismob(O.throwing?.thrower?.resolve()))
 			var/mob/M = O.throwing?.thrower?.resolve()
 			var/client/assailant = M.client
-			if(assailant)
-				src.attack_log += "\[[time_stamp()]\] <font color='orange'>Has been hit with a [O], thrown by [M.name] ([assailant.ckey])</font>"
-				M.attack_log += "\[[time_stamp()]\] <span class='warning'>Hit [src.name] ([src.ckey]) with a thrown [O]</span>"
-				if(!istype(src,/mob/living/simple_animal/rat))
-					msg_admin_attack("[src.name] ([src.ckey]) was hit by a [O], thrown by [M.name] ([assailant.ckey]) (<A href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[src.x];Y=[src.y];Z=[src.z]'>JMP</a>)",ckey=key_name(M),ckey_target=key_name(src))
+			if(assailant && !istype(src, /mob/living/simple_animal/rat))
+				// Routed through admin_attack_log() (not a hand-rolled log
+				// block) so highsec hits actually reach
+				// zone_security_record_offense() -- melee/gunshot already go
+				// through it (items.dm, projectiles/projectile.dm), but this
+				// thrown-weapon path used to bypass it entirely, making
+				// thrown-weapon hits invisible to First Responder.
+				admin_attack_log(M, src, "hit [key_name(src)] with a thrown [O.name]", \
+					"was hit with a thrown [O.name] by [key_name(M)]", "hit with a thrown [O.name]")
 
 		//thrown weapon embedded object code.
 		if(dtype == DAMAGE_BRUTE && istype(O,/obj/item))

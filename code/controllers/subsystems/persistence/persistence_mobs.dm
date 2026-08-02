@@ -1004,7 +1004,17 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		return null
 	var/list/data = list("type" = "[I.type]")
 
-	// Storage contents  recursive
+	// Storage contents  recursive.
+	//
+	// The key is emitted even when the storage is EMPTY, deliberately. It used
+	// to be gated on length(), which meant an emptied container serialized to
+	// nothing but its type -- the floor-item writer then skipped the extra blob
+	// entirely (it only emits when the blob has more than "type"), so restore
+	// fell back to a plain new(), Initialize() ran fill(), and the container
+	// came back stocked with its original starts_with contents. That's the
+	// inflatable box handing back 5 doors and 7 walls after you'd emptied it.
+	// An explicit empty list records "this really is empty" and forces the
+	// restore path to clear the fill() defaults.
 	if(istype(I, /obj/item/storage))
 		var/obj/item/storage/S = I
 		var/list/contents = list()
@@ -1012,8 +1022,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			var/list/child_data = serializePersistentItem(child)
 			if(child_data)
 				contents += list(child_data)
-		if(length(contents))
-			data["contents"] = contents
+		data["contents"] = contents
 
 	// Internal storage -- suits-with-pockets, webbing/storage accessories,
 	// helmets: an /obj/item/storage/internal living in the item's contents
@@ -1255,8 +1264,10 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	if(!I || QDELETED(I))
 		return null
 
-	// Storage contents
-	if(data["contents"] && istype(I, /obj/item/storage))
+	// Storage contents. Keyed on PRESENCE, not truthiness -- a saved-empty
+	// container serializes "contents" as an empty list, and that still has to
+	// clear the fill() defaults below or the container restores stocked.
+	if(("contents" in data) && istype(I, /obj/item/storage))
 		var/obj/item/storage/S = I
 		// Clear any default items the storage placed during Initialize before restoring saved contents
 		while(length(S.contents))

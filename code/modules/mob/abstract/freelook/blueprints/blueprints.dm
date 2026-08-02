@@ -213,6 +213,10 @@
 			continue // already part of it, nothing to do
 		T.change_area(T.loc, target)
 		added++
+	// Reshaping an area makes it a persisted area -- see edit_area()'s note.
+	// Without this, tiles added to a mapped-in station area revert on restore.
+	if(added)
+		target.is_blueprint_area = TRUE
 	to_chat(owner, SPAN_NOTICE("Added [added] tile\s to [target.name]."))
 	remove_selection()
 
@@ -301,6 +305,8 @@
 	if(!removed)
 		to_chat(owner, SPAN_WARNING("None of the selected tiles were part of [A.name]."))
 		return
+	// Reshaping an area makes it a persisted area -- see edit_area()'s note.
+	A.is_blueprint_area = TRUE
 	to_chat(owner, SPAN_NOTICE("Removed [removed] tile\s from [A.name]."))
 	if(!(locate(/turf) in A))
 		qdel(A)
@@ -329,6 +335,12 @@
 		if(is_type_in_list(M, types_to_rename))
 			M.name = replacetext(M.name, prevname, new_area_name)
 	A.name = new_area_name
+	// An edited area is a persisted area. areasFinalize() only saves areas
+	// flagged is_blueprint_area, and that flag was previously only ever set at
+	// CREATION (finalize_area()) -- so renaming a mapped-in station area
+	// changed it live but was silently discarded on restore, because the map
+	// reload re-supplied the original name.
+	A.is_blueprint_area = TRUE
 	to_chat(owner, SPAN_NOTICE("You set the area '[prevname]' title to '[new_area_name]'."))
 
 /mob/abstract/eye/blueprints/ClickOn(atom/A, params)

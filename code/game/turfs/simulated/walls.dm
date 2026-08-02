@@ -223,11 +223,23 @@
 
 	return ..()
 
-/turf/simulated/wall/proc/dismantle_wall(var/devastated, var/explode, var/no_product, var/no_change = FALSE)
+/// Returns TRUE if the wall was actually dismantled, FALSE if it was refused.
+/// Callers MUST check this before reporting success or consuming a tool
+/// resource -- the highsec guard below aborts silently, and every caller used
+/// to print "you remove the outer plating" and burn welder fuel regardless.
+///
+/// `user` is the mob doing the dismantling, or null for an actorless cause
+/// (explosion, fire, on_death). It has to be threaded through to
+/// zone_damage_protected(), whose exemption branch is written
+/// `if(user && (check_rights(...) || zone_engineering_exempt(user)))` -- so
+/// called bare it returns TRUE for EVERYONE on a highsec z, admins and
+/// exempt engineers included. That was the whole "welds, says it tears off,
+/// drops nothing, wall stays" bug.
+/turf/simulated/wall/proc/dismantle_wall(var/devastated, var/explode, var/no_product, var/no_change = FALSE, mob/user = null)
 	// Highsec zone protection -- final endpoint for tool deconstruction,
 	// on_death, and explosions alike (see zone_damage_protected).
-	if(zone_damage_protected(src))
-		return
+	if(zone_damage_protected(src, user))
+		return FALSE
 	if (!no_change)	// No change is TRUE when this is called by destroy.
 		playsound(src, 'sound/items/Welder.ogg', 100, 1)
 
@@ -252,6 +264,7 @@
 
 	if (!no_change)
 		ChangeTurf(under_turf)
+	return TRUE
 
 /turf/simulated/wall/ex_act(severity)
 	if(zone_damage_protected(src))

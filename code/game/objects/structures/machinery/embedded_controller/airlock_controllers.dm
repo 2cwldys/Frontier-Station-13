@@ -124,18 +124,22 @@
 		var/obj/structure/machinery/door/airlock/door = MT.get_buffer(/obj/structure/machinery/door/airlock)
 		if(door)
 			door._link_to_controller(src, user)
+			MT.set_buffer(null)
 			return TRUE
 		var/obj/structure/machinery/airlock_sensor/sensor = MT.get_buffer(/obj/structure/machinery/airlock_sensor)
 		if(sensor)
 			sensor._link_to_controller(src, user)
+			MT.set_buffer(null)
 			return TRUE
 		var/obj/structure/machinery/access_button/button = MT.get_buffer(/obj/structure/machinery/access_button)
 		if(button)
 			button._link_to_controller(src, user)
+			MT.set_buffer(null)
 			return TRUE
 		var/obj/structure/machinery/atmospherics/unary/vent_pump/pump = MT.get_buffer(/obj/structure/machinery/atmospherics/unary/vent_pump)
 		if(pump)
 			_link_to_airpump(pump, user)
+			MT.set_buffer(null)
 			return TRUE
 		MT.set_buffer(src)
 		to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))

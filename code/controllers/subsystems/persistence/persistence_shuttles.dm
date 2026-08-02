@@ -1005,6 +1005,58 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	log_drydock("drydockWithdrawSchematic: [key_name(user)] withdrew the schematic for shuttle_id=[shuttle_id].")
 	return TRUE
 
+/// Registers each sub-ship's own home landmark as a RESTRICTED waypoint on
+/// its parent drydock ship's overmap marker, so a launched sub-ship can
+/// actually select "return to my hangar".
+///
+/// Without this it never can. /datum/shuttle/autodock/overmap builds its
+/// destination list purely from sector waypoints (get_waypoints(),
+/// sectors.dm), and NO drydock template declares
+/// initial_generic_waypoints/initial_restricted_waypoints -- the away-site
+/// originals do, but the drydock markers don't subtype them, so they inherit
+/// nothing. A deployed drydock sector therefore only ever exposes its own
+/// Open-Space landmark plus the generated visiting_shuttle slots.
+///
+/// Forced recall always worked because it resolves logging_home_tag directly
+/// through SSshuttle.get_landmark() and skips waypoints entirely. The same tag
+/// is reused here so both paths agree on what "home" means.
+///
+/// Restricted rather than generic: only this sub-ship may dock in its own
+/// parent's hangar. Keyed by the shuttle's CURRENT name, because that's what
+/// get_waypoints(name) matches on -- see drydockRenameSubship(), which has to
+/// re-key when that name changes.
+/proc/_drydock_register_subship_waypoints(obj/effect/overmap/visitable/marker, datum/map_template/drydock_ship/template)
+	if(!istype(marker) || !template || !length(template.sub_shuttle_tags))
+		return
+	for(var/sub_tag in template.sub_shuttle_tags)
+		var/datum/shuttle/sub = SSshuttle.shuttles[sub_tag]
+		if(!istype(sub) || !sub.logging_home_tag)
+			continue
+		var/obj/effect/shuttle_landmark/home = SSshuttle.get_landmark(sub.logging_home_tag)
+		if(!home)
+			// Expected for hulls whose map simply has no hangar landmark (the
+			// Idris Cruiser only maps port/starboard berths), and for a tag
+			// dropped by SSshuttle's duplicate guard when the matching away
+			// site spawned the same round and claimed it first.
+			log_drydock_warning("_drydock_register_subship_waypoints: no home landmark '[sub.logging_home_tag]' for sub-ship '[sub_tag]' -- it will not be able to return to its hangar.")
+			continue
+		if(home in LAZYACCESS(marker.restricted_waypoints, sub.name))
+			continue // already registered (re-deploy)
+		marker.add_landmark(home, sub.name)
+
+/// Drops those registrations again, so a stashed ship's hangar stops being
+/// offered as a destination to anything still flying.
+/proc/_drydock_unregister_subship_waypoints(obj/effect/overmap/visitable/marker, datum/map_template/drydock_ship/template)
+	if(!istype(marker) || !template || !length(template.sub_shuttle_tags))
+		return
+	for(var/sub_tag in template.sub_shuttle_tags)
+		var/datum/shuttle/sub = SSshuttle.shuttles[sub_tag]
+		if(!istype(sub) || !sub.logging_home_tag)
+			continue
+		var/obj/effect/shuttle_landmark/home = SSshuttle.get_landmark(sub.logging_home_tag)
+		if(home)
+			marker.remove_landmark(home, sub.name)
+
 /// Renames a sub-ship mapped into this hull's own hangar (see
 /// /datum/map_template/drydock_ship/sub_shuttle_tags, drydock_ship.dm) --
 /// bound entirely to the parent ship, so this just updates the persisted
@@ -1045,7 +1097,19 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 	var/datum/shuttle/sub = SSshuttle.shuttles[shuttle_tag]
 	if(istype(sub))
+		var/old_name = sub.name
 		sub.name = new_name
+		// restricted_waypoints is keyed by the shuttle's exact name, so a
+		// rename would otherwise silently orphan this sub-ship's hangar
+		// registration and it would lose the ability to return home again.
+		// See _drydock_register_subship_waypoints().
+		if(old_name != new_name && !DS.stashed && DS.z)
+			var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[DS.z]"]
+			if(istype(marker) && sub.logging_home_tag)
+				var/obj/effect/shuttle_landmark/home = SSshuttle.get_landmark(sub.logging_home_tag)
+				if(home)
+					marker.remove_landmark(home, old_name)
+					marker.add_landmark(home, new_name)
 
 	if(user)
 		to_chat(user, SPAN_GOOD("Sub-ship renamed."))
@@ -1666,6 +1730,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		for(var/sub_tag in template.sub_shuttle_tags)
 			SSpersistence.subshipSnapshotApply(shuttle_id, sub_tag, new_z)
 	SSpersistence._drydockApplySubshipNames(shuttle_id, template)
+	// After the rename pass -- restricted_waypoints is keyed by the shuttle's
+	// exact CURRENT name, so registering before renaming would file the hangar
+	// under a name get_waypoints() will never ask for.
+	_drydock_register_subship_waypoints(marker, template)
 
 	// Missing-sub-ship detection -- checked LAST, after the replenish pass
 	// above -- log and alert rather than attempt anything further. Should
@@ -2020,6 +2088,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 	var/scope = "ship:d:[shuttle_id]"
 	var/stash_z = DS.z
+	// Drop the hangar waypoint registrations before the z goes away, so a
+	// stashed ship's hangar stops being offered as a destination to anything
+	// still flying. Mirrors _drydock_register_subship_waypoints() at retrieve.
+	_drydock_unregister_subship_waypoints(GLOB.map_sectors["[stash_z]"], sub_template)
 	SSpersistence.shipInteriorSave(stash_z, scope)
 
 	var/datum/map_template/drydock_ship/save_template = SSmapping.drydock_ship_templates[DS.template_id]

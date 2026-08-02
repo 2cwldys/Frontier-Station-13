@@ -266,10 +266,16 @@
 			if (!istype(src, /turf/simulated/wall))
 				return
 
+			// Pass `user` -- zone_damage_protected()'s exemption branch is
+			// unreachable without it, so a bare call refuses even admins and
+			// exempt engineers. Gate the message AND the resource spend on the
+			// real result: a refused dismantle used to still claim success and
+			// still burn welder fuel.
+			if(!dismantle_wall(user = user))
+				return
 			if(dismantle_sound)
 				playsound(src, dismantle_sound, 100, 1)
 			attacking_item.use_resource(user, 1)
-			dismantle_wall()
 			user.visible_message(SPAN_WARNING("The wall was torn open by \the [user]!"), SPAN_NOTICE("You remove the outer plating."))
 			return
 
@@ -366,8 +372,11 @@
 					if(!attacking_item.use_tool(src, user , 100, volume = 50)) return
 					if(!istype(src, /turf/simulated/wall) || !user || !attacking_item || !T )	return
 					if(user.loc == T && user.get_active_hand() == attacking_item )
-						to_chat(user, SPAN_NOTICE("You pry off the outer sheath."))
-						dismantle_wall()
+						// Same as the plain-wall path above -- thread `user`
+						// through so the highsec exemption can apply, and only
+						// claim success if it actually came apart.
+						if(dismantle_wall(user = user))
+							to_chat(user, SPAN_NOTICE("You pry off the outer sheath."))
 					return
 
 	if(istype(attacking_item, /obj/item/electronic_assembly/wallmount))

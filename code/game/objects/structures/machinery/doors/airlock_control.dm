@@ -148,6 +148,7 @@
 			to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
 			return TRUE
 		_link_to_controller(controller, user)
+		MT.set_buffer(null)
 		return TRUE
 	return ..()
 
@@ -241,6 +242,7 @@
 			to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
 			return TRUE
 		_link_to_controller(controller, user)
+		MT.set_buffer(null)
 		return TRUE
 	//Swiping ID on the access button
 	if (attacking_item.GetID())
@@ -430,6 +432,7 @@
 			to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
 			return TRUE
 		_link_to_controller(controller, user)
+		MT.set_buffer(null)
 		return TRUE
 	//Swiping ID on the access button
 	if (attacking_item.GetID())

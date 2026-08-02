@@ -138,14 +138,40 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 
 	else if(istype(T, /turf/simulated/wall))
 		var/turf/simulated/wall/W = T
+		// Rebuild through set_material() rather than assigning the material
+		// refs raw. update_material() is what derives name/desc/opacity/
+		// explosion_resistance/icon from the material, and maxhealth has to be
+		// recomputed from the RESTORED materials -- Initialize() only ever
+		// derived it from the wall TYPE's default material, so a restored wall
+		// kept a maxhealth that didn't match what it's actually made of. Once
+		// that desyncs from the restored health, wall_attacks.dm's damage check
+		// traps the welder in the REPAIR branch, which returns before it can
+		// ever reach the dismantle code -- a wall that simply can't be taken
+		// apart. Mirrors /turf/simulated/wall/Initialize()'s own ordering.
 		if(content["material"])
-			W.material = SSmaterials.get_material_by_name(content["material"])
-		if(!isnull(content["reinf_material"]))
-			W.reinf_material = SSmaterials.get_material_by_name(content["reinf_material"])
-		if(!isnull(content["health"]))
-			W.health = text2num(content["health"])
+			var/material/restored_mat = SSmaterials.get_material_by_name(content["material"])
+			var/material/restored_reinf = !isnull(content["reinf_material"]) ? SSmaterials.get_material_by_name(content["reinf_material"]) : null
+			if(restored_mat)
+				W.set_material(restored_mat, restored_reinf)
+				W.hitsound = W.material.hitsound
+				W.set_maxhealth(W.material.integrity + (W.reinf_material ? W.reinf_material.integrity : 0), TRUE)
+		// under_turf is what a wall reverts to when dismantled, and is neither
+		// carried by ChangeTurf() nor derived from anything -- without it a
+		// restored player/RFD-built wall comes apart into plating instead of
+		// whatever floor it was actually built on.
+		if(!isnull(content["under_turf"]))
+			var/under_path = text2path(content["under_turf"])
+			if(under_path)
+				W.under_turf = under_path
+		// After set_material(): update_material() forces construction_stage to
+		// 6 (or null) from reinf_material, which would otherwise wipe a
+		// part-deconstructed wall's saved progress.
 		if(!isnull(content["construction_stage"]))
 			W.construction_stage = text2num(content["construction_stage"])
+		// After set_maxhealth(): that rewrites health when update_current_health
+		// is set (atom_health.dm), so the saved value has to land last.
+		if(!isnull(content["health"]))
+			W.health = text2num(content["health"])
 		W.update_icon()
 
 /**
@@ -186,7 +212,7 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 			return
 		var/mat_name   = W.material ? replacetext(W.material.name, "'", "''") : null
 		var/reinf_name = W.reinf_material ? replacetext(W.reinf_material.name, "'", "''") : null
-		var/wall_json = replacetext(json_encode(list("material"=mat_name,"reinf_material"=reinf_name,"health"=W.health,"construction_stage"=W.construction_stage)), "'", "''")
+		var/wall_json = replacetext(json_encode(list("material"=mat_name,"reinf_material"=reinf_name,"health"=W.health,"construction_stage"=W.construction_stage,"under_turf"="[W.under_turf]")), "'", "''")
 		var/wtype_str = replacetext("[W.type]", "'", "''")
 		var/wbase_str = replacetext("[W.baseturf]", "'", "''")
 		upsert_rows += "('[scope_escaped]',[W.x],[W.y],[W.z],'[wtype_str]','[wbase_str]','[wall_json]',NOW())"

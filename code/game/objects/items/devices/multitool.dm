@@ -85,6 +85,17 @@
 		buffer_object = null
 		update_icon()
 
+/obj/item/multitool/verb/clear_buffer()
+	set category = "Object"
+	set name = "Clear Buffer"
+	set src in usr
+
+	if(!buffer_object && !buffer_name)
+		to_chat(usr, SPAN_WARNING("\The [src]'s buffer is already empty."))
+		return
+	to_chat(usr, SPAN_NOTICE("You clear \the [src]'s buffer[buffer_name ? " (was linked to [buffer_name])" : ""]."))
+	set_buffer(null)
+
 /obj/item/multitool/resolve_attackby(atom/A, mob/user, var/click_parameters)
 	if(!isobj(A))
 		return ..(A, user, click_parameters)
@@ -114,9 +125,21 @@
 	var/list/data = list()
 
 	data["tracking_apc"] = tracking_apc
+	data["buffer_name"] = get_buffer_name()
 
 	if(selected_io)
 		data["selected_io"] = list("name" = selected_io.name, "type" = selected_io.io_type)
+
+	var/obj/structure/machinery/embedded_controller/radio/airlock/controller = get_buffer(/obj/structure/machinery/embedded_controller/radio/airlock)
+	if(controller)
+		data["airlock_checklist"] = list(
+			list("label" = "Exterior Door", "linked" = !!controller.tag_exterior_door),
+			list("label" = "Interior Door", "linked" = !!controller.tag_interior_door),
+			list("label" = "Air Pump", "linked" = !!controller.tag_airpump),
+			list("label" = "Chamber Sensor", "linked" = !!controller.tag_chamber_sensor),
+			list("label" = "Exterior Sensor", "linked" = !!controller.tag_exterior_sensor),
+			list("label" = "Interior Sensor", "linked" = !!controller.tag_interior_sensor),
+		)
 	return data
 
 /obj/item/multitool/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
@@ -140,6 +163,10 @@
 			selected_io = null
 			. = TRUE
 
+		if("clear_buffer")
+			set_buffer(null)
+			. = TRUE
+
 	update_icon()
 
 /obj/item/multitool/update_icon()
@@ -151,10 +178,11 @@
 		else
 			icon_state = "multitool_red"
 	else
-		if(buffer || connecting || buffer_object)
-			icon_state = "multitool_tracking_fail"
-		else
-			icon_state = "multitool"
+		//if(buffer || connecting || buffer_object)
+			//icon_state = "multitool_tracking_fail"
+		//else
+		//no dedicated buffering art yet -- keep the default look for now
+		icon_state = "multitool"
 
 /obj/item/multitool/process()
 	if(!apc_indicator)

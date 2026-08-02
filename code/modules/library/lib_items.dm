@@ -172,6 +172,7 @@
 	new /obj/item/book/manual/atmospipes(src)
 	new /obj/item/book/manual/engineering_singularity_safety(src)
 	new /obj/item/book/manual/evaguide(src)
+	new /obj/item/book/manual/airlock_cyclers(src)
 	update_icon()
 
 /obj/structure/bookcase/manuals/research_and_development
