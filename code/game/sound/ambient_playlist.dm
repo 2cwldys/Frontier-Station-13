@@ -14,11 +14,6 @@
  * playback in the codebase, and the freeze it caused at first play could not
  * be fixed by any amount of server-side timing/pacing, preloading, or
  * file-format changes -- only dropping the batch entirely resolved it.
- *
- * The existing per-area ambience system (game/area/areas.dm) overrides this
- * playlist while it is actively playing area-specific ambience, then hands
- * playback back once that circumstance ends -- see the duck/resume logic in
- * /area/Entered().
  */
 
 GLOBAL_LIST_INIT(ambient_playlist_tracks, list(
@@ -97,18 +92,14 @@ GLOBAL_LIST_INIT(ambient_playlist_durations, list(
 	'sound/music/ambient_playlist/eve_object_almost_accomplished.ogg' = 4615,
 ))
 
-/// Crossfade length (deciseconds) when area ambience ducks/hands back the playlist.
-#define AMBIENT_PLAYLIST_FADE_TIME 20
 /// Fallback duration (deciseconds, ~3 minutes) used only if a track is
 /// somehow missing from ambient_playlist_durations -- keeps the chain alive
 /// rather than silently stalling forever.
 #define AMBIENT_PLAYLIST_FALLBACK_DURATION 1800
 
 /client/var/ambient_playlist_last_track
-/client/var/ambient_playlist_ducked = FALSE
 /client/var/ambient_playlist_running = FALSE
 /client/var/ambient_playlist_next_track_timer_id
-/client/var/ambient_playlist_resume_timer_id
 
 /// Picks a track that isn't the same as the one that just played (when
 /// there's more than one to choose from).
@@ -121,16 +112,8 @@ GLOBAL_LIST_INIT(ambient_playlist_durations, list(
 /// Plays a single track and schedules the next one via a timer set to the
 /// track's known duration -- matches play_ambience()/play_music()'s call
 /// shape (one sound() per call, no wait=TRUE chaining) rather than
-/// pre-queuing a batch. If fade_in is set, the track starts silent and ramps
-/// up to the target volume over AMBIENT_PLAYLIST_FADE_TIME -- used when
-/// handing playback back from a ducked area-ambience circumstance.
-/// A short real sleep separates the initial silent sound from the SOUND_UPDATE
-/// fade-up: sending both back-to-back with no gap risks the update arriving
-/// before the client's engine considers the sound "active" and silently
-/// failing to attach, which left tracks stuck at volume 0 until a player
-/// manually touched the volume verb (whose update landed well after the
-/// sound was genuinely playing, so it always "fixed" it).
-/client/proc/play_next_ambient_track(fade_in = FALSE)
+/// pre-queuing a batch.
+/client/proc/play_next_ambient_track()
 	set waitfor = FALSE
 	var/track = pick_next_ambient_track()
 	ambient_playlist_last_track = track
@@ -144,42 +127,27 @@ GLOBAL_LIST_INIT(ambient_playlist_durations, list(
 	// SSmob_ai's identical per-entity guard (controllers/subsystems/mob_ai.dm)
 	// around its own recurring think() call.
 	try
-		if(fade_in)
-			SEND_SOUND(src, sound(track, repeat = 0, wait = TRUE, volume = 0, channel = CHANNEL_AMBIENT_PLAYLIST))
-			sleep(3)
-			// status is NOT a valid sound() constructor argument on this BYOND
-			// version -- passing it that way threw "bad arg name 'status'" at
-			// runtime every single time, silently aborting the rest of this proc
-			// (including the addtimer below), which is why the playlist only
-			// ever played one track and never advanced. Match the working
-			// pattern already used elsewhere in this codebase
-			// (set_sound_channel_volume(), sound_channels.dm): construct the
-			// sound datum first, then assign .status as a property.
-			var/sound/fade_update = sound(null, fade = AMBIENT_PLAYLIST_FADE_TIME, volume = prefs.ambient_playlist_vol, channel = CHANNEL_AMBIENT_PLAYLIST)
-			fade_update.status = SOUND_UPDATE
-			SEND_SOUND(src, fade_update)
-		else
-			// The volume= on this play isn't reliably honored by itself (matches
-			// every other case in this system where only an explicit SOUND_UPDATE
-			// actually stuck) -- reinforce it once the sound is confirmed active
-			// rather than trusting the play call alone, which was landing at
-			// BYOND's default (100) instead.
-			// wait = TRUE matches the old (known-working) code's first-track call --
-			// omitting it broke playback entirely on CHANNEL_AMBIENT_PLAYLIST's very
-			// first-ever use for a client. Harmless now that only one sound is ever
-			// in flight per channel at a time (no batch to accidentally re-chain).
-			SEND_SOUND(src, sound(track, repeat = 0, wait = TRUE, volume = prefs.ambient_playlist_vol, channel = CHANNEL_AMBIENT_PLAYLIST))
-			sleep(3)
-			var/sound/reinforce_update = sound(null, volume = prefs.ambient_playlist_vol, channel = CHANNEL_AMBIENT_PLAYLIST)
-			reinforce_update.status = SOUND_UPDATE
-			SEND_SOUND(src, reinforce_update)
+		// The volume= on this play isn't reliably honored by itself (matches
+		// every other case in this system where only an explicit SOUND_UPDATE
+		// actually stuck) -- reinforce it once the sound is confirmed active
+		// rather than trusting the play call alone, which was landing at
+		// BYOND's default (100) instead.
+		// wait = TRUE matches the old (known-working) code's first-track call --
+		// omitting it broke playback entirely on CHANNEL_AMBIENT_PLAYLIST's very
+		// first-ever use for a client. Harmless now that only one sound is ever
+		// in flight per channel at a time (no batch to accidentally re-chain).
+		SEND_SOUND(src, sound(track, repeat = 0, wait = TRUE, volume = prefs.ambient_playlist_vol, channel = CHANNEL_AMBIENT_PLAYLIST))
+		sleep(3)
+		var/sound/reinforce_update = sound(null, volume = prefs.ambient_playlist_vol, channel = CHANNEL_AMBIENT_PLAYLIST)
+		reinforce_update.status = SOUND_UPDATE
+		SEND_SOUND(src, reinforce_update)
 	catch(var/exception/e)
 		LOG_DEBUG("Ambient playlist: play_next_ambient_track threw for [key_name(src)]: [e]")
 
 	var/duration = GLOB.ambient_playlist_durations[track] || AMBIENT_PLAYLIST_FALLBACK_DURATION
 	ambient_playlist_next_track_timer_id = addtimer(CALLBACK(src, PROC_REF(play_next_ambient_track)), duration, TIMER_UNIQUE | TIMER_OVERRIDE | TIMER_STOPPABLE)
 
-/client/proc/start_ambient_playlist(resuming = FALSE)
+/client/proc/start_ambient_playlist()
 	set waitfor = FALSE
 	// This is called inline/synchronously from /area/Entered() (a movement
 	// signal handler, itself invoked mid-forceMove during e.g. cryopod exit)
@@ -192,53 +160,21 @@ GLOBAL_LIST_INIT(ambient_playlist_durations, list(
 	// before this system existed lack the new bit, so it can't be the gate
 	if(!prefs || !prefs.ambient_playlist_vol)
 		return
-	if(ambient_playlist_ducked || ambient_playlist_running)
+	if(ambient_playlist_running)
 		return
 
 	ambient_playlist_running = TRUE
-	// Only fade in when genuinely resuming from a duck (audible gap to smooth
-	// over). A cold start has nothing playing yet to fade from -- queue it
-	// straight at the target volume so it isn't silently stuck at 0 waiting
-	// on a fade that has nothing to visually improve anyway.
-	play_next_ambient_track(fade_in = resuming)
+	play_next_ambient_track()
 
-/// Smoothly fades the currently playing track to silence and cancels the
-/// scheduled next-track timer -- called when area ambience takes over, so
-/// nothing tries to start a new ambient track while the area's own ambience
-/// is active. resume_ambient_playlist() picks a fresh track and reschedules
-/// once the area ambience circumstance ends.
-/client/proc/duck_ambient_playlist()
-	// status is not a valid sound() constructor arg on this BYOND version --
-	// construct then assign it as a property (see play_next_ambient_track()).
-	var/sound/duck_update = sound(null, fade = AMBIENT_PLAYLIST_FADE_TIME, volume = 0, channel = CHANNEL_AMBIENT_PLAYLIST)
-	duck_update.status = SOUND_UPDATE
-	SEND_SOUND(src, duck_update)
-	if(ambient_playlist_next_track_timer_id)
-		deltimer(ambient_playlist_next_track_timer_id)
-		ambient_playlist_next_track_timer_id = null
-	addtimer(CALLBACK(src, PROC_REF(flush_duck_fade)), AMBIENT_PLAYLIST_FADE_TIME * 0.1 SECONDS)
-
-/// Cancels any pending next-track/resume timers -- called before a hard stop
-/// so nothing scheduled earlier can fire later and restart playback.
+/// Cancels the pending next-track timer -- called before a hard stop so
+/// nothing scheduled earlier can fire later and restart playback.
 /client/proc/cancel_ambient_playlist_timers()
 	if(ambient_playlist_next_track_timer_id)
 		deltimer(ambient_playlist_next_track_timer_id)
 		ambient_playlist_next_track_timer_id = null
-	if(ambient_playlist_resume_timer_id)
-		deltimer(ambient_playlist_resume_timer_id)
-		ambient_playlist_resume_timer_id = null
-
-/// Mutes the channel once the duck fade completes. If the area circumstance
-/// already ended and the playlist resumed before this fires, skip the mute
-/// so the newly-resumed audio isn't cut off.
-/client/proc/flush_duck_fade()
-	if(!ambient_playlist_ducked)
-		return
-	ambient_playlist_running = FALSE
-	src << sound(null, repeat = 0, wait = 0, volume = 0, channel = CHANNEL_AMBIENT_PLAYLIST)
 
 /// Hard, unconditional stop -- mutes immediately, halts future playback, and
-/// cancels any pending timers. Used when the player manually mutes the
+/// cancels any pending timer. Used when the player manually mutes the
 /// playlist, and whenever a client leaves the round (cryo-store, disconnect)
 /// so nothing can resume playback later over the lobby music.
 /client/proc/stop_ambient_playlist()
@@ -246,12 +182,4 @@ GLOBAL_LIST_INIT(ambient_playlist_durations, list(
 	cancel_ambient_playlist_timers()
 	src << sound(null, repeat = 0, wait = 0, volume = 0, channel = CHANNEL_AMBIENT_PLAYLIST)
 
-/// Clears an area-ambience duck and fades the playlist back in.
-/// Scheduled by play_ambience() a short while after a stinger fires.
-/client/proc/resume_ambient_playlist()
-	ambient_playlist_resume_timer_id = null
-	ambient_playlist_ducked = FALSE
-	start_ambient_playlist(resuming = TRUE)
-
-#undef AMBIENT_PLAYLIST_FADE_TIME
 #undef AMBIENT_PLAYLIST_FALLBACK_DURATION

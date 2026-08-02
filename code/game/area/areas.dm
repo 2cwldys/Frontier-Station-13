@@ -471,12 +471,6 @@
 		var/picked_ambience = pick(ambience)
 		L << sound(picked_ambience, volume = VOLUME_AMBIENCE, channel = CHANNEL_AMBIENCE)
 		L.client.ambience_last_played_time = world.time
-		// An actual stinger is sounding -- fade the ambient playlist out for
-		// its duration, then fade back in
-		if(!L.client.ambient_playlist_ducked)
-			L.client.ambient_playlist_ducked = TRUE
-			L.client.duck_ambient_playlist()
-		L.client.ambient_playlist_resume_timer_id = addtimer(CALLBACK(L.client, /client/proc/resume_ambient_playlist), 90 SECONDS, TIMER_UNIQUE | TIMER_OVERRIDE | TIMER_STOPPABLE)
 
 /**
  * Stops ambiance for the provided mob.
