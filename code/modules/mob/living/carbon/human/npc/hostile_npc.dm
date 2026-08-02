@@ -25,6 +25,11 @@
 /// than dead/invalid.
 #define HOSTILE_NPC_LOS_GIVEUP_TIME (10 SECONDS)
 
+/// Minimum `force` a stowed item needs before a disarmed soldier will bother
+/// drawing it (draw_stowed_weapon()). Filters out pens/paperwork/spare mags
+/// while still catching anything that genuinely beats a bare fist.
+#define HOSTILE_NPC_MIN_DRAWN_WEAPON_FORCE 5
+
 /mob/living/carbon/human/npc/hostile
 	/// Persistence faction uid this NPC belongs to -- distinct from the
 	/// pre-existing lore mob/var/faction string every mob has. null = no
@@ -936,8 +941,10 @@
 			recover_target = G
 			break
 
+	// Nothing of ours on the floor to go and get -- last resort, draw whatever
+	// we're still carrying rather than fighting with fists.
 	if(!recover_target)
-		return FALSE
+		return draw_stowed_weapon()
 
 	if(!Adjacent(recover_target))
 		GLOB.move_manager.move_to(src, recover_target, 0, move_speed, INFINITY)
@@ -946,6 +953,56 @@
 	GLOB.move_manager.stop_looping(src)
 	put_in_active_hand(recover_target)
 	_rewield_active_gun()
+	return TRUE
+
+/// TRUE if I is worth drawing as a stopgap weapon. The offhand placeholder is
+/// bookkeeping, not gear (see gun.dm's toggle_wield()), so it's excluded.
+/mob/living/carbon/human/npc/hostile/proc/_is_drawable_weapon(obj/item/I)
+	if(!istype(I) || istype(I, /obj/item/offhand))
+		return FALSE
+	return I.force >= HOSTILE_NPC_MIN_DRAWN_WEAPON_FORCE
+
+/// Last-resort re-arm: pulls the best weapon this soldier is STILL CARRYING
+/// out of its own gear once its issued weapon is gone for good (taken by
+/// whoever disarmed it, destroyed, or thrown out of reach). Sweeps the same
+/// slots -- and the same "also look inside storage items" rule --
+/// find_spare_magazine() already uses for reloads.
+///
+/// A stowed sidearm always beats a knife regardless of `force` (guns do their
+/// damage by shooting, not by being swung), so guns win outright; melee is
+/// picked by highest force among the rest. Without this a disarmed soldier
+/// throws punches with a perfectly good knife still on its belt.
+/mob/living/carbon/human/npc/hostile/proc/draw_stowed_weapon()
+	var/obj/item/best_gun
+	var/obj/item/best_melee
+	for(var/obj/item/holder in list(back, belt, s_store, l_store, r_store))
+		if(!holder)
+			continue
+		var/list/candidates = list(holder)
+		if(istype(holder, /obj/item/storage))
+			var/obj/item/storage/S = holder
+			candidates += S.contents
+		for(var/obj/item/I in candidates)
+			if(istype(I, /obj/item/gun))
+				if(!best_gun)
+					best_gun = I
+				continue
+			if(!_is_drawable_weapon(I))
+				continue
+			if(!best_melee || I.force > best_melee.force)
+				best_melee = I
+
+	var/obj/item/drawing = best_gun || best_melee
+	if(!drawing)
+		return FALSE
+	// Drop-then-take rather than a raw slot move: if put_in_active_hand()
+	// refuses for any reason the item ends up on the floor (recoverable next
+	// tick) instead of stranded in limbo mid-transfer.
+	if(!drop_from_inventory(drawing, get_turf(src)))
+		return FALSE
+	put_in_active_hand(drawing)
+	_rewield_active_gun()
+	visible_message(SPAN_WARNING("[src] draws \a [drawing]!"))
 	return TRUE
 
 /// Real line-of-sight check between src and target -- walks getline()'s
