@@ -83,8 +83,8 @@
 	var/list/active_mobs = list()
 	var/max_active_mobs = 2
 	/// Replenish cooldown range, in seconds -- deliberately not instant.
-	var/min_spawn_cooldown = 30
-	var/max_spawn_cooldown = 90
+	var/min_spawn_cooldown = 90
+	var/max_spawn_cooldown = 120
 	var/spawning_enabled = FALSE
 	/// "follow" (default) -- idle followers close distance to the owner.
 	/// "hold" -- idle followers stay put wherever they currently are.
@@ -107,6 +107,11 @@
 	var/persistent_network = ""
 	/// world.time deadline before the "Fetch" button can be used again.
 	var/fetch_cooldown_until = 0
+	/// world.time deadline before the "toggle" button (activate/deactivate)
+	/// can be used again -- stops instant on/off toggling from being used to
+	/// duck out of a fight (dismissing soldiers right before a loss) and
+	/// straight back in once safe.
+	var/toggle_cooldown_until = 0
 
 /// Reuses dismiss_soldiers() (VFX + qdel + list/selection cleanup) rather
 /// than just dropping the tracking list -- previously this only forgot
@@ -229,6 +234,9 @@
 		return
 	switch(action)
 		if("toggle")
+			if(world.time < toggle_cooldown_until)
+				to_chat(user, SPAN_WARNING("\The [src] is still recalibrating -- wait a moment before toggling it again."))
+				return TRUE
 			if(spawning_enabled)
 				// Only the deliberate button press dismisses -- deactivate()
 				// is also called from dropped()/faction-loss, which should
@@ -238,6 +246,7 @@
 				dismiss_soldiers(user)
 			else
 				activate(user)
+			toggle_cooldown_until = world.time + 5 MINUTES
 			. = TRUE
 		if("set_preset")
 			var/list/available = get_hostile_npc_presets_for_faction(_owner_faction_uid(user))
