@@ -11,6 +11,19 @@
 
 #define SENSOR_TOLERANCE	1
 
+/// How long a cycle attempt may sit outside STATE_IDLE before process()
+/// force-aborts it back to idle. Without this, a cycle that can never
+/// complete (e.g. an unlinked/untagged pump that never reports "off") gets
+/// stuck forever, and the state==target_state re-entry guard on every future
+/// receive_user_command("cycle_ext"/"cycle_int") means NO further cycle
+/// attempt can even start until something external resets state -- in
+/// practice, rebuilding the controller from scratch. This is purely a safety
+/// net: a working cycle finishes long before this fires.
+#define AIRLOCK_CYCLE_STALL_TIMEOUT (30 SECONDS)
+/// Chamber pressure must move by more than this between checks to count as
+/// progress and reset the stall clock.
+#define AIRLOCK_CYCLE_PROGRESS_EPSILON 0.5
+
 
 /datum/computer/file/embedded_program/airlock
 	var/tag_exterior_door
@@ -24,6 +37,17 @@
 
 	var/state = STATE_IDLE
 	var/target_state = TARGET_NONE
+	/// world.time of the last observed pressure PROGRESS, or 0 while idle.
+	/// Backs the stall watchdog in process() -- see AIRLOCK_CYCLE_STALL_TIMEOUT.
+	var/state_stall_start = 0
+	/// Chamber pressure at the last stall check, for progress comparison.
+	var/last_progress_pressure = null
+	/// Rate-limit for the "linked pump tag resolves to nothing" warning.
+	var/next_dead_pump_warning = 0
+	/// Resolved vent pumps keyed by id_tag -- see _resolve_pump_by_tag().
+	var/list/cached_pumps
+	/// Every chamber vent pump tag, synced from the controller each tick.
+	var/list/tag_airpumps = list()
 
 	var/cycle_to_external_air = FALSE
 	var/tag_pump_out_external
@@ -74,6 +98,11 @@
 	tag_exterior_door = controller.tag_exterior_door? controller.tag_exterior_door : "[id_tag]_outer"
 	tag_interior_door = controller.tag_interior_door? controller.tag_interior_door : "[id_tag]_inner"
 	tag_airpump = controller.tag_airpump? controller.tag_airpump : "[id_tag]_pump"
+	// Every linked pump, not just the primary -- a chamber with more than one
+	// vent has to pressurise/depressurise as a unit or it never reaches target.
+	tag_airpumps = controller.get_airpump_tags()
+	if(!length(tag_airpumps))
+		tag_airpumps = list(tag_airpump)
 	tag_chamber_sensor = controller.tag_chamber_sensor? controller.tag_chamber_sensor : "[id_tag]_sensor"
 	tag_exterior_sensor = controller.tag_exterior_sensor
 	tag_interior_sensor = controller.tag_interior_sensor
@@ -185,13 +214,163 @@
 				signalDoor(tag_exterior_door, "unlock")
 
 	if(shutdown_pump)
-		signalPump(tag_airpump, 0)		//send a signal to stop pressurizing
+		signalAirpumps(0)		//send a signal to stop pressurizing
 		if(cycle_to_external_air)
 			signalPump(tag_pump_out_internal, 0)
 			signalPump(tag_pump_out_external, 0)
 
+/// Resolves the linked airpump by tag and reports why it can't run, if it
+/// can't. "Pump Status: off" on its own is a dead end -- a vent_pump defaults
+/// to POWER_USE_OFF and silently force-disables itself whenever it has no
+/// pipe node (vent_pump.dm's process()), which is indistinguishable from
+/// "never commanded" from the controller's side.
+/// Condition line covering EVERY linked pump, one entry each.
+/datum/computer/file/embedded_program/airlock/proc/_get_all_pump_conditions()
+	if(!length(tag_airpumps))
+		return "no pump linked"
+	var/list/lines = list()
+	for(var/pump_tag in tag_airpumps)
+		lines += _get_pump_condition(pump_tag)
+	return jointext(lines, " || ")
+
+/datum/computer/file/embedded_program/airlock/proc/_get_pump_condition(pump_tag)
+	if(!pump_tag)
+		return "no pump linked"
+	var/obj/structure/machinery/atmospherics/unary/vent_pump/V = _resolve_pump_by_tag(pump_tag)
+	if(!V)
+		return "pump NOT FOUND (tag '[pump_tag]')"
+	var/list/faults = list()
+	if(V.stat & BROKEN)
+		faults += "BROKEN"
+	if(V.stat & NOPOWER)
+		faults += "NO POWER"
+	if(V.welded)
+		faults += "WELDED"
+	if(!V.node)
+		faults += "NO PIPE"
+	if(!V.use_power)
+		faults += "not running"
+	// Report the pump's live settings alongside any faults -- "off"/"ready"
+	// alone can't distinguish "never commanded", "commanded but physically
+	// unable", and "running but moving nothing because it's pointed the wrong
+	// way or bounded wrong".
+	var/turf/PT = get_turf(V)
+	var/where = PT ? "([PT.x],[PT.y],[PT.z])" : "nowhere"
+	// Name the AREA and its ENVIRON power flag explicitly. A vent pump is
+	// power_channel = AREA_USAGE_ENVIRON, and can_pump() refuses outright on
+	// NOPOWER -- but blueprint-created areas start with power_environ = FALSE
+	// (finalize_area(), freelook/blueprints/blueprints.dm) and stay that way
+	// until an APC inside them runs update(). That is the usual reason a
+	// player-built cycler is dead while a mapped one works.
+	var/area/PA = PT ? get_area(PT) : null
+	if(PA)
+		where += " in '[PA.name]' (environ power: [PA.power_environ ? "ON" : "OFF"])"
+	var/settings = "pwr=[V.use_power] dir=[V.pump_direction ? "release" : "siphon"] ext_bound=[round(V.external_pressure_bound, 0.1)] checks=[V.pressure_checks]"
+	var/env_desc = ""
+	if(PT)
+		var/datum/gas_mixture/env = PT.return_air()
+		if(env)
+			env_desc = " env=[round(XGM_PRESSURE(env), 0.1)]kPa"
+	var/pipe_desc = " pipe=[V.air_contents ? "[round(XGM_PRESSURE(V.air_contents), 0.1)]kPa" : "none"]"
+	if(length(faults))
+		return "[english_list(faults)] | [V.name] @[where] | [settings][env_desc][pipe_desc]"
+	return "ready | [V.name] @[where] | [settings][env_desc][pipe_desc]"
+
+/// Human-readable snapshot of internal state for the console's diagnostics
+/// section -- built precisely because "it just opens the door instead of
+/// cycling" is otherwise impossible to tell apart from outside the object:
+/// is a tag never linked, is a sensor never reporting, or is the state
+/// machine genuinely stuck? This makes all three visible directly instead of
+/// guessing from symptoms alone.
+/datum/computer/file/embedded_program/airlock/get_diagnostics()
+	var/list/state_names = list(
+		"[STATE_IDLE]" = "Idle",
+		"[STATE_PREPARE]" = "Preparing (securing doors)",
+		"[STATE_PRESSURIZE]" = "Pressurizing",
+		"[STATE_DEPRESSURIZE]" = "Depressurizing",
+	)
+	var/list/target_names = list(
+		"[TARGET_NONE]" = "None",
+		"[TARGET_INOPEN]" = "Interior open",
+		"[TARGET_OUTOPEN]" = "Exterior open",
+	)
+	// tag_exterior_door/tag_interior_door/tag_airpump/tag_chamber_sensor on
+	// THIS datum are _sync_tags()'s synced copies, which always carry a
+	// synthetic "[id_tag]_outer"-style fallback when the controller's real
+	// var is null -- reading those here would never show "not linked" even
+	// when nothing is actually connected (the exact bug that hid the pump
+	// never being linked). Read the controller's raw vars instead so an
+	// unlinked slot genuinely reads as unlinked. tag_exterior_sensor/
+	// tag_interior_sensor have no such fallback in _sync_tags(), so those
+	// stay read straight off this datum below.
+	var/obj/structure/machinery/embedded_controller/radio/airlock/controller = master
+	var/real_exterior_door = istype(controller) ? controller.tag_exterior_door : null
+	var/real_interior_door = istype(controller) ? controller.tag_interior_door : null
+	var/real_chamber_sensor = istype(controller) ? controller.tag_chamber_sensor : null
+	return list(
+		"state" = state_names["[state]"] || "Unknown ([state])",
+		"target_state" = target_names["[target_state]"] || "Unknown ([target_state])",
+		"chamber_pressure" = round(memory["chamber_sensor_pressure"], 0.1),
+		"external_pressure" = round(memory["external_sensor_pressure"], 0.1),
+		"internal_pressure" = round(memory["internal_sensor_pressure"], 0.1),
+		"pump_status" = memory["pump_status"],
+		"pump_condition" = _get_all_pump_conditions(),
+		"tag_exterior_door" = real_exterior_door || "not linked",
+		"tag_interior_door" = real_interior_door || "not linked",
+		"tag_airpump" = length(tag_airpumps) ? jointext(tag_airpumps, ", ") : "not linked",
+		"tag_chamber_sensor" = real_chamber_sensor || "not linked",
+		"tag_exterior_sensor" = tag_exterior_sensor || "not linked",
+		"tag_interior_sensor" = tag_interior_sensor || "not linked",
+	)
 
 /datum/computer/file/embedded_program/airlock/process()
+	// Every pump/door signal below is addressed with these tags, but they were
+	// only refreshed in receive_signal()/receive_user_command() -- so a relink
+	// while a cycle was mid-flight left this loop signalling stale tags.
+	_sync_tags()
+
+	// Read the pump's true state straight off the object instead of waiting
+	// for a radio status broadcast. The broadcast only fires from the pump's
+	// own process() after it accepts a command, so any break in radio
+	// delivery left this pinned at "unknown"/"off" permanently and the cycle
+	// could never conclude the pump had finished.
+	// Across ALL linked pumps: report running if any of them is, so a cycle
+	// isn't declared finished while a second vent is still moving air.
+	var/any_pump_found = FALSE
+	var/running_status = null
+	for(var/pump_tag in tag_airpumps)
+		var/obj/structure/machinery/atmospherics/unary/vent_pump/live_pump = _resolve_pump_by_tag(pump_tag)
+		if(!live_pump)
+			continue
+		any_pump_found = TRUE
+		if(live_pump.use_power)
+			running_status = live_pump.pump_direction ? "release" : "siphon"
+	if(any_pump_found)
+		memory["pump_status"] = running_status || "off"
+
+	// Stall watchdog, measured against PROGRESS rather than elapsed time. It
+	// used to abort on total wall-clock spent outside STATE_IDLE, which killed
+	// perfectly healthy cycles partway through whenever a chamber was large
+	// enough that reaching target legitimately took longer than the timeout.
+	// Now the clock only runs while chamber pressure isn't moving, so a slow
+	// cycle finishes and only a genuinely stuck one (unlinked/unpowered pump
+	// that will never report completion) gets dumped back to idle.
+	if(state == STATE_IDLE)
+		state_stall_start = 0
+		last_progress_pressure = null
+	else
+		var/current_pressure = memory["chamber_sensor_pressure"]
+		if(isnull(last_progress_pressure) || abs(current_pressure - last_progress_pressure) > AIRLOCK_CYCLE_PROGRESS_EPSILON)
+			last_progress_pressure = current_pressure
+			state_stall_start = world.time
+		else if(!state_stall_start)
+			state_stall_start = world.time
+		else if(world.time - state_stall_start > AIRLOCK_CYCLE_STALL_TIMEOUT)
+			log_world("Airlock cycler [master] made no pressure progress for over [AIRLOCK_CYCLE_STALL_TIMEOUT / 10] seconds in cycle state [state] (likely an unlinked, unpowered or unpiped pump) -- auto-aborting to idle.")
+			stop_cycling()
+			state_stall_start = 0
+			last_progress_pressure = null
+
 	if(!state) //Idle
 		if(target_state)
 			switch(target_state)
@@ -207,7 +386,7 @@
 		else
 			//make sure to return to a sane idle state
 			if(memory["pump_status"] != "off")	//send a signal to stop pumping
-				signalPump(tag_airpump, 0)
+				signalAirpumps(0)
 				if(cycle_to_external_air)
 					signalPump(tag_pump_out_internal, 0)
 					signalPump(tag_pump_out_external, 0)
@@ -227,7 +406,7 @@
 					target_pressure = 0
 					state = STATE_DEPRESSURIZE
 					if(!cycle_to_external_air || target_state == TARGET_OUTOPEN) // if going outside, pump internal air into air tank
-						signalPump(tag_airpump, 1, 0, target_pressure)	//send a signal to start depressurizing
+						signalAirpumps(1, 0, target_pressure)	//send a signal to start depressurizing
 					else
 						signalPump(tag_pump_out_internal, 1, 0, target_pressure) // if going inside, pump external air out of the airlock
 						signalPump(tag_pump_out_external, 1, 1, 1000) // make sure the air is actually going outside
@@ -235,7 +414,7 @@
 				else if(chamber_pressure <= target_pressure)
 					state = STATE_PRESSURIZE
 					if(!cycle_to_external_air || target_state == TARGET_INOPEN) // if going inside, pump air into airlock
-						signalPump(tag_airpump, 1, 1, target_pressure)	//send a signal to start pressurizing
+						signalAirpumps(1, 1, target_pressure)	//send a signal to start pressurizing
 					else
 						signalPump(tag_pump_out_internal, 1, 1, target_pressure) // if going outside, fill airlock with external air
 						signalPump(tag_pump_out_external, 1, 0, 0)
@@ -243,7 +422,7 @@
 				else if(chamber_pressure > target_pressure)
 					if(!cycle_to_external_air)
 						state = STATE_DEPRESSURIZE
-						signalPump(tag_airpump, 1, 0, target_pressure)	//send a signal to start depressurizing
+						signalAirpumps(1, 0, target_pressure)	//send a signal to start depressurizing
 					else
 						memory["purge"] = 1 // should always purge first if using external air, chamber pressure should never be higher than target pressure here
 
@@ -253,7 +432,7 @@
 			if(memory["chamber_sensor_pressure"] >= memory["target_pressure"] - SENSOR_TOLERANCE)
 				//not done until the pump has reported that it's off
 				if(memory["pump_status"] != "off")
-					signalPump(tag_airpump, 0)
+					signalAirpumps(0)
 					if(cycle_to_external_air)
 						signalPump(tag_pump_out_internal, 0)
 						signalPump(tag_pump_out_external, 0)
@@ -261,12 +440,25 @@
 					cycleDoors(target_state)
 					state = STATE_IDLE
 					target_state = TARGET_NONE
+			else
+				// Target not reached -- re-assert the run command every tick
+				// rather than relying on the single one sent on entry above.
+				// A vent_pump defaults to POWER_USE_OFF and force-disables
+				// itself whenever it has no pipe node (vent_pump.dm), so one
+				// missed/undone command used to strand the cycle permanently
+				// until the stall watchdog gave up. Repeating it also lets a
+				// cycle recover on its own the moment the pump becomes usable.
+				if(!cycle_to_external_air || target_state == TARGET_INOPEN)
+					signalAirpumps(1, 1, memory["target_pressure"])
+				else
+					signalPump(tag_pump_out_internal, 1, 1, memory["target_pressure"])
+					signalPump(tag_pump_out_external, 1, 0, 0)
 
 
 		if(STATE_DEPRESSURIZE)
 			if(memory["chamber_sensor_pressure"] <= memory["target_pressure"] + SENSOR_TOLERANCE)
 				if(memory["pump_status"] != "off")
-					signalPump(tag_airpump, 0)
+					signalAirpumps(0)
 					if(cycle_to_external_air)
 						signalPump(tag_pump_out_internal, 0)
 						signalPump(tag_pump_out_external, 0)
@@ -280,6 +472,14 @@
 						cycleDoors(target_state)
 						state = STATE_IDLE
 						target_state = TARGET_NONE
+			else
+				// Target not reached -- re-assert the run command every tick.
+				// Mirrors the STATE_PRESSURIZE branch above; see its comment.
+				if(!cycle_to_external_air || target_state == TARGET_OUTOPEN)
+					signalAirpumps(1, 0, memory["target_pressure"])
+				else
+					signalPump(tag_pump_out_internal, 1, 0, memory["target_pressure"])
+					signalPump(tag_pump_out_external, 1, 1, 1000)
 
 
 	memory["processing"] = (state != target_state)
@@ -331,14 +531,97 @@
 	signal.data["command"] = command
 	post_signal(signal, RADIO_AIRLOCK)
 
+/// Resolves a vent pump by id_tag, cached so process() isn't scanning all
+/// machinery every tick.
+/datum/computer/file/embedded_program/airlock/proc/_resolve_pump_by_tag(pump_tag)
+	if(!pump_tag)
+		return null
+	// Cache per tag -- a multi-pump chamber resolves several different tags
+	// every tick, so a single-slot cache would thrash and rescan all machinery
+	// once per pump per tick.
+	var/obj/structure/machinery/atmospherics/unary/vent_pump/hit = LAZYACCESS(cached_pumps, pump_tag)
+	if(hit && !QDELETED(hit) && hit.id_tag == pump_tag)
+		return hit
+	LAZYREMOVE(cached_pumps, pump_tag)
+	// Prefer a match on the controller's OWN z-level. Legacy saved tags can be
+	// bare auto-assigned uid numbers (see vent_pump's _ensure_id_tag()) which
+	// aren't unique across boots, so a naive first-match can bind a cycler to
+	// a vent in an unrelated room on a different z entirely.
+	var/turf/here = master ? get_turf(master) : null
+	var/obj/structure/machinery/atmospherics/unary/vent_pump/fallback
+	for(var/obj/structure/machinery/atmospherics/unary/vent_pump/V in SSmachinery.machinery)
+		if(V.id_tag != pump_tag)
+			continue
+		var/turf/there = get_turf(V)
+		if(here && there && there.z == here.z)
+			LAZYSET(cached_pumps, pump_tag, V)
+			return V
+		if(!fallback)
+			fallback = V
+	if(fallback)
+		LAZYSET(cached_pumps, pump_tag, fallback)
+	return fallback
+
+/// Issues the same command to EVERY linked chamber vent pump. A chamber with
+/// two vents has to drive both together -- commanding only the primary leaves
+/// the other idle (or worse, still running its old air-alarm settings and
+/// fighting the cycle), and the chamber never reaches target pressure.
+/datum/computer/file/embedded_program/airlock/proc/signalAirpumps(power, direction, pressure)
+	if(!length(tag_airpumps))
+		signalPump(tag_airpump, power, direction, pressure)
+		return
+	var/dead_tags = list()
+	for(var/pump_tag in tag_airpumps)
+		if(!_resolve_pump_by_tag(pump_tag))
+			dead_tags += pump_tag
+		signalPump(pump_tag, power, direction, pressure)
+	// A tag that resolves to nothing means signalPump()'s direct-apply
+	// silently no-ops and only the (equally unreachable) radio broadcast goes
+	// out, so that pump just never runs with no indication why. Say so.
+	if(length(dead_tags) && world.time > next_dead_pump_warning)
+		next_dead_pump_warning = world.time + 30 SECONDS
+		log_world("Airlock cycler [master]: [length(dead_tags)] of [length(tag_airpumps)] linked pump tag\s resolve to no live pump ([jointext(dead_tags, ", ")]) -- those vents cannot be driven. Relink them.")
+
 /datum/computer/file/embedded_program/airlock/proc/signalPump(tag, power, direction, pressure)
+	// Apply the command DIRECTLY to the pump as well as broadcasting it.
+	// Radio delivery only lands if the pump happens to be registered on the
+	// same frequency AND a filter this controller's broadcast reaches, and
+	// when it doesn't the failure is completely silent -- the pump simply
+	// never acts and never reports, leaving pump_status stuck on its
+	// New()-time "unknown" forever while the cycle waits on a reply that can
+	// never come. Mirrors exactly what the pump's own receive_signal() would
+	// have done with this signal.
+	var/obj/structure/machinery/atmospherics/unary/vent_pump/V = _resolve_pump_by_tag(tag)
+	if(V)
+		V.hibernate = 0
+		if(!isnull(direction))
+			V.pump_direction = direction
+		if(!isnull(pressure))
+			V.external_pressure_bound = between(0, pressure, MAX_VENT_PRESSURE)
+		V.pressure_checks = 1
+		// Lift the vent's per-tick turf flow cap only while we're actually
+		// driving it -- see vent_pump.dm's cycler_boost.
+		V.cycler_boost = !!power
+		V.update_use_power(power)
+		V.broadcast_status_next_process = TRUE
+
 	var/datum/signal/signal = new
 	signal.data = list(
 		"tag" = tag,
 		"sigtype" = "command",
 		"power" = power,
 		"direction" = direction,
-		"set_external_pressure" = pressure
+		"set_external_pressure" = pressure,
+		// Force PRESSURE_CHECK_EXTERNAL rather than inheriting whatever the
+		// pump was last left on. get_pressure_delta() (vent_pump.dm) branches
+		// entirely on this mask, and a mapped-in pump previously configured by
+		// an air alarm can be sitting on PRESSURE_CHECK_INTERNAL -- where a
+		// siphon computes internal_pressure_bound - pipe_pressure, frequently
+		// <= 0, so the pump silently moves nothing while still reporting
+		// itself powered. External is correct for both directions the cycler
+		// uses: siphon compares environment - external_bound, release compares
+		// external_bound - environment.
+		"checks" = 1
 	)
 	post_signal(signal)
 
@@ -436,3 +719,5 @@ send an additional command to open the door again.
 #undef TARGET_OUTOPEN
 
 #undef SENSOR_TOLERANCE
+
+#undef AIRLOCK_CYCLE_STALL_TIMEOUT

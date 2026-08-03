@@ -216,6 +216,20 @@ Class Procs:
 
 	return INITIALIZE_HINT_LATELOAD
 
+/// Nudges a wall-mounted device's sprite off dead-center so it visually hugs
+/// the wall it's mounted on -- same formula firealarm.dm already uses. Player-
+/// built wall frames (wall_frames.dm's try_build()) can only ever place their
+/// machine on the adjacent FLOOR tile (walls are dense, can't host objects),
+/// so without this the sprite renders centered on that floor tile instead of
+/// looking mounted on the wall.
+///
+/// dir itself points AWAY from the wall (toward whoever installed it, per
+/// try_build()) -- the wall is the opposite direction, turn(dir, 180).
+/obj/structure/machinery/proc/apply_wall_mount_offset()
+	var/wall_dir = turn(dir, 180)
+	pixel_x = (wall_dir & (NORTH|SOUTH)) ? 0 : (wall_dir == EAST ? 22 : -22)
+	pixel_y = (wall_dir & (NORTH|SOUTH)) ? (wall_dir == NORTH ? 32 : -19) : 0
+
 /obj/structure/machinery/Destroy()
 	//Stupid macro used in power usage
 	CAN_BE_REDEFINED(TRUE)

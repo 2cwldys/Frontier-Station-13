@@ -156,21 +156,35 @@
 	_ensure_id_tag()
 	controller._ensure_id_tag()
 	if(controller.tag_exterior_door == id_tag || controller.tag_interior_door == id_tag)
+		var/slot = (controller.tag_exterior_door == id_tag) ? "exterior" : "interior"
 		if(controller.tag_exterior_door == id_tag)
 			controller.tag_exterior_door = null
 		if(controller.tag_interior_door == id_tag)
 			controller.tag_interior_door = null
-		to_chat(user, SPAN_NOTICE("You unlink \the [src] from \the [controller]."))
+		to_chat(user, SPAN_NOTICE("You unlink \the [src] from \the [controller] (was its [slot] door)."))
 		return
+	var/slot
 	if(!controller.tag_exterior_door)
 		controller.tag_exterior_door = id_tag
+		slot = "exterior"
 	else if(!controller.tag_interior_door)
 		controller.tag_interior_door = id_tag
+		slot = "interior"
 	else
 		to_chat(user, SPAN_WARNING("\The [controller] already has both an exterior and interior door assigned -- unlink one first."))
 		return
 	set_frequency(controller.frequency)
-	to_chat(user, SPAN_NOTICE("You link \the [src] to \the [controller] and tune it to the controller's frequency."))
+	// Mapped cyclers lock() both doors as part of their marker-driven setup
+	// (map_effects/marker/airlock_.dm) -- the multitool link flow never did,
+	// so a freshly-linked door could be unlocked while the controller's
+	// memory assumes "closed and locked" (the New() default in
+	// airlock_program.dm). toggleDoor()'s secure-close branch only issues a
+	// lock command when its cached state says "unlocked" -- if that cache is
+	// wrong, check_doors_secured() reports secure based on a false
+	// assumption instead of reality, and close_doors() silently never
+	// corrects it. Lock for real here so cache and reality start in sync.
+	lock()
+	to_chat(user, SPAN_NOTICE("You link \the [src] to \the [controller] as its [slot] door and tune it to the controller's frequency."))
 
 /obj/structure/machinery/airlock_sensor
 	name = "airlock sensor"
@@ -190,7 +204,6 @@
 
 	var/on = 1
 	var/alert = 0
-	var/previousPressure
 
 	/// 2 = complete/wired, 1 = circuit inserted but unwired, 0 = frame only.
 	/// Player-built via /obj/item/frame/airlock_sensor; mapped-in/preset
@@ -203,6 +216,7 @@
 	if(building)
 		if(dir)
 			set_dir(dir)
+		apply_wall_mount_offset()
 		buildstage = 0
 	set_frequency(frequency)
 	if(SSradio)
@@ -299,16 +313,32 @@
 				return TRUE
 	return FALSE
 
+/// Which controller sensor slot this sensor type belongs in:
+/// "chamber" (base type), "exterior", or "interior".
+/obj/structure/machinery/airlock_sensor/proc/get_sensor_slot()
+	return "chamber"
+
+/obj/structure/machinery/airlock_sensor/airlock_exterior/get_sensor_slot()
+	return "exterior"
+
+/obj/structure/machinery/airlock_sensor/airlock_interior/get_sensor_slot()
+	return "interior"
+
 /// Links (or unlinks, toggle-style) this sensor to a cycler controller in
 /// both directions at once: master_tag so its manual "cycle" swipe reaches
-/// the controller, and the controller's first empty sensor tag slot
-/// (chamber -> exterior -> interior) so the controller listens to this
+/// the controller, and the controller sensor slot matching this sensor's own
+/// subtype (see get_sensor_slot()) so the controller listens to this
 /// sensor's passive pressure reports.
 /obj/structure/machinery/airlock_sensor/proc/_link_to_controller(obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller, mob/user)
 	_ensure_id_tag()
 	controller._ensure_id_tag()
 	var/linked = (master_tag == controller.id_tag) || (controller.tag_chamber_sensor == id_tag) || (controller.tag_exterior_sensor == id_tag) || (controller.tag_interior_sensor == id_tag)
 	if(linked)
+		var/slot = "chamber"
+		if(controller.tag_exterior_sensor == id_tag)
+			slot = "exterior"
+		else if(controller.tag_interior_sensor == id_tag)
+			slot = "interior"
 		if(master_tag == controller.id_tag)
 			master_tag = null
 		if(controller.tag_chamber_sensor == id_tag)
@@ -317,21 +347,86 @@
 			controller.tag_exterior_sensor = null
 		if(controller.tag_interior_sensor == id_tag)
 			controller.tag_interior_sensor = null
-		to_chat(user, SPAN_NOTICE("You unlink \the [src] from \the [controller]."))
+		to_chat(user, SPAN_NOTICE("You unlink \the [src] from \the [controller] (was its [slot] sensor)."))
 		return
-	if(!controller.tag_chamber_sensor)
-		controller.tag_chamber_sensor = id_tag
-	else if(!controller.tag_exterior_sensor)
-		controller.tag_exterior_sensor = id_tag
-	else if(!controller.tag_interior_sensor)
-		controller.tag_interior_sensor = id_tag
-	else
-		to_chat(user, SPAN_WARNING("\The [controller] already has a chamber, exterior, and interior sensor assigned -- unlink one first."))
-		return
+	// Slot comes from the sensor's own SUBTYPE, not from link order. Filling
+	// chamber -> exterior -> interior by whichever got linked first meant the
+	// role a sensor ended up playing depended entirely on click sequence, with
+	// nothing on the sensor itself indicating which it was -- and a sensor
+	// landing in the wrong slot silently breaks cycling.
+	// Prefer the slot matching this sensor's own subtype, but fall back to any
+	// still-empty slot rather than refusing outright -- a plain (chamber-type)
+	// sensor is still perfectly usable in the interior/exterior slots, and
+	// hard-refusing left players unable to link a third sensor at all once
+	// chamber was taken.
+	var/slot = get_sensor_slot()
+	if(slot == "exterior" && controller.tag_exterior_sensor)
+		slot = null
+	else if(slot == "interior" && controller.tag_interior_sensor)
+		slot = null
+	else if(slot == "chamber" && controller.tag_chamber_sensor)
+		slot = null
+	if(!slot)
+		if(!controller.tag_chamber_sensor)
+			slot = "chamber"
+		else if(!controller.tag_exterior_sensor)
+			slot = "exterior"
+		else if(!controller.tag_interior_sensor)
+			slot = "interior"
+		else
+			to_chat(user, SPAN_WARNING("\The [controller] already has a chamber, exterior, and interior sensor assigned -- unlink one first."))
+			return
+	switch(slot)
+		if("exterior")
+			controller.tag_exterior_sensor = id_tag
+		if("interior")
+			controller.tag_interior_sensor = id_tag
+		else
+			controller.tag_chamber_sensor = id_tag
 	master_tag = controller.id_tag
 	set_frequency(controller.frequency)
-	to_chat(user, SPAN_NOTICE("You link \the [src] to \the [controller] and tune it to the controller's frequency."))
+	to_chat(user, SPAN_NOTICE("You link \the [src] to \the [controller] as its [slot] sensor and tune it to the controller's frequency."))
 
+/// The turf this sensor actually measures: the first OPEN turf on the far
+/// side of the wall it's mounted on.
+///
+/// try_build() (wall_frames.dm) puts a wall device on the BUILDER's turf,
+/// with dir facing AWAY from the wall (toward the builder), and refuses to
+/// build unless the builder is standing on a /turf/simulated/floor -- so
+/// nobody can plant an exterior sensor out in vacuum, and a sensor reading
+/// its own turf always reports whichever room it was built from rather than
+/// the one it's named for. Stepping past the mounting wall (the opposite of
+/// dir) lets any sensor be built from whatever side is reachable and still
+/// measure the space it faces.
+///
+/// Falls back to its own turf if there's no open turf within reach (e.g.
+/// mounted facing solid rock), so it degrades to the old behavior instead of
+/// reporting nothing.
+/obj/structure/machinery/airlock_sensor/proc/get_sample_turf()
+	var/wall_dir = turn(dir, 180)
+	var/turf/own_turf = get_turf(src)
+	var/turf/probe = own_turf
+	for(var/i = 1 to 3)
+		probe = get_step(probe, wall_dir)
+		if(!probe)
+			return own_turf
+		if(probe.density)
+			continue // the wall this sensor is mounted on -- keep going
+		var/blocked = FALSE
+		for(var/obj/O in probe)
+			if(O.density)
+				blocked = TRUE // a closed door counts as more wall, not a room
+				break
+		if(!blocked)
+			return probe
+	return own_turf
+
+/// Reports the pressure this sensor reads. It deliberately does NOT trigger a
+/// cycle any more: sensors used to double as manual cycle buttons (sending
+/// their `command` to the controller, "cycle" on the base type -> cycle_int),
+/// which meant brushing the CHAMBER sensor -- mounted inside the airlock
+/// itself -- would open the interior door. Cycling is the access buttons' job;
+/// they're built per-side and labelled for it.
 /obj/structure/machinery/airlock_sensor/attack_hand(mob/user)
 	if(buildstage < 2)
 		return
@@ -340,35 +435,37 @@
 		to_chat(user, SPAN_WARNING("Access denied."))
 		return FALSE
 
-	var/datum/signal/signal = new
-	signal.transmission_method = TRANSMISSION_RADIO
-	signal.data["tag"] = master_tag
-	signal.data["command"] = command
-
-	radio_connection.post_signal(src, signal, range = AIRLOCK_CONTROL_RANGE, filter = RADIO_AIRLOCK)
+	var/turf/sample = get_sample_turf()
+	var/datum/gas_mixture/air_sample = sample ? sample.return_air() : null
+	to_chat(user, SPAN_NOTICE("\The [src] reads <b>[air_sample ? round(XGM_PRESSURE(air_sample), 0.1) : 0] kPa</b>."))
 	flick("airlock_sensor_cycle", src)
 
 /obj/structure/machinery/airlock_sensor/process()
 	if(buildstage < 2)
 		return
 	if(on)
-		var/datum/gas_mixture/air_sample = return_air()
-		var/pressure = round(XGM_PRESSURE(air_sample),0.1)
+		// Measures the space on the far side of the wall it faces, not its own
+		// turf -- see get_sample_turf().
+		var/turf/sample = get_sample_turf()
+		var/datum/gas_mixture/air_sample = sample ? sample.return_air() : null
+		var/pressure = air_sample ? round(XGM_PRESSURE(air_sample), 0.1) : 0
 
-		if(abs(pressure - previousPressure) > 0.001 || previousPressure == null)
-			var/datum/signal/signal = new
-			signal.transmission_method = TRANSMISSION_RADIO
-			signal.data["tag"] = id_tag
-			signal.data["timestamp"] = world.time
-			signal.data["pressure"] = num2text(pressure)
+		// Broadcasts every tick unconditionally (no change-gate) -- this is a
+		// single O(1) radio post per sensor per SSmachinery tick (2 SECONDS),
+		// not a loop, so there's nothing here for CHECK_TICK to guard; the
+		// subsystem already yields around its own loop over every processing
+		// machine (controllers/subsystems/machinery.dm's process_machinery()).
+		var/datum/signal/signal = new
+		signal.transmission_method = TRANSMISSION_RADIO
+		signal.data["tag"] = id_tag
+		signal.data["timestamp"] = world.time
+		signal.data["pressure"] = num2text(pressure)
 
-			radio_connection.post_signal(src, signal, range = AIRLOCK_CONTROL_RANGE, filter = RADIO_AIRLOCK)
+		radio_connection.post_signal(src, signal, range = AIRLOCK_CONTROL_RANGE, filter = RADIO_AIRLOCK)
 
-			previousPressure = pressure
+		alert = (pressure < ONE_ATMOSPHERE*0.8)
 
-			alert = (pressure < ONE_ATMOSPHERE*0.8)
-
-			update_icon()
+		update_icon()
 
 /obj/structure/machinery/airlock_sensor/proc/set_frequency(new_frequency)
 	SSradio.remove_object(src, frequency)
@@ -381,9 +478,11 @@
 	return ..()
 
 /obj/structure/machinery/airlock_sensor/airlock_interior
+	name = "interior airlock sensor"
 	command = "cycle_interior"
 
 /obj/structure/machinery/airlock_sensor/airlock_exterior
+	name = "exterior airlock sensor"
 	command = "cycle_exterior"
 
 /obj/structure/machinery/access_button
@@ -502,7 +601,7 @@
 		return
 	master_tag = controller.id_tag
 	set_frequency(controller.frequency)
-	to_chat(user, SPAN_NOTICE("You link \the [src] to \the [controller] and tune it to the controller's frequency."))
+	to_chat(user, SPAN_NOTICE("You link \the [src] to \the [controller] and tune it to the controller's frequency -- it will send \"[command]\" when pressed."))
 
 /obj/structure/machinery/access_button/attack_hand(mob/user)
 	if(buildstage < 2)
@@ -526,8 +625,13 @@
 	frequency = new_frequency
 	radio_connection = SSradio.add_object(src, frequency, RADIO_AIRLOCK)
 
-/obj/structure/machinery/access_button/Initialize()
+/obj/structure/machinery/access_button/Initialize(mapload, var/dir, var/building = 0)
 	. = ..()
+	if(building)
+		if(dir)
+			set_dir(dir)
+		apply_wall_mount_offset()
+		buildstage = 0
 
 	if(SSradio)
 		set_frequency(frequency)
@@ -538,10 +642,12 @@
 	return ..()
 
 /obj/structure/machinery/access_button/airlock_interior
+	name = "interior access button"
 	frequency = 1379
 	command = "cycle_interior"
 
 /obj/structure/machinery/access_button/airlock_exterior
+	name = "exterior access button"
 	frequency = 1379
 	command = "cycle_exterior"
 

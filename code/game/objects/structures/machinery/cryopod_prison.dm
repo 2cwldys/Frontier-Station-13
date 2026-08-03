@@ -111,7 +111,52 @@
 			"indefinite"        = status ? !!status["indefinite"] : FALSE,
 			"remaining_seconds" = status ? status["remaining_seconds"] : 0
 		))
+	data["sentences"] = _get_sentence_rows()
 	return data
+
+/// Every sentence tied to THIS cell, sourced from the persisted record rather
+/// than from who happens to be physically inside.
+///
+/// A frozen prisoner has been stored back out to the database -- their mob no
+/// longer exists, so they vanish from prison_occupants entirely and the pod's
+/// menu showed nothing at all. That made a frozen sentence unmanageable from
+/// the pod itself: no way to see it, shorten it, or release it without first
+/// thawing the cell. Mirrors the remote Prison Management program's own list
+/// (prison_management.dm), scoped to this one cell.
+/obj/structure/machinery/cryopod/prison/proc/_get_sentence_rows()
+	var/list/rows = list()
+	if(!GLOB.config.sql_enabled || !SSdbcore.Connect())
+		return rows
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"SELECT ckey, char_name FROM ss13_mob_position WHERE imprisoned = 1", list())
+	q.Execute()
+	var/list/candidates = list()
+	if(SSpersistence.databaseCheckQueryResult(q, "prison pod sentence list"))
+		while(q.NextRow())
+			candidates += list(list("ckey" = q.item[1], "char_name" = q.item[2]))
+	qdel(q)
+
+	for(var/list/c in candidates)
+		var/list/rec = persistence_character_imprisonment_record(c["ckey"], c["char_name"])
+		if(!rec)
+			continue
+		if(rec["cell"] != src)
+			continue
+		// Flag whether this prisoner is also physically present, so the UI can
+		// avoid presenting the same person as two unrelated entries.
+		var/present = FALSE
+		for(var/mob/living/carbon/O in prison_occupants)
+			if(O.ckey == c["ckey"] && O.real_name == c["char_name"])
+				present = TRUE
+				break
+		rows += list(list(
+			"ckey"              = c["ckey"],
+			"char_name"         = c["char_name"],
+			"indefinite"        = !!rec["indefinite"],
+			"remaining_seconds" = rec["remaining_seconds"],
+			"present"           = present
+		))
+	return rows
 
 /obj/structure/machinery/cryopod/prison/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
 	. = ..()
@@ -192,6 +237,44 @@
 			to_chat(user, SPAN_GOOD("\The [src] is now [frozen ? "FROZEN -- the sentence is enforced normally, and no one may currently be inside" : "THAWED -- the tied prisoner(s) may spawn/play despite their sentence, which keeps ticking regardless"]."))
 			log_and_message_admins("[frozen ? "froze" : "thawed"] cryogenic prison storage at ([x],[y],[z]).", user)
 			. = TRUE
+
+		// --- Sentence management, keyed by ckey/char_name rather than by a
+		// live mob ref. A frozen prisoner has no mob to reference, which is
+		// exactly why these exist separately from the occupant actions above.
+		if("sentence_release", "sentence_adjust")
+			var/target_ckey = params["ckey"]
+			var/target_char_name = params["char_name"]
+			if(!target_ckey || !target_char_name)
+				return TRUE
+			// Re-verify against the live record instead of trusting the row the
+			// client last rendered -- it may have expired, been released, or
+			// been moved to another cell since.
+			var/list/rec = persistence_character_imprisonment_record(target_ckey, target_char_name)
+			if(!rec)
+				to_chat(user, SPAN_WARNING("[target_char_name] is no longer imprisoned."))
+				return TRUE
+			if(rec["cell"] != src)
+				to_chat(user, SPAN_WARNING("[target_char_name] isn't held in \the [src]."))
+				return TRUE
+
+			if(action == "sentence_release")
+				persistence_set_imprisoned(target_ckey, target_char_name, FALSE)
+				to_chat(user, SPAN_GOOD("[target_char_name] has been released from imprisonment."))
+				log_and_message_admins("released [target_char_name] ([target_ckey]) from cryogenic prison storage at ([x],[y],[z]).", user)
+				return TRUE
+
+			var/indefinite_choice = tgui_alert(user, "Set a new fixed sentence, or make it indefinite?", "Adjust Sentence", list("Fixed Duration", "Indefinite", "Cancel"))
+			if(!indefinite_choice || indefinite_choice == "Cancel")
+				return TRUE
+			var/minutes = null
+			if(indefinite_choice == "Fixed Duration")
+				minutes = tgui_input_number(user, "New sentence length in minutes (from now):", "Adjust Sentence", 60, 100000, 1)
+				if(isnull(minutes) || minutes <= 0)
+					return TRUE
+			persistence_set_imprisoned(target_ckey, target_char_name, TRUE, minutes, persistent_network)
+			to_chat(user, SPAN_GOOD("[target_char_name]'s sentence updated[minutes ? " -- [minutes] minute\s remaining" : " -- now indefinite"]."))
+			log_and_message_admins("adjusted [target_char_name] ([target_ckey])'s cryogenic prison sentence[minutes ? " to [minutes] minute(s)" : " to indefinite"] at ([x],[y],[z]).", user)
+			return TRUE
 
 /// Force-stores O out of this cell (kick to the character menu) if they're
 /// still physically here with a live client -- shared by toggle_freeze

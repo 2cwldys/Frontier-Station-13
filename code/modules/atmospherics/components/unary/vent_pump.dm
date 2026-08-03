@@ -7,6 +7,10 @@
 #define PRESSURE_CHECK_EXTERNAL 1
 #define PRESSURE_CHECK_INTERNAL 2
 
+/// Multiplier applied to a vent's per-tick turf flow cap while an airlock
+/// cycler is driving it. See cycler_boost.
+#define VENT_PUMP_CYCLER_FLOW_BOOST 25
+
 /obj/structure/machinery/atmospherics/unary/vent_pump
 	name = "air vent"
 	desc = "Has a valve and pump attached to it."
@@ -49,6 +53,12 @@
 	var/radio_filter_in
 
 	var/broadcast_status_next_process = FALSE
+
+	/// TRUE while an airlock cycler is actively driving this vent (set by the
+	/// controller's signalPump(), cleared when it powers the vent back off).
+	/// Lifts the per-tick turf flow cap in process() so an airlock chamber
+	/// actually evacuates/fills on demand instead of at ambient-upkeep rate.
+	var/cycler_boost = FALSE
 
 /obj/structure/machinery/atmospherics/unary/vent_pump/mechanics_hints(mob/user, distance, is_adjacent)
 	. += ..()
@@ -240,7 +250,18 @@
 			var/transfer_moles = calculate_transfer_moles(environment, air_contents, pressure_delta, (network)? network.volume : 0)
 
 			//limit flow rate from turfs
-			transfer_moles = min(transfer_moles, environment.total_moles*air_contents.volume/environment.volume)	//group_multiplier gets divided out here
+			// The cap is this vent's own internal volume as a FRACTION of the
+			// whole zone's volume, so the larger the room the less each tick
+			// can move. Fine for ambient upkeep, but an airlock chamber has to
+			// fully evacuate on demand -- and a player-built chamber is much
+			// bigger than the 2-3 tile mapped airlocks this was tuned against,
+			// which is why cycling one crawls. While a cycler is actively
+			// driving this vent, lift the cap so it evacuates at a rate
+			// appropriate to an airlock. Untouched for every other vent.
+			var/flow_cap = environment.total_moles*air_contents.volume/environment.volume	//group_multiplier gets divided out here
+			if(cycler_boost)
+				flow_cap *= VENT_PUMP_CYCLER_FLOW_BOOST
+			transfer_moles = min(transfer_moles, flow_cap)
 			power_draw = pump_gas(src, environment, air_contents, transfer_moles * seconds_per_tick, power_rating)
 
 	else
@@ -299,7 +320,15 @@
 	)
 
 	var/area/A = get_area(src)
-	if(!A.air_vent_names[id_tag])
+	// Only auto-name a vent that still carries its type-default name. The
+	// number is just "how many entries this area's list has", and the vent
+	// registers under whatever id_tag it holds AT THAT MOMENT -- but
+	// atmos_init() broadcasts during Initialize, before persistence restores
+	// the saved id_tag, so each pump claimed one slot under its throwaway
+	// startup tag and another under its restored one. The counter climbed
+	// every boot (#1/#2 becoming #5/#6). A pump with a restored name now
+	// keeps it and stops consuming numbers.
+	if(!A.air_vent_names[id_tag] && name == initial(name))
 		var/new_name = "[A.name] Vent Pump #[A.air_vent_names.len+1]"
 		A.air_vent_names[id_tag] = new_name
 		src.name = new_name
@@ -387,6 +416,35 @@
 		SSradio.remove_object(src, frequency)
 	frequency = new_frequency
 	setup_radio()
+
+/// Auto-assigns a unique id_tag the first time this pump is linked to a
+/// cycler controller -- mirrors /obj/structure/machinery/door/airlock's
+/// _ensure_id_tag() (airlock_control.dm). Without this, id_tag stayed null
+/// forever (nothing else ever set it for a player-built pump), so
+/// _link_to_airpump() (airlock_controllers.dm) silently linked the
+/// controller's tag_airpump to null -- the pump could never report its
+/// status back, permanently stalling any cycle that needed it to complete.
+/// Also replaces a BARE NUMERIC tag, not just a null one. Initialize() above
+/// falls back to `id_tag = num2text(uid)`, and assign_uid() allocates from
+/// gl_uid++ -- a global counter across all machinery, handed out in
+/// initialization order and reset every boot. That makes a numeric id_tag a
+/// boot-order sequence number rather than an identity: a controller that
+/// persists tag_airpump = "755" resolves it next boot to whatever machine
+/// happens to be 755th that time, potentially a vent in another room on
+/// another z-level. Restored tags collide with freshly-assigned ones too.
+///
+/// Mapped-in pumps always carry a descriptive .dmm tag ("merc_shuttle_pump"),
+/// never a bare number, so numeric-ness cleanly identifies the unstable
+/// auto-assigned form. id_tag is in this type's worldstate_vars, so the
+/// stable replacement persists and keeps resolving to the same pump.
+///
+/// Tradeoff: area air alarms address vents by id_tag, so a retagged vent
+/// drops off air-alarm control -- correct for a cycler vent, which an alarm
+/// would otherwise keep re-commanding in the middle of a cycle.
+/obj/structure/machinery/atmospherics/unary/vent_pump/proc/_ensure_id_tag()
+	if(!id_tag || !isnull(text2num(id_tag)))
+		id_tag = "cycler_[REF(src)]"
+	return id_tag
 
 /obj/structure/machinery/atmospherics/unary/vent_pump/attackby(obj/item/attacking_item, mob/user)
 

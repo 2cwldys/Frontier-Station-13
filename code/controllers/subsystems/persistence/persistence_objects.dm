@@ -348,6 +348,43 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
 	mergeConnectedNetworks(d2)
 
 // ============================================================
+// ATMOSPHERICS -- save and restore the pipe's connection geometry
+// ============================================================
+// The atmos equivalent of the cable case above. Pipe construction sets the
+// connection geometry AFTER new() (construction.dm: `P = new(src.loc)` then
+// `P.initialize_directions = pipe_dir`), so it is not part of the type's
+// defaults and was never captured -- objectsGetTrackContent() only saves
+// __dir/__anchored. A restored pipe was therefore rebuilt with its TYPE's
+// default directions, so it connected on the wrong axes and the pipe network
+// never reformed the way the player actually built it.
+//
+// Ordering is already correct for this: objectsApplyTrackContent() runs
+// before the atmos_batch is handed to SSmachinery.setup_atmos_machinery(),
+// so geometry is in place before the network is built.
+
+/obj/structure/machinery/atmospherics/persistent_objects_get_content()
+	return list("initialize_directions" = initialize_directions, "pipe_color" = pipe_color)
+
+/obj/structure/machinery/atmospherics/persistent_objects_apply_content(list/content, x, y, z)
+	..()  // base: forceMove to saved position
+	if(!islist(content))
+		return
+	if("initialize_directions" in content)
+		initialize_directions = text2num(content["initialize_directions"])
+	if("pipe_color" in content)
+		pipe_color = content["pipe_color"]
+
+// Heat-exchanging pipes carry a second, independent direction mask.
+/obj/structure/machinery/atmospherics/pipe/simple/heat_exchanging/persistent_objects_get_content()
+	. = ..()
+	.["initialize_directions_he"] = initialize_directions_he
+
+/obj/structure/machinery/atmospherics/pipe/simple/heat_exchanging/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(islist(content) && ("initialize_directions_he" in content))
+		initialize_directions_he = text2num(content["initialize_directions_he"])
+
+// ============================================================
 // CLOSET -- save and restore contents so fill() items are not duplicated
 // ============================================================
 

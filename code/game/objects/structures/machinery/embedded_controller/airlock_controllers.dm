@@ -5,7 +5,14 @@
 	radio_filter = RADIO_AIRLOCK
 	var/tag_exterior_door
 	var/tag_interior_door
+	/// Primary chamber vent pump tag. Kept as a plain string for mapped-in
+	/// cyclers, which set it directly in their .dmm.
 	var/tag_airpump
+	/// Additional chamber vent pump tags beyond tag_airpump. A chamber wide
+	/// enough to need more than one vent gets one entry here per extra pump;
+	/// every cycle command is issued to all of them together (see
+	/// get_airpump_tags()).
+	var/list/tag_airpumps
 	var/tag_chamber_sensor
 	var/tag_exterior_sensor
 	var/tag_interior_sensor
@@ -95,6 +102,7 @@
 	if(building)
 		if(dir)
 			set_dir(dir)
+		apply_wall_mount_offset()
 		buildstage = 0
 	update_icon()
 
@@ -202,13 +210,53 @@
 /// is needed here, unlike doors/sensors/buttons.
 /obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/proc/_link_to_airpump(obj/structure/machinery/atmospherics/unary/vent_pump/pump, mob/user)
 	_ensure_id_tag()
+	pump._ensure_id_tag()
+	// Toggle off if this exact pump is already linked, in either slot.
 	if(tag_airpump == pump.id_tag)
+		// Promote an extra into the primary slot so removing the first pump
+		// doesn't orphan the rest.
 		tag_airpump = null
-		to_chat(user, SPAN_NOTICE("You unlink \the [pump] from \the [src]."))
+		if(LAZYLEN(tag_airpumps))
+			tag_airpump = tag_airpumps[1]
+			tag_airpumps -= tag_airpump
+		to_chat(user, SPAN_NOTICE("You unlink \the [pump] from \the [src]. ([length(get_airpump_tags())] pump\s still linked.)"))
 		return
-	tag_airpump = pump.id_tag
+	if(pump.id_tag in tag_airpumps)
+		tag_airpumps -= pump.id_tag
+		to_chat(user, SPAN_NOTICE("You unlink \the [pump] from \the [src]. ([length(get_airpump_tags())] pump\s still linked.)"))
+		return
+
+	if(!tag_airpump)
+		tag_airpump = pump.id_tag
+	else
+		LAZYDISTINCTADD(tag_airpumps, pump.id_tag)
 	pump.set_frequency(frequency)
-	to_chat(user, SPAN_NOTICE("You link \the [pump] to \the [src] and tune it to the controller's frequency."))
+	// Force the vent to re-scan for an adjacent pipe. atmos_init() bails
+	// immediately on `if(node) return`, so a vent that initialized BEFORE its
+	// pipes were laid keeps node == null permanently and reports "no pipe"
+	// even when it's sitting against a fully pressurised run. Linking it to a
+	// cycler is a deliberate player action and the natural point to retry.
+	pump.node = null
+	pump.atmos_init()
+	pump.build_network()
+	// Re-derive the pump's NOPOWER bit against its current area. Same reason
+	// as the node re-scan: a machine whose turf was reassigned into another
+	// area (blueprints) never recomputed it, so an otherwise-fine pump can sit
+	// there insisting it has no power. Lets an already-broken cycler fix
+	// itself on relink instead of needing the area rebuilt.
+	pump.power_change()
+	to_chat(user, SPAN_NOTICE("You link \the [pump] to \the [src] as a chamber vent pump and tune it to the controller's frequency. ([length(get_airpump_tags())] pump\s linked.)"))
+
+/// Every chamber vent pump tag this controller drives -- the primary plus any
+/// extras. Cycle commands go to all of them so a chamber with more than one
+/// vent pressurises/depressurises as a unit.
+/obj/structure/machinery/embedded_controller/radio/airlock/proc/get_airpump_tags()
+	. = list()
+	if(tag_airpump)
+		. += tag_airpump
+	for(var/extra_tag in tag_airpumps)
+		if(extra_tag && !(extra_tag in .))
+			. += extra_tag
 
 /obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/ui_interact(mob/user, datum/tgui/ui)
 	if(buildstage < 2)
@@ -224,6 +272,9 @@
 
 	data["chamber_pressure"] = round(program.memory["chamber_sensor_pressure"])
 	data["processing"] = program.memory["processing"]
+#ifdef AIRLOCK_CYCLER_DIAGNOSTICS
+	data["diagnostics"] = program.get_diagnostics()
+#endif
 
 	return data
 

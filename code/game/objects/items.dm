@@ -1422,10 +1422,23 @@ modules/mob/living/carbon/human/life.dm if you die, you will be zoomed out.
 	if(degrades_with_use)
 		.["wear_durability"] = wear_durability
 		.["wear_broken"] = wear_broken
+	// Any non-default tint, saved generically. Nothing else persists an item's
+	// color: the floor_items table only has name/icon_state columns, and every
+	// colored-item hook so far (faction tagging, spray-painted tools, dyed
+	// clothing) had to re-derive it from some other saved value on restore --
+	// so a tint whose source no longer resolves is simply lost. Only emitted
+	// when it actually differs from the type default, so untinted items don't
+	// grow an extra saved field.
+	if(color && color != initial(color))
+		.["obj_color"] = color
 
 /obj/item/persistent_objects_apply_content(content, x, y, z)
 	..()
-	if(degrades_with_use && islist(content))
+	if(!islist(content))
+		return
+	if(!isnull(content["obj_color"]))
+		color = content["obj_color"]
+	if(degrades_with_use)
 		if(!isnull(content["wear_durability"]))
 			wear_durability = between(0, text2num(content["wear_durability"]), wear_max_durability)
 		if(!isnull(content["wear_broken"]))

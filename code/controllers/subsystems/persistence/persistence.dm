@@ -663,14 +663,6 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/objs_e)
 		log_subsystem_persistence_panic("Unhandled exception during persistent objects initialization: [objs_e]")
 
-	// Floor items runs immediately after objects so machines/structures are recreated
-	// before worldstateInitialize applies their saved state vars.
-	log_subsystem_persistence_info("Starting floor item initialization...")
-	try
-		floorItemsInitialize()
-	catch(var/exception/floor_e)
-		log_subsystem_persistence_panic("Unhandled exception during floor item persistence initialization: [floor_e]")
-
 	log_subsystem_persistence_info("Starting bot initialization...")
 	try
 		botsInitialize()
@@ -706,6 +698,20 @@ SUBSYSTEM_DEF(persistence)
 		factionInitialize()
 	catch(var/exception/faction_e)
 		log_subsystem_persistence_panic("Unhandled exception during faction persistence initialization: [faction_e]")
+
+	// Floor items must run after objects (machines/structures are recreated
+	// before worldstateInitialize applies their saved state vars) AND after
+	// faction (GLOB.persistence_faction_cache, populated by factionInitialize()
+	// above, has to be ready before a restored floor item can look itself up
+	// through get_faction_color() -- restoring floor items any earlier had a
+	// faction-tagged item's tint silently resolve to null every boot, while
+	// mobsInventoryInitialize() below -- which runs the same lookup for worn
+	// items -- was unaffected since it already runs after faction).
+	log_subsystem_persistence_info("Starting floor item initialization...")
+	try
+		floorItemsInitialize()
+	catch(var/exception/floor_e)
+		log_subsystem_persistence_panic("Unhandled exception during floor item persistence initialization: [floor_e]")
 
 	log_subsystem_persistence_info("Starting faction founding petition initialization...")
 	try

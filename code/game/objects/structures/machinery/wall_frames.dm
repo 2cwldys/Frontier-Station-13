@@ -27,10 +27,17 @@
 	if (get_dist(on_wall,usr)>1)
 		return
 
-	var/ndir = get_dir(usr,on_wall)
-	if (!(ndir in GLOB.cardinals))
+	if (!(get_dir(usr,on_wall) in GLOB.cardinals))
 		to_chat(user, SPAN_WARNING("You need to stand in front of the wall, directly, to build \the [src]!"))
 		return
+
+	// Facing points AWAY from the wall, toward whoever installed it (the
+	// opposite of "which way is the wall") -- matches how the finished
+	// device should visually face out into the room it was built from.
+	// apply_wall_mount_offset() (machinery.dm) turns this back around to find
+	// the actual wall for pixel-offset purposes, and get_sample_turf()
+	// (airlock_control.dm) does the same to find the far side to sample.
+	var/ndir = get_dir(on_wall,usr)
 
 	var/turf/loc = get_turf(usr)
 	var/area/A = loc.loc
@@ -90,12 +97,42 @@
 	icon_state = "access_button_standby"
 	build_machine_type = /obj/structure/machinery/access_button
 
+/// Builds a labeled interior-side button (command = "cycle_interior") instead
+/// of the generic frame's plain "cycle" toggle. The generic command only ever
+/// resolves to cycle_int unless memory["interior_status"]["state"] happens to
+/// already be "open" (airlock_program.dm's receive_signal()), so a cycler
+/// built from two generic buttons -- exactly what the Airlock Cycler Crate
+/// used to hand out -- could never reliably reach cycle_ext at all: every
+/// press just fell through to the interior toggle.
+/obj/item/frame/access_button/airlock_interior
+	name = "interior access button frame"
+	build_machine_type = /obj/structure/machinery/access_button/airlock_interior
+
+/// Builds a labeled exterior-side button (command = "cycle_exterior"). See
+/// airlock_interior above.
+/obj/item/frame/access_button/airlock_exterior
+	name = "exterior access button frame"
+	build_machine_type = /obj/structure/machinery/access_button/airlock_exterior
+
 /obj/item/frame/airlock_sensor
-	name = "airlock sensor frame"
-	desc = "Used for building airlock pressure sensors."
+	name = "chamber airlock sensor frame"
+	desc = "Used for building airlock pressure sensors. This one reads the real pressure of the room it's built in -- mount it inside the airlock chamber."
 	icon = 'icons/obj/airlock_machines.dmi'
 	icon_state = "airlock_sensor_off"
 	build_machine_type = /obj/structure/machinery/airlock_sensor
+
+/// Builds the interior-reference sensor -- reports a constant one atmosphere
+/// rather than sampling its own turf. See airlock_sensor's pressure_override.
+/obj/item/frame/airlock_sensor/airlock_interior
+	name = "interior airlock sensor frame"
+	desc = "Used for building airlock pressure sensors. This one reports the station-side reference pressure to the controller."
+	build_machine_type = /obj/structure/machinery/airlock_sensor/airlock_interior
+
+/// Builds the exterior-reference sensor -- reports a constant vacuum.
+/obj/item/frame/airlock_sensor/airlock_exterior
+	name = "exterior airlock sensor frame"
+	desc = "Used for building airlock pressure sensors. This one reports the outside reference pressure to the controller."
+	build_machine_type = /obj/structure/machinery/airlock_sensor/airlock_exterior
 
 /obj/item/frame/airlock_controller
 	name = "airlock controller frame"

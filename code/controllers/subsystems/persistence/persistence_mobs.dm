@@ -1080,6 +1080,19 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		data["rig_gloves"] = serializePersistentItem(R.gloves)
 		data["rig_boots"]  = serializePersistentItem(R.boots)
 
+	// Void-suit inbuilt components -- helmet/boots/tank/cooler are player
+	// installed/removed via attackby() into dedicated vars (void.dm), not the
+	// generic clothing accessories list, and default to null with nothing in
+	// Initialize() to rebuild them. Same shape as the rig components above,
+	// for the same reason: without this, an installed component silently
+	// vanishes (var resets to null) on the next save/restore cycle.
+	if(istype(I, /obj/item/clothing/suit/space/void))
+		var/obj/item/clothing/suit/space/void/V = I
+		data["void_helmet"] = serializePersistentItem(V.helmet)
+		data["void_boots"]  = serializePersistentItem(V.boots)
+		data["void_tank"]   = serializePersistentItem(V.tank)
+		data["void_cooler"] = serializePersistentItem(V.cooler)
+
 	// Power cells carry their exact charge (Initialize refills them to max,
 	// so the restore must overwrite afterwards)
 	if(istype(I, /obj/item/cell))
@@ -1349,6 +1362,30 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			if(R.boots)
 				qdel(R.boots)
 			R.boots = data["rig_boots"] ? deserializePersistentItem(data["rig_boots"], R) : null
+
+	// Void-suit inbuilt components -- "in data" (key existence, not just
+	// truthiness) distinguishes an old save made before this fix existed
+	// (key absent -- leave whatever's already there, i.e. null, alone) from
+	// a component that was genuinely absent when saved (key present, value
+	// null -- wipe it to match). Mirrors the rig restore block above.
+	if(istype(I, /obj/item/clothing/suit/space/void))
+		var/obj/item/clothing/suit/space/void/V = I
+		if("void_helmet" in data)
+			if(V.helmet)
+				qdel(V.helmet)
+			V.helmet = data["void_helmet"] ? deserializePersistentItem(data["void_helmet"], V) : null
+		if("void_boots" in data)
+			if(V.boots)
+				qdel(V.boots)
+			V.boots = data["void_boots"] ? deserializePersistentItem(data["void_boots"], V) : null
+		if("void_tank" in data)
+			if(V.tank)
+				qdel(V.tank)
+			V.tank = data["void_tank"] ? deserializePersistentItem(data["void_tank"], V) : null
+		if("void_cooler" in data)
+			if(V.cooler)
+				qdel(V.cooler)
+			V.cooler = data["void_cooler"] ? deserializePersistentItem(data["void_cooler"], V) : null
 
 	// Power cell charge (Initialize refilled it to max)
 	if(!isnull(data["cell_charge"]) && istype(I, /obj/item/cell))

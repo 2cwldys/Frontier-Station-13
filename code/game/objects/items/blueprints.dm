@@ -166,7 +166,19 @@
 	show_wires = FALSE
 
 /obj/item/blueprints/outpost/attack_self(mob/user)
-	if(!length(valid_z_levels) || !valid_z_levels) //Outpost blueprints can initialize before exoplanets, so put this in here to doublecheck it.
+	// Checking "is valid_z_levels non-empty" isn't enough to know THIS
+	// blueprint's own home z made it in: set_valid_z_levels() below dumps
+	// every currently-known exoplanet/scenario/pinned-site z into one shared
+	// list, not just this item's own site. On boot, exoplanets are often
+	// registered before GLOB.persistence_pinned_site_z is (persistence.dm's
+	// own Initialize() populates that one later), so a pinned-site blueprint
+	// can call set_valid_z_levels() once, get back a non-empty list (full of
+	// OTHER sites' exoplanet z's, none of them this one), create its eye
+	// component off that incomplete list, and then never retry again -- the
+	// component-missing check below only fires once, ever. Checking this
+	// item's own z specifically catches that case and keeps retrying until
+	// it actually succeeds.
+	if(!(GET_Z(src) in valid_z_levels))
 		set_valid_z_levels()
 	var/obj/effect/overmap/visitable/sector/exoplanet/E = GLOB.map_sectors["[GET_Z(user)]"]
 	if(istype(E))
@@ -191,6 +203,10 @@
 		desc = "Some dusty old blueprints. The markings are old, and seem entirely irrelevant for your wherabouts."
 		return FALSE
 	desc = "Blueprints for the daring souls wanting to establish a planetary outpost. Has some sketchy looking stains and what appears to be bite holes."
+	// Reset first -- this can now be called more than once as a retry (see
+	// attack_self()), and every field below is a += onto the existing list,
+	// so without this a retry just keeps stacking duplicate z's on forever.
+	valid_z_levels = list()
 	var/area/overmap/map = GLOB.map_overmap
 	for(var/obj/effect/overmap/visitable/sector/exoplanet/E in map)
 		valid_z_levels += E.map_z

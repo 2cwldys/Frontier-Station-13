@@ -274,9 +274,13 @@
 		seclevel = new_security_level
 
 /obj/structure/machinery/firealarm/set_pixel_offsets()
-	// Overwrite the mapped in values.
-	pixel_x = ((dir & (NORTH|SOUTH)) ? 0 : (dir == EAST ? 22 : -22))
-	pixel_y = ((dir & (NORTH|SOUTH)) ? (dir == NORTH ? 32 : -19) : 0)
+	// Overwrite the mapped in values. Only ever runs for non-mapload
+	// (player-built via frame) instances -- wall_frames.dm's try_build()
+	// sets dir facing AWAY from the wall (toward the builder), so the wall
+	// itself is the opposite direction.
+	var/wall_dir = turn(dir, 180)
+	pixel_x = ((wall_dir & (NORTH|SOUTH)) ? 0 : (wall_dir == EAST ? 22 : -22))
+	pixel_y = ((wall_dir & (NORTH|SOUTH)) ? (wall_dir == NORTH ? 32 : -19) : 0)
 
 // Convenience subtypes for mappers.
 /obj/structure/machinery/firealarm/north

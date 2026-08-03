@@ -30,6 +30,16 @@
 	var/list/decals
 	var/list/blueprints
 
+	/// The area this turf belonged to immediately before a station-blueprints
+	/// eye (freelook/blueprints/blueprints.dm) claimed it into a new/existing
+	/// area. Recorded by create_area()/add_to_area() at claim time, consulted
+	/// by remove_area()/modify_area() so un-claiming restores the tile to
+	/// whatever it actually was before -- there's no single correct fallback
+	/// area off-station (a pinned away site's unclaimed tiles span many
+	/// different mapped-in areas, unlike the station's single world.area).
+	/// Cleared back to null once successfully restored.
+	var/area/blueprint_prior_area
+
 	/// If true, turf will be treated as space or a hole
 	var/is_hole
 	var/tmp/turf/baseturf
@@ -285,6 +295,18 @@
 			if(istype(AM, /obj/structure/machinery))
 				var/obj/structure/machinery/M = AM
 				M.shuttle_move(src)
+				// Re-derive NOPOWER against the area the machine is now in.
+				// stat's power bit is only ever recomputed by power_change()
+				// (modules/power/power_usage.dm), which fires off the AREA's
+				// own power broadcast -- nothing recomputed it when a TURF
+				// changed hands. So a machine whose turf got reassigned (most
+				// visibly by blueprints, which build new areas out of existing
+				// turfs and start them with power_equip/light/environ = FALSE)
+				// kept whatever power state it had under its old area, with no
+				// way to ever correct itself. That left e.g. vent pumps stuck
+				// reporting NOPOWER -- and refusing to run, since can_pump()
+				// bails on it -- inside an area with a perfectly healthy APC.
+				M.power_change()
 
 	last_outside_check = OUTSIDE_UNCERTAIN
 	if(is_outside == OUTSIDE_AREA && (is_outside() != old_outside))

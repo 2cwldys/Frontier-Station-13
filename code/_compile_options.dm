@@ -24,6 +24,13 @@
 // Defined by default -- comment out to strip it entirely from the build.
 //#define NPC_AI_DEBUG_EXAMINE
 
+// If defined, the airlock cycler controller's console shows a "Diagnostics"
+// section (live cycle state/target, chamber/external/internal pressure,
+// pump status, and every linked tag or "not linked"). Meant for build-time
+// troubleshooting -- comment out to strip it from live/production builds so
+// players don't see internal tag/ref debug info in a normal console.
+//#define AIRLOCK_CYCLER_DIAGNOSTICS
+
 // If defined, real (non-Hub) factions are limited to ONE cargo order
 // category, chosen at founding and changeable later (command rank, 1-month
 // real-world cooldown, or admin override anytime). Off -- every

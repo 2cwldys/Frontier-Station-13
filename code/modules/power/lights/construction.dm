@@ -13,7 +13,7 @@
 	var/obj/item/cell/cell
 	var/cell_connectors = TRUE
 
-/obj/structure/machinery/light_construct/Initialize()
+/obj/structure/machinery/light_construct/Initialize(mapload, var/dir, var/building = 0)
 	. = ..()
 	if (fixture_type == "bulb")
 		icon_state = "bulb-construct-stage1"
@@ -23,6 +23,16 @@
 		icon_state = "floor-construct-stage1"
 	if (fixture_type == "floorlight")
 		icon_state = "floortube-construct-stage1"
+	if(building)
+		if(dir)
+			set_dir(dir)
+		// Ceiling fixtures are wall-mounted (wall_frames.dm's try_build() can
+		// only build them on the floor tile adjacent to the clicked wall, dir
+		// pointing at it) -- without this they render dead-center on that
+		// tile instead of looking mounted on the wall, same gap fire alarms
+		// don't have. The /floor subtypes below override this back out --
+		// a floor lamp isn't mounted on anything, it just sits where built.
+		apply_wall_mount_offset()
 
 /obj/structure/machinery/light_construct/Destroy()
 	QDEL_NULL(cell)
@@ -221,6 +231,14 @@
 	fixture_type = "floorbulb"
 	sheets_refunded = 1
 
+/// Not wall-mounted -- built via floor_frames.dm's try_build() directly onto
+/// the clicked floor tile, so it should sit centered like any other floor
+/// prop, not offset toward a wall the way the ceiling-fixture base assumes.
+/obj/structure/machinery/light_construct/small/floor/Initialize(mapload, var/dir, var/building = 0)
+	. = ..()
+	pixel_x = 0
+	pixel_y = 0
+
 /obj/structure/machinery/light_construct/floor
 	name = "floor light fixture frame"
 	desc = "A floor light fixture under construction."
@@ -230,3 +248,9 @@
 	layer = TURF_DETAIL_LAYER
 	stage = 1
 	fixture_type = "floorlight"
+
+/// See light_construct/small/floor's Initialize() above.
+/obj/structure/machinery/light_construct/floor/Initialize(mapload, var/dir, var/building = 0)
+	. = ..()
+	pixel_x = 0
+	pixel_y = 0

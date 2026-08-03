@@ -297,13 +297,22 @@
 		databaseCheckQueryResult(ship_wipe_q, "floorItemsFinalize ship scope delete")
 		qdel(ship_wipe_q)
 
-	// Collect all floor item rows then bulk INSERT in chunks
+	// Collect all floor item rows then bulk INSERT in chunks. Each item is
+	// isolated in its own try/catch -- without this, one item throwing during
+	// serialization (serializePersistentItem() has no internal guard) aborts
+	// this whole loop, which skips _floorItemsFlush() entirely and silently
+	// discards every OTHER floor item's saved state for the whole map, not
+	// just the one bad item. Mirrors objectsGetTrackContent()'s existing
+	// per-object guard for the tracked-object save path.
 	var/list/value_rows = list()
 	for(var/obj/item/I in world)
 		CHECK_TICK
-		var/row = _floorItemRow(I)
-		if(row)
-			value_rows += row
+		try
+			var/row = _floorItemRow(I)
+			if(row)
+				value_rows += row
+		catch(var/exception/e)
+			log_subsystem_persistence_error("Floor items: Failed to serialize [I] ([I.type]) for save: [e]")
 
 	var/saved = _floorItemsFlush(value_rows, "floorItemsFinalize")
 	log_subsystem_persistence_info("Floor items: Saved [saved] floor items for map [SSatlas.current_map.path].")
@@ -329,9 +338,12 @@
 		CHECK_TICK
 		if(I.z != z)
 			continue
-		var/row = _floorItemRow(I)
-		if(row)
-			value_rows += row
+		try
+			var/row = _floorItemRow(I)
+			if(row)
+				value_rows += row
+		catch(var/exception/e)
+			log_subsystem_persistence_error("Floor items: Failed to serialize [I] ([I.type]) for ship-Z save: [e]")
 
 	var/saved = _floorItemsFlush(value_rows, "floorItemsFinalizeZ")
 	log_subsystem_persistence_info("Floor items: Saved [saved] ship floor items for z=[z] ([scope]).")
