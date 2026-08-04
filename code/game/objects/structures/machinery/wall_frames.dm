@@ -27,17 +27,10 @@
 	if (get_dist(on_wall,usr)>1)
 		return
 
-	if (!(get_dir(usr,on_wall) in GLOB.cardinals))
+	var/ndir = get_dir(usr,on_wall)
+	if (!(ndir in GLOB.cardinals))
 		to_chat(user, SPAN_WARNING("You need to stand in front of the wall, directly, to build \the [src]!"))
 		return
-
-	// Facing points AWAY from the wall, toward whoever installed it (the
-	// opposite of "which way is the wall") -- matches how the finished
-	// device should visually face out into the room it was built from.
-	// apply_wall_mount_offset() (machinery.dm) turns this back around to find
-	// the actual wall for pixel-offset purposes, and get_sample_turf()
-	// (airlock_control.dm) does the same to find the far side to sample.
-	var/ndir = get_dir(on_wall,usr)
 
 	var/turf/loc = get_turf(usr)
 	var/area/A = loc.loc

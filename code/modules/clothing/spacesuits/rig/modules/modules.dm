@@ -41,6 +41,10 @@
 
 	/// Basic module status
 	var/active
+	/// Set when a restored module was saved in an active state. Not persisted itself --
+	/// see persistent_objects_apply_content(). /obj/item/rig/process() consumes this and
+	/// replays activate() once the suit is actually worn, sealed and powered.
+	var/restore_active_pending = FALSE
 	/// Will deactivate if some other powers are used.
 	var/disruptable
 	/// Will deactivate if user attacks
@@ -175,6 +179,49 @@
 /obj/item/rig_module/proc/installed(var/obj/item/rig/new_holder)
 	holder = new_holder
 	return
+
+/// Per-module state carried across a save/load cycle. Reached generically through
+/// serializePersistentItem()'s "obj_content" passthrough, which now recurses into
+/// every entry of a rig's installed_modules.
+/obj/item/rig_module/persistent_objects_get_content()
+	. = ..()
+	.["module_damage"] = damage
+	.["module_active"] = active
+	if(charge_selected)
+		.["module_charge_selected"] = charge_selected
+	// New() rewrites the type-level list-of-lists into an assoc of
+	// short_name -> /datum/rig_charge, so flatten to short_name -> remaining.
+	if(length(charges))
+		var/list/charge_counts = list()
+		for(var/charge_key in charges)
+			var/datum/rig_charge/charge_dat = charges[charge_key]
+			if(istype(charge_dat))
+				charge_counts["[charge_key]"] = charge_dat.charges
+		if(length(charge_counts))
+			.["module_charges"] = charge_counts
+
+/obj/item/rig_module/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["module_damage"]))
+		damage = clamp(text2num("[content["module_damage"]]"), 0, 2)
+	if(!isnull(content["module_charge_selected"]))
+		charge_selected = content["module_charge_selected"]
+	if(islist(content["module_charges"]))
+		var/list/charge_counts = content["module_charges"]
+		for(var/charge_key in charge_counts)
+			// Write through the datum New() built. Replacing it would drop the
+			// display name and product type, which only exist on the type default.
+			var/datum/rig_charge/charge_dat = LAZYACCESS(charges, charge_key)
+			if(istype(charge_dat))
+				charge_dat.charges = max(0, text2num("[charge_counts[charge_key]]"))
+	// Deliberately not setting `active` here. activate() gates on a sealed suit and a
+	// conscious wearer, and several overrides dereference holder.wearer unguarded --
+	// neither is true of a retracted rig on a mob that is still being built. Flag it
+	// instead and let /obj/item/rig/process() replay it the moment the suit is sealed.
+	if(content["module_active"])
+		restore_active_pending = TRUE
 
 /obj/item/rig_module/proc/do_engage(atom/target, mob/living/carbon/human/user)
 	. = engage(target, user)

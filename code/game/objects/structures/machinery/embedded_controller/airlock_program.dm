@@ -541,7 +541,7 @@
 	// once per pump per tick.
 	var/obj/structure/machinery/atmospherics/unary/vent_pump/hit = LAZYACCESS(cached_pumps, pump_tag)
 	if(hit && !QDELETED(hit) && hit.id_tag == pump_tag)
-		return hit
+		return _ensure_pump_piped(hit)
 	LAZYREMOVE(cached_pumps, pump_tag)
 	// Prefer a match on the controller's OWN z-level. Legacy saved tags can be
 	// bare auto-assigned uid numbers (see vent_pump's _ensure_id_tag()) which
@@ -555,12 +555,29 @@
 		var/turf/there = get_turf(V)
 		if(here && there && there.z == here.z)
 			LAZYSET(cached_pumps, pump_tag, V)
-			return V
+			return _ensure_pump_piped(V)
 		if(!fallback)
 			fallback = V
 	if(fallback)
 		LAZYSET(cached_pumps, pump_tag, fallback)
-	return fallback
+	return _ensure_pump_piped(fallback)
+
+/// A resolved pump with no pipe node is permanently self-disabled
+/// (vent_pump/process(): `if(!node) update_use_power(POWER_USE_OFF)`), even
+/// though it's a perfectly valid, correctly-linked pump as far as the
+/// controller is concerned -- e.g. two vents on the same run, one linked
+/// before the pipe network between them had actually settled/merged. The
+/// one-shot rescan at link time (_link_to_airpump()) only catches this if
+/// the pipe is already there at that exact moment. Retrying here means a
+/// linked-but-unpiped pump keeps trying to pick up its connection on every
+/// cycle instead of staying dead until someone manually relinks it --
+/// atmos_init() itself already no-ops instantly once node is set, so this
+/// costs nothing once the pump is actually working.
+/datum/computer/file/embedded_program/airlock/proc/_ensure_pump_piped(obj/structure/machinery/atmospherics/unary/vent_pump/V)
+	if(V && !V.node)
+		V.atmos_init()
+		V.build_network()
+	return V
 
 /// Issues the same command to EVERY linked chamber vent pump. A chamber with
 /// two vents has to drive both together -- commanding only the primary leaves

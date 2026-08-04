@@ -246,6 +246,16 @@
 	// itself on relink instead of needing the area rebuilt.
 	pump.power_change()
 	to_chat(user, SPAN_NOTICE("You link \the [pump] to \the [src] as a chamber vent pump and tune it to the controller's frequency. ([length(get_airpump_tags())] pump\s linked.)"))
+	// atmos_init() (unary_base.dm) only ever looks ONE tile in the vent's OWN
+	// dir for a pipe -- if node is still null after the re-scan above, this
+	// pump will silently self-disable every tick forever
+	// (vent_pump/process()'s `if(!node) update_use_power(POWER_USE_OFF)`),
+	// commanded correctly by the controller or not. Without this, that only
+	// ever shows up much later as "the cycle doesn't work", with nothing
+	// pointing back at this specific pump or its facing. Surface it the
+	// moment it happens instead.
+	if(!pump.node)
+		to_chat(user, SPAN_WARNING("\The [pump] has no pipe connected in the direction it's facing -- it will link, but won't actually pump air until it's rotated to face its pipe (or the pipe is run to that side)."))
 
 /// Every chamber vent pump tag this controller drives -- the primary plus any
 /// extras. Cycle commands go to all of them so a chamber with more than one

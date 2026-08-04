@@ -961,6 +961,113 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 
 	log_and_message_admins("checked vitals for [key_name(C)]", usr)
 
+/// Typepaths that only ever exist as inbuilt parts of an /obj/item/rig. A bare
+/// one of these sitting in an inventory slot is always the wreckage of the old
+/// double-save bug (see _persistence_item_is_suit_component below), never
+/// something a player can legitimately own on its own.
+GLOBAL_LIST_INIT(persistence_rig_piece_types, list(
+	/obj/item/clothing/head/helmet/space/rig,
+	/obj/item/clothing/suit/space/rig,
+	/obj/item/clothing/gloves/rig,
+	/obj/item/clothing/shoes/magboots/rig
+))
+
+/// The only slots a rig ever deploys its pieces into, and therefore the only slots
+/// the old double-save bug could have written a duplicate piece to. Scoping the
+/// legacy cleanup to these keeps a loose rig piece carried in hand or pulled off a
+/// workbench during rig construction from being mistaken for wreckage.
+GLOBAL_LIST_INIT(persistence_rig_deploy_slots, list(
+	slot_head,
+	slot_wear_suit,
+	slot_gloves,
+	slot_shoes
+))
+
+/**
+ * TRUE if `I` is an inbuilt component of a rig or voidsuit that `H` also has equipped.
+ *
+ * Deployed suits push their own parts out into real inventory slots -- a voidsuit's
+ * equipped() sends helmet to slot_head, boots to slot_shoes and tank/cooler to
+ * slot_s_store, and a rig's toggle_piece() does the same for helmet/chest/gloves/boots.
+ * The slot walk in mobsInventorySaveOne() has no idea those objects are already owned
+ * by the suit in another slot, so without this check the SAME object gets written to
+ * the database twice: once nested under its parent (void_helmet/rig_helmet...) and
+ * again as a standalone top-level slot entry.
+ *
+ * That double-write is what breaks restore. applyPersistentInventory() qdels whatever
+ * occupies a slot before restoring into it, so the voidsuit (wear_suit, restored early)
+ * deploys its helmet into slot_head and the very next loop iteration destroys it --
+ * leaving V.helmet/boots/tank/cooler null and the suit reporting "does not have
+ * anything installed". Rigs live in slot_back and get the mirror-image failure: four
+ * orphan pieces are equipped first and then block the real suit from deploying.
+ *
+ * Both the save path and the restore path consult this proc so they can never disagree
+ * about what counts as suit-owned.
+ */
+/proc/_persistence_item_is_suit_component(mob/living/carbon/human/H, obj/item/I)
+	if(!istype(H) || !I)
+		return FALSE
+	for(var/slot_name in GLOB.persistence_inventory_slots)
+		var/obj/item/W = H.get_equipped_item(GLOB.persistence_inventory_slots[slot_name])
+		if(!W || W == I)
+			continue
+		if(istype(W, /obj/item/rig))
+			var/obj/item/rig/R = W
+			if(I == R.helmet || I == R.chest || I == R.gloves || I == R.boots)
+				return TRUE
+		else if(istype(W, /obj/item/clothing/suit/space/void))
+			var/obj/item/clothing/suit/space/void/V = W
+			if(I == V.helmet || I == V.boots || I == V.tank || I == V.cooler)
+				return TRUE
+	return FALSE
+
+/**
+ * TRUE if `I` is a bare rig piece that no rig equipped on `H` claims as its own.
+ *
+ * Only ever true for rows written before the double-save fix above. Those rows carry
+ * standalone copies of the helmet/chestpiece/gauntlets/boots in the head/wear_suit/
+ * gloves/shoes slots; restoring them produces unarmoured, removable look-alikes (the
+ * rig applies canremove/name/icon/armor only in its own Initialize()) that occupy the
+ * exact slots the real suit needs to deploy into. Dropping them on load lets an
+ * affected character come back with a working hardsuit, and their next save is clean.
+ */
+/proc/_persistence_item_is_orphan_rig_piece(mob/living/carbon/human/H, obj/item/I)
+	if(!istype(H) || !I)
+		return FALSE
+	var/is_piece = FALSE
+	for(var/piece_type in GLOB.persistence_rig_piece_types)
+		if(istype(I, piece_type))
+			is_piece = TRUE
+			break
+	if(!is_piece)
+		return FALSE
+	return !_persistence_item_is_suit_component(H, I)
+
+/**
+ * Pull a just-restored voidsuit's inbuilt components back inside the suit.
+ *
+ * The suit's equipped() deploys helmet/boots/tank/cooler into head/shoes/s_store the
+ * instant it is worn, which is not what we want on restore -- installed gear should
+ * come back stowed, and leaving it deployed puts it in the path of the slot loop.
+ *
+ * The suit's own cleanup_from_mob() cannot be reused for this. It retracts the tank
+ * and cooler with a bare forceMove(), which moves the object but leaves H.s_store
+ * still pointing at it, because only u_equip() clears an inventory slot var. That is
+ * harmless in cleanup_from_mob()'s normal callers (dropped() / on_slotmove(), which
+ * run from inside remove_from_mob(suit) -- u_equip() has already dropped s_store by
+ * then), but here the suit is being put ON, so nothing clears the slot. Going through
+ * drop_from_inventory() unequips properly and then moves the part into the suit.
+ */
+/proc/_persistence_retract_voidsuit(mob/living/carbon/human/H, obj/item/clothing/suit/space/void/V)
+	if(!istype(H) || !istype(V))
+		return
+	for(var/obj/item/component in list(V.helmet, V.boots, V.tank, V.cooler))
+		component.canremove = TRUE
+		if(component.loc == H)
+			H.drop_from_inventory(component, V)
+		else if(component.loc != V)
+			component.forceMove(V)
+
 /**
  * Save inventory state for a single mob immediately.
  */
@@ -974,6 +1081,13 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	for(var/slot_name in GLOB.persistence_inventory_slots)
 		var/slot_id = GLOB.persistence_inventory_slots[slot_name]
 		var/obj/item/I = H.get_equipped_item(slot_id)
+		// A deployed rig/voidsuit part is already carried by its parent suit's own
+		// blob. Recording it here as well is what used to duplicate it and then get
+		// it destroyed on restore, so save the slot as empty and let the suit hand
+		// the part back on load.
+		if(I && _persistence_item_is_suit_component(H, I))
+			inv[slot_name] = null
+			continue
 		inv[slot_name] = I ? serializePersistentItem(I) : null
 
 	var/inv_json = json_encode(inv)
@@ -1070,15 +1184,42 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	// Hardsuit components -- helmet/chest/gloves/boots are separate obj/item
 	// instances parented to the rig, rebuilt fresh (to the rig's defaults)
 	// by Initialize() every time, so without this a saved/restored rig
-	// silently discards whatever the player actually had attached. The
-	// rig's own cell is handled by the generic get_cell() branch below --
-	// /obj/item/rig/get_cell() already returns its `cell` var directly.
+	// silently discards whatever the player actually had attached.
 	if(istype(I, /obj/item/rig))
 		var/obj/item/rig/R = I
 		data["rig_helmet"] = serializePersistentItem(R.helmet)
 		data["rig_chest"]  = serializePersistentItem(R.chest)
 		data["rig_gloves"] = serializePersistentItem(R.gloves)
 		data["rig_boots"]  = serializePersistentItem(R.boots)
+		// Air tank and power cell are held in dedicated vars, not contents, and
+		// Initialize() respawns air_type/cell_type over whatever the player slotted
+		// in. The generic get_cell() branch further down only carries a charge
+		// NUMBER, so without this a swapped cell silently reverts to cell_type at
+		// the saved charge. Serializing the object keeps the actual type.
+		data["rig_air"]  = serializePersistentItem(R.air_supply)
+		data["rig_cell"] = serializePersistentItem(R.cell)
+		// Installed modules. Initialize() rebuilds the loadout from initial_modules
+		// on every new(), so before this every save/load cycle destroyed each
+		// player-installed module and resurrected each screwdrivered-out one.
+		//
+		// The key is emitted even when the list is EMPTY, deliberately, for the same
+		// reason as the storage "contents" key above: an emptied rig has to be able
+		// to record "this really is empty" and override the initial_modules that
+		// Initialize() will have spawned on the restored copy.
+		//
+		// Recursing through serializePersistentItem() also runs the internal_storage
+		// sweep with the module as the subject, which is what finally captures a
+		// mounted storage unit's pockets -- they sit at rig.contents -> module.contents,
+		// one level deeper than the rig-level sweep can see.
+		var/list/module_data = list()
+		for(var/obj/item/rig_module/RM in R.installed_modules)
+			var/list/mod_entry = serializePersistentItem(RM)
+			if(!mod_entry)
+				continue
+			if(RM == R.selected_module)
+				mod_entry["rig_module_selected"] = 1
+			module_data += list(mod_entry)
+		data["rig_modules"] = module_data
 
 	// Void-suit inbuilt components -- helmet/boots/tank/cooler are player
 	// installed/removed via attackby() into dedicated vars (void.dm), not the
@@ -1212,8 +1353,15 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		var/slot_id = GLOB.persistence_inventory_slots[slot_name]
 		var/list/item_data = inv[slot_name]
 
-		// Qdel whatever is currently in this slot -- saved state is authoritative for persistent world
+		// A rig/voidsuit restored into an earlier slot may have deployed one of its
+		// own parts into this one. Those belong to the suit, not to this slot, so
+		// leave them be -- qdeling them here is precisely what used to strip a
+		// restored voidsuit of its helmet, boots, tank and cooler.
 		var/obj/item/existing = get_equipped_item(slot_id)
+		if(existing && _persistence_item_is_suit_component(src, existing))
+			continue
+
+		// Qdel whatever is currently in this slot -- saved state is authoritative for persistent world
 		if(existing)
 			qdel(existing)
 
@@ -1224,7 +1372,23 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		// Create and equip saved item
 		var/obj/item/restored = deserializePersistentItem(item_data, src)
 		if(restored)
+			// Rows written before the double-save fix carry standalone copies of a
+			// deployed rig's pieces. They restore as unarmoured, removable
+			// look-alikes that squat in the very slots the real suit deploys into,
+			// so drop them rather than equipping them. One save cycle later the
+			// row is clean and this stops firing.
+			if((slot_id in GLOB.persistence_rig_deploy_slots) && _persistence_item_is_orphan_rig_piece(src, restored))
+				log_subsystem_persistence_info("MobInventory: Discarded orphaned hardsuit piece [restored.type] from slot [slot_name] for [real_name] (legacy duplicate).")
+				qdel(restored)
+				continue
 			equip_to_slot_or_del(restored, slot_id)
+			// A voidsuit's equipped() immediately deploys its helmet/boots/tank/cooler
+			// back out into head/shoes/s_store. Retract them so everything installed in
+			// a suit comes back inside that suit, the way it would after taking the suit
+			// off. Rigs need no equivalent -- /obj/item/rig has no equipped() override,
+			// so a restored rig is already fully retracted.
+			if(!QDELETED(restored) && istype(restored, /obj/item/clothing/suit/space/void))
+				_persistence_retract_voidsuit(src, restored)
 			log_subsystem_persistence_info("MobInventory: Equipped [restored.type] in slot [slot_name] for [real_name].")
 		else
 			log_subsystem_persistence_error("MobInventory: Failed to restore item in slot [slot_name] ([item_data["type"] || "unknown type"]) for [real_name].")
@@ -1362,6 +1526,46 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			if(R.boots)
 				qdel(R.boots)
 			R.boots = data["rig_boots"] ? deserializePersistentItem(data["rig_boots"], R) : null
+		if("rig_air" in data)
+			if(R.air_supply)
+				qdel(R.air_supply)
+			R.air_supply = data["rig_air"] ? deserializePersistentItem(data["rig_air"], R) : null
+		// Must stay ahead of the device_cell_charge block further down: that block
+		// reads I.get_cell(), which for a rig returns this very var, and re-clamps
+		// the saved charge onto whatever cell is installed by then.
+		if("rig_cell" in data)
+			if(R.cell)
+				qdel(R.cell)
+			R.cell = data["rig_cell"] ? deserializePersistentItem(data["rig_cell"], R) : null
+		if("rig_modules" in data)
+			// Tear down the initial_modules loadout Initialize() just spawned --
+			// saved state is authoritative, or removed modules come back from the
+			// dead every restore. Iterate a copy: /obj/item/rig_module/Destroy()
+			// already splices itself out of holder.installed_modules.
+			for(var/obj/item/rig_module/old_module in R.installed_modules.Copy())
+				R.installed_modules -= old_module
+				qdel(old_module)
+			R.installed_modules = list()
+			R.selected_module = null
+			R.visor = null
+			R.speech = null
+			if(islist(data["rig_modules"]))
+				for(var/list/mod_entry in data["rig_modules"])
+					var/obj/item/restored_module = deserializePersistentItem(mod_entry, R)
+					if(!istype(restored_module, /obj/item/rig_module))
+						// Saved entry wasn't a module type -- don't leave it rattling
+						// around loose inside the suit.
+						if(restored_module)
+							qdel(restored_module)
+						continue
+					var/obj/item/rig_module/RM = restored_module
+					R.installed_modules += RM
+					// installed() is what re-points holder.visor / holder.speech at
+					// their modules, so go through it rather than setting holder by hand.
+					RM.installed(R)
+					if(mod_entry["rig_module_selected"])
+						R.selected_module = RM
+			R.update_icon()
 
 	// Void-suit inbuilt components -- "in data" (key existence, not just
 	// truthiness) distinguishes an old save made before this fix existed

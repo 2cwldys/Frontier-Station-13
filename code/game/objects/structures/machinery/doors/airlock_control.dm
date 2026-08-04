@@ -387,27 +387,26 @@
 	set_frequency(controller.frequency)
 	to_chat(user, SPAN_NOTICE("You link \the [src] to \the [controller] as its [slot] sensor and tune it to the controller's frequency."))
 
-/// The turf this sensor actually measures: the first OPEN turf on the far
-/// side of the wall it's mounted on.
+/// The turf this sensor actually measures: the first OPEN turf in the
+/// direction it faces, i.e. the space on the far side of the wall it's
+/// mounted on.
 ///
-/// try_build() (wall_frames.dm) puts a wall device on the BUILDER's turf,
-/// with dir facing AWAY from the wall (toward the builder), and refuses to
-/// build unless the builder is standing on a /turf/simulated/floor -- so
-/// nobody can plant an exterior sensor out in vacuum, and a sensor reading
-/// its own turf always reports whichever room it was built from rather than
-/// the one it's named for. Stepping past the mounting wall (the opposite of
-/// dir) lets any sensor be built from whatever side is reachable and still
-/// measure the space it faces.
+/// try_build() (wall_frames.dm) puts a wall device on the BUILDER's turf with
+/// dir pointing at the wall, and refuses to build unless the builder is
+/// standing on a /turf/simulated/floor -- so nobody can plant an exterior
+/// sensor out in vacuum, and a sensor reading its own turf always reports
+/// whichever room it was built from rather than the one it's named for.
+/// Stepping past the mounting wall lets any sensor be built from whatever
+/// side is reachable and still measure the space it faces.
 ///
 /// Falls back to its own turf if there's no open turf within reach (e.g.
 /// mounted facing solid rock), so it degrades to the old behavior instead of
 /// reporting nothing.
 /obj/structure/machinery/airlock_sensor/proc/get_sample_turf()
-	var/wall_dir = turn(dir, 180)
 	var/turf/own_turf = get_turf(src)
 	var/turf/probe = own_turf
 	for(var/i = 1 to 3)
-		probe = get_step(probe, wall_dir)
+		probe = get_step(probe, dir)
 		if(!probe)
 			return own_turf
 		if(probe.density)

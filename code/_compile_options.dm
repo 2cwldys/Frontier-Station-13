@@ -29,7 +29,13 @@
 // pump status, and every linked tag or "not linked"). Meant for build-time
 // troubleshooting -- comment out to strip it from live/production builds so
 // players don't see internal tag/ref debug info in a normal console.
-//#define AIRLOCK_CYCLER_DIAGNOSTICS
+#define AIRLOCK_CYCLER_DIAGNOSTICS
+
+// If defined, the floor-item persistence path logs every decision it makes
+// for a faction-tagged clothing item: which branch dropped it (if any),
+// whether its extra state blob was built, and which restore branch ran on
+// the next boot. Purely diagnostic -- comment out to strip it entirely.
+#define PERSISTENCE_FLOOR_ITEM_DEBUG
 
 // If defined, real (non-Hub) factions are limited to ONE cargo order
 // category, chosen at founding and changeable later (command rank, 1-month

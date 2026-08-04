@@ -30,6 +30,11 @@
 /// while still catching anything that genuinely beats a bare fist.
 #define HOSTILE_NPC_MIN_DRAWN_WEAPON_FORCE 5
 
+/// How long a temporarily-provoked NPC keeps fighting back before standing
+/// down on its own -- "cut that out or I'll do some damage," not a
+/// permanent hostility switch.
+#define HOSTILE_NPC_PROVOKED_DURATION (6 SECONDS)
+
 /mob/living/carbon/human/npc/hostile
 	/// Persistence faction uid this NPC belongs to -- distinct from the
 	/// pre-existing lore mob/var/faction string every mob has. null = no
@@ -94,6 +99,11 @@
 	/// it simply never starts a fight. There is no "defend if attacked"
 	/// middle ground -- this mob type has no retaliation hooks.
 	var/passive_mode = FALSE
+	/// TRUE while passive_mode was broken by _react_to_hostile_attack() (a
+	/// temporary reaction), as opposed to a deliberate commander/beacon/
+	/// barracks Hostile order -- only the former auto-reverts, see
+	/// _calm_down_from_provocation().
+	var/provoked_temporarily = FALSE
 	/// Commander-item followers only. When TRUE, idle followers stay put
 	/// instead of closing distance to their commander -- toggled from the
 	/// commander_beacon's TGUI ("Follow"/"Hold Position" buttons). Does not
@@ -724,7 +734,7 @@
 
 /// Attacked while passive_mode is on by someone who isn't faction-friendly
 /// -- passive mode means "hold fire", not "stand there and take it forever".
-/// Breaks passive_mode (until a commander/beacon/barracks re-issues it) and
+/// Breaks passive_mode TEMPORARILY (see _calm_down_from_provocation()) and
 /// locks onto the attacker immediately instead of waiting for the next idle
 /// target scan (which would otherwise never happen at all -- get_targets()
 /// returns nothing while passive_mode is on). No-ops entirely once already
@@ -735,8 +745,22 @@
 	if(!isliving(attacker) || is_friendly(attacker))
 		return
 	passive_mode = FALSE
+	provoked_temporarily = TRUE
 	set_last_found_target(attacker)
 	change_stance(HOSTILE_STANCE_ATTACK)
+	addtimer(CALLBACK(src, PROC_REF(_calm_down_from_provocation)), HOSTILE_NPC_PROVOKED_DURATION)
+
+/// Reverts a temporary provoked-retaliation back to passive -- "cut that out
+/// or I'll do some damage," not a permanent hostility switch. No-ops if a
+/// real commander/beacon/barracks order has since taken over
+/// (provoked_temporarily already cleared), or the mob is gone.
+/mob/living/carbon/human/npc/hostile/proc/_calm_down_from_provocation()
+	if(QDELETED(src) || !provoked_temporarily)
+		return
+	provoked_temporarily = FALSE
+	passive_mode = TRUE
+	LoseTarget()
+	visible_message(SPAN_NOTICE("[src] stands down."))
 
 /// Melee weapon hit -- no reliable hit/miss signal on the human chain's
 /// attackby() (its return only means "handled, skip afterattack"), so react
@@ -765,11 +789,19 @@
 	_react_to_hostile_attack(user)
 
 /// Unarmed punch -- no reliable hit/miss return on the human chain, react
-/// unconditionally after ..(), mirroring simple_animal/hostile's own
-/// attack_hand() override.
+/// unconditionally after ..() for anything other than helpful intent
+/// (poking/helping a passive NPC shouldn't provoke it), mirroring
+/// simple_animal/hostile's own attack_hand() override.
 /mob/living/carbon/human/npc/hostile/attack_hand(mob/living/carbon/M as mob)
 	. = ..()
-	_react_to_hostile_attack(M)
+	if(M.a_intent != I_HELP)
+		_react_to_hostile_attack(M)
+
+/// Trying to strip a passive faction NPC's equipment via the strip/equipment
+/// menu is exactly as provoking as disarming/grabbing/hitting them.
+/mob/living/carbon/human/npc/hostile/handle_strip(slot_to_strip, mob/living/user)
+	_react_to_hostile_attack(user)
+	return ..()
 
 /// Thrown item hit -- mirrors simple_animal/hostile's own hitby() override
 /// exactly: resolve the original thrower through the throwingdatum, not the
