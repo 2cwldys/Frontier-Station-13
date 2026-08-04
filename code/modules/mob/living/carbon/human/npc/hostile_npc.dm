@@ -1148,6 +1148,20 @@
 			for(var/obj/item/ammo_magazine/AM in S.contents)
 				if(_magazine_fits(G, AM))
 					return AM
+	// Plate carrier pouches (and any other accessory-based pouch/webbing/
+	// holster) attach to the worn suit or uniform's own accessories list,
+	// not one of the fixed slots above -- and store their contents in a
+	// separate internal storage sub-object (accessory/storage's own `hold`
+	// var), not the accessory's own .contents.
+	for(var/obj/item/clothing/worn in list(wear_suit, w_uniform))
+		if(!worn || !LAZYLEN(worn.accessories))
+			continue
+		for(var/obj/item/clothing/accessory/storage/pouch in worn.accessories)
+			if(!pouch.hold)
+				continue
+			for(var/obj/item/ammo_magazine/AM in pouch.hold.contents)
+				if(_magazine_fits(G, AM))
+					return AM
 	return null
 
 /mob/living/carbon/human/npc/hostile/proc/MoveToTarget()
