@@ -204,6 +204,16 @@
 		to_chat(L, SPAN_WARNING("That pad's destination is restricted to Hub personnel."))
 		return FALSE
 
+	// This pad is deliberately independent of faction membership (see file
+	// header) -- but that independence would otherwise let it bypass the
+	// admin raiding kill-switch entirely: plant one pad on a locked-down
+	// faction Z and freely shuttle in/out. Same check drydock boarding and
+	// Personal Travel's Leap already enforce (telepad_drydock_boarding.dm).
+	if(_drydock_raid_blocked(L, target.z))
+		to_chat(L, SPAN_WARNING("Faction raiding is currently disabled -- you cannot enter that territory."))
+		play_raid_blocked_sound(L)
+		return FALSE
+
 	var/turf/destination = get_turf(target)
 	if(!destination || destination.density)
 		to_chat(L, SPAN_WARNING("The destination pad is obstructed."))
@@ -255,6 +265,14 @@
 		target = candidates[1]
 	else
 		to_chat(user, SPAN_WARNING("Select a destination pad first."))
+		return FALSE
+
+	// Same raid lockout as _travel() -- otherwise cargo-only transfer (no
+	// living passenger to check) would still let weapons/explosives through
+	// onto locked-down faction territory unchecked.
+	if(_drydock_raid_blocked(user, target.z))
+		to_chat(user, SPAN_WARNING("Faction raiding is currently disabled -- you cannot send anything into that territory."))
+		play_raid_blocked_sound(user)
 		return FALSE
 
 	var/turf/destination = get_turf(target)
