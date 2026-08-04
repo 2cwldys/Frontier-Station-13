@@ -110,6 +110,13 @@ export const AirlockConsoleStandard = (props) => {
               icon="arrow-right-to-bracket"
               onClick={() => act('command', { command: 'cycle_int' })}
             />
+            <Button
+              content="Cancel Cycling"
+              icon="ban"
+              color="red"
+              disabled={!data.processing}
+              onClick={() => act('command', { command: 'abort' })}
+            />
           </Box>
           <Box>
             <Button
