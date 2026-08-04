@@ -618,10 +618,20 @@
 /mob/living/carbon/human/npc/hostile/proc/is_friendly(mob/living/L)
 	if(L == commander)
 		return TRUE
-	if(is_same_persistence_faction(L))
-		return TRUE
 	if(is_same_hostile_npc_pack(L))
 		return TRUE
+	if(is_same_persistence_faction(L))
+		// Same-faction hostile_npc soldiers stay unconditionally friendly to
+		// each other -- they have no job/rank concept, and this is what
+		// stops the faction's own troops from fighting one another. Only a
+		// real player's rank matters below: Civilian (no job) isn't shielded
+		// from retaliation for disarming/grabbing/attacking/stripping a
+		// same-faction NPC; holding any actual job (including a custom
+		// faction-made one) still is, exactly as before.
+		if(istype(L, /mob/living/carbon/human/npc/hostile))
+			return TRUE
+		var/target_uid = get_living_persistence_faction_uid(L)
+		return get_effective_faction_rank(L, target_uid) > 0
 	return FALSE
 
 /// ignore_friendliness lets an explicit click-to-attack order
