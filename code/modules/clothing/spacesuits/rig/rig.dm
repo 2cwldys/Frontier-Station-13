@@ -187,29 +187,7 @@
 		verbs |= /obj/item/rig/proc/toggle_chest
 
 	for(var/obj/item/clothing/piece in list(gloves,helmet,boots,chest))
-		if(!istype(piece))
-			continue
-		piece.canremove = FALSE
-		piece.name = "[suit_type] [initial(piece.name)]"
-		piece.desc = "It seems to be part of a [src.name]."
-		piece.icon = icon
-		piece.icon_state = "[initial(icon_state)]_[piece.clothing_class()]"
-		piece.item_state = "[initial(icon_state)]"
-		piece.contained_sprite = TRUE
-		if(length(icon_supported_species_tags))
-			set_piece_adaptation(piece)
-		piece.min_cold_protection_temperature = min_cold_protection_temperature
-		piece.max_heat_protection_temperature = max_heat_protection_temperature
-		if(piece.siemens_coefficient > siemens_coefficient) //So that insulated gloves keep their insulation.
-			piece.siemens_coefficient = siemens_coefficient
-		piece.permeability_coefficient = permeability_coefficient
-		piece.unacidable = unacidable
-		piece.species_restricted = species_restricted
-		if(islist(armor))
-			var/datum/component/armor/armor_component = piece.GetComponent(/datum/component/armor)
-			if(istype(armor_component))
-				qdel(armor_component)
-			piece.AddComponent(/datum/component/armor, armor, ARMOR_TYPE_STANDARD|ARMOR_TYPE_RIG)
+		_configure_rig_piece(piece)
 
 	if(chest.flags_inv & HIDEJUMPSUIT)
 		has_hidden_jumpsuit = TRUE
@@ -222,6 +200,40 @@
 /obj/item/rig/proc/set_piece_adaptation(var/obj/item/clothing/piece)
 	piece.icon_auto_adapt = TRUE
 	piece.icon_supported_species_tags = icon_supported_species_tags
+
+/// Configures one helmet/gloves/boots/chest piece to match this rig --
+/// sprite (borrows the rig's own icon since the piece has none of its own
+/// for this specific model), protections, and armor. Used both when the
+/// rig first creates its default pieces (New()) and when persistence
+/// restores a saved piece in place of one of those defaults (see
+/// persistence_mobs.dm's deserializePersistentItem() rig branch) -- a
+/// restored piece is built via a plain new() that never runs this setup on
+/// its own, which is what left restored rig components with a missing/
+/// generic sprite instead of the composite one every other piece gets.
+/obj/item/rig/proc/_configure_rig_piece(obj/item/clothing/piece)
+	if(!istype(piece))
+		return
+	piece.canremove = FALSE
+	piece.name = "[suit_type] [initial(piece.name)]"
+	piece.desc = "It seems to be part of a [src.name]."
+	piece.icon = icon
+	piece.icon_state = "[initial(icon_state)]_[piece.clothing_class()]"
+	piece.item_state = "[initial(icon_state)]"
+	piece.contained_sprite = TRUE
+	if(length(icon_supported_species_tags))
+		set_piece_adaptation(piece)
+	piece.min_cold_protection_temperature = min_cold_protection_temperature
+	piece.max_heat_protection_temperature = max_heat_protection_temperature
+	if(piece.siemens_coefficient > siemens_coefficient) //So that insulated gloves keep their insulation.
+		piece.siemens_coefficient = siemens_coefficient
+	piece.permeability_coefficient = permeability_coefficient
+	piece.unacidable = unacidable
+	piece.species_restricted = species_restricted
+	if(islist(armor))
+		var/datum/component/armor/armor_component = piece.GetComponent(/datum/component/armor)
+		if(istype(armor_component))
+			qdel(armor_component)
+		piece.AddComponent(/datum/component/armor, armor, ARMOR_TYPE_STANDARD|ARMOR_TYPE_RIG)
 
 /obj/item/rig/Destroy()
 	STOP_PROCESSING(SSmobs, src)

@@ -1493,22 +1493,33 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	// null -- wipe it to match).
 	if(istype(I, /obj/item/rig))
 		var/obj/item/rig/R = I
+		// _configure_rig_piece() (rig.dm) is what actually gives a piece its
+		// correct sprite (borrows the rig's own icon -- a bare helmet/glove/
+		// boot/chest type has no sprite of its own for this specific model).
+		// New()'s own default pieces already go through it; a piece rebuilt
+		// here via deserializePersistentItem()'s plain new() never does on
+		// its own, which is what left a restored rig's components with a
+		// missing/generic sprite after cryo-exit instead of matching the rig.
 		if("rig_helmet" in data)
 			if(R.helmet)
 				qdel(R.helmet)
 			R.helmet = data["rig_helmet"] ? deserializePersistentItem(data["rig_helmet"], R) : null
+			R._configure_rig_piece(R.helmet)
 		if("rig_chest" in data)
 			if(R.chest)
 				qdel(R.chest)
 			R.chest = data["rig_chest"] ? deserializePersistentItem(data["rig_chest"], R) : null
+			R._configure_rig_piece(R.chest)
 		if("rig_gloves" in data)
 			if(R.gloves)
 				qdel(R.gloves)
 			R.gloves = data["rig_gloves"] ? deserializePersistentItem(data["rig_gloves"], R) : null
+			R._configure_rig_piece(R.gloves)
 		if("rig_boots" in data)
 			if(R.boots)
 				qdel(R.boots)
 			R.boots = data["rig_boots"] ? deserializePersistentItem(data["rig_boots"], R) : null
+			R._configure_rig_piece(R.boots)
 		// Everything past this point is wrapped. An uncaught throw here would unwind
 		// the whole proc and return null to applyPersistentInventory(), costing the
 		// player the entire hardsuit rather than one broken component. Same defensive
