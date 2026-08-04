@@ -9,12 +9,15 @@ Application/asset registration, config.py placeholders).
 
 from __future__ import annotations
 
+import argparse
 import logging
-import time
+import threading
 
 from pypresence import Presence
 
+import autostart
 import config
+import tray
 from byond_query import ByondQueryError, RateLimitedError, query
 from window_detect import is_frontier_running
 
@@ -54,17 +57,80 @@ def _build_presence(status: dict) -> dict:
         presence["small_image"] = config.SMALL_IMAGE_KEY
         presence["small_text"] = config.SMALL_IMAGE_TEXT
 
+    # Discord caps Rich Presence at two buttons. "Join Server" goes first so
+    # the primary action reads first on the card. Note that Discord never
+    # renders your own buttons back to you on your own profile -- only other
+    # people viewing it see them, so these looking absent while self-testing
+    # is expected, not a failure.
+    buttons = []
+    if config.JOIN_URL:
+        buttons.append({"label": config.JOIN_BUTTON_LABEL, "url": config.JOIN_URL})
     if config.DISCORD_INVITE_URL:
-        presence["buttons"] = [{"label": "Join Discord", "url": config.DISCORD_INVITE_URL}]
+        buttons.append({"label": "Join Discord", "url": config.DISCORD_INVITE_URL})
+    if buttons:
+        presence["buttons"] = buttons[:2]
 
     return presence
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="FrontierRPC",
+        description=(
+            "Shows your live Frontier Station 13 status on Discord while you play. "
+            "Runs quietly in the background; presence appears when the game is open "
+            "and clears when you close it."
+        ),
+    )
+    parser.add_argument(
+        "--no-autostart",
+        action="store_true",
+        help="Run this session only -- don't register to start automatically at login.",
+    )
+    parser.add_argument(
+        "--uninstall",
+        action="store_true",
+        help="Remove the run-at-login registration and exit. Deletes nothing else.",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = _parse_args()
+
+    if args.uninstall:
+        autostart.unregister()
+        logger.info("No longer starting automatically. You can delete this file now.")
+        return
+
+    # Register on every normal launch, not just a tracked "first run" -- it's a
+    # no-op when already correct, and it self-heals if the player moves the exe
+    # (the stored path would otherwise point at nothing).
+    if not args.no_autostart:
+        autostart.register()
+
+    stop_event = threading.Event()
+
+    # The tray icon owns the main thread when it exists (a tray needs one on
+    # Windows), so the presence loop moves to a worker. Without a tray we just
+    # run the loop directly and behave exactly as before.
+    icon = tray.create_icon(stop_event)
+    if icon is None:
+        _presence_loop(stop_event)
+        return
+
+    worker = threading.Thread(target=_presence_loop, args=(stop_event,), daemon=True)
+    worker.start()
+    icon.run()
+    stop_event.set()
+    worker.join(timeout=5)
+
+
+def _presence_loop(stop_event: threading.Event) -> None:
     rpc: Presence | None = None
     presence_active = False
 
-    while True:
+    while not stop_event.is_set():
         if rpc is None:
             rpc = _connect()
 
@@ -78,7 +144,7 @@ def main() -> None:
                     logger.warning("Failed to clear presence: %s", e)
                     rpc = None
                 presence_active = False
-            time.sleep(config.POLL_INTERVAL_SECONDS)
+            stop_event.wait(config.POLL_INTERVAL_SECONDS)
             continue
 
         try:
@@ -95,11 +161,11 @@ def main() -> None:
             # tripped it (which would compound the strike count server-side).
             backoff = config.POLL_INTERVAL_SECONDS + config.RATE_LIMIT_BACKOFF_SECONDS
             logger.warning("Rate limited by server, backing off %ss: %s", backoff, e)
-            time.sleep(backoff)
+            stop_event.wait(backoff)
             continue
         except ByondQueryError as e:
             logger.warning("Could not fetch server status: %s", e)
-            time.sleep(config.POLL_INTERVAL_SECONDS)
+            stop_event.wait(config.POLL_INTERVAL_SECONDS)
             continue
 
         if rpc is not None:
@@ -110,7 +176,14 @@ def main() -> None:
                 logger.warning("Failed to update Discord presence: %s", e)
                 rpc = None
 
-        time.sleep(config.POLL_INTERVAL_SECONDS)
+        stop_event.wait(config.POLL_INTERVAL_SECONDS)
+
+    # Quitting via the tray shouldn't leave a stale card sitting on the profile.
+    if presence_active and rpc is not None:
+        try:
+            rpc.clear()
+        except Exception as e:
+            logger.warning("Failed to clear presence on shutdown: %s", e)
 
 
 if __name__ == "__main__":

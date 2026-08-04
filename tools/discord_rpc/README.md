@@ -28,6 +28,10 @@ All real values live in `.env`, which is already `.gitignore`d -- never committe
 
 ## Notes
 
+- The card shows two buttons: **Join Server** (opens `byond://SERVER_ADDR:SERVER_PORT`, derived automatically -- override with `.env`'s `JOIN_URL`) and **Join Discord** (`DISCORD_INVITE_URL`). Discord allows two buttons maximum, so both slots are used.
+- The bold **"Frontier Station 13"** header is the Discord Application's own registered name. It can't be changed from here and can't be made clickable -- Rich Presence has no field for it. The Join Server button is the clickable route into the server.
+- Discord validates button URLs and may reject non-`http(s)` schemes. If "Join Server" never renders, point `JOIN_URL` at an https page that redirects to the same `byond://` address. See `SETUP_GUIDE.txt` (E).
+- Discord never shows your *own* buttons back to you on your own profile -- ask someone else to check them.
 - Requires the local Discord desktop client to be running (Rich Presence is set over Discord's local IPC, not the web/mobile client).
 - Only queries the unauthenticated `get_serverstatus` endpoint -- no auth token or server-side changes needed.
 - This is a deliberately minimal first pass: no map-name field (would need a one-line server-side addition), no ghost/spectator detection, and no settings GUI yet.

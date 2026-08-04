@@ -41,8 +41,34 @@ requirements.txt" once, then "python main.py" each time.)
 IF YOU WERE GIVEN A SINGLE .exe FILE INSTEAD
 -----------------------------------------------------------------
 
-Just double-click it and leave it running in the background. No
-Python or install step needed -- everything is bundled in.
+Double-click it ONCE. That's the whole install -- no Python, no
+setup, nothing to configure.
+
+After that first run it takes care of itself:
+
+  - It starts automatically with Windows from then on, so you never
+    have to launch it again.
+  - It sits quietly in the background using nothing while you're not
+    playing.
+  - Your Discord status appears on its own when you open the game and
+    disappears on its own when you close it.
+
+You'll see a small eye icon in your system tray (bottom-right of the
+taskbar, possibly under the "^" arrow). RIGHT-CLICK it for:
+
+  Start with Windows            - tick/untick to turn automatic
+                                  startup on or off
+  Turn off and remove
+    from startup                - stops it now AND takes it out of
+                                  Windows startup, in one click
+  Quit (keep startup enabled)   - stops it for now; it'll be back
+                                  next time you log in
+
+Nothing is installed anywhere else on your PC -- the only thing it
+touches is a single Windows "run at login" entry, which you can also
+see and switch off yourself under Task Manager -> Startup (listed as
+FrontierStation13RPC). Deleting the .exe after turning startup off
+removes it completely.
 
 
 -----------------------------------------------------------------
@@ -67,6 +93,8 @@ Nothing shows up on your Discord profile
        running in your browser) and that you're logged into it.
     -> Make sure the tool's window/terminal is still open and running
        -- if you accidentally closed it, it stops working immediately.
+       (.exe version: check for the eye icon in your system tray
+       instead -- if it's gone, run the .exe again.)
 
 It says something like "Could not connect to Discord"
     -> Discord desktop app isn't running (or isn't fully started

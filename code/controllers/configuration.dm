@@ -262,6 +262,9 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 	var/rulesurl
 	var/githuburl
 	var/mainsiteurl
+	/// Download for the optional Discord Rich Presence helper, surfaced by the
+	/// "Discord Rich Presence" OOC verb. Blank hides the verb's action entirely.
+	var/discord_rpc_url
 
 	//Alert level description
 	var/alert_desc_green = "All threats to the ship have passed. Security may not have weapons visible, privacy laws are once again fully enforced."
@@ -663,6 +666,9 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 
 				if ("rulesurl")
 					GLOB.config.rulesurl = value
+
+				if ("discord_rpc_url")
+					GLOB.config.discord_rpc_url = value
 
 				if ("forum_passphrase")
 					GLOB.config.forum_passphrase = value

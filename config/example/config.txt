@@ -258,6 +258,12 @@ GUEST_BAN
 ## Mainsite address
 # MAINSITEURL https://aurorastation.org/
 
+## Download for the optional Discord Rich Presence helper (FrontierRPC.exe),
+## offered by the "Discord Rich Presence" verb under the OOC tab. Players run
+## it once; it then starts with Windows and shows/clears their status on its
+## own whenever the game is open. Leave commented out to disable the verb.
+# DISCORD_RPC_URL https://example.com/FrontierRPC.exe
+
 ## Ban appeals URL - usually for a forum or wherever people should go to contact your admins.
 # BANAPPEALS http://example.com
 

@@ -142,6 +142,47 @@ To stop it, just close the terminal window or press Ctrl+C.
 
 
 -----------------------------------------------------------------
+STEP 8 - Build the .exe you hand to players
+-----------------------------------------------------------------
+
+Everything above is the SOURCE version, for you. Players get a single
+self-contained .exe instead -- no Python, no .env, no folder.
+
+Double-click build.bat. Output: dist\FrontierRPC.exe. Hand players
+that one file and nothing else.
+
+IMPORTANT: build.bat refuses to run without a filled-in .env, because
+SERVER_ADDR/SERVER_PORT are deliberately NOT stored in source (.env is
+gitignored so the address never lands in the repo). The build bakes
+your .env into the .exe, so the player's copy already knows where to
+connect. A .env placed next to the .exe still overrides the baked-in
+one, which is handy for pointing a test build at another server.
+
+What the player's copy does that the source version doesn't:
+
+  - Registers itself to start with Windows on first launch, so they
+    run it once and never think about it again.
+  - Shows an eye icon in the system tray -- right-click for "Start
+    with Windows" (toggle), "Turn off and remove from startup", and
+    "Quit". That tray menu is their only UI, since the build is
+    --noconsole and has no window.
+  - Command-line equivalents exist too: --uninstall removes the
+    startup entry and exits, --no-autostart runs one session without
+    registering.
+
+The startup entry is a single per-user registry value
+(HKCU\Software\Microsoft\Windows\CurrentVersion\Run,
+"FrontierStation13RPC") -- no admin rights, nothing written anywhere
+else, and it also shows up in Task Manager -> Startup.
+
+To let players find it from in-game, set DISCORD_RPC_URL in
+config/config.txt to wherever you host the .exe. That powers the
+"Discord Rich Presence" verb under the OOC tab, which just opens the
+download in their browser. Left unset, the verb tells them nothing is
+configured rather than opening a dead link.
+
+
+-----------------------------------------------------------------
 WHAT'S WHERE (Rich Presence layout map)
 -----------------------------------------------------------------
 
@@ -156,7 +197,7 @@ exactly which file/setting controls each piece of it:
     |  | LARGE  |   Persistence                   <- (A)    |
     |  | IMAGE  |   Players: 1                    <- (B)    |
     |  |   (C)  |                                           |
-    |  +--------+   [ Join Discord ]              <- (E)   |
+    |  +--------+  [ Join Server ] [ Join Discord ] <- (E) |
     +-----------------------------------------------------+
 
     (0) Bold header line -- NOT set by this code at all. This is
@@ -164,6 +205,10 @@ exactly which file/setting controls each piece of it:
         Portal -> General Information -> the name you gave it in
         STEP 3). If you want this to say something different, rename
         the Application itself there, not in main.py or .env.
+        It also can NOT be turned into a clickable link -- Rich
+        Presence has no field for it and Discord renders it as plain
+        text. To give people a one-click way into the server, use the
+        "Join Server" button in (E) instead.
 
     (A) "details" line
         - Where: main.py, _build_presence(), the "details" key.
@@ -204,16 +249,26 @@ exactly which file/setting controls each piece of it:
         - Hover tooltip for it: .env's SMALL_IMAGE_TEXT -- plain text,
           no Developer Portal step, change anytime.
 
-    (E) "Join Discord" button
+    (E) Buttons -- "Join Server" and "Join Discord"
         - Where: main.py, _build_presence(), the "buttons" key.
-        - Only appears if .env's DISCORD_INVITE_URL is set -- leave it
-          blank for no button. Up to 2 buttons are supported by
-          Discord; this tool only uses one.
+        - Discord supports at most 2 buttons; both slots are now used.
+        - "Join Server" opens the game directly. Its address comes
+          from .env's JOIN_URL, which DEFAULTS to
+          byond://SERVER_ADDR:SERVER_PORT -- so it works with no
+          extra setup. JOIN_BUTTON_LABEL renames it.
+        - "Join Discord" only appears if .env's DISCORD_INVITE_URL is
+          set -- leave it blank for no button.
+        - IF "Join Server" NEVER APPEARS: Discord validates button
+          URLs and can refuse a non-http(s) scheme like byond://.
+          Work around it by hosting a tiny https page that forwards
+          to the same address --
+              <script>location.replace("byond://ADDR:PORT")</script>
+          -- and set JOIN_URL to that page's https URL instead.
         - IMPORTANT: Discord never shows your own buttons back to you
           on your own profile card -- only other people viewing your
-          profile see it and can click it. Don't be alarmed if you
-          don't see it yourself while testing; ask someone else to
-          check, or trust that it's there.
+          profile see them and can click them. Don't be alarmed if you
+          don't see them yourself while testing; ask someone else to
+          check, or trust that they're there.
 
     Not currently used (a future addition, not part of this pass):
         - Party size / elapsed time counters (Discord can show

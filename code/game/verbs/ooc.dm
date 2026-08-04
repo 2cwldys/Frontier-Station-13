@@ -175,6 +175,27 @@
 
 	mob << sound(null)
 
+/// In-game delivery point for the Discord Rich Presence helper. BYOND can't
+/// launch anything on a player's machine (all DM runs server-side; the client
+/// API only exposes link()/browse()/Export(), none of which execute), so the
+/// game can't install this for them -- link() handing them the download is as
+/// close as the platform allows. The tool itself is install-once: it registers
+/// for run-at-login and then shows/clears presence on its own by watching for
+/// the game window, so this verb is only ever needed a single time.
+/client/verb/discord_rich_presence()
+	set name = "Discord Rich Presence"
+	set desc = "Get the optional tool that shows your Frontier Station 13 status on your Discord profile."
+	set category = "OOC"
+
+	if(!GLOB.config.discord_rpc_url)
+		to_chat(src, SPAN_WARNING("No Rich Presence download has been configured for this server."))
+		return
+
+	to_chat(src, SPAN_NOTICE("Opening the Discord Rich Presence download in your browser. \
+		You only need to run it once -- after that it starts with Windows and shows your \
+		status automatically whenever you're playing."))
+	src << link(GLOB.config.discord_rpc_url)
+
 /client/verb/rolldice()
 	set name = "Roll the Dice!"
 	set desc = "Rolls the Dice of your choice!"
