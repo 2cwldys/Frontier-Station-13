@@ -970,15 +970,25 @@
 	// Both hands empty. Prefer the weapon this soldier was actually issued,
 	// and only if it's genuinely lying loose -- isturf() rules out one that's
 	// been picked up by someone else or stuffed in a bag.
+	//
+	// A gun that can't fire and can't be reloaded is skipped in both passes
+	// below -- that's what stops a soldier from instantly retrieving the dry
+	// weapon it just deliberately discarded (AttackTarget()) and looping on
+	// it forever. It's a live check rather than a remembered blacklist, so it
+	// needs no cleanup and self-corrects: if that gun is reloaded and dropped
+	// again, it becomes worth picking up again.
 	var/obj/item/recover_target
 	if(primary_weapon && !QDELETED(primary_weapon) && isturf(primary_weapon.loc) \
-		&& primary_weapon.z == z && get_dist(src, primary_weapon) <= 3)
+		&& primary_weapon.z == z && get_dist(src, primary_weapon) <= 3 \
+		&& (!istype(primary_weapon, /obj/item/gun) || _gun_has_shots(primary_weapon)))
 		recover_target = primary_weapon
 	else
 		// Fallback for a disarm that flung the gun clear, or an issued weapon
 		// that's been destroyed -- anything immediately underfoot/adjacent.
 		for(var/obj/item/gun/G in range(1, src))
 			if(!isturf(G.loc))
+				continue
+			if(!_gun_has_shots(G))
 				continue
 			recover_target = G
 			break
@@ -1004,6 +1014,49 @@
 		return FALSE
 	return I.force >= HOSTILE_NPC_MIN_DRAWN_WEAPON_FORCE
 
+/// TRUE if G can actually put rounds downrange -- either it's loaded right
+/// now, or it can genuinely be brought back by this soldier on its own.
+///
+/// "Dry" doesn't mean the same thing for every weapon, so each type is asked
+/// its own question:
+///
+///  - Projectile: is there a compatible loaded magazine anywhere in its gear?
+///    Uses find_spare_magazine(), the same lookup the reload path itself
+///    uses, so "can't shoot" here means exactly "can't reload" there.
+///  - Energy: can it actually recharge WHERE IT IS? A self-recharging gun is
+///    only temporarily dry and worth waiting on, but one that can't recharge
+///    is dead for good to an NPC -- nothing in the AI swaps power cells or
+///    goes looking for a recharger.
+/mob/living/carbon/human/npc/hostile/proc/_gun_has_shots(obj/item/gun/G)
+	if(!istype(G))
+		return FALSE
+	if(G.get_ammo() > 0)
+		return TRUE
+	if(istype(G, /obj/item/gun/projectile))
+		return !!find_spare_magazine(G)
+	if(istype(G, /obj/item/gun/energy))
+		return _energy_gun_can_recharge(G)
+	return TRUE // unknown gun type -- assume it's still good rather than bin it
+
+/// Mirrors try_recharge()'s own gating (projectiles/guns/energy.dm) rather
+/// than reinventing it, so this can't drift from what the gun will actually
+/// do: it needs a cell, needs self_recharge, and when use_external_power is
+/// set it needs an external supply that actually resolves.
+///
+/// That last one matters for NPCs specifically --
+/// get_external_power_supply() only ever resolves for a borg, a rig module
+/// or a recharger, never a weapon held in a human's hand. So an
+/// external-power gun carried by a soldier can never come back, and is
+/// correctly treated as spent.
+/mob/living/carbon/human/npc/hostile/proc/_energy_gun_can_recharge(obj/item/gun/energy/EG)
+	if(!istype(EG))
+		return FALSE
+	if(!EG.power_supply || !EG.self_recharge)
+		return FALSE
+	if(EG.use_external_power && !EG.get_external_power_supply())
+		return FALSE
+	return TRUE
+
 /// Last-resort re-arm: pulls the best weapon this soldier is STILL CARRYING
 /// out of its own gear once its issued weapon is gone for good (taken by
 /// whoever disarmed it, destroyed, or thrown out of reach). Sweeps the same
@@ -1014,8 +1067,17 @@
 /// damage by shooting, not by being swung), so guns win outright; melee is
 /// picked by highest force among the rest. Without this a disarmed soldier
 /// throws punches with a perfectly good knife still on its belt.
-/mob/living/carbon/human/npc/hostile/proc/draw_stowed_weapon()
+/// Selection half of draw_stowed_weapon(), split out so callers can ask
+/// "is there anything better than what I'm holding?" without committing to
+/// the swap (see AttackTarget()'s dry-gun branch).
+///
+/// Ranking: a gun that can actually fire beats melee, melee beats a gun with
+/// no shots left. That last part matters -- a dry stowed pistol used to win
+/// outright over a perfectly good knife purely for being a gun, so a soldier
+/// would "re-arm" into something it couldn't shoot.
+/mob/living/carbon/human/npc/hostile/proc/_find_stowed_weapon()
 	var/obj/item/best_gun
+	var/obj/item/best_dry_gun
 	var/obj/item/best_melee
 	for(var/obj/item/holder in list(back, belt, s_store, l_store, r_store))
 		if(!holder)
@@ -1026,15 +1088,21 @@
 			candidates += S.contents
 		for(var/obj/item/I in candidates)
 			if(istype(I, /obj/item/gun))
-				if(!best_gun)
-					best_gun = I
+				if(_gun_has_shots(I))
+					if(!best_gun)
+						best_gun = I
+				else if(!best_dry_gun)
+					best_dry_gun = I
 				continue
 			if(!_is_drawable_weapon(I))
 				continue
 			if(!best_melee || I.force > best_melee.force)
 				best_melee = I
 
-	var/obj/item/drawing = best_gun || best_melee
+	return best_gun || best_melee || best_dry_gun
+
+/mob/living/carbon/human/npc/hostile/proc/draw_stowed_weapon()
+	var/obj/item/drawing = _find_stowed_weapon()
 	if(!drawing)
 		return FALSE
 	// Drop-then-take rather than a raw slot move: if put_in_active_hand()
@@ -1236,13 +1304,38 @@
 			change_stance(HOSTILE_STANCE_ATTACK)
 			return FALSE
 		var/obj/item/gun/G = W
-		if(istype(G, /obj/item/gun/projectile) && G.get_ammo() <= 0)
-			var/obj/item/gun/projectile/GP = G
-			var/obj/item/ammo_magazine/spare = find_spare_magazine(GP)
-			if(spare)
-				if(GP.ammo_magazine)
-					GP.unload_ammo(src, TRUE, TRUE)
-				GP.load_ammo(spare, src)
+		// Any dry gun, not just a projectile one -- this branch used to be
+		// gated on /obj/item/gun/projectile, so an energy weapon at zero
+		// charge never reached it and could never be dealt with at all.
+		if(G.get_ammo() <= 0)
+			var/reloaded = FALSE
+			if(istype(G, /obj/item/gun/projectile))
+				var/obj/item/gun/projectile/GP = G
+				var/obj/item/ammo_magazine/spare = find_spare_magazine(GP)
+				if(spare)
+					if(GP.ammo_magazine)
+						GP.unload_ammo(src, TRUE, TRUE)
+					GP.load_ammo(spare, src)
+					reloaded = TRUE
+
+			// Ditch a weapon that genuinely can't come back, so the soldier
+			// falls through to something that still works.
+			//
+			// Gated on !reloaded first so a successful reload always wins
+			// outright -- it short-circuits before _gun_has_shots() is even
+			// consulted, rather than depending on get_ammo() having already
+			// updated from the load above.
+			//
+			// Only discards if there IS something better: a spent gun still
+			// swings for its own `force`, which beats bare fists, so a soldier
+			// carrying nothing else keeps it and pistol-whips instead.
+			//
+			// The drop is all that happens here -- think()'s existing
+			// try_recover_weapon() re-arms on the next tick through the normal
+			// path, and skips this gun now that _gun_has_shots() rejects it.
+			if(!reloaded && !_gun_has_shots(G) && _find_stowed_weapon())
+				visible_message(SPAN_WARNING("[src] discards \the [G]!"))
+				drop_from_inventory(G, get_turf(src))
 			hostile_last_attack = world.time
 			return TRUE
 		if(is_friendly_fire_blocked(last_found_target))
