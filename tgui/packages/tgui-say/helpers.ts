@@ -7,6 +7,14 @@ import { RADIO_PREFIXES, WindowSize } from './constants';
  */
 export function windowOpen(channel: Channel, scale: boolean): void {
   setWindowVisibility(true, scale);
+  // Hand keyboard focus to the browser control, mirroring the handoff back to
+  // 'map' in windowClose(). Without this the skin keeps focus wherever it was
+  // (the map, in practice), so the textarea .focus() in handleOpen() applies
+  // only inside the browser document and the user's keystrokes never reach it
+  // until they physically click the box.
+  Byond.winset('tgui_say.browser', {
+    focus: true,
+  });
   Byond.sendMessage('open', { channel });
 }
 

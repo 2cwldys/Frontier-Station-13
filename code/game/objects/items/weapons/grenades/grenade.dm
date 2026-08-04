@@ -17,6 +17,11 @@
 	var/active = 0
 	var/det_time = 30
 	var/fake = FALSE
+	/// Whether priming this counts as a HIGHSEC OFFENSE (Hub security alert +
+	/// First Responder ping). Clear it on grenades that are tools rather than
+	/// weapons -- a janitor foaming down a corridor is not committing a crime.
+	/// Admins still get the attack-log line either way; only the escalation stops.
+	var/causes_highsec_offense = TRUE
 	var/activation_sound = 'sound/weapons/armbomb.ogg'
 	pickup_sound = 'sound/items/pickup/grenade.ogg'
 	drop_sound = 'sound/items/drop/grenade.ogg'
@@ -75,7 +80,7 @@
 	if(user) //Prevents runtimes with grenade launchers, which create their own admin message
 		if(ismob(user))
 			var/mob/M = user
-			admin_attack_log(M, attacker_message = "primed \a [fake ? (" fake") : ("")][src]!", admin_message = "primed \a [fake ? ("fake ") : ("")][src]!")
+			admin_attack_log(M, attacker_message = "primed \a [fake ? (" fake") : ("")][src]!", admin_message = "primed \a [fake ? ("fake ") : ("")][src]!", highsec_offense = causes_highsec_offense)
 		else
 			message_admins("[user.name] primed \a [fake ? ("fake ") : ("")][src] (<A href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[user.x];Y=[user.y];Z=[user.z]'>JMP</a>)")
 

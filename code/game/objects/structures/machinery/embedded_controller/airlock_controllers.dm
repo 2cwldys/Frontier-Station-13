@@ -180,6 +180,16 @@
 					to_chat(user, SPAN_NOTICE("You wire \the [src]."))
 					buildstage = 2
 					update_icon()
+					// Player-built cyclers were never registered for position/
+					// existence tracking (objectsRegisterTrack()), unlike
+					// cryopods/telepads -- so a saved worldstate row (tags,
+					// frequency, buildstage) had nothing to apply itself to on
+					// the next boot and the whole controller had to be rebuilt
+					// and relinked from scratch. This is the only place a
+					// player-built controller ever reaches buildstage 2 --
+					// mapped-in ones start there directly and never hit this.
+					if(GLOB.config.sql_enabled && GLOB.persistence_ready)
+						SSpersistence.objectsRegisterTrack(src)
 				else
 					to_chat(user, SPAN_WARNING("You need 5 pieces of cable to wire \the [src]."))
 				return TRUE

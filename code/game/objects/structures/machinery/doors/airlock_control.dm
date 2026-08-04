@@ -290,6 +290,13 @@
 					to_chat(user, SPAN_NOTICE("You wire \the [src]."))
 					buildstage = 2
 					update_icon()
+					// See the matching comment on airlock_controller's own
+					// buildstage=2 branch (airlock_controllers.dm) -- player-
+					// built sensors were never tracked for position/existence
+					// persistence either, so a saved link had nothing to
+					// reattach to after a reboot.
+					if(GLOB.config.sql_enabled && GLOB.persistence_ready)
+						SSpersistence.objectsRegisterTrack(src)
 				else
 					to_chat(user, SPAN_WARNING("You need 5 pieces of cable to wire \the [src]."))
 				return TRUE
@@ -564,6 +571,13 @@
 					to_chat(user, SPAN_NOTICE("You wire \the [src]."))
 					buildstage = 2
 					update_icon()
+					// See the matching comment on airlock_controller's own
+					// buildstage=2 branch (airlock_controllers.dm) -- player-
+					// built buttons were never tracked for position/existence
+					// persistence either, so a saved link had nothing to
+					// reattach to after a reboot.
+					if(GLOB.config.sql_enabled && GLOB.persistence_ready)
+						SSpersistence.objectsRegisterTrack(src)
 				else
 					to_chat(user, SPAN_WARNING("You need 5 pieces of cable to wire \the [src]."))
 				return TRUE

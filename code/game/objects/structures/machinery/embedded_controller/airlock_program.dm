@@ -247,7 +247,33 @@
 	if(V.welded)
 		faults += "WELDED"
 	if(!V.node)
-		faults += "NO PIPE"
+		// Say exactly what atmos_init() sees at the one tile it's allowed to
+		// look at (get_step(V, V.dir)), instead of just "NO PIPE" -- that
+		// boolean alone can't distinguish "nothing there", "something there
+		// but it's not an atmos object", "found it but wrong connect_types",
+		// and "found it but its initialize_directions doesn't include the
+		// direction back to this pump" (e.g. a manifold rotated so its one
+		// closed side -- the direction matching ITS OWN dir -- happens to be
+		// the side facing this pump).
+		var/turf/probe_turf = get_step(V, V.dir)
+		var/list/probe_lines = list()
+		if(!probe_turf)
+			probe_lines += "off the map"
+		else
+			var/found_any = FALSE
+			for(var/obj/structure/machinery/atmospherics/candidate in probe_turf)
+				found_any = TRUE
+				var/back_dir = get_dir(candidate, V)
+				var/dir_ok = candidate.initialize_directions & back_dir
+				var/type_ok = candidate.connect_types & V.connect_types
+				var/list/init_dir_names = list()
+				for(var/bit in list(NORTH, SOUTH, EAST, WEST))
+					if(candidate.initialize_directions & bit)
+						init_dir_names += dir2text(bit)
+				probe_lines += "[candidate.type] own_dir=[dir2text(candidate.dir)] init_dirs=[jointext(init_dir_names, "|")] need_dir=[dir2text(back_dir)] dir_match=[dir_ok ? "yes" : "NO"] type_match=[type_ok ? "yes" : "NO"] (candidate.connect_types=[candidate.connect_types] vs V.connect_types=[V.connect_types])"
+			if(!found_any)
+				probe_lines += "nothing at ([probe_turf.x],[probe_turf.y],[probe_turf.z]) -- empty tile, no atmos object of any kind"
+		faults += "NO PIPE (facing [dir2text(V.dir)], checked ([probe_turf ? "[probe_turf.x],[probe_turf.y],[probe_turf.z]" : "n/a"]): [jointext(probe_lines, " || ")])"
 	if(!V.use_power)
 		faults += "not running"
 	// Report the pump's live settings alongside any faults -- "off"/"ready"
@@ -573,10 +599,27 @@
 /// cycle instead of staying dead until someone manually relinks it --
 /// atmos_init() itself already no-ops instantly once node is set, so this
 /// costs nothing once the pump is actually working.
+///
+/// Also re-derives the pump's NOPOWER stat bit the same way. That bit is a
+/// cache that only updates in response to specific events (area power
+/// broadcasts, or power_change() being called directly) -- restoring a
+/// pump's saved worldstate_vars after a reboot copies the var values
+/// straight across but never re-triggers those side effects, so a pump
+/// that gets recreated before its area's own power state has settled can
+/// come back permanently stuck reporting NOPOWER even once the area is
+/// genuinely fine, with nothing to ever correct it short of a manual
+/// relink (which happens to call power_change() itself). Checking it here
+/// closes that gap the same way as the pipe rescan above -- power_change()
+/// itself is cheap and a no-op whenever the cached bit already matches
+/// reality.
 /datum/computer/file/embedded_program/airlock/proc/_ensure_pump_piped(obj/structure/machinery/atmospherics/unary/vent_pump/V)
-	if(V && !V.node)
+	if(!V)
+		return V
+	if(!V.node)
 		V.atmos_init()
 		V.build_network()
+	if(V.stat & NOPOWER)
+		V.power_change()
 	return V
 
 /// Issues the same command to EVERY linked chamber vent pump. A chamber with

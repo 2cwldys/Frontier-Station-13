@@ -51,7 +51,10 @@
 	if(stage > 1 && !active && clown_check(user))
 		to_chat(user, SPAN_WARNING("You prime \the [name]!"))
 
-		msg_admin_attack("[user.name] ([user.ckey]) primed \a [src]. (<A href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[user.x];Y=[user.y];Z=[user.z]'>JMP</a>)",ckey=key_name(user))
+		// Chem grenades prime through here rather than /obj/item/grenade/activate(),
+		// because the activate() override below does not call ..() -- so the opt-out
+		// has to be passed on this call too, not just the parent's admin_attack_log().
+		msg_admin_attack("[user.name] ([user.ckey]) primed \a [src]. (<A href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[user.x];Y=[user.y];Z=[user.z]'>JMP</a>)",ckey=key_name(user),highsec_offense=causes_highsec_offense)
 
 		activate()
 		add_fingerprint(user)
@@ -296,6 +299,9 @@
 	desc = "BLAM!-brand foaming space cleaner. In a special applicator for rapid cleaning of wide areas."
 	stage = 2
 	path = 1
+	// Janitorial equipment, not a weapon -- surfactant, water and space cleaner.
+	// Popping one to foam down a corridor should not summon Hub security.
+	causes_highsec_offense = FALSE
 
 /obj/item/grenade/chem_grenade/cleaner/Initialize()
 	. = ..()

@@ -41,10 +41,6 @@
 
 	/// Basic module status
 	var/active
-	/// Set when a restored module was saved in an active state. Not persisted itself --
-	/// see persistent_objects_apply_content(). /obj/item/rig/process() consumes this and
-	/// replays activate() once the suit is actually worn, sealed and powered.
-	var/restore_active_pending = FALSE
 	/// Will deactivate if some other powers are used.
 	var/disruptable
 	/// Will deactivate if user attacks
@@ -183,10 +179,15 @@
 /// Per-module state carried across a save/load cycle. Reached generically through
 /// serializePersistentItem()'s "obj_content" passthrough, which now recurses into
 /// every entry of a rig's installed_modules.
+///
+/// Deliberately scalar-only. Whether a module was switched ON is NOT persisted:
+/// restoring it would mean replaying activate(), which gates on a sealed suit with a
+/// conscious wearer (check_can_use) and whose subtype overrides dereference
+/// holder.wearer unguarded -- none of which holds for a retracted rig on a mob that is
+/// still being built. Modules come back installed and idle; the player switches them on.
 /obj/item/rig_module/persistent_objects_get_content()
 	. = ..()
 	.["module_damage"] = damage
-	.["module_active"] = active
 	if(charge_selected)
 		.["module_charge_selected"] = charge_selected
 	// New() rewrites the type-level list-of-lists into an assoc of
@@ -216,12 +217,6 @@
 			var/datum/rig_charge/charge_dat = LAZYACCESS(charges, charge_key)
 			if(istype(charge_dat))
 				charge_dat.charges = max(0, text2num("[charge_counts[charge_key]]"))
-	// Deliberately not setting `active` here. activate() gates on a sealed suit and a
-	// conscious wearer, and several overrides dereference holder.wearer unguarded --
-	// neither is true of a retracted rig on a mob that is still being built. Flag it
-	// instead and let /obj/item/rig/process() replay it the moment the suit is sealed.
-	if(content["module_active"])
-		restore_active_pending = TRUE
 
 /obj/item/rig_module/proc/do_engage(atom/target, mob/living/carbon/human/user)
 	. = engage(target, user)

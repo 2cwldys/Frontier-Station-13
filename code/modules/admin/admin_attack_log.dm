@@ -17,7 +17,16 @@
 	log_admin("[english_list(user_keys)] [message]")
 	message_admins("[english_list(user_keys)] [message]")
 
-/proc/admin_attack_log(var/mob/attacker, var/mob/victim, var/attacker_message, var/victim_message, var/admin_message)
+/**
+ * Log a harmful action to both parties' attack logs and admin chat, and -- in a
+ * highsec zone -- escalate it to a HIGHSEC OFFENSE.
+ *
+ * highsec_offense: pass FALSE for actions that are logged for admin visibility but
+ * are not crimes (priming a cleaner grenade, for instance). The attack-log entries
+ * and admin chatter still happen; only the Hub security alert and First Responder
+ * ping are suppressed.
+ */
+/proc/admin_attack_log(var/mob/attacker, var/mob/victim, var/attacker_message, var/victim_message, var/admin_message, var/highsec_offense = TRUE)
 	var/jmp_link = ""
 	if(victim)
 		victim.attack_log +="\[[time_stamp()]\] <font color='orange'>[key_name(attacker)] - [victim_message]</font>"
@@ -31,7 +40,10 @@
 	// Highsec zones: combat is outlawed -- escalate unconditionally (bypasses
 	// the per-admin attack-log toggle) and feed the First Responder offense
 	// list. Hub-faction security personnel are exempt (they ARE the law).
-	if(zone_security_get(attacker ? attacker.z : 0) == ZONE_HIGHSEC || zone_security_get(victim ? victim.z : 0) == ZONE_HIGHSEC)
+	// Callers that log a non-criminal action opt out via highsec_offense = FALSE;
+	// msg_admin_attack() above was already told offense_recorded = TRUE, so it
+	// will not pick the escalation back up on its own.
+	if(highsec_offense && (zone_security_get(attacker ? attacker.z : 0) == ZONE_HIGHSEC || zone_security_get(victim ? victim.z : 0) == ZONE_HIGHSEC))
 		// Self-harm is not an offense -- it must not summon security.
 		// Non-player mobs (wildlife, NPCs) can't be prosecuted and shouldn't
 		// summon a response -- both sides must be actual player characters.

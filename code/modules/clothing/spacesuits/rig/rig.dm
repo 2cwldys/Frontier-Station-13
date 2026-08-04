@@ -218,50 +218,6 @@
 	set_vision(!offline)
 	update_icon(1)
 
-/// Suit configuration that survives a save/load cycle. The physical hardware --
-/// pieces, modules, air tank, cell -- is carried by serializePersistentItem()'s
-/// dedicated rig branch, because it has to recurse into whole objects. What is left
-/// here is plain scalar state, which the generic persistent_objects_* extension pair
-/// (game/objects/objs.dm) already handles: serializePersistentItem() stores whatever
-/// this returns under "obj_content" for every caller of it, so a rig restored from a
-/// suit storage unit or off the floor keeps its configuration too, not just one
-/// restored out of a character's inventory.
-/obj/item/rig/persistent_objects_get_content()
-	. = ..()
-	.["rig_open"] = open
-	.["rig_locked"] = locked
-	.["rig_interface_locked"] = interface_locked
-	.["rig_security_check"] = security_check_enabled
-	.["rig_subverted"] = subverted
-	.["rig_malfunctioning"] = malfunctioning
-	.["rig_ai_override_enabled"] = ai_override_enabled
-	.["rig_control_overridden"] = control_overridden
-	if(dnaLock)
-		.["rig_dna_lock"] = dnaLock
-
-/obj/item/rig/persistent_objects_apply_content(content, x, y, z)
-	..()
-	if(!islist(content))
-		return
-	if(!isnull(content["rig_open"]))
-		open = !!content["rig_open"]
-	if(!isnull(content["rig_locked"]))
-		locked = !!content["rig_locked"]
-	if(!isnull(content["rig_interface_locked"]))
-		interface_locked = !!content["rig_interface_locked"]
-	if(!isnull(content["rig_security_check"]))
-		security_check_enabled = !!content["rig_security_check"]
-	if(!isnull(content["rig_subverted"]))
-		subverted = text2num("[content["rig_subverted"]]") || 0
-	if(!isnull(content["rig_malfunctioning"]))
-		malfunctioning = text2num("[content["rig_malfunctioning"]]") || 0
-	if(!isnull(content["rig_ai_override_enabled"]))
-		ai_override_enabled = !!content["rig_ai_override_enabled"]
-	if(!isnull(content["rig_control_overridden"]))
-		control_overridden = !!content["rig_control_overridden"]
-	if(!isnull(content["rig_dna_lock"]))
-		dnaLock = content["rig_dna_lock"]
-
 /// Sets the icon adaptation and species supported tags equal to parent, can be overriden for custom functionality
 /obj/item/rig/proc/set_piece_adaptation(var/obj/item/clothing/piece)
 	piece.icon_auto_adapt = TRUE
@@ -555,19 +511,6 @@
 	else if(malfunctioning)
 		malfunctioning--
 		malfunction()
-
-	// Replay the active state of modules restored from the database. This cannot be
-	// done at restore time: activate() runs check_can_use(), which demands a sealed
-	// suit (!canremove) on a conscious, upright wearer with power to spare, and
-	// several module overrides dereference holder.wearer without a null check. None
-	// of that holds for a retracted rig on a mob that is still spawning. Reaching
-	// this point means the suit is online, which per the offline test above means it
-	// is worn, sealed and powered -- exactly the state activate() expects.
-	for(var/obj/item/rig_module/module in installed_modules)
-		if(!module.restore_active_pending)
-			continue
-		module.restore_active_pending = FALSE
-		module.activate(wearer)
 
 	for(var/obj/item/rig_module/module in installed_modules)
 		power_usage_this_tick += module.process()
