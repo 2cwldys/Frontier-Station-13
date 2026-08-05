@@ -53,6 +53,7 @@ GLOBAL_VAR_INIT(persistence_join_whitelist_enabled, TRUE)
 /// Sets + persists whether the join whitelist is enforced at all.
 /datum/controller/subsystem/persistence/proc/setJoinWhitelistEnabled(enabled)
 	GLOB.persistence_join_whitelist_enabled = enabled
+	SSstatistics.update_status()
 	if(!databaseCheckConnection("setJoinWhitelistEnabled"))
 		return
 	var/datum/db_query/q = SSdbcore.NewQuery(

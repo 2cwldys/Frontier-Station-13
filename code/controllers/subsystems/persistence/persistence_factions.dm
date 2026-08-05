@@ -774,6 +774,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 
 /datum/controller/subsystem/persistence/proc/setFactionRaidingEnabled(enabled)
 	GLOB.faction_raiding_enabled = enabled
+	SSstatistics.update_status()
 	if(!databaseCheckConnection("setFactionRaidingEnabled"))
 		return
 	var/datum/db_query/q = SSdbcore.NewQuery(

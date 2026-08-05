@@ -49,6 +49,13 @@
 // hardcoded by uid, without actually making it Hub.
 #define FACTION_CARGO_CATEGORY_ALL "*all*"
 
+// If defined, world.visibility is toggled off then back on ~4 seconds after
+// the persistence world-ready gate finishes (persistence_world_ready.dm) --
+// works around BYOND's hub-announce apparently needing an explicit runtime
+// change to world.visibility rather than firing off its already-TRUE default
+// at boot. Defined by default -- comment out to disable the workaround.
+#define REPUBLISH_HUB_VISIBILITY_ON_BOOT
+
 // If defined, two factions can become allied via a Faction Management
 // propose/accept handshake -- either side can break it anytime. Allied
 // factions can access each other's station under the faction raiding gate,

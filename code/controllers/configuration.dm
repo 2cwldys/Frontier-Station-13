@@ -265,6 +265,11 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 	/// Download for the optional Discord Rich Presence helper, surfaced by the
 	/// "Discord Rich Presence" OOC verb. Blank hides the verb's action entirely.
 	var/discord_rpc_url
+	/// Discord invite link. When set, the whole BYOND hub status block becomes
+	/// a hyperlink to this instead of rendering as plain text.
+	var/discord_invite_url
+	/// One-line tagline shown under the server name on the BYOND hub status.
+	var/hub_tagline
 
 	//Alert level description
 	var/alert_desc_green = "All threats to the ship have passed. Security may not have weapons visible, privacy laws are once again fully enforced."
@@ -669,6 +674,12 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 
 				if ("discord_rpc_url")
 					GLOB.config.discord_rpc_url = value
+
+				if ("discord_invite_url")
+					GLOB.config.discord_invite_url = value
+
+				if ("hub_tagline")
+					GLOB.config.hub_tagline = value
 
 				if ("forum_passphrase")
 					GLOB.config.forum_passphrase = value

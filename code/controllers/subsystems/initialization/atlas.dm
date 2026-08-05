@@ -357,7 +357,7 @@ SUBSYSTEM_DEF(atlas)
 
 	var/sname
 	if (GLOB.config && GLOB.config.server_name)
-		sname = "[GLOB.config.server_name]: [.]"
+		sname = GLOB.config.server_name
 	else
 		sname = .
 

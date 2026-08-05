@@ -1,6 +1,6 @@
 ﻿## Server name: This appears at the top of the screen in-game. In this case it will read "tgstation: station_name" where station_name is the randomly generated name of the station for the round. Remove the # infront of SERVERNAME and replace 'tgstation' with the name of your choice
 # SERVERNAME spacestation13
-SERVERNAME aurorapersistence
+SERVERNAME Frontier Station 13
 
 ## Alert levels
 ALERT_GREEN All threats to the ship have passed. Security may not have weapons visible, privacy laws are once again fully enforced.
@@ -229,7 +229,9 @@ ALLOW_INTIMATE_INTERACTIONS
 # DONT_DEL_NEWMOB
 
 ## set a hosted by name for unix platforms
-HOSTEDBY yournamehere
+## Uncomment and set a real name to publish "hosted by <name>" on the BYOND hub listing.
+## Left commented so the placeholder is not shown publicly.
+# HOSTEDBY yournamehere
 
 ## Set to jobban "Guest-" accounts from Captain, HoS, HoP, CE, RD, CMO, Warden, Security, Detective, and AI positions.
 ## Set to 1 to jobban them from those positions, set to 0 to allow them.
@@ -249,6 +251,12 @@ GUEST_BAN
 
 ## The passphrase for the forums
 # FORUM_PASSPHRASE
+
+## Discord invite link -- the whole hub status block becomes a hyperlink to this
+DISCORD_INVITE_URL https://discord.gg/58tEbcCkUP
+
+## One-line tagline shown under the server name on the hub
+HUB_TAGLINE A fully persistent fork of Aurora.3, featuring a wartorn phoron-dense frontier!
 
 ## Wiki address
 # WIKIURL http://example.com
