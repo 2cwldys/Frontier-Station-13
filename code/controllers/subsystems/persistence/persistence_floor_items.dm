@@ -112,9 +112,20 @@
 
 	var/obj/item/I
 	try
-		var/extra_str = data["extra"]
-		if(extra_str && istext(extra_str) && length(extra_str) > 2 && extra_str != "null")
-			var/list/item_tree = json_decode(extra_str)
+		// extra is a JSON-typed column -- rust-g's driver auto-decodes it into
+		// a native list on read, NOT text, unlike every other TEXT/MEDIUMTEXT
+		// column this codebase reads. istext() alone used to gate this and was
+		// therefore always FALSE, silently discarding every saved item's state
+		// (contents, faction tag/color, everything) on every single restore.
+		// Accept whichever shape actually comes back.
+		var/extra_raw = data["extra"]
+		var/list/item_tree
+		if(islist(extra_raw))
+			item_tree = extra_raw
+		else if(extra_raw && istext(extra_raw) && length(extra_raw) > 2 && extra_raw != "null")
+			item_tree = json_decode(extra_raw)
+
+		if(item_tree)
 			I = deserializePersistentItem(item_tree, T)
 #ifdef PERSISTENCE_FLOOR_ITEM_DEBUG
 			if(istype(I, /obj/item/clothing))
@@ -127,10 +138,10 @@
 				I = new path(T)
 #ifdef PERSISTENCE_FLOOR_ITEM_DEBUG
 				if(ispath(path, /obj/item/clothing))
-					log_subsystem_persistence_info("FloorItemDebug: restored '[data["type"]]' with NO extra blob -- spawned stateless, any faction tag/colour is gone. extra was: [isnull(data["extra"]) ? "NULL" : "'[data["extra"]]'"]")
+					log_subsystem_persistence_info("FloorItemDebug: restored '[data["type"]]' with NO extra blob -- spawned stateless, any faction tag/colour is gone. extra was: [isnull(extra_raw) ? "NULL" : (islist(extra_raw) ? "empty/invalid list" : "'[extra_raw]'")]")
 #endif
 	catch(var/exception/floor_e)
-		log_subsystem_persistence_error("Floor items: Failed to restore [data["type"]] at ([data["x"]],[data["y"]],[data["z"]]): [floor_e] -- extra was: [isnull(data["extra"]) ? "NULL" : "'[data["extra"]]'"]")
+		log_subsystem_persistence_error("Floor items: Failed to restore [data["type"]] at ([data["x"]],[data["y"]],[data["z"]]): [floor_e]")
 		return 0
 
 	if(!I || QDELETED(I))
