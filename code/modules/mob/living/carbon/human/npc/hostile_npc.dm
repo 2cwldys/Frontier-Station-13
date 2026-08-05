@@ -621,17 +621,16 @@
 	if(is_same_hostile_npc_pack(L))
 		return TRUE
 	if(is_same_persistence_faction(L))
-		// Same-faction hostile_npc soldiers stay unconditionally friendly to
-		// each other -- they have no job/rank concept, and this is what
-		// stops the faction's own troops from fighting one another. Only a
-		// real player's rank matters below: Civilian (no job) isn't shielded
-		// from retaliation for disarming/grabbing/attacking/stripping a
-		// same-faction NPC; holding any actual job (including a custom
-		// faction-made one) still is, exactly as before.
+		// Same-faction (or allied-faction) hostile_npc soldiers stay
+		// unconditionally friendly to each other -- they have no job/rank
+		// concept, and this is what stops the faction's own troops from
+		// fighting one another. Only a real player's job matters below:
+		// Civilian (no job at all) isn't shielded from retaliation for
+		// disarming/grabbing/attacking/stripping a same-faction NPC; holding
+		// any actual job (including a custom faction-made one) still is.
 		if(istype(L, /mob/living/carbon/human/npc/hostile))
 			return TRUE
-		var/target_uid = get_living_persistence_faction_uid(L)
-		return get_effective_faction_rank(L, target_uid) > 0
+		return ishuman(L) && human_holds_any_job(L)
 	return FALSE
 
 /// ignore_friendliness lets an explicit click-to-attack order
@@ -659,10 +658,9 @@
 /// order) then layers on guards an order still has to respect: never your
 /// own commander, never another of your own faction's/pack's hostile_npc
 /// soldiers (no forced fratricide), and never a real (player) member of
-/// your own or an allied faction who holds an actual job above the base
-/// Civilian tier (get_effective_faction_rank() rank > 0 -- the same
-/// "above base/Civilian rank" threshold airlock.dm/RFD.dm already use for
-/// this exact wording elsewhere).
+/// your own or an allied faction who holds any actual job
+/// (human_holds_any_job() -- a real station job or a custom
+/// faction-assigned one, read off their ID card).
 /mob/living/carbon/human/npc/hostile/proc/is_valid_ordered_attack_target(atom/candidate)
 	if(!is_valid_target(candidate, TRUE))
 		return FALSE
@@ -674,10 +672,21 @@
 	if(istype(L, /mob/living/carbon/human/npc/hostile) && is_same_persistence_faction(L))
 		return FALSE
 	if(is_same_persistence_faction(L))
-		var/target_uid = get_living_persistence_faction_uid(L)
-		if(get_effective_faction_rank(L, target_uid) > 0)
+		if(ishuman(L) && human_holds_any_job(L))
 			return FALSE
 	return TRUE
+
+/// TRUE if this human actually holds a job -- a real station job or a
+/// custom faction-assigned one, read straight off their ID card. Civilian
+/// (no job at all) is the only thing this excludes. Deliberately NOT based
+/// on DB faction-membership rank (get_effective_faction_rank()) -- that
+/// requires a ss13_faction_members row a newly-assigned member may not have
+/// yet, which was causing brand new faction members to read as unshielded
+/// and get attacked by their own faction's hostile NPCs despite a
+/// completely valid, correctly-stamped ID.
+/proc/human_holds_any_job(mob/living/carbon/human/H)
+	var/obj/item/card/id/ID = H.GetIdCard()
+	return ID && ID.assignment && ID.assignment != "Civilian"
 
 /// Mirrors portable_turret.dm's already-shipped employer_faction/
 /// normalize_faction_uid() bridge -- the only place in this codebase that
