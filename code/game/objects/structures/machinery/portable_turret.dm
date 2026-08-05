@@ -725,9 +725,12 @@
 				// A Civilian (no job) isn't exempt -- printing a plain
 				// faction ID shouldn't grant immunity to that faction's own
 				// turrets; only actually holding a job (any job, including
-				// a custom faction-made one) does. Same rank threshold as
-				// hostile_npc.dm's is_friendly().
-				if(get_effective_faction_rank(L, L_uid) > 0)
+				// a custom faction-made one) does. Read straight off the ID
+				// card (human_holds_any_job(), hostile_npc.dm) rather than
+				// DB faction-membership rank -- a brand new member's ID is
+				// correct the instant it's printed, with no dependency on
+				// whether factionRegisterMember() ever actually ran for them.
+				if(human_holds_any_job(L))
 					return TURRET_NOT_TARGET
 			// else: allowed through, existing assess_perp threat-level logic below decides as normal
 
