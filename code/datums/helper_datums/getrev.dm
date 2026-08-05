@@ -56,19 +56,29 @@ GLOBAL_DATUM_INIT(revdata, /datum/getrev, new())
 /// character (new_player.dm, right after the cryo wake-up message).
 /client/proc/show_revision_info()
 #ifdef SHOW_GIT_LOG
-	to_chat(src, "<hr>")
+	// Built as one combined string and sent via a single to_chat() call --
+	// each separate to_chat() renders as its own spaced-out chat block, so
+	// splitting this into several calls (as it used to be) left a stack of
+	// visible blank-line gaps between every line of what's meant to read as
+	// one compact message.
+	var/list/lines = list()
 	if(GLOB.revdata.revision)
-		to_chat(src, "<b>Server revision:</b> [GLOB.revdata.branch] - [GLOB.revdata.date]")
+		var/rev_line = "<b>Server revision:</b> [GLOB.revdata.branch] - [GLOB.revdata.date]"
 		if(GLOB.config.githuburl)
-			to_chat(src, "<a href='[GLOB.config.githuburl]/commit/[GLOB.revdata.revision]'>[GLOB.revdata.revision]</a>")
+			rev_line += "<br><a href='[GLOB.config.githuburl]/commit/[GLOB.revdata.revision]'>[GLOB.revdata.revision]</a>"
 		else
-			to_chat(src, GLOB.revdata.revision)
+			rev_line += "<br>[GLOB.revdata.revision]"
+		lines += rev_line
 	else
-		to_chat(src, "Revision unknown")
+		lines += "Revision unknown"
 
 	if(GLOB.revdata.test_merges.len)
-		to_chat(src, GLOB.revdata.testmerge_overview())
-	to_chat(src, "<hr>")
+		lines += GLOB.revdata.testmerge_overview()
+
+	// Blank-line padding above/below -- keeps this visually separated as its
+	// own block from whatever chat comes immediately before/after it,
+	// without reintroducing gaps between the lines inside the message itself.
+	to_chat(src, "<br><br>[lines.Join("<br>")]<br><br>")
 #endif
 
 /datum/getrev/proc/testmerge_overview()

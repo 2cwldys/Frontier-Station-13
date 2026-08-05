@@ -540,6 +540,13 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 				H.stat = CONSCIOUS
 				H.density = TRUE
 				H.status_flags &= ~GODMODE
+				if(H.client && !H.client.auto_shown_revision_info)
+					H.client.auto_shown_revision_info = TRUE
+					// Called directly (not deferred) so it lands before both
+					// the wake-up message right below and the sector/zone
+					// -security chat description (SSjobs.EquipRank(), job.dm),
+					// which fires later via its own async path.
+					H.client.show_revision_info()
 				if(spawn_pod)
 					// Wake INSIDE the pod: closed sprite, camera on the pod;
 					// set_occupant applies the chill visuals, and stepping out
@@ -554,12 +561,6 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 					to_chat(H, SPAN_NOTICE("You eject from cryosleep. Welcome back, [H.real_name]."))
 					// No pod exit will ever fire -- run the whole effect now.
 					H.apply_cryo_chill()
-				if(H.client && !H.client.auto_shown_revision_info)
-					H.client.auto_shown_revision_info = TRUE
-					// Deferred so it reliably trails the sector/zone-security
-					// chat description (SSjobs.EquipRank(), job.dm), which
-					// fires as part of the same spawn flow.
-					addtimer(CALLBACK(H.client, /client/proc/show_revision_info), 2 SECONDS)
 				log_subsystem_persistence_info("Cryo: [H.real_name] ([ckey_lower]) woke from cryosleep.")
 				persistence_set_char_state(ckey_lower, H.real_name, "alive")
 			if(H.client)
@@ -917,6 +918,13 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		character.drowsiness = 0
 		character.set_stat(CONSCIOUS)
 		persistence_set_char_state(ckey_lower, character.real_name, "alive")
+		if(character.client && !character.client.auto_shown_revision_info)
+			character.client.auto_shown_revision_info = TRUE
+			// Called directly (not deferred) so it lands before both the
+			// wake-up message right below and the sector/zone-security chat
+			// description and arrival announcement that fire later in this
+			// same spawn flow (below), via their own async path.
+			character.client.show_revision_info()
 		if(spawn_pod && !QDELETED(spawn_pod) && !spawn_pod.occupant)
 			// Wake INSIDE the pod: closed sprite, camera on the pod;
 			// set_occupant applies the chill visuals, and stepping out
@@ -927,12 +935,6 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 			to_chat(character, SPAN_NOTICE("You eject from cryosleep. Welcome [selected_char ? "back" : "aboard"], [character.real_name]."))
 			// No pod exit will ever fire -- run the whole effect now.
 			character.apply_cryo_chill()
-		if(character.client && !character.client.auto_shown_revision_info)
-			character.client.auto_shown_revision_info = TRUE
-			// Deferred so it reliably trails the sector/zone-security chat
-			// description and arrival announcement that fire later in this
-			// same spawn flow (below).
-			addtimer(CALLBACK(character.client, /client/proc/show_revision_info), 2 SECONDS)
 	character.status_flags &= ~GODMODE
 	character.density = TRUE
 

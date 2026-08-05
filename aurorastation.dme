@@ -455,6 +455,7 @@
 #include "code\controllers\subsystems\persistence\persistence_closets.dm"
 #include "code\controllers\subsystems\persistence\persistence_cryo.dm"
 #include "code\controllers\subsystems\persistence\persistence_decals.dm"
+#include "code\controllers\subsystems\persistence\persistence_drydock_ship_prices.dm"
 #include "code\controllers\subsystems\persistence\persistence_economy.dm"
 #include "code\controllers\subsystems\persistence\persistence_faction_shareholders.dm"
 #include "code\controllers\subsystems\persistence\persistence_faction_tagger.dm"

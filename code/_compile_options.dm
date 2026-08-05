@@ -35,7 +35,7 @@
 // for a faction-tagged clothing item: which branch dropped it (if any),
 // whether its extra state blob was built, and which restore branch ran on
 // the next boot. Purely diagnostic -- comment out to strip it entirely.
-#define PERSISTENCE_FLOOR_ITEM_DEBUG
+//#define PERSISTENCE_FLOOR_ITEM_DEBUG
 
 // If defined, real (non-Hub) factions are limited to ONE cargo order
 // category, chosen at founding and changeable later (command rank, 1-month
