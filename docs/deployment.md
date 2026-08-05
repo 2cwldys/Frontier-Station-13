@@ -45,3 +45,19 @@ admins only (`message_admins()`), not broadcast world-wide.
 
 It's safe to run again any time a newer merge lands -- the marker-file
 check means it only actually recompiles when there's something new.
+
+## Manual vs. automatic
+
+By default, a sync only ever happens when an `R_SERVER` admin runs the verb
+above. To have the server trigger it *itself* the moment a PR merges into
+the deployment branch (no admin action needed), uncomment
+`FORCE_COMPILE_ON_MERGE` in `code/_compile_options.dm`. With that defined,
+`SSgithub` (which already polls the GitHub API for PR activity -- see
+`GITHUB_ENABLED`/`GITHUBURL`/`GITHUB_BRANCH` in `config.txt`) calls the
+exact same `trigger_deployment_sync()` the verb calls whenever it sees a
+PR's base branch match `GITHUB_BRANCH` and its state flip to merged. The
+only difference from a manual run is the wording of the broadcast ("A merge
+to the deployment branch was detected -- compiling automatically..."
+instead of "An admin is compiling...") and that failures go to
+`message_admins()` instead of the triggering admin's chat, since there
+isn't one. Leave it undefined (the default) to require the verb.

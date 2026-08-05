@@ -64,6 +64,15 @@
 // out to strip revision/build info from what players can see entirely.
 #define SHOW_GIT_LOG
 
+// If defined, the server automatically triggers a deployment sync
+// (scripts/deploy.sh / deploy.ps1, same as the "Sync Deployment Branch"
+// admin verb) the moment SSgithub detects a pull request merge into the
+// configured deployment branch (GLOB.config.github_branch) -- no admin
+// action needed. Requires GITHUB_ENABLED, GITHUBURL, and GITHUB_BRANCH all
+// configured in config.txt (see docs/deployment.md). Off by default --
+// leave undefined to require the admin verb to be run manually instead.
+//#define FORCE_COMPILE_ON_MERGE
+
 // If defined, two factions can become allied via a Faction Management
 // propose/accept handshake -- either side can break it anytime. Allied
 // factions can access each other's station under the faction raiding gate,

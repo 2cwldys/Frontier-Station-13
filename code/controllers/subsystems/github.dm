@@ -134,6 +134,9 @@ SUBSYSTEM_DEF(github)
 				_announce_pr(pr, "opened")
 			else if(old_state == "open" && new_state == "merged")
 				_announce_pr(pr, "merged")
+#ifdef FORCE_COMPILE_ON_MERGE
+				_check_deployment_merge(pr)
+#endif
 			else if(old_state == "open" && new_state == "closed")
 				_announce_pr(pr, "denied")
 
@@ -158,3 +161,21 @@ SUBSYSTEM_DEF(github)
 		to_chat(world, SPAN_WARNING(line))
 	else
 		to_chat(world, SPAN_NOTICE(line))
+
+/**
+ * Only called when FORCE_COMPILE_ON_MERGE is defined. Triggers
+ * trigger_deployment_sync() (code/modules/admin/verbs/deploy.dm) the moment
+ * a merged PR's base branch matches the configured deployment branch
+ * (GLOB.config.github_branch) -- server-initiated, so triggered_by is null.
+ */
+/datum/controller/subsystem/github/proc/_check_deployment_merge(list/pr)
+	PRIVATE_PROC(TRUE)
+
+	if(!GLOB.config.github_branch)
+		return
+
+	var/base_ref = pr["base"] ? pr["base"]["ref"] : null
+	if(base_ref != GLOB.config.github_branch)
+		return
+
+	trigger_deployment_sync(null)
