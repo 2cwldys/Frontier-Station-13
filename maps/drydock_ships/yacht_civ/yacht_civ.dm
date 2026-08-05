@@ -9,7 +9,7 @@
 	name = "Civilian Yacht"
 	id = "yacht_civ"
 	mappath = "maps/drydock_ships/yacht_civ/yacht_civ.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/ship/yacht_civ/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/yacht_civ, /datum/shuttle/autodock/overmap/yacht_civ_shuttle)
 	sub_shuttle_tags = list("Civilian Yacht Shuttle")

@@ -14,7 +14,7 @@
 	id = "drydock_ship_placeholder"
 	mappath = "maps/drydock_ships/drydock_ship_placeholder/drydock_ship_placeholder.dmm"
 
-	price = 0
+	price = 1000000
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/placeholder)
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/placeholder

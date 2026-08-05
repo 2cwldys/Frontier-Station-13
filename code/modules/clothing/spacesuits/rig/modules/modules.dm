@@ -176,6 +176,48 @@
 	holder = new_holder
 	return
 
+/// Per-module state carried across a save/load cycle. Reached generically through
+/// serializePersistentItem()'s "obj_content" passthrough, which now recurses into
+/// every entry of a rig's installed_modules.
+///
+/// Deliberately scalar-only. Whether a module was switched ON is NOT persisted:
+/// restoring it would mean replaying activate(), which gates on a sealed suit with a
+/// conscious wearer (check_can_use) and whose subtype overrides dereference
+/// holder.wearer unguarded -- none of which holds for a retracted rig on a mob that is
+/// still being built. Modules come back installed and idle; the player switches them on.
+/obj/item/rig_module/persistent_objects_get_content()
+	. = ..()
+	.["module_damage"] = damage
+	if(charge_selected)
+		.["module_charge_selected"] = charge_selected
+	// New() rewrites the type-level list-of-lists into an assoc of
+	// short_name -> /datum/rig_charge, so flatten to short_name -> remaining.
+	if(length(charges))
+		var/list/charge_counts = list()
+		for(var/charge_key in charges)
+			var/datum/rig_charge/charge_dat = charges[charge_key]
+			if(istype(charge_dat))
+				charge_counts["[charge_key]"] = charge_dat.charges
+		if(length(charge_counts))
+			.["module_charges"] = charge_counts
+
+/obj/item/rig_module/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["module_damage"]))
+		damage = clamp(text2num("[content["module_damage"]]"), 0, 2)
+	if(!isnull(content["module_charge_selected"]))
+		charge_selected = content["module_charge_selected"]
+	if(islist(content["module_charges"]))
+		var/list/charge_counts = content["module_charges"]
+		for(var/charge_key in charge_counts)
+			// Write through the datum New() built. Replacing it would drop the
+			// display name and product type, which only exist on the type default.
+			var/datum/rig_charge/charge_dat = LAZYACCESS(charges, charge_key)
+			if(istype(charge_dat))
+				charge_dat.charges = max(0, text2num("[charge_counts[charge_key]]"))
+
 /obj/item/rig_module/proc/do_engage(atom/target, mob/living/carbon/human/user)
 	. = engage(target, user)
 	if(.)

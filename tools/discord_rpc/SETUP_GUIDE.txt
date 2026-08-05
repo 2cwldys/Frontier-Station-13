@@ -1,0 +1,352 @@
+=================================================================
+ Frontier Station 13 Discord Rich Presence - Configuration Guide
+ (HOST SETUP -- for whoever is setting this up, not for players.
+ See CLIENT_GUIDE.txt for the simple "how do I run this" version.)
+=================================================================
+
+This walks through every value this tool needs, step by step, from a
+blank starting point. Do these in order -- later steps depend on
+earlier ones. All real values live in a .env file (not config.py) so
+nothing sensitive-looking ever ends up committed to source control.
+
+
+-----------------------------------------------------------------
+STEP 1 - Install Python dependencies
+-----------------------------------------------------------------
+
+Double-click install.bat in this folder. It also re-runs safely later
+if you ever need to update the dependencies -- same file, run it
+again anytime.
+
+(Or, if you'd rather not use batch files: open a terminal in this
+folder and run "pip install -r requirements.txt" instead.)
+
+install.bat installs:
+  - pypresence     (talks to your local Discord client)
+  - pywin32        (lets the script see other windows on your desktop)
+  - psutil         (identifies which process owns a window)
+  - python-dotenv  (loads settings from your .env file)
+
+
+-----------------------------------------------------------------
+STEP 2 - Create your .env file
+-----------------------------------------------------------------
+
+1. In this folder, copy .env.example to a new file named exactly .env
+2. Leave it open in a text editor -- you'll fill in each value as you
+   go through the remaining steps.
+
+.env is already covered by this repo's .gitignore, so it will never
+get committed/pushed no matter what you put in it.
+
+
+-----------------------------------------------------------------
+STEP 3 - Create a Discord Application (gives you DISCORD_CLIENT_ID)
+-----------------------------------------------------------------
+
+1. Go to: https://discord.com/developers/applications
+2. Log in with the Discord account you want this tied to.
+3. Click "New Application" (top right).
+4. Name it exactly what you want players to see as the bold header
+   line on the Rich Presence card (e.g. "Frontier Station 13") --
+   this name IS shown publicly, it's not just an internal label.
+5. Click "Create".
+6. You're now on the "General Information" page. Find "Application ID"
+   near the top and click "Copy".
+7. In .env, set:
+
+       DISCORD_CLIENT_ID=1234567890123456789
+
+   (No quotes needed in .env -- just the raw number.)
+
+
+-----------------------------------------------------------------
+STEP 4 - Upload your Rich Presence artwork (gives you LARGE_IMAGE_KEY)
+-----------------------------------------------------------------
+
+1. In the same application, find "Rich Presence" in the left sidebar
+   and click "Art Assets".
+2. Click "Add Image(s)" and upload the Frontier Station 13 logo/imagery
+   you have ready. Square, at least 512x512px (1024x1024 looks
+   crisper).
+3. After uploading, Discord asks you to type a NAME for that image.
+   This name is what the code refers to it by -- it is NOT the
+   filename. Example: if you type "fs13", that's your key.
+4. In .env, set:
+
+       LARGE_IMAGE_KEY=fs13
+
+   (Must exactly match the name you typed in step 3, same
+   capitalization. Already defaults to "fs13" if you leave this blank.)
+
+
+-----------------------------------------------------------------
+STEP 5 - Find Frontier's server address and port (SERVER_ADDR / SERVER_PORT)
+-----------------------------------------------------------------
+
+This is the same address and port you (or your players) type into
+DreamSeeker/BYOND to connect to Frontier Station 13. It usually looks
+like:
+
+    byond://some.hostname.or.ip:PORTNUMBER
+
+or you may just have a hostname/IP and a port listed separately
+somewhere in your server's own documentation or hub listing.
+
+In .env, set both:
+
+    SERVER_ADDR=your.server.hostname.or.ip
+    SERVER_PORT=12345
+
+
+-----------------------------------------------------------------
+STEP 6 - Confirm the DreamSeeker window title match (WINDOW_TITLE_MATCH)
+-----------------------------------------------------------------
+
+This tool works by watching for a DreamSeeker window whose title
+contains a specific bit of text, so it knows you're actually playing
+Frontier and not some other BYOND game.
+
+1. Connect to Frontier Station 13 in DreamSeeker like normal.
+2. Look at the title bar of the DreamSeeker window (top of the window).
+3. Compare it against the default (used if you leave this blank in
+   .env):
+
+       WINDOW_TITLE_MATCH=Frontier Station 13
+
+4. If your window title does NOT contain that text, add this line to
+   .env with something that DOES appear in your window's title bar.
+   It only needs to be a substring -- it doesn't have to be the whole
+   title.
+
+
+-----------------------------------------------------------------
+STEP 7 - Run it
+-----------------------------------------------------------------
+
+Double-click run.bat.
+
+(Or, without batch files: open a terminal in this folder and run
+"python main.py" instead.)
+
+Leave this running in a window while you play. It checks
+every POLL_INTERVAL_SECONDS (30 by default) for the game window and
+updates your Discord status to match. Closing DreamSeeker clears your
+Discord status automatically within one check interval.
+
+If DISCORD_CLIENT_ID, SERVER_ADDR, or SERVER_PORT are still missing
+from .env, it'll tell you exactly that and exit immediately instead of
+failing confusingly later.
+
+To stop it, just close the terminal window or press Ctrl+C.
+
+
+-----------------------------------------------------------------
+STEP 8 - Build the .exe you hand to players
+-----------------------------------------------------------------
+
+Everything above is the SOURCE version, for you. Players get a single
+self-contained .exe instead -- no Python, no .env, no folder.
+
+Double-click build.bat. Output: dist\FrontierRPC.exe. Hand players
+that one file and nothing else.
+
+IMPORTANT: build.bat refuses to run without a filled-in .env, because
+SERVER_ADDR/SERVER_PORT are deliberately NOT stored in source (.env is
+gitignored so the address never lands in the repo). The build bakes
+your .env into the .exe, so the player's copy already knows where to
+connect. A .env placed next to the .exe still overrides the baked-in
+one, which is handy for pointing a test build at another server.
+
+What the player's copy does that the source version doesn't:
+
+  - Registers itself to start with Windows on first launch, so they
+    run it once and never think about it again.
+  - Shows an eye icon in the system tray -- right-click for "Start
+    with Windows" (toggle), "Turn off and remove from startup", and
+    "Quit". That tray menu is their only UI, since the build is
+    --noconsole and has no window.
+  - Command-line equivalents exist too: --uninstall removes the
+    startup entry and exits, --no-autostart runs one session without
+    registering.
+
+The startup entry is a single per-user registry value
+(HKCU\Software\Microsoft\Windows\CurrentVersion\Run,
+"FrontierStation13RPC") -- no admin rights, nothing written anywhere
+else, and it also shows up in Task Manager -> Startup.
+
+To let players find it from in-game, set DISCORD_RPC_URL in
+config/config.txt to wherever you host the .exe. That powers the
+"Discord Rich Presence" verb under the OOC tab, which just opens the
+download in their browser. Left unset, the verb tells them nothing is
+configured rather than opening a dead link.
+
+
+-----------------------------------------------------------------
+WHAT'S WHERE (Rich Presence layout map)
+-----------------------------------------------------------------
+
+This is what a Discord profile card looks like with this running, and
+exactly which file/setting controls each piece of it:
+
+    +-----------------------------------------------------+
+    |  [ICON]   YourDiscordName                            |
+    |           Playing a game                             |
+    |  +--------+                                          |
+    |  |     (D)|   Frontier Station 13          <- (0)    |
+    |  | LARGE  |   Persistence                   <- (A)    |
+    |  | IMAGE  |   Players: 1                    <- (B)    |
+    |  |   (C)  |                                           |
+    |  +--------+  [ Join Server ] [ Join Discord ] <- (E) |
+    +-----------------------------------------------------+
+
+    (0) Bold header line -- NOT set by this code at all. This is
+        your Discord Application's own registered name (Developer
+        Portal -> General Information -> the name you gave it in
+        STEP 3). If you want this to say something different, rename
+        the Application itself there, not in main.py or .env.
+        It also can NOT be turned into a clickable link -- Rich
+        Presence has no field for it and Discord renders it as plain
+        text. To give people a one-click way into the server, use the
+        "Join Server" button in (E) instead.
+
+    (A) "details" line
+        - Where: main.py, _build_presence(), the "details" key.
+        - A fixed string, "Persistence" -- edit that line directly in
+          main.py if you want different wording. Not a .env setting,
+          since it never changes at runtime. (Deliberately NOT
+          repeating "Frontier Station 13" here -- (0) above already
+          shows that, so this line used to just duplicate it.)
+
+    (B) "state" line (the live stat)
+        - Where: main.py, _build_presence(), the "state" key.
+        - Just the live connected player count now
+          (get_serverstatus's "players" field), refreshed every poll.
+          Round type/mode and round duration used to be shown here
+          too, but were dropped -- this server runs persistent,
+          continuous rounds, so an elapsed round timer/round-type
+          label isn't meaningful.
+        - Edit the f-string in _build_presence() if you want to add
+          something else back in.
+
+    (C) Large image (the big square artwork)
+        - The image itself: uploaded in the Discord Developer Portal
+          under Rich Presence -> Art Assets (see STEP 4 above).
+        - Which uploaded image gets shown: .env's LARGE_IMAGE_KEY --
+          must match the asset's name exactly.
+        - The tooltip that appears when someone HOVERS over that
+          image: .env's LARGE_IMAGE_TEXT -- plain text, no Developer
+          Portal step needed, change it anytime.
+
+    (D) Small badge icon (overlays the large image's bottom-right corner)
+        - The image itself: uploaded the same way as the large image
+          (Developer Portal -> Rich Presence -> Art Assets) -- e.g.
+          Discord's own icon mark from discord.com/branding, to flag
+          "this game has a Discord community."
+        - Which uploaded image gets shown: .env's SMALL_IMAGE_KEY --
+          must match that asset's name exactly. Leave blank for no
+          badge at all (default).
+        - Hover tooltip for it: .env's SMALL_IMAGE_TEXT -- plain text,
+          no Developer Portal step, change anytime.
+
+    (E) Buttons -- "Join Server" and "Join Discord"
+        - Where: main.py, _build_presence(), the "buttons" key.
+        - Discord supports at most 2 buttons; both slots are now used.
+        - "Join Server" opens the game directly. Its address comes
+          from .env's JOIN_URL, which DEFAULTS to
+          byond://SERVER_ADDR:SERVER_PORT -- so it works with no
+          extra setup. JOIN_BUTTON_LABEL renames it.
+        - "Join Discord" only appears if .env's DISCORD_INVITE_URL is
+          set -- leave it blank for no button.
+        - IF "Join Server" NEVER APPEARS: Discord validates button
+          URLs and can refuse a non-http(s) scheme like byond://.
+          Work around it by hosting a tiny https page that forwards
+          to the same address --
+              <script>location.replace("byond://ADDR:PORT")</script>
+          -- and set JOIN_URL to that page's https URL instead.
+        - IMPORTANT: Discord never shows your own buttons back to you
+          on your own profile card -- only other people viewing your
+          profile see them and can click them. Don't be alarmed if you
+          don't see them yourself while testing; ask someone else to
+          check, or trust that they're there.
+
+    Not currently used (a future addition, not part of this pass):
+        - Party size / elapsed time counters (Discord can show
+          "3 of 10 in party" or a live-counting-up timer) -- not
+          wired up in this pass.
+
+
+-----------------------------------------------------------------
+REPLACING THE ARTWORK LATER
+-----------------------------------------------------------------
+
+There are two ways to swap the image later, depending on whether you
+want to keep the same key name or not.
+
+OPTION A -- Replace the image, keep everything else the same (easiest)
+
+    1. Go back to the Developer Portal -> your application ->
+       Rich Presence -> Art Assets.
+    2. Find the existing image (the one named whatever
+       LARGE_IMAGE_KEY is currently set to in .env).
+    3. Delete it.
+    4. Upload the new image and give it the EXACT SAME name as
+       before.
+    5. Done -- .env doesn't need any changes, since it still points
+       at that same key name.
+    6. Note: Discord's CDN can take a few minutes to show the new
+       image everywhere after replacing it -- if you still see the
+       old one immediately after, wait a bit and check again.
+
+OPTION B -- Upload as a new asset (if you want to keep the old one too)
+
+    1. Rich Presence -> Art Assets -> Add Image(s).
+    2. Upload the new image under a NEW name, e.g. "fs13_v2".
+    3. In .env, update:
+
+           LARGE_IMAGE_KEY=fs13_v2
+
+    4. Restart main.py so it picks up the change (.env is only read
+       once, at startup).
+
+Changing just the hover text (LARGE_IMAGE_TEXT) never requires
+touching the Developer Portal at all -- it's plain text read straight
+out of .env every time the presence updates.
+
+
+-----------------------------------------------------------------
+TROUBLESHOOTING
+-----------------------------------------------------------------
+
+"Missing DISCORD_CLIENT_ID/SERVER_ADDR/SERVER_PORT in .env"
+    -> You haven't finished STEP 2-5 above -- one of the required
+       values is still blank in your .env file.
+
+"Could not connect to Discord (is it running?)"
+    -> Make sure the Discord DESKTOP app is open and you're logged in
+       (the web browser version of Discord does not support this).
+
+"Could not fetch server status"
+    -> Double check SERVER_ADDR and SERVER_PORT in .env match exactly
+       what DreamSeeker uses to connect. Also confirm the server is
+       actually online.
+
+"Rate limited by server, backing off ...s"
+    -> The server's fail2topic anti-abuse system (code/controllers/
+       subsystems/fail2topic.dm) rejected a request. get_serverstatus
+       is flagged no_fail2topic = TRUE (code/modules/world_api/
+       commands/server_query.dm) specifically so normal use of this
+       tool never trips it -- but that fix only takes effect once the
+       SERVER has been recompiled and restarted with that change. If
+       you're still seeing this after that, the tool backs off
+       automatically on its own (RATE_LIMIT_BACKOFF_SECONDS in .env)
+       and needs no action from you -- it recovers by itself.
+
+Status never appears even though DreamSeeker is open
+    -> Your WINDOW_TITLE_MATCH probably doesn't match your real window
+       title -- redo STEP 6 and check for typos/case differences.
+
+Nothing shows up on your Discord profile at all
+    -> Confirm DISCORD_CLIENT_ID and LARGE_IMAGE_KEY in .env were
+       copied over exactly (LARGE_IMAGE_KEY must match the asset name
+       letter for letter).

@@ -11,7 +11,7 @@
 	name = "Konyang Wreck"
 	id = "konyang_wreck_dd"
 	mappath = "maps/drydock_ships/konyang_wreck/konyang_wreck.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/konyang_wreck/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/konyang_wreck)
 

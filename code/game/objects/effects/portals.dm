@@ -38,6 +38,11 @@
 /// which erased same-tick decorative spawns before they ever rendered.
 /obj/effect/portal/decorative
 	does_teleport = FALSE
+	// Purely a visual flash -- the base portal's density = TRUE makes sense
+	// for a real teleporter (something to physically bump into to trigger
+	// it), but a decorative-only portal never teleports and shouldn't block
+	// the players walking past/through it.
+	density = FALSE
 
 /// Same purely-visual flash as the base decorative portal, but fades out
 /// over its final moments instead of abruptly vanishing when its lifespan

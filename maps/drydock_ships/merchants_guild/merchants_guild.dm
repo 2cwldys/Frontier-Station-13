@@ -8,7 +8,7 @@
 	name = "Merchants' Guild Freighter"
 	id = "merchants_guild"
 	mappath = "maps/drydock_ships/merchants_guild/merchant_freighter.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/merchants_guild/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/merchants_guild, /datum/shuttle/autodock/overmap/merchants_guild)
 	sub_shuttle_tags = list("Merchants' Guild Shuttle")

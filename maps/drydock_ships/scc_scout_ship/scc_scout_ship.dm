@@ -9,7 +9,7 @@
 	name = "SCC Scout Ship"
 	id = "scc_scout_ship"
 	mappath = "maps/drydock_ships/scc_scout_ship/scc_scout_ship.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/ship/scc_scout_ship/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/scc_scout_ship, /datum/shuttle/autodock/overmap/scc_scout_shuttle)
 	sub_shuttle_tags = list("SCC Scout Shuttle")

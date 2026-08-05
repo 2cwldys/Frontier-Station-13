@@ -122,17 +122,30 @@ GLOBAL_PROTECT(config)
 
 GLOBAL_LIST_INIT(world_api_rate_limit, list())
 
+/// Checks addr against SSfail2topic and returns a ready-to-return
+/// json_encode()'d 429 response if it's currently rate limited, or null if
+/// not -- callers should "return ." immediately when this returns non-null.
+/// Factored out so /world/Topic() below can apply this at every point where
+/// a request could still turn out to be garbage/unresolvable (which must
+/// stay protected), while also skipping it entirely once a request resolves
+/// to a specific command explicitly marked no_fail2topic (see api_command.dm)
+/// -- e.g. get_serverstatus, meant for frequent, low-cost, unauthenticated
+/// polling (Discord Rich Presence tools and similar), which would otherwise
+/// trip fail2topic's abuse detection just from normal, legitimate use.
+/proc/_topic_fail2topic_response(addr)
+	if (SSfail2topic.IsRateLimited(addr))
+		var/list/response = list("statuscode" = 429, "response" = "Rate limited.")
+		return json_encode(response)
+	return null
+
 /world/Topic(T, addr, master, key)
 	var/list/response[] = list()
 	var/list/queryparams[]
+	var/limited
 
 	if (!SSfail2topic)
 		response["statuscode"] = 500
 		response["response"] = "Server not initialized."
-		return json_encode(response)
-	else if (SSfail2topic.IsRateLimited(addr))
-		response["statuscode"] = 429
-		response["response"] = "Rate limited."
 		return json_encode(response)
 
 	if (length(T) > 2000)
@@ -156,6 +169,9 @@ GLOBAL_LIST_INIT(world_api_rate_limit, list())
 		return tgs_topic_return
 	else if (!queryparams.len)
 		log_debug("API - Bad Request - Invalid/no JSON data sent.")
+		limited = _topic_fail2topic_response(addr)
+		if (limited)
+			return limited
 		response["statuscode"] = 400
 		response["response"] = "Bad Request - Invalid/no JSON data sent."
 		return json_encode(response)
@@ -166,6 +182,9 @@ GLOBAL_LIST_INIT(world_api_rate_limit, list())
 
 	if (isnull(query))
 		log_debug("API - Bad Request - No query specified")
+		limited = _topic_fail2topic_response(addr)
+		if (limited)
+			return limited
 		response["statuscode"] = 400
 		response["response"] = "Bad Request - No query specified"
 		return json_encode(response)
@@ -175,9 +194,19 @@ GLOBAL_LIST_INIT(world_api_rate_limit, list())
 	//Check if that command exists
 	if (isnull(command))
 		log_debug("API: Unknown command called: [query]")
+		limited = _topic_fail2topic_response(addr)
+		if (limited)
+			return limited
 		response["statuscode"] = 501
 		response["response"] = "Not Implemented"
 		return json_encode(response)
+
+	// Only known, explicitly-flagged-safe commands skip fail2topic -- every
+	// other resolvable command still gets the same protection as before.
+	if (!command.no_fail2topic)
+		limited = _topic_fail2topic_response(addr)
+		if (limited)
+			return limited
 
 	var/unauthed = command.check_auth(addr, auth)
 	if (unauthed)
@@ -266,58 +295,43 @@ GLOBAL_LIST_INIT(world_api_rate_limit, list())
 /world/proc/update_status()
 	SHOULD_NOT_SLEEP(TRUE)
 
+	var/server_display_name = (GLOB.config && GLOB.config.server_name) ? GLOB.config.server_name : station_name()
+
 	var/list/s = list()
+	s += "<b>[server_display_name]</b>"
+	if (GLOB.config && GLOB.config.hub_tagline)
+		s += "<br>[GLOB.config.hub_tagline]"
 
-	if (GLOB.config && GLOB.config.server_name)
-		s += "<b>[GLOB.config.server_name]</b> &#8212; "
+	var/saving = SSpersistence && SSpersistence.save_in_progress
 
-	s += "<b>[station_name()]</b>";
-	s += " ("
-	s += "<a href=\"[GLOB.config.forumurl]\">" //Change this to wherever you want the hub to link to.
-	s += "Forums"  //Replace this with something else. Or ever better, delete it and uncomment the game version.
-	s += "</a>"
-	s += ")"
+	var/whitelist_status = GLOB.persistence_join_whitelist_enabled ? "WHITELIST ENABLED" : "WHITELIST DISABLED"
+	var/raiding_status = GLOB.faction_raiding_enabled ? "RAIDING ENABLED" : "RAIDING DISABLED"
+	var/gate_status = (GLOB.config && GLOB.config.enter_allowed) ? "GATE ENABLED" : "GATE DISABLED"
 
-	var/list/features = list()
+	s += "<br><b>[whitelist_status] | [raiding_status] | [gate_status]</b>"
 
-	if (Master.init_timeofday)	// This is set at the end of initialization.
-		if(GLOB.master_mode)
-			features += GLOB.master_mode
-	else
-		features += "<b>STARTING</b>"
+	if (saving)
+		s += "<br><b>SAVE IN PROGRESS</b>"
 
-	if (!GLOB.config.enter_allowed)
-		features += "closed"
+	s += "<br>Factions: <b>[length(GLOB.persistence_faction_cache)]</b>"
 
-	features += GLOB.config.abandon_allowed ? "respawn" : "no respawn"
+	// Commented out, not deleted -- BYOND's hub already shows a live player
+	// count natively per listing, and duplicating it here was pushing the
+	// total status length past BYOND's truncation limit (it was cutting off
+	// mid-tag, e.g. the closing </a> anchor wrapper showing up as a literal
+	// "</" artifact). Re-enable only if there's headroom to spare.
+	// var/n = 0
+	// for (var/mob/M in GLOB.player_list)
+	// 	if (M.client)
+	// 		n++
+	// s += "<br>Players: <b>[n]</b>"
 
-	if (GLOB.config && GLOB.config.allow_vote_mode)
-		features += "vote"
+	var/body = jointext(s, "")
+	if (GLOB.config && GLOB.config.discord_invite_url)
+		body = "<a href=\"[GLOB.config.discord_invite_url]\">[body]</a>"
 
-	if (GLOB.config && GLOB.config.allow_ai)
-		features += "AI allowed"
-
-	var/n = 0
-	for (var/mob/M in GLOB.player_list)
-		if (M.client)
-			n++
-
-	if (n > 1)
-		features += "~[n] players"
-	else if (n > 0)
-		features += "~[n] player"
-
-	if (GLOB.config && GLOB.config.hostedby)
-		features += "hosted by <b>[GLOB.config.hostedby]</b>"
-
-	if (features)
-		s += ": [jointext(features, ", ")]"
-
-	s = s.Join()
-
-	/* does this help? I do not know */
-	if (src.status != s)
-		src.status = s
+	if (src.status != body)
+		src.status = body
 
 #define FAILED_DB_CONNECTION_CUTOFF 5
 

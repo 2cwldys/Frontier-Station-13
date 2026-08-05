@@ -3,6 +3,10 @@
 	name = "get_serverstatus"
 	description = "Gets the server status."
 	no_auth = TRUE
+	// Meant to be polled frequently by external tools (server browsers,
+	// Discord Rich Presence, uptime monitors) -- exempt from fail2topic so
+	// normal use of those doesn't look like Topic API abuse.
+	no_fail2topic = TRUE
 
 /datum/topic_command/get_serverstatus/run_command(queryparams)
 	var/list/s[] = list()
@@ -118,6 +122,9 @@
 	name = "get_count_player"
 	description = "Gets the number of players connected"
 	no_auth = TRUE
+	// Same reasoning as get_serverstatus above -- cheap, public, meant for
+	// frequent external polling.
+	no_fail2topic = TRUE
 
 /datum/topic_command/get_count_player/run_command(queryparams)
 	var/n = 0

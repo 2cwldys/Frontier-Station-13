@@ -3,6 +3,13 @@
 	var/name = null //Name for the command
 	var/no_auth = FALSE //If the user does NOT need to be authed to use the command
 	var/no_throttle = FALSE //If this command should NOT be limited by the throtteling
+	//If TRUE, this command is exempt from SSfail2topic's per-IP request-spacing
+	//check (world.dm's /world/Topic()) -- for cheap, no_auth, intentionally
+	//publicly-pollable commands (server status pings and similar) where
+	//frequent legitimate use shouldn't ever look like Topic API abuse.
+	//Distinct from no_throttle, which controls the separate api_rate_limit
+	//throttle below.
+	var/no_fail2topic = FALSE
 	var/description = null //Description for the command
 	var/list/params = list() //Required Parameters for the command
 	//Explanation of the parameter options:

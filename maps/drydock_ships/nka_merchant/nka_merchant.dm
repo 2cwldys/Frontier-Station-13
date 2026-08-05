@@ -9,7 +9,7 @@
 	name = "Her Majesty's Mercantile Flotilla Ship"
 	id = "nka_merchant"
 	mappath = "maps/drydock_ships/nka_merchant/nka_merchant.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/nka_merchant/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/nka_merchant, /datum/shuttle/autodock/overmap/nka_merchant_shuttle)
 	sub_shuttle_tags = list("Her Majesty's Mercantile Flotilla Shuttle")

@@ -11,8 +11,17 @@ type Occupant = {
   remaining_seconds: number;
 };
 
+type Sentence = {
+  ckey: string;
+  char_name: string;
+  indefinite: BooleanLike;
+  remaining_seconds: number;
+  present: BooleanLike;
+};
+
 type PrisonPodData = {
   occupants: Occupant[];
+  sentences: Sentence[];
   nopower: BooleanLike;
   broken: BooleanLike;
   faction_name: string | null;
@@ -34,6 +43,7 @@ export const PrisonPod = (props) => {
   const { act, data } = useBackend<PrisonPodData>();
   const {
     occupants = [],
+    sentences = [],
     nopower,
     broken,
     faction_name,
@@ -119,6 +129,69 @@ export const PrisonPod = (props) => {
             </Table>
           ) : (
             <Box color="label">Empty.</Box>
+          )}
+        </Section>
+        <Section title={`Sentences (${sentences.length})`} mt={1}>
+          {sentences.length ? (
+            <>
+              <Box color="label" mb={1}>
+                Every sentence tied to this cell, including prisoners who are
+                frozen and therefore not physically present.
+              </Box>
+              <Table>
+                <Table.Row header>
+                  <Table.Cell>Prisoner</Table.Cell>
+                  <Table.Cell>Remaining</Table.Cell>
+                  <Table.Cell />
+                </Table.Row>
+                {sentences.map((sentence) => (
+                  <Table.Row key={`${sentence.ckey}|${sentence.char_name}`}>
+                    <Table.Cell>
+                      {sentence.char_name}
+                      {!sentence.present && (
+                        <Box color="label" inline ml={1}>
+                          (stored)
+                        </Box>
+                      )}
+                    </Table.Cell>
+                    <Table.Cell>
+                      {sentence.indefinite
+                        ? 'Indefinite'
+                        : formatRemaining(sentence.remaining_seconds)}
+                    </Table.Cell>
+                    <Table.Cell collapsing>
+                      <Button
+                        icon="clock"
+                        tooltip="Change this sentence's duration, or make it indefinite."
+                        onClick={() =>
+                          act('sentence_adjust', {
+                            ckey: sentence.ckey,
+                            char_name: sentence.char_name,
+                          })
+                        }
+                      >
+                        Adjust
+                      </Button>
+                      <Button
+                        icon="door-open"
+                        color="good"
+                        tooltip="Clear this sentence entirely."
+                        onClick={() =>
+                          act('sentence_release', {
+                            ckey: sentence.ckey,
+                            char_name: sentence.char_name,
+                          })
+                        }
+                      >
+                        Release
+                      </Button>
+                    </Table.Cell>
+                  </Table.Row>
+                ))}
+              </Table>
+            </>
+          ) : (
+            <Box color="label">No sentences tied to this cell.</Box>
           )}
         </Section>
       </NtosWindow.Content>

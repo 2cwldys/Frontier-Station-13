@@ -710,13 +710,28 @@
 			if(!allow_nonfaction_humans)
 				return TURRET_NOT_TARGET // Wildlife-only mode: no human ever qualifies, faction or not
 			var/L_uid = get_living_persistence_faction_uid(L)
+			var/same_or_allied_faction
 #ifdef FACTION_ALLIANCES
-			if(L_uid && (L_uid == persistent_network || factions_are_allied(L_uid, persistent_network)))
-				return TURRET_NOT_TARGET // exempt the turret's own faction (or an allied one), including a same-faction hostile_npc soldier (no ID card of their own)
+			same_or_allied_faction = L_uid && (L_uid == persistent_network || factions_are_allied(L_uid, persistent_network))
 #else
-			if(L_uid && L_uid == persistent_network)
-				return TURRET_NOT_TARGET // exempt the turret's own faction, including a same-faction hostile_npc soldier (no ID card of their own)
+			same_or_allied_faction = L_uid && L_uid == persistent_network
 #endif //FACTION_ALLIANCES
+			if(same_or_allied_faction)
+				// A same-faction hostile_npc soldier has no ID card/rank of
+				// its own -- stays exempt unconditionally, same as
+				// hostile_npc.dm's own is_friendly() treats it.
+				if(istype(L, /mob/living/carbon/human/npc/hostile))
+					return TURRET_NOT_TARGET
+				// A Civilian (no job) isn't exempt -- printing a plain
+				// faction ID shouldn't grant immunity to that faction's own
+				// turrets; only actually holding a job (any job, including
+				// a custom faction-made one) does. Read straight off the ID
+				// card (human_holds_any_job(), hostile_npc.dm) rather than
+				// DB faction-membership rank -- a brand new member's ID is
+				// correct the instant it's printed, with no dependency on
+				// whether factionRegisterMember() ever actually ran for them.
+				if(human_holds_any_job(L))
+					return TURRET_NOT_TARGET
 			// else: allowed through, existing assess_perp threat-level logic below decides as normal
 
 	if(isanimal(L) || issmall(L)) // Animals are not so dangerous

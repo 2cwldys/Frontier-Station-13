@@ -11,7 +11,9 @@ type ShipSchematicData = {
   display_name?: string;
   stashed?: BooleanLike;
   ready?: BooleanLike;
-  titled_to_name?: string;
+  title_holder_name?: string;
+  reported_stolen?: BooleanLike;
+  needs_rename?: BooleanLike;
   shuttle_id?: number;
   save_in_progress?: BooleanLike;
   busy?: BooleanLike;
@@ -31,7 +33,9 @@ export const ShipSchematic = (props) => {
     display_name,
     stashed,
     ready,
-    titled_to_name,
+    title_holder_name,
+    reported_stolen,
+    needs_rename,
     save_in_progress,
     busy,
     sub_shuttle_tags = [],
@@ -66,7 +70,7 @@ export const ShipSchematic = (props) => {
             <Section title={display_name}>
               <LabeledList>
                 <LabeledList.Item label="Title Belongs To">
-                  {titled_to_name || 'Unknown'}
+                  {title_holder_name || 'Unknown'}
                 </LabeledList.Item>
                 <LabeledList.Item label="Status">
                   <Box bold color={stashed ? 'good' : 'label'}>
@@ -74,17 +78,24 @@ export const ShipSchematic = (props) => {
                   </Box>
                 </LabeledList.Item>
               </LabeledList>
+              {!!reported_stolen && (
+                <Box mt={1} color="bad" bold>
+                  This schematic has been reported stolen.
+                </Box>
+              )}
               <Button
                 fluid
                 mt={1}
                 icon="street-view"
-                disabled={!stashed || !!busy || !!save_in_progress}
+                disabled={!stashed || !!busy || !!save_in_progress || !!needs_rename}
                 tooltip={
                   busy
                     ? 'Retrieve/stash in progress -- please wait.'
                     : save_in_progress
                       ? 'World save in progress -- please wait.'
-                      : undefined
+                      : needs_rename
+                        ? 'Rename this ship before it can be retrieved.'
+                        : undefined
                 }
                 onClick={() => act('retrieve')}
               >

@@ -9,7 +9,7 @@
 	name = "Izharshan Shuttle"
 	id = "unathi_pirate_izharshan"
 	mappath = "maps/drydock_ships/unathi_pirate_izharshan/unathi_pirate_izharshan.dmm"
-	price = 0
+	price = 1000000
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/unathi_pirate_izharshan)
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/unathi_pirate_izharshan

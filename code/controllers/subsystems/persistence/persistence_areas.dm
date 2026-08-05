@@ -50,6 +50,26 @@
 			if(!islist(coords) || !length(coords))
 				continue
 
+			// A record whose area_type is NOT the generic /area came from an
+			// EDIT to a mapped-in area -- finalize_area() builds player-created
+			// areas with a bare new(), so those always save as plain /area.
+			// Reapply to the area the map already recreated instead of cloning
+			// it: a second instance of a real type collides in
+			// GLOB.areas_by_type, and the turf-claim loop below would refuse
+			// every turf as "owned by a real area" and then discard the record
+			// wholesale -- which is exactly why renames of station areas never
+			// survived a restart.
+			if(area_type != /area)
+				var/area/existing = GLOB.areas_by_type[area_type]
+				if(existing)
+					existing.name = area_name
+					existing.is_blueprint_area = TRUE
+					if(network)
+						existing.persistent_network = network
+					restored++
+					log_subsystem_persistence_info("Areas: reapplied saved name '[area_name]' to mapped-in area [area_type].")
+					continue
+
 			var/area/A = new area_type()
 			A.name = area_name
 			A.is_blueprint_area = TRUE
@@ -267,6 +287,26 @@
 				area_type = /area
 			if(!islist(coords) || !length(coords))
 				continue
+
+			// A record whose area_type is NOT the generic /area came from an
+			// EDIT to a mapped-in area -- finalize_area() builds player-created
+			// areas with a bare new(), so those always save as plain /area.
+			// Reapply to the area the map already recreated instead of cloning
+			// it: a second instance of a real type collides in
+			// GLOB.areas_by_type, and the turf-claim loop below would refuse
+			// every turf as "owned by a real area" and then discard the record
+			// wholesale -- which is exactly why renames of station areas never
+			// survived a restart.
+			if(area_type != /area)
+				var/area/existing = GLOB.areas_by_type[area_type]
+				if(existing)
+					existing.name = area_name
+					existing.is_blueprint_area = TRUE
+					if(network)
+						existing.persistent_network = network
+					restored++
+					log_subsystem_persistence_info("Areas: reapplied saved name '[area_name]' to mapped-in area [area_type].")
+					continue
 
 			var/area/A = new area_type()
 			A.name = area_name

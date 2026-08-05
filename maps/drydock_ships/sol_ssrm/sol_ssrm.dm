@@ -9,7 +9,7 @@
 	name = "Solarian Navy Reconnaissance Corvette"
 	id = "ssrm_corvette"
 	mappath = "maps/drydock_ships/sol_ssrm/ssrm_ship.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/ship/ssrm_corvette/cic
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/ssrm_corvette, /datum/shuttle/autodock/overmap/ssrm_shuttle)
 	sub_shuttle_tags = list("SSRM Shuttle")

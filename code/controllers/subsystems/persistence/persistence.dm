@@ -143,6 +143,7 @@ SUBSYSTEM_DEF(persistence)
 		return
 
 	save_in_progress = TRUE
+	SSstatistics.update_status()
 	log_subsystem_persistence_info("Persistence: Running periodic save.")
 	to_world(SPAN_NOTICE(SPAN_BOLD("Automatic world save in progress.")))
 	play_announcer_voice_to_all('sound/AI/announcements/autosave_in_progress.ogg')
@@ -153,6 +154,7 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_error("Periodic save failed: [e]")
 
 	save_in_progress = FALSE
+	SSstatistics.update_status()
 	log_subsystem_persistence_info("Persistence: Periodic save complete.")
 	to_world(SPAN_GOOD(SPAN_BOLD("World save complete.")))
 	// ignite() (subsystem.dm) is waitfor=FALSE, and forceSaveAll() really
@@ -257,6 +259,7 @@ SUBSYSTEM_DEF(persistence)
 		to_world(FONT_LARGE(EXAMINE_BLOCK_RED("Joining has been [SPAN_BOLD(SPAN_GOOD("re-enabled"))] by an administrator. The server is now open.")))
 		log_and_message_admins("has unlocked the server  joining is enabled", usr)
 
+	SSstatistics.update_status()
 	feedback_add_details("admin_verb", "TSJ")
 
 /datum/admins/proc/toggle_persistence()
@@ -612,6 +615,12 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/ce_e)
 		log_subsystem_persistence_error("Cargo exports init failed: [ce_e] on [ce_e.file]:[ce_e.line]")
 
+	log_subsystem_persistence_info("Starting cargo imports initialization...")
+	try
+		cargoImportsInitialize()
+	catch(var/exception/ci_e)
+		log_subsystem_persistence_error("Cargo imports init failed: [ci_e] on [ci_e.file]:[ci_e.line]")
+
 	log_subsystem_persistence_info("Starting bounties initialization...")
 	try
 		bountiesInitialize()
@@ -663,14 +672,6 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/objs_e)
 		log_subsystem_persistence_panic("Unhandled exception during persistent objects initialization: [objs_e]")
 
-	// Floor items runs immediately after objects so machines/structures are recreated
-	// before worldstateInitialize applies their saved state vars.
-	log_subsystem_persistence_info("Starting floor item initialization...")
-	try
-		floorItemsInitialize()
-	catch(var/exception/floor_e)
-		log_subsystem_persistence_panic("Unhandled exception during floor item persistence initialization: [floor_e]")
-
 	log_subsystem_persistence_info("Starting bot initialization...")
 	try
 		botsInitialize()
@@ -706,6 +707,20 @@ SUBSYSTEM_DEF(persistence)
 		factionInitialize()
 	catch(var/exception/faction_e)
 		log_subsystem_persistence_panic("Unhandled exception during faction persistence initialization: [faction_e]")
+
+	// Floor items must run after objects (machines/structures are recreated
+	// before worldstateInitialize applies their saved state vars) AND after
+	// faction (GLOB.persistence_faction_cache, populated by factionInitialize()
+	// above, has to be ready before a restored floor item can look itself up
+	// through get_faction_color() -- restoring floor items any earlier had a
+	// faction-tagged item's tint silently resolve to null every boot, while
+	// mobsInventoryInitialize() below -- which runs the same lookup for worn
+	// items -- was unaffected since it already runs after faction).
+	log_subsystem_persistence_info("Starting floor item initialization...")
+	try
+		floorItemsInitialize()
+	catch(var/exception/floor_e)
+		log_subsystem_persistence_panic("Unhandled exception during floor item persistence initialization: [floor_e]")
 
 	log_subsystem_persistence_info("Starting faction founding petition initialization...")
 	try

@@ -11,7 +11,7 @@
 	name = "Private Yacht"
 	id = "drydock_yacht"
 	mappath = "maps/drydock_ships/yacht/yacht.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/shuttle/yacht/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/yacht)
 

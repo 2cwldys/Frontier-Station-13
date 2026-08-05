@@ -1011,18 +1011,20 @@
 	category = "engineering"
 	name = "Airlock Cycler Crate"
 	supplier = "Hub"
-	description = "Wall frames, circuit boards, and cable for building a complete airlock cycler control setup: one controller, two access buttons, two pressure sensors. Does not include the airlock itself -- build that from a standard airlock assembly."
+	description = "Wall frames, circuit boards, and cable for building a complete airlock cycler control setup: one controller, one interior and one exterior access button, and chamber, interior and exterior pressure sensors. Mount the chamber sensor inside the airlock itself. Does not include the airlock -- build that from a standard airlock assembly."
 	price = 1200
 	items = list(
 		/obj/item/frame/airlock_controller,
 		/obj/item/airlock_cycler_electronics/airlock_controller,
-		/obj/item/frame/access_button,
+		/obj/item/frame/access_button/airlock_interior,
 		/obj/item/airlock_cycler_electronics/access_button,
-		/obj/item/frame/access_button,
+		/obj/item/frame/access_button/airlock_exterior,
 		/obj/item/airlock_cycler_electronics/access_button,
 		/obj/item/frame/airlock_sensor,
 		/obj/item/airlock_cycler_electronics/airlock_sensor,
-		/obj/item/frame/airlock_sensor,
+		/obj/item/frame/airlock_sensor/airlock_interior,
+		/obj/item/airlock_cycler_electronics/airlock_sensor,
+		/obj/item/frame/airlock_sensor/airlock_exterior,
 		/obj/item/airlock_cycler_electronics/airlock_sensor,
 		/obj/item/stack/cable_coil
 	)

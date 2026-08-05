@@ -1,0 +1,119 @@
+=================================================================
+ Frontier Station 13 Discord Rich Presence - Player Guide
+=================================================================
+
+This shows your live Frontier Station 13 status (player count, round
+time) on your Discord profile while you play. Everything on the
+Discord/server-setup side has already been done for you -- you don't
+need a Discord Developer account, and there's nothing to register or
+configure. Just install and run it.
+
+
+-----------------------------------------------------------------
+WHAT YOU NEED
+-----------------------------------------------------------------
+
+  - The Discord DESKTOP app, installed and logged in (not the browser
+    version, not mobile -- this only works with the desktop app).
+  - Python 3.9 or newer, if you were given the folder/source version
+    of this tool rather than a single .exe file.
+    (Get it from https://python.org if you don't have it -- during
+    install, tick "Add Python to PATH".)
+
+
+-----------------------------------------------------------------
+IF YOU WERE GIVEN A FOLDER OF FILES (main.py, config.py, etc.)
+-----------------------------------------------------------------
+
+1. Double-click install.bat once, the first time only. It installs
+   what the tool needs -- a window will flash by and close (or say
+   "Done", press any key to close it).
+2. Every time you want to use it, double-click run.bat instead.
+3. A window will open and stay open -- leave it running in the
+   background while you play. Minimize it, don't close it.
+4. When you're done playing, just close that window to stop.
+
+(No batch files? A terminal works too: "pip install -r
+requirements.txt" once, then "python main.py" each time.)
+
+
+-----------------------------------------------------------------
+IF YOU WERE GIVEN A SINGLE .exe FILE INSTEAD
+-----------------------------------------------------------------
+
+Double-click it ONCE. That's the whole install -- no Python, no
+setup, nothing to configure.
+
+After that first run it takes care of itself:
+
+  - It starts automatically with Windows from then on, so you never
+    have to launch it again.
+  - It sits quietly in the background using nothing while you're not
+    playing.
+  - Your Discord status appears on its own when you open the game and
+    disappears on its own when you close it.
+
+You'll see a small eye icon in your system tray (bottom-right of the
+taskbar, possibly under the "^" arrow). RIGHT-CLICK it for:
+
+  Start with Windows            - tick/untick to turn automatic
+                                  startup on or off
+  Turn off and remove
+    from startup                - stops it now AND takes it out of
+                                  Windows startup, in one click
+  Quit (keep startup enabled)   - stops it for now; it'll be back
+                                  next time you log in
+
+Nothing is installed anywhere else on your PC -- the only thing it
+touches is a single Windows "run at login" entry, which you can also
+see and switch off yourself under Task Manager -> Startup (listed as
+FrontierStation13RPC). Deleting the .exe after turning startup off
+removes it completely.
+
+
+-----------------------------------------------------------------
+HOW YOU'LL KNOW IT'S WORKING
+-----------------------------------------------------------------
+
+1. Start the tool (see above).
+2. Open DreamSeeker and connect to Frontier Station 13 like normal.
+3. Within about 30 seconds, check your own Discord profile (click
+   your own name/avatar) -- you should see a "Playing" status showing
+   Frontier Station 13 with the current player count.
+4. When you close DreamSeeker, that status disappears on its own
+   within about 30 seconds too.
+
+
+-----------------------------------------------------------------
+TROUBLESHOOTING
+-----------------------------------------------------------------
+
+Nothing shows up on your Discord profile
+    -> Make sure the Discord DESKTOP app is actually open (not just
+       running in your browser) and that you're logged into it.
+    -> Make sure the tool's window/terminal is still open and running
+       -- if you accidentally closed it, it stops working immediately.
+       (.exe version: check for the eye icon in your system tray
+       instead -- if it's gone, run the .exe again.)
+
+It says something like "Could not connect to Discord"
+    -> Discord desktop app isn't running (or isn't fully started
+       yet) -- open/wait for it, the tool will pick it up on its next
+       check.
+
+It says something like "Could not fetch server status"
+    -> The Frontier server may be temporarily down, or your internet
+       connection dropped. It'll keep retrying automatically -- no
+       need to restart the tool.
+
+It never shows anything even though I'm clearly playing
+    -> This is a setup issue on the host's end (the window-title
+       match), not something you can fix yourself -- let whoever gave
+       you this tool know.
+
+A security prompt/antivirus warning pops up when running the .exe
+    -> This is common for small unsigned tools built with PyInstaller
+       -- it's a false positive from the packaging method, not
+       malicious behavior, but only run it if you got it directly
+       from someone you trust (the same person/place you'd trust for
+       the game itself).

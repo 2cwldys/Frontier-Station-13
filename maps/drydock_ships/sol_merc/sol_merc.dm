@@ -9,7 +9,7 @@
 	name = "FSF Corvette"
 	id = "fsf_patrol_ship"
 	mappath = "maps/drydock_ships/sol_merc/fsf_patrol_ship.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/ship/fsf_patrol_ship/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/fsf_patrol_ship, /datum/shuttle/autodock/overmap/fsf_shuttle)
 	sub_shuttle_tags = list("FSF Shuttle")

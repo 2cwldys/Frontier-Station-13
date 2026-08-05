@@ -9,7 +9,7 @@
 	name = "Hiskyn's Revanchists Ship"
 	id = "hiskyn_revanchists"
 	mappath = "maps/drydock_ships/unathi_hiskyn/unathi_pirate_hiskyn.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/hiskyn_ship/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/hiskyn, /datum/shuttle/autodock/overmap/hiskyn_shuttle)
 	sub_shuttle_tags = list("Hiskyn's Revanchist Shuttle")

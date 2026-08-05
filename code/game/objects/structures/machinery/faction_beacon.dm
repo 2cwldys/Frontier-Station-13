@@ -217,6 +217,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		next_sweep_time = world.time + FACTION_BEACON_SWEEP_INTERVAL
 		_sweep_unassigned_objects_for_faction(_station_zs(), faction_uid)
 		_evict_hazards_in_range()
+		_evict_ship_hazards_in_range()
 	if(requires_fuel && world.time >= next_fuel_drain_time)
 		next_fuel_drain_time = world.time + BEACON_FUEL_DRAIN_INTERVAL
 		fuel_credits = max(0, fuel_credits - BEACON_FUEL_DRAIN_AMOUNT)
@@ -532,6 +533,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	// generated or moved into range afterward gets picked up too.
 	_apply_security_radius_grant()
 	_evict_hazards_in_range()
+	_evict_ship_hazards_in_range()
 
 	// Always refresh the overmap/border visuals on a successful claim,
 	// regardless of whether any of the writes above actually changed a
@@ -629,6 +631,31 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		for(var/obj/effect/overmap/event/E in overmap_event_handler.hazard_by_turf[T])
 			log_game("Faction beacon at ([x],[y],[z]): evicted overmap hazard [E] at ([T.x],[T.y],[T.z]) -- inside secured radius.")
 			qdel(E)
+
+/// Companion to _evict_hazards_in_range() above -- that one only clears a
+/// hazard *tile* within range, which cascades into killing any ship event it
+/// caused. This instead directly kills every active hazard-sourced event on
+/// any ship whose OWN overmap position is currently within security_radius,
+/// regardless of where the hazard tile that originally caused it now is.
+/// Needed because a ship's event doesn't reliably self-expire when it drifts
+/// off the hazard's turf (see kill_all_events_from_hazard()'s doc comment,
+/// events/event.dm, on overmap sub-tile "fractional movement" desync) -- a
+/// ship can carry a fully orphaned, un-killable event (endWhen = INFINITY)
+/// into secured territory with no hazard visible anywhere nearby.
+/obj/structure/machinery/faction_beacon/proc/_evict_ship_hazards_in_range()
+	if(!_hazard_eviction_active())
+		return
+	var/obj/effect/overmap/visitable/my_sector = GLOB.map_sectors["[GET_Z(src)]"]
+	if(!istype(my_sector))
+		return
+	for(var/obj/effect/overmap/visitable/ship/ship in overmap_event_handler.ship_events)
+		if(get_dist(ship, my_sector) > security_radius)
+			continue
+		var/list/active_ship_events = overmap_event_handler.ship_events[ship]
+		for(var/datum/event/E as anything in active_ship_events)
+			log_game("Faction beacon at ([x],[y],[z]): evicted orphaned hazard event [E] from [ship] -- ship inside secured radius, hazard tile elsewhere.")
+			E.kill()
+			LAZYREMOVE(overmap_event_handler.ship_events[ship], E)
 
 /// Claims every UNASSIGNED (persistent_network/req_access_faction/etc.
 /// still empty) compatible object across the given Zs for the given
@@ -733,6 +760,23 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 			configured++
 	catch(var/exception/ad_e)
 		log_subsystem_persistence_error("Faction sweep: autodoc sweep failed: [ad_e]")
+
+	// R&D servers -- claiming one switches it onto that faction's shared
+	// research pool (get_faction_research_pool(), server.dm), live-shared
+	// with every other server already tagged to the same faction, and
+	// independent of the global pool and every other faction's servers.
+	// See persistence_factions.dm's factionResearchFinalize().
+	try
+		for(var/obj/structure/machinery/r_n_d/server/RD in world)
+			if(!(GET_Z(RD) in zs))
+				continue
+			if(RD.persistent_network)
+				continue
+			RD.persistent_network = faction_uid
+			RD.files = get_faction_research_pool(faction_uid)
+			configured++
+	catch(var/exception/rd_e)
+		log_subsystem_persistence_error("Faction sweep: R&D server sweep failed: [rd_e]")
 
 	try
 		for(var/area/A in GLOB.areas)

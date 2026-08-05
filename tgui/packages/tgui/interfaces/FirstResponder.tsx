@@ -42,6 +42,7 @@ type TelepadChoice = {
 type RepossessedShip = {
   shuttle_id: number;
   display_name: string;
+  reported_stolen: BooleanLike;
 };
 
 type TapMode = 'tag' | 'stash' | 'repossess' | 'scuttle';
@@ -270,6 +271,30 @@ export const FirstResponder = (props) => {
                       }
                     >
                       Withdraw Schematic
+                    </Button>
+                    <Button
+                      icon="check"
+                      color="good"
+                      disabled={
+                        !can_secure ||
+                        !is_hub ||
+                        !can_scuttle_ships ||
+                        !ship.reported_stolen
+                      }
+                      tooltip={
+                        !can_scuttle_ships
+                          ? 'Requires officer rank or higher in the Hub.'
+                          : !ship.reported_stolen
+                            ? 'Not currently reported stolen.'
+                            : 'Clear this ship\'s stolen report.'
+                      }
+                      onClick={() =>
+                        act('report_not_stolen', {
+                          shuttle_id: ship.shuttle_id,
+                        })
+                      }
+                    >
+                      Report Not Stolen
                     </Button>
                     <Button
                       icon="radiation"

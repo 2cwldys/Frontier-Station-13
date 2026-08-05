@@ -989,7 +989,17 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 	sortTim(pad_distances, GLOBAL_PROC_REF(cmp_numeric_asc), TRUE)
 	for(var/obj/structure/machinery/telepad_cargo/pad in pad_distances)
 		var/area/A = get_area(pad)
-		choices += list(list("ref" = "\ref[pad]", "area_name" = A ? A.name : "Unknown Area"))
+		var/label = A ? A.name : "Unknown Area"
+		// Qualify with the overmap sector the pad actually sits on. Area names
+		// come from the map template (e.g. "Hallway Northeast") and were never
+		// derived from the site name, so two pads on different sites could list
+		// identically and a site rename was never reflected here at all. Read
+		// live, so this tracks renames with no propagation needed.
+		var/turf/pad_turf = get_turf(pad)
+		var/obj/effect/overmap/visitable/pad_sector = pad_turf ? GLOB.map_sectors["[pad_turf.z]"] : null
+		if(istype(pad_sector) && pad_sector.name && pad_sector.name != label)
+			label = "[pad_sector.name] - [label]"
+		choices += list(list("ref" = "\ref[pad]", "area_name" = label))
 	return choices
 
 /**

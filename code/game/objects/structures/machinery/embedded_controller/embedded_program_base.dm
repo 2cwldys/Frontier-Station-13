@@ -38,3 +38,9 @@
 		master.post_signal(signal, comm_line)
 	else
 		qdel(signal)
+
+/// Base stub so callers holding the generic embedded_program type can call
+/// this polymorphically -- overridden with real data by
+/// /datum/computer/file/embedded_program/airlock (airlock_program.dm).
+/datum/computer/file/embedded_program/proc/get_diagnostics()
+	return null

@@ -1375,10 +1375,30 @@ modules/mob/living/carbon/human/life.dm if you die, you will be zoomed out.
 	// examine text in goon chat, without overriding the SPAN_* severity color.
 	. += "<span style='text-shadow: 0 1px 2px rgba(0,0,0,0.6); font-size: 1.05em;'>[wear_text]</span>"
 
-/// Repairs a worn item with a roll of tape -- Aurora's closest existing
-/// analog to an "adhesive quality" repair item, already consumed the same
-/// way (single-use, qdel on use) by rods.dm and the improvised pipe gun.
+/// Stronger repair tier for an item that's fully broken (wear_broken) --
+/// tape refuses those outright (see the branch below), and nothing else in
+/// the codebase ever clears wear_broken, so without this a broken item is
+/// bricked for the rest of the round. Nanopaste is the existing "advanced
+/// repair material" already used the same way elsewhere (rig_attackby.dm's
+/// EMP-repair branch).
 /obj/item/attackby(obj/item/attacking_item, mob/user, params)
+	if(degrades_with_use && istype(attacking_item, /obj/item/stack/nanopaste))
+		if(wear_durability >= wear_max_durability && !wear_broken)
+			to_chat(user, SPAN_WARNING("\The [src] doesn't need repairing."))
+			return TRUE
+		var/obj/item/stack/nanopaste/N = attacking_item
+		if(!N.use(3))
+			to_chat(user, SPAN_WARNING("Not enough nanopaste left to repair \the [src]."))
+			return TRUE
+		wear_durability = wear_max_durability
+		wear_broken = FALSE
+		user.visible_message(SPAN_NOTICE("[user] restores \the [src] with a swarm of repair nanites."), \
+			SPAN_NOTICE("You fully restore \the [src] with \the [attacking_item]."))
+		return TRUE
+
+	// Repairs a worn item with a roll of tape -- Aurora's closest existing
+	// analog to an "adhesive quality" repair item, already consumed the same
+	// way (single-use, qdel on use) by rods.dm and the improvised pipe gun.
 	if(degrades_with_use && istype(attacking_item, /obj/item/tape_roll))
 		if(wear_broken)
 			to_chat(user, SPAN_WARNING("\The [src] is beyond repair."))
@@ -1402,10 +1422,23 @@ modules/mob/living/carbon/human/life.dm if you die, you will be zoomed out.
 	if(degrades_with_use)
 		.["wear_durability"] = wear_durability
 		.["wear_broken"] = wear_broken
+	// Any non-default tint, saved generically. Nothing else persists an item's
+	// color: the floor_items table only has name/icon_state columns, and every
+	// colored-item hook so far (faction tagging, spray-painted tools, dyed
+	// clothing) had to re-derive it from some other saved value on restore --
+	// so a tint whose source no longer resolves is simply lost. Only emitted
+	// when it actually differs from the type default, so untinted items don't
+	// grow an extra saved field.
+	if(color && color != initial(color))
+		.["obj_color"] = color
 
 /obj/item/persistent_objects_apply_content(content, x, y, z)
 	..()
-	if(degrades_with_use && islist(content))
+	if(!islist(content))
+		return
+	if(!isnull(content["obj_color"]))
+		color = content["obj_color"]
+	if(degrades_with_use)
 		if(!isnull(content["wear_durability"]))
 			wear_durability = between(0, text2num(content["wear_durability"]), wear_max_durability)
 		if(!isnull(content["wear_broken"]))

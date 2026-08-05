@@ -37,6 +37,87 @@
 	title = "Engineering Textbook"
 	sub_page = "Guide_to_Engineering"
 
+/obj/item/book/manual/airlock_cyclers
+	name = "Airlock Cycler Field Guide"
+	icon_state = "bookEngineering"
+	item_state = "book6"
+	author = "Engineering Encyclopedia"
+	title = "Airlock Cycler Field Guide"
+
+/obj/item/book/manual/airlock_cyclers/Initialize()
+	. = ..()
+	dat = {"<html>
+				<head>
+				<style>
+				h1 {font-size: 18px; margin: 15px 0px 5px;}
+				h2 {font-size: 15px; margin: 15px 0px 5px;}
+				li {margin: 2px 0px 2px 15px;}
+				ul {margin: 5px; padding: 0px;}
+				ol {margin: 5px; padding: 0px 15px;}
+				body {font-size: 13px; font-family: Verdana;}
+				</style>
+				</head>
+				<body>
+
+				<h1>Airlock Cyclers -- Building and Wiring a Working Cycler From Scratch</h1>
+
+				<h2>What You Need</h2>
+				An "Airlock Cycler Crate" (ordered from cargo, engineering category) contains everything except the door itself:
+				<ul>
+					<li>1x airlock controller frame + electronics</li>
+					<li>2x access button frame + electronics</li>
+					<li>2x airlock sensor frame + electronics</li>
+					<li>cable coil</li>
+				</ul>
+				The airlock(s) themselves are <b>not</b> included -- build those separately from a standard airlock assembly (steel stack, "external airlock assembly" or any other airlock assembly type via the material construction menu, wrench the frame, 3x cable coil, insert airlock electronics, screwdriver to finish). Use the <b>external</b> assembly specifically if you want true external-airlock behavior (AI can't force it open, can't be emag-hacked, unique sounds) -- a generic airlock linked to a controller will cycle fine, but stays a plain airlock in every other respect.
+				<br><br>
+				Air vents are not included either -- they're free to build through normal atmospherics construction and already fully compatible with a cycler once linked (see below).
+
+				<h2>Building a Part From Its Frame</h2>
+				Each part (controller, access button, airlock sensor) is built the same three-step way, onto an <b>existing, already-finished wall</b> -- same as building a fire alarm or air alarm. The wall must already be built; you attach the panel to its face, you don't need the wall itself mid-construction.
+				<ol>
+					<li>Walk up to a finished wall, stand on the adjacent floor tile, and click the wall directly with the frame item in-hand. It mounts onto that wall, facing you.</li>
+					<li>While it's still just a mounted frame (unsecured), you can <b>wrench</b> it to rotate it 90 degrees at a time -- do this before wiring it, since you can't rotate it anymore once it's finished. A <b>crowbar</b> at this stage removes it from the wall entirely, giving you back the portable frame item (full undo).</li>
+					<li>Insert the matching electronics board (e.g. "access button electronics" into the access button frame) to advance it.</li>
+					<li>Use 5x cable (a cable coil) on it to finish wiring -- it's now a complete, working part.</li>
+				</ol>
+				Undoing a finished part: <b>screwdriver</b> opens its access panel, then <b>wirecutters</b> (while the panel's open) cuts the wires back out (drops 5 cable, reverts to the unwired stage). From there, <b>crowbar</b> pries the circuit board back out (drops the electronics item, reverts to bare frame), then <b>crowbar</b> again removes the frame from the wall.
+
+				<h2>Wiring Everything Together With a Multitool</h2>
+				All linking is done the same way, for every part -- door, access button, airlock sensor, and air vent, all pair with the <b>controller</b> (not with each other) using a multitool:
+				<ol>
+					<li>Click one device with the multitool to buffer it (a chat message confirms it's buffered). Opening the multitool's own screen while it holds a controller in its buffer shows a live checklist of everything already linked to that controller, so you always know what's left to wire.</li>
+					<li>Click the <b>other</b> device (the controller, or the part, whichever you didn't click first -- order doesn't matter) to complete the link.</li>
+					<li>To <b>unlink</b>, do the exact same thing again on the same pair -- it's a toggle, not a separate unlink action.</li>
+				</ol>
+				If you buffer the wrong thing, right-click the multitool and choose <b>Clear Buffer</b> to empty it before starting over.
+				<br><br>
+				What each link actually does:
+				<ul>
+					<li><b>Door &lt;-&gt; Controller:</b> fills the controller's exterior-door slot if empty, otherwise the interior-door slot, otherwise refuses (unlink one first). Tunes the door to the controller's frequency automatically.</li>
+					<li><b>Access Button &lt;-&gt; Controller:</b> the button will send its "cycle" command to that controller from then on, tuned to its frequency.</li>
+					<li><b>Airlock Sensor &lt;-&gt; Controller:</b> links both directions at once -- the sensor's manual card-swipe cycle command reaches the controller, and the controller starts listening to that sensor's live pressure reports. Fills the controller's chamber-sensor slot first, then exterior-sensor, then interior-sensor (whichever is empty first).</li>
+					<li><b>Air Vent &lt;-&gt; Controller:</b> fills the controller's airpump slot -- this is the pump the controller pressurizes/depressurizes the chamber with during a cycle. Vents already have their own id_tag assigned automatically the moment they're built, so there's no extra setup needed there before linking.</li>
+				</ul>
+				A controller only has one exterior-door slot, one interior-door slot, and one airpump slot, but three sensor slots (chamber/exterior/interior) -- with just the 2 sensors from the crate, the first one you link fills the chamber slot and the second fills the exterior slot. A third sensor is needed if you also want real interior-side pressure sensing instead of the controller's default 1-atmosphere assumption.
+
+				<h2>Pressure Sensing: Vacuum vs. Room-to-Room</h2>
+				The controller assumes vacuum (0 pressure) on the exterior side and standard atmosphere (1 atm) on the interior side <b>by default</b>. Those are just fallback assumptions for a bare space airlock with no sensors linked -- if you link a sensor into the exterior-sensor slot (sitting in the room/area on the far side of the airlock), the controller starts using that sensor's real live pressure reading instead of assuming vacuum. This means the same cycler works correctly for both true space airlocks and room-to-room cyclers between two pressurized areas, as long as a sensor is actually placed and linked on the far side.
+				<br><br>
+				Note: sensors only report raw pressure, not gas composition. The cycler has no way to detect a contaminated or different gas mix on the other side if it happens to be at a matching pressure -- it will cycle it through like any other air.
+
+				<h2>Persistence</h2>
+				Everything here survives a server restart:
+				<ul>
+					<li>A part's construction progress (frame only / circuit inserted / fully wired) and facing, so a half-built part is still half-built after a restart, not reset.</li>
+					<li>Every multitool link (door/button/sensor/vent tag assignments and the frequency they're tuned to) on all four device types.</li>
+					<li>The physical part itself, the same way any other player-built machine already persists -- no separate save step needed on your part, it's automatic once built.</li>
+				</ul>
+
+				</body>
+			</html>
+			"}
+
 /obj/item/book/manual/engineering_particle_accelerator
 	name = "Particle Accelerator User's Guide"
 	icon_state = "bookParticleAccelerator"

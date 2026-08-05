@@ -17,7 +17,10 @@ var/global/enabled_spooking = 0
 		if(R_CCIAA & C.holder.rights)
 			to_chat(C, msg)
 
-/proc/msg_admin_attack(var/text,var/ckey="",var/ckey_target="",var/attack_z = 0,var/offense_recorded = FALSE) //Toggleable Attack Messages
+/// highsec_offense: pass FALSE for actions logged for admin visibility that are not
+/// crimes (priming a cleaner grenade, for instance). Distinct from offense_recorded,
+/// which means "an offense happened and admin_attack_log() already filed it".
+/proc/msg_admin_attack(var/text,var/ckey="",var/ckey_target="",var/attack_z = 0,var/offense_recorded = FALSE,var/highsec_offense = TRUE) //Toggleable Attack Messages
 	log_attack(text)
 	// Many harmful actions call this proc DIRECTLY (self-attacks included)
 	// without routing through admin_attack_log() -- fall back to the acting
@@ -31,7 +34,7 @@ var/global/enabled_spooking = 0
 	// Direct callers never fed the offense escalation/responder list --
 	// record here unless admin_attack_log() already did. Matching ckey args
 	// mean self-harm (both are key_name() strings): not an offense.
-	if(!offense_recorded && ismob(usr) && !zone_security_exempt(usr) && !(ckey && ckey == ckey_target) && usr.ckey)
+	if(highsec_offense && !offense_recorded && ismob(usr) && !zone_security_exempt(usr) && !(ckey && ckey == ckey_target) && usr.ckey)
 		zone_security_record_offense(usr, null, text)
 	var/rendered = "<span class=\"log_message\"><span class=\"prefix\">ATTACK:</span> <span class=\"message\">[text]</span></span>"
 	for(var/s in GLOB.staff)

@@ -566,7 +566,16 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	worldstate_vars = list("use_power", "scrubbing", "welded")
 
 /obj/structure/machinery/atmospherics/unary/vent_pump
-	worldstate_vars = list("use_power", "pump_direction", "external_pressure_bound", "internal_pressure_bound", "pressure_checks", "welded", "frequency")
+	// id_tag is load-bearing here, not cosmetic: _ensure_id_tag() mints the
+	// pump's tag when a cycler controller links it, and the controller
+	// separately persists that tag as tag_airpump. Without saving id_tag the
+	// pump comes back with a null/regenerated tag after a reboot, so the
+	// controller's saved tag_airpump points at nothing and every cycler pump
+	// silently unlinks itself on restart.
+	// "name" is load-bearing alongside id_tag: broadcast_status() auto-names an
+	// unnamed vent from a per-area counter, so without persisting the name a
+	// restored pump gets renamed to the next free number every boot.
+	worldstate_vars = list("use_power", "pump_direction", "external_pressure_bound", "internal_pressure_bound", "pressure_checks", "welded", "frequency", "id_tag", "name")
 
 /obj/structure/machinery/atmospherics/unary/vent_pump/worldstate_apply_content(list/content)
 	..()
@@ -615,7 +624,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		set_frequency(frequency)
 
 /obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller
-	worldstate_vars = list("buildstage", "panel_open", "dir", "id_tag", "frequency", "tag_exterior_door", "tag_interior_door", "tag_airpump", "tag_chamber_sensor", "tag_exterior_sensor", "tag_interior_sensor")
+	worldstate_vars = list("buildstage", "panel_open", "dir", "id_tag", "frequency", "tag_exterior_door", "tag_interior_door", "tag_airpump", "tag_airpumps", "tag_chamber_sensor", "tag_exterior_sensor", "tag_interior_sensor")
 
 /obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/worldstate_apply_content(list/content)
 	..()
@@ -751,8 +760,27 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 /obj/structure/machinery/gumballmachine
 	worldstate_vars = list("amountleft", "broken", "on")
 
+// TLV is the whole point of configuring an air alarm (the per-gas warning/
+// danger threshold table, set via ui_act("set_threshold")) and was missing
+// from this list entirely, so every threshold a player set reverted on
+// restart. It round-trips fine as a nested list through json_encode/decode --
+// the airlock persists req_access the same way. `name` matters because the
+// blueprints area-rename walks alarms and renames them to match the area.
 /obj/structure/machinery/alarm
-	worldstate_vars = list("mode", "target_temperature", "breach_detection", "locked", "aidisabled", "highpower", "frequency")
+	worldstate_vars = list("mode", "target_temperature", "breach_detection", "locked", "aidisabled", "highpower", "frequency", "TLV", "rcon_setting", "report_danger_level", "shorted", "name")
+
+/obj/structure/machinery/alarm/worldstate_apply_content(list/content)
+	..()
+	// first_run() rewrites TLV to hard defaults on every Initialize() (and
+	// again on rebuild), so a restored table has to be re-asserted here --
+	// worldstate apply runs after Initialize, but re-applying explicitly makes
+	// that ordering dependency safe rather than incidental.
+	if(islist(content) && islist(content["TLV"]))
+		TLV = content["TLV"]
+	// The generic path only assigns the var; the radio still has to actually
+	// be moved onto the restored frequency. Same override vent_pump uses.
+	if(frequency)
+		set_frequency(frequency)
 
 /obj/structure/machinery/power/portgen/basic
 	worldstate_vars = list("active", "open", "power_output", "sheets", "sheet_left", "anchored", "emagged")

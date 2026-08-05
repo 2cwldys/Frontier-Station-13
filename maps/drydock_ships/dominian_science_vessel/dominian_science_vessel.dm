@@ -9,7 +9,7 @@
 	name = "Dominian Science Vessel"
 	id = "dominian_science_vessel_dd"
 	mappath = "maps/drydock_ships/dominian_science_vessel/dominian_science_vessel.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/ship/dominian_science_vessel/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/dominian_science_vessel, /datum/shuttle/autodock/overmap/dominian_science_shuttle)
 	sub_shuttle_tags = list("Dominian Science Shuttle")

@@ -262,6 +262,14 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 	var/rulesurl
 	var/githuburl
 	var/mainsiteurl
+	/// Download for the optional Discord Rich Presence helper, surfaced by the
+	/// "Discord Rich Presence" OOC verb. Blank hides the verb's action entirely.
+	var/discord_rpc_url
+	/// Discord invite link. When set, the whole BYOND hub status block becomes
+	/// a hyperlink to this instead of rendering as plain text.
+	var/discord_invite_url
+	/// One-line tagline shown under the server name on the BYOND hub status.
+	var/hub_tagline
 
 	//Alert level description
 	var/alert_desc_green = "All threats to the ship have passed. Security may not have weapons visible, privacy laws are once again fully enforced."
@@ -467,6 +475,12 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 	// global.forum_api_key - see modules/http/forum_api.dm
 	var/news_use_forum_api = FALSE
 
+	// owner/repo are parsed by SSgithub from githuburl (below), not duplicated here
+	/// Optional: only announce PRs targeting this base branch. Unset = all branches.
+	var/github_branch
+	// GitHub personal access token - see .env (GITHUB_TOKEN), not config.txt
+	var/github_enabled = FALSE
+
 	var/authentik_api_url
 	var/authentik_api_key
 	var/use_authentik_api = FALSE
@@ -663,6 +677,15 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 
 				if ("rulesurl")
 					GLOB.config.rulesurl = value
+
+				if ("discord_rpc_url")
+					GLOB.config.discord_rpc_url = value
+
+				if ("discord_invite_url")
+					GLOB.config.discord_invite_url = value
+
+				if ("hub_tagline")
+					GLOB.config.hub_tagline = value
 
 				if ("forum_passphrase")
 					GLOB.config.forum_passphrase = value
@@ -1086,6 +1109,11 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 
 				if ("news_use_forum_api")
 					news_use_forum_api = TRUE
+
+				if ("github_branch")
+					github_branch = value
+				if ("github_enabled")
+					github_enabled = TRUE
 
 				if ("profiler_enabled")
 					profiler_is_enabled = TRUE

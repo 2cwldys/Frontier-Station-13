@@ -24,6 +24,19 @@
 // Defined by default -- comment out to strip it entirely from the build.
 //#define NPC_AI_DEBUG_EXAMINE
 
+// If defined, the airlock cycler controller's console shows a "Diagnostics"
+// section (live cycle state/target, chamber/external/internal pressure,
+// pump status, and every linked tag or "not linked"). Meant for build-time
+// troubleshooting -- comment out to strip it from live/production builds so
+// players don't see internal tag/ref debug info in a normal console.
+//#define AIRLOCK_CYCLER_DIAGNOSTICS
+
+// If defined, the floor-item persistence path logs every decision it makes
+// for a faction-tagged clothing item: which branch dropped it (if any),
+// whether its extra state blob was built, and which restore branch ran on
+// the next boot. Purely diagnostic -- comment out to strip it entirely.
+#define PERSISTENCE_FLOOR_ITEM_DEBUG
+
 // If defined, real (non-Hub) factions are limited to ONE cargo order
 // category, chosen at founding and changeable later (command rank, 1-month
 // real-world cooldown, or admin override anytime). Off -- every
@@ -35,6 +48,30 @@
 // granting a real faction the same unrestricted ordering Hub already gets
 // hardcoded by uid, without actually making it Hub.
 #define FACTION_CARGO_CATEGORY_ALL "*all*"
+
+// If defined, world.visibility is toggled off then back on ~4 seconds after
+// the persistence world-ready gate finishes (persistence_world_ready.dm) --
+// works around BYOND's hub-announce apparently needing an explicit runtime
+// change to world.visibility rather than firing off its already-TRUE default
+// at boot. Defined by default -- comment out to disable the workaround.
+#define REPUBLISH_HUB_VISIBILITY_ON_BOOT
+
+// If defined, show_revision_info() (getrev.dm) actually displays anything --
+// server revision/branch/date, GitHub commit link, current map, and any
+// test-merged PRs. Covers both the "Show Server Revision" OOC verb and the
+// automatic display that fires once per client session right after a
+// character wakes from cryo (new_player.dm). Defined by default -- comment
+// out to strip revision/build info from what players can see entirely.
+#define SHOW_GIT_LOG
+
+// If defined, the server automatically triggers a deployment sync
+// (scripts/deploy.sh / deploy.ps1, same as the "Sync Deployment Branch"
+// admin verb) the moment SSgithub detects a pull request merge into the
+// configured deployment branch (GLOB.config.github_branch) -- no admin
+// action needed. Requires GITHUB_ENABLED, GITHUBURL, and GITHUB_BRANCH all
+// configured in config.txt (see docs/deployment.md). Off by default --
+// leave undefined to require the admin verb to be run manually instead.
+//#define FORCE_COMPILE_ON_MERGE
 
 // If defined, two factions can become allied via a Faction Management
 // propose/accept handshake -- either side can break it anytime. Allied

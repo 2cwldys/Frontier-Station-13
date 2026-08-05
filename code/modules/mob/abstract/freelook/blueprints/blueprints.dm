@@ -84,6 +84,7 @@
 
 	var/area/A = finalize_area(area_name)
 	for(var/turf/T in selected_turfs)
+		T.blueprint_prior_area = T.loc
 		T.change_area(T.loc, A)
 	remove_selection() // Reset the selection for clarity.
 
@@ -100,6 +101,31 @@
 	A.always_unpowered = FALSE
 	return A
 
+/// Fallback "unclaimed" area for a tile with no recorded blueprint_prior_area
+/// (e.g. a mapped-in area the player never actually claimed via blueprints in
+/// the first place). world.area is correct for the main station, but wrong
+/// for anything else -- exoplanets and Odyssey scenarios have their own
+/// single catch-all background area; a pinned away site doesn't (its
+/// unclaimed tiles span whatever mapped-in areas the template used), so
+/// there's no way to do better than world.area for that case without a
+/// recorded prior area.
+/mob/abstract/eye/blueprints/proc/get_blueprint_background_area(area/A)
+	var/area/background_area = world.area
+	var/obj/effect/overmap/visitable/sector/sector = GLOB.map_sectors["[A.z]"]
+	var/obj/effect/overmap/visitable/sector/exoplanet/exoplanet = sector
+	if(istype(exoplanet))
+		background_area = exoplanet.planetary_area
+	if(SSodyssey.scenario && (GET_Z(owner) in SSodyssey.scenario_zlevels))
+		background_area = SSodyssey.scenario.base_area
+	return background_area
+
+/// Resolves where T should actually revert to: whatever it was before a
+/// blueprint claimed it, if recorded, otherwise the generic fallback.
+/mob/abstract/eye/blueprints/proc/get_blueprint_revert_area(turf/T, area/background_area)
+	if(T.blueprint_prior_area && !QDELETED(T.blueprint_prior_area))
+		return T.blueprint_prior_area
+	return background_area
+
 /mob/abstract/eye/blueprints/proc/remove_area()
 	var/area/A = get_area(src)
 	if(!check_modification_validity())
@@ -115,20 +141,15 @@
 	if(A.apc)
 		to_chat(owner, SPAN_WARNING("You must remove the APC from this area before you can remove it from the blueprints!"))
 		return
-	var/background_area = world.area
-	var/obj/effect/overmap/visitable/sector/sector = GLOB.map_sectors["[A.z]"]
-	var/obj/effect/overmap/visitable/sector/exoplanet/exoplanet = sector
-	if(istype(exoplanet))
-		background_area = exoplanet.planetary_area
-	if(SSodyssey.scenario && (GET_Z(owner) in SSodyssey.scenario_zlevels))
-		background_area = SSodyssey.scenario.base_area
+	var/area/background_area = get_blueprint_background_area(A)
 	// Iterate a copy -- change_area() reassigns each turf's loc, which
 	// mutates A.contents live. Iterating the real list while it shrinks
 	// skips entries, leaving stray turfs behind so the area never actually
 	// empties (and thus never qdels) even though the success message
 	// below used to fire unconditionally beforehand regardless.
 	for(var/turf/T in A.contents.Copy())
-		T.change_area(T.loc, background_area)
+		T.change_area(T.loc, get_blueprint_revert_area(T, background_area))
+		T.blueprint_prior_area = null
 	if(locate(/turf) in A)
 		to_chat(owner, SPAN_WARNING("Some tiles of [A.name] could not be moved off the blueprints -- area not removed."))
 		return
@@ -211,8 +232,13 @@
 	for(var/turf/T in selected_turfs)
 		if(get_area(T) == target)
 			continue // already part of it, nothing to do
+		T.blueprint_prior_area = T.loc
 		T.change_area(T.loc, target)
 		added++
+	// Reshaping an area makes it a persisted area -- see edit_area()'s note.
+	// Without this, tiles added to a mapped-in station area revert on restore.
+	if(added)
+		target.is_blueprint_area = TRUE
 	to_chat(owner, SPAN_NOTICE("Added [added] tile\s to [target.name]."))
 	remove_selection()
 
@@ -291,16 +317,20 @@
 	if(!LAZYLEN(selected_turfs))
 		to_chat(owner, SPAN_WARNING("Select tiles within [A.name] to remove them from it first."))
 		return
+	var/area/background_area = get_blueprint_background_area(A)
 	var/removed = 0
 	for(var/turf/T in selected_turfs)
 		if(get_area(T) != A)
 			continue
-		T.change_area(T.loc, world.area)
+		T.change_area(T.loc, get_blueprint_revert_area(T, background_area))
+		T.blueprint_prior_area = null
 		removed++
 	remove_selection()
 	if(!removed)
 		to_chat(owner, SPAN_WARNING("None of the selected tiles were part of [A.name]."))
 		return
+	// Reshaping an area makes it a persisted area -- see edit_area()'s note.
+	A.is_blueprint_area = TRUE
 	to_chat(owner, SPAN_NOTICE("Removed [removed] tile\s from [A.name]."))
 	if(!(locate(/turf) in A))
 		qdel(A)
@@ -329,6 +359,12 @@
 		if(is_type_in_list(M, types_to_rename))
 			M.name = replacetext(M.name, prevname, new_area_name)
 	A.name = new_area_name
+	// An edited area is a persisted area. areasFinalize() only saves areas
+	// flagged is_blueprint_area, and that flag was previously only ever set at
+	// CREATION (finalize_area()) -- so renaming a mapped-in station area
+	// changed it live but was silently discarded on restore, because the map
+	// reload re-supplied the original name.
+	A.is_blueprint_area = TRUE
 	to_chat(owner, SPAN_NOTICE("You set the area '[prevname]' title to '[new_area_name]'."))
 
 /mob/abstract/eye/blueprints/ClickOn(atom/A, params)

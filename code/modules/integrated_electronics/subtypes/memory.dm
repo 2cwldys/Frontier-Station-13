@@ -88,6 +88,26 @@
 	push_data()
 	activate_pin(2)
 
+// Persists the actual source of truth here -- data lives on this circuit's
+// own var, only ever copied onto the output pin when do_work() fires, so
+// the generic pin_data persistence in electronic_assembly's
+// persistent_objects_get_content() (assemblies.dm) never sees it on its own.
+// Skips ref-mode data (a weakref'd object) -- can't meaningfully survive a
+// reboot, same reasoning as every other dropped object ref in this
+// persistence system.
+/obj/item/integrated_circuit/memory/constant/persistent_objects_get_content()
+	var/list/content = ..()
+	if(isnum(data) || istext(data) || islist(data))
+		content["constant_data"] = data
+	return content
+
+/obj/item/integrated_circuit/memory/constant/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["constant_data"]))
+		data = content["constant_data"]
+
 /obj/item/integrated_circuit/memory/constant/attack_self(mob/user)
 	var/datum/integrated_io/O = outputs[1]
 	var/type_to_use = input("Please choose a type to use.","[src] type setting") as null|anything in list("string","number","ref", "null")

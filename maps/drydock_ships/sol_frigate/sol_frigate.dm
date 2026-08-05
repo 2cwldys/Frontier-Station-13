@@ -11,7 +11,7 @@
 	name = "Solarian Navy Frigate"
 	id = "sol_frigate"
 	mappath = "maps/drydock_ships/sol_frigate/sol_frigate.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/ship/sol_frigate/cic
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/sol_frigate, /datum/shuttle/autodock/overmap/solfrig_shuttle)
 	sub_shuttle_tags = list("Solarian Frigate Shuttle")

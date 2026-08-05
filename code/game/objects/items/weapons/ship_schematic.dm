@@ -17,10 +17,15 @@
  *
  * Depositing it into a console/laptop (not handheld) "banks" it -- destroys
  * the physical item and marks the ship recoverable via the Drydock
- * program's "withdraw_schematic" action, itself gated on the ship's
- * historical owner_ckey/owner_char_name/faction_uid identity (the one place
- * that old identity check still matters, since there's no item to check
- * during a withdrawal).
+ * program's "withdraw_schematic" action, gated on the ship's CURRENT owner
+ * identity (owner_ckey/owner_char_name/faction_uid) OR its permanent title
+ * (is_title_holder(), persistence_shuttles.dm), since there's no item to
+ * check during a withdrawal. Banking a ship you're not titled to transfers
+ * that current-owner identity to you and flags the schematic
+ * reported_stolen -- but never touches title, which only a deliberate
+ * "Give Title" (drydockGiveSchematic(), the Drydock program) can move.
+ * reported_stolen clears passively once the title-holder is confirmed
+ * holding it again (_maybe_clear_stolen()).
  *
  * First Responder repossession (drydockRepossess(), persistence_shuttles.dm)
  * finds and permanently invalidates whatever live schematic exists for a
@@ -57,10 +62,6 @@
 	/// dead, mirrors ID card revoked exactly. Distinct from "stale"
 	/// (shuttle_id reused): this is deliberate seizure, not slot collision.
 	var/repossessed = FALSE
-	/// Cached at mint/withdraw time purely for the "title belongs to"
-	/// display -- historical, never re-derived, so it stays accurate even
-	/// after later ownership changes hands via looting/trading.
-	var/titled_to_name
 	/// Per-ckey Enter Ship cooldown -- same shape/purpose as the Drydock
 	/// console program's own former last_boarded_by_ckey, just scoped to
 	/// this item now that boarding is triggered from the schematic instead.
@@ -89,14 +90,34 @@
 		return
 	name = "ship schematic -- [DS.display_name()]"
 
+/// Passive "stolen" clear -- called from get_examine_text()/ui_data(), the
+/// two places a mob meaningfully interacts with this exact schematic. Only
+/// clears if user is the one ACTUALLY holding this item (not just standing
+/// nearby examining someone else's) and is DS's permanent title-holder --
+/// otherwise a true owner glancing at someone else's stolen schematic from
+/// across the room would incorrectly clear it.
+/obj/item/ship_schematic/proc/_maybe_clear_stolen(mob/user, datum/drydock_ship/DS)
+	if(!DS.reported_stolen || !user)
+		return
+	if(!(src in user.get_all_contents()))
+		return
+	if(!DS.is_title_holder(user))
+		return
+	SSpersistence.drydockClearStolenFlag(DS.shuttle_id)
+
 /obj/item/ship_schematic/get_examine_text(mob/user, distance, is_adjacent, infix = "", suffix = "", show_extended)
 	. = ..()
 	if(repossessed)
 		. += SPAN_WARNING("It has been stamped REPOSSESSED and no longer functions.")
-	else if(!resolve_ship())
+		return
+	var/datum/drydock_ship/DS = resolve_ship()
+	if(!DS)
 		. += SPAN_WARNING("It no longer corresponds to any ship -- it's gone stale.")
-	else
-		. += "The title belongs to: [titled_to_name || "Unknown"]."
+		return
+	_maybe_clear_stolen(user, DS)
+	. += "The title belongs to: [DS.title_faction_uid ? get_faction_name(DS.title_faction_uid) : (DS.title_char_name || "Unknown")]."
+	if(DS.reported_stolen)
+		. += SPAN_WARNING("This schematic has been reported stolen.")
 
 /obj/item/ship_schematic/attack_self(mob/user)
 	. = ..()
@@ -116,10 +137,14 @@
 	if(!DS)
 		return data
 
+	_maybe_clear_stolen(user, DS)
+
 	data["display_name"] = DS.display_name()
 	data["stashed"] = DS.stashed
 	data["ready"] = DS.ready
-	data["titled_to_name"] = titled_to_name
+	data["title_holder_name"] = DS.title_faction_uid ? get_faction_name(DS.title_faction_uid) : (DS.title_char_name || "Unknown")
+	data["reported_stolen"] = DS.reported_stolen
+	data["needs_rename"] = !DS.custom_name
 	data["shuttle_id"] = DS.shuttle_id
 	data["save_in_progress"] = SSpersistence.save_in_progress
 	data["busy"] = _drydock_ship_busy(DS.shuttle_id)
@@ -293,7 +318,6 @@
 	content["shuttle_id"] = shuttle_id
 	content["bound_purchased_at"] = bound_purchased_at
 	content["repossessed"] = repossessed
-	content["titled_to_name"] = titled_to_name
 	return content
 
 /obj/item/ship_schematic/persistent_objects_apply_content(content, x, y, z)
@@ -303,5 +327,4 @@
 	shuttle_id = content["shuttle_id"]
 	bound_purchased_at = content["bound_purchased_at"]
 	repossessed = content["repossessed"]
-	titled_to_name = content["titled_to_name"]
 	refresh_name()

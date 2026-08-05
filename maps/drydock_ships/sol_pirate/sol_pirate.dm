@@ -9,7 +9,7 @@
 	name = "SFA Corvette"
 	id = "sfa_patrol_ship"
 	mappath = "maps/drydock_ships/sol_pirate/sfa_patrol_ship.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/ship/sfa_patrol_ship/Bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/sfa_patrol_ship, /datum/shuttle/autodock/overmap/sfa_shuttle)
 	sub_shuttle_tags = list("SFA Shuttle")

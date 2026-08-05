@@ -419,14 +419,26 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 	return TRUE
 
 /**
- * TRUE for Hub-faction members carrying engineering access -- they can
- * perform real engineering work (repairs, construction, demolition) on
- * highsec structures without needing admin rights.
+ * TRUE for Hub personnel who may perform real engineering work (repairs,
+ * construction, demolition) on highsec structures without admin rights.
+ *
+ * Two independent ways to qualify:
+ *  - Hub faction membership PLUS engineering access on the ID (the original
+ *    rule -- an actual Hub engineer).
+ *  - Any Hub member above the base/Civilian rank tier, regardless of what
+ *    access their ID happens to carry. Same get_effective_faction_rank()
+ *    threshold airlock.dm and RFD.dm already use for exactly this "trusted
+ *    Hub personnel" concept, so the rule stays consistent codebase-wide.
+ *
+ * Deliberately still Hub-scoped: highsec is Hub-law jurisdiction, so a
+ * non-Hub faction's engineer is not exempt inside it even with full access.
  */
 /proc/zone_engineering_exempt(mob/M)
 	if(!M || !ishuman(M) || !M.ckey)
 		return FALSE
 	var/mob/living/carbon/human/H = M
+	if(get_effective_faction_rank(H, "hub") > 0)
+		return TRUE
 	var/obj/item/card/id/I = H.GetIdCard()
 	if(!I || !(ACCESS_ENGINE in I.access))
 		return FALSE

@@ -12,7 +12,7 @@
 	name = "Adhomian Freighter"
 	id = "tajaran_smuggler"
 	mappath = "maps/drydock_ships/taj_smuggler/tajaran_smuggler.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/tajaran_smuggler/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/tajaran_smuggler, /datum/shuttle/autodock/overmap/tajaran_smuggler_shuttle, /datum/shuttle/autodock/overmap/tajaran_smuggler_cargo)
 	sub_shuttle_tags = list("Adhomian Freight Shuttle", "Adhomian Freight Cargo")

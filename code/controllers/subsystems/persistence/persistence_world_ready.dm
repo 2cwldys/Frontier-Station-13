@@ -54,4 +54,24 @@ SUBSYSTEM_DEF(persistence_world_ready)
 	// Signal that the persistent world is open for players.
 	SSticker.start_persistent_world()
 	log_world("Persistent world: all subsystems initialized. Server is now open.")
+#ifdef REPUBLISH_HUB_VISIBILITY_ON_BOOT
+	_republish_hub_visibility()
+#endif
 	return SS_INIT_SUCCESS
+
+#ifdef REPUBLISH_HUB_VISIBILITY_ON_BOOT
+/// BYOND's hub-announce handshake appears to key off an explicit runtime
+/// change to world.visibility, not the implicit default it already has at
+/// boot -- an initial hub-publish attempted before world state settles can
+/// get lost with nothing prompting a retry. Toggling it off then back on
+/// once everything is truly loaded reproduces the manual fix (flip the
+/// admin "Toggle Hub Visibility" verb twice) automatically.
+/proc/_republish_hub_visibility()
+	set waitfor = FALSE
+	if(!world.visibility)
+		return
+	world.visibility = FALSE
+	sleep(4 SECONDS)
+	world.visibility = TRUE
+	log_world("Hub: republished visibility after full initialization.")
+#endif

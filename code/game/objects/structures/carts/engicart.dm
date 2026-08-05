@@ -7,6 +7,7 @@
 	var/list/my_glass = list()
 	var/list/my_metal = list()
 	var/list/my_plasteel = list()
+	var/list/my_cable_coil = list()
 	var/obj/item/lightreplacer/my_lightreplacer = null
 	var/obj/item/storage/toolbox/mechanical/my_blue_toolbox = null
 	var/obj/item/storage/toolbox/electrical/my_yellow_toolbox = null
@@ -18,6 +19,7 @@
 		/obj/item/stack/material/glass,
 		/obj/item/stack/material/steel,
 		/obj/item/stack/material/plasteel,
+		/obj/item/stack/cable_coil,
 		/obj/item/lightreplacer,
 		/obj/item/storage/toolbox/mechanical,
 		/obj/item/storage/toolbox/electrical,
@@ -60,7 +62,7 @@
 /obj/structure/cart/storage/engineeringcart/get_storage_contents_list()
 	storage_contents.Cut()
 	var/list/lists_to_check = list(
-		my_glass, my_metal, my_plasteel
+		my_glass, my_metal, my_plasteel, my_cable_coil
 	)
 	for(var/list/list_to_check in lists_to_check)
 		if(list_to_check?.len) //null check
@@ -78,6 +80,7 @@
 	QDEL_LIST(my_glass)
 	QDEL_LIST(my_metal)
 	QDEL_LIST(my_plasteel)
+	QDEL_LIST(my_cable_coil)
 	QDEL_NULL(my_lightreplacer)
 	QDEL_NULL(my_blue_toolbox)
 	QDEL_NULL(my_yellow_toolbox)
@@ -110,6 +113,13 @@
 						should_store = TRUE
 					else
 						storage_is_full = TRUE
+
+		if(istype(attacking_item, /obj/item/stack/cable_coil)) //---- cable coil (sibling of stack/material, not a subtype -- own branch)
+			if(my_cable_coil.len < stack_capacity)
+				my_cable_coil += attacking_item
+				should_store = TRUE
+			else
+				storage_is_full = TRUE
 
 		if(istype(attacking_item, /obj/item/storage/toolbox)) //---- toolboxes
 			switch(attacking_item.type)
@@ -178,6 +188,15 @@
 			my_plasteel -= stored_plasteel
 		my_plasteel.Cut()
 
+	if(LAZYLEN(my_cable_coil) && prob(chance))
+		var/obj/item/stack/cable_coil/stored_coil
+		for(var/I in my_cable_coil)
+			stored_coil = I
+			stored_coil.forceMove(dropspot)
+			stored_coil.tumble(1)
+			my_cable_coil -= stored_coil
+		my_cable_coil.Cut()
+
 	if(my_lightreplacer && prob(chance))
 		my_lightreplacer.forceMove(dropspot)
 		my_lightreplacer.tumble(2)
@@ -239,6 +258,11 @@
 						user.put_in_hands(chosen_item)
 						to_chat(user, SPAN_NOTICE("You take [my_plasteel[chosen_item]] from [src]."))
 						my_plasteel -= chosen_item
+				if(/obj/item/stack/cable_coil)
+					if(my_cable_coil.len)
+						user.put_in_hands(chosen_item)
+						to_chat(user, SPAN_NOTICE("You take [my_cable_coil[chosen_item]] from [src]."))
+						my_cable_coil -= chosen_item
 				if(/obj/item/lightreplacer, /obj/item/lightreplacer/advanced)
 					if(my_lightreplacer)
 						user.put_in_hands(my_lightreplacer)
@@ -275,6 +299,12 @@
 		has_items = TRUE
 	if(my_glass.len)
 		AddOverlays("cart_glass")
+		has_items = TRUE
+	if(my_cable_coil.len)
+		// icons/obj/engicart.dmi may not have this state yet -- AddOverlays()
+		// on a missing state is a silent no-op, not a compile error, so this
+		// doesn't block the mechanical fix; needs art follow-up.
+		AddOverlays("cart_cablecoil")
 		has_items = TRUE
 	if(my_lightreplacer)
 		AddOverlays("cart_flashlight")

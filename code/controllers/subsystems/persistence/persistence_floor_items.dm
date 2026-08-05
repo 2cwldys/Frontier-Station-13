@@ -116,12 +116,21 @@
 		if(extra_str && istext(extra_str) && length(extra_str) > 2 && extra_str != "null")
 			var/list/item_tree = json_decode(extra_str)
 			I = deserializePersistentItem(item_tree, T)
+#ifdef PERSISTENCE_FLOOR_ITEM_DEBUG
+			if(istype(I, /obj/item/clothing))
+				var/obj/item/clothing/dbg_c = I
+				log_subsystem_persistence_info("FloorItemDebug: restored '[I]' ([data["type"]]) WITH state -- faction_tag_uid=[dbg_c.faction_tag_uid || "null"], color=[dbg_c.color || "null"]")
+#endif
 		else
 			var/path = text2path(data["type"])
 			if(path && ispath(path, /obj/item))
 				I = new path(T)
+#ifdef PERSISTENCE_FLOOR_ITEM_DEBUG
+				if(ispath(path, /obj/item/clothing))
+					log_subsystem_persistence_info("FloorItemDebug: restored '[data["type"]]' with NO extra blob -- spawned stateless, any faction tag/colour is gone. extra was: [isnull(data["extra"]) ? "NULL" : "'[data["extra"]]'"]")
+#endif
 	catch(var/exception/floor_e)
-		log_subsystem_persistence_error("Floor items: Failed to restore [data["type"]] at ([data["x"]],[data["y"]],[data["z"]]): [floor_e]")
+		log_subsystem_persistence_error("Floor items: Failed to restore [data["type"]] at ([data["x"]],[data["y"]],[data["z"]]): [floor_e] -- extra was: [isnull(data["extra"]) ? "NULL" : "'[data["extra"]]'"]")
 		return 0
 
 	if(!I || QDELETED(I))
@@ -211,17 +220,35 @@
  */
 /datum/controller/subsystem/persistence/proc/_floorItemRow(obj/item/I)
 	PRIVATE_PROC(TRUE)
+#ifdef PERSISTENCE_FLOOR_ITEM_DEBUG
+	// Only trace faction-tagged clothing -- the case being chased. Every early
+	// return below is a silent drop, and from outside this proc they're all
+	// indistinguishable from "saved fine but restored blank".
+	var/fi_debug = FALSE
+	if(istype(I, /obj/item/clothing))
+		var/obj/item/clothing/dbg_c = I
+		fi_debug = !isnull(dbg_c.faction_tag_uid)
+	#define FI_TRACE(reason) if(fi_debug) { log_subsystem_persistence_info("FloorItemDebug: '[I]' ([I.type]) at ([I.x],[I.y],[I.z]) -- [reason]") }
+#else
+	#define FI_TRACE(reason)
+#endif
 	if(!isturf(I.loc))
+		FI_TRACE("DROPPED: not directly on a turf (loc=[I.loc])")
 		return null
 	if(!I.z)
+		FI_TRACE("DROPPED: no z")
 		return null
 	if(persistence_z_manual_blocked(I.z))
+		FI_TRACE("DROPPED: z manually blocked")
 		return null
 	if(persistence_area_excluded(I))
+		FI_TRACE("DROPPED: area excluded")
 		return null
 	if(I.persistent_objects_track_id != 0)
+		FI_TRACE("DROPPED: already a tracked object (id=[I.persistent_objects_track_id])")
 		return null
 	if(I in GLOB.persistence_object_track_register)
+		FI_TRACE("DROPPED: in the tracked-object register")
 		return null
 	if(istype(I, /obj/item/ammo_casing))
 		return null  // Bullet casings are transient combat debris
@@ -230,41 +257,84 @@
 	if(istype(I, /obj/item/material/shard))
 		return null  // Glass/material shards are transient debris
 
-	var/scope_escaped = replacetext(persistence_scope_for_z(I.z), "'", "''")
-	var/type_str  = replacetext("[I.type]", "'", "''")
-	var/name_str  = (I.name != initial(I.name)) ? replacetext(copytext(I.name, 1, 129), "'", "''") : null
-	var/icon_str  = (I.icon_state != initial(I.icon_state)) ? replacetext(copytext(I.icon_state, 1, 65), "'", "''") : null
+	var/name_str  = (I.name != initial(I.name)) ? copytext(I.name, 1, 129) : null
+	var/icon_str  = (I.icon_state != initial(I.icon_state)) ? copytext(I.icon_state, 1, 65) : null
 	var/list/serialized = serializePersistentItem(I)
 	var/extra_str = null
 	if(length(serialized) > 1)
-		var/raw_json = json_encode(serialized)
-		// Escape backslashes first (MariaDB interprets \ in SQL strings), then single quotes
-		raw_json = replacetext(raw_json, "\\", "\\\\")
-		raw_json = replacetext(raw_json, "'", "''")
-		extra_str = raw_json
+		// Handed to the query as a BOUND PARAMETER -- never string-escaped into
+		// the SQL text. `extra` is a JSON column, so MariaDB validates it on
+		// insert and rejects the whole statement if it doesn't parse. The old
+		// hand-rolled escaping (doubling backslashes, then single quotes) had to
+		// survive a round-trip through the SQL literal parser intact, and any
+		// item whose blob contained nested JSON -- fingerprints and reagents are
+		// both stored via a nested json_encode(), so effectively anything a
+		// player has touched -- carried \" sequences that could come out
+		// malformed. Because rows are inserted in chunks of 200, a single bad
+		// blob failed the entire chunk, silently wiping the saved state of up to
+		// 200 floor items at once. They then restored via the stateless
+		// `new path(T)` fallback: the item returns, stripped of its faction tag
+		// and colour.
+		extra_str = json_encode(serialized)
+	FI_TRACE("SAVED: serialized keys=[length(serialized)], obj_content=[serialized["obj_content"] ? "yes" : "NO"], extra len=[isnull(extra_str) ? "NULL (item will restore blank!)" : "[length(extra_str)]"]")
 
-	var/name_sql  = isnull(name_str)  ? "NULL" : "'[name_str]'"
-	var/icon_sql  = isnull(icon_str)  ? "NULL" : "'[icon_str]'"
-	var/extra_sql = isnull(extra_str) ? "NULL" : "'[extra_str]'"
+	return list(
+		"map_path"   = persistence_scope_for_z(I.z),
+		"type"       = "[I.type]",
+		"x"          = I.x,
+		"y"          = I.y,
+		"z"          = I.z,
+		"pixel_x"    = I.pixel_x,
+		"pixel_y"    = I.pixel_y,
+		"dir"        = I.dir,
+		"name"       = name_str,
+		"icon_state" = icon_str,
+		"extra"      = extra_str
+	)
+#undef FI_TRACE
 
-	return "('[scope_escaped]','[type_str]',[I.x],[I.y],[I.z],[I.pixel_x],[I.pixel_y],[I.dir],[name_sql],[icon_sql],[extra_sql])"
-
-/// Chunked bulk INSERT of collected floor-item rows.
+/// Chunked bulk INSERT of collected floor-item rows, every value passed as a
+/// BOUND PARAMETER rather than interpolated into the SQL text -- see the note
+/// in _floorItemRow() for why hand-escaping the JSON `extra` column was
+/// silently destroying whole chunks of saved item state.
 /datum/controller/subsystem/persistence/proc/_floorItemsFlush(list/value_rows, log_context)
 	PRIVATE_PROC(TRUE)
 	var/saved = length(value_rows)
-	if(saved)
-		var/chunk_size = 200
-		for(var/i = 1 to saved step chunk_size)
-			var/end = min(i + chunk_size - 1, saved)
-			var/list/chunk = value_rows.Copy(i, end + 1)
-			var/datum/db_query/bulk = SSdbcore.NewQuery(
-				"INSERT INTO ss13_floor_items (map_path,type,x,y,z,pixel_x,pixel_y,dir,name,icon_state,extra) VALUES [chunk.Join(",")]"
-			)
-			bulk.Execute()
-			databaseCheckQueryResult(bulk, "[log_context] bulk insert")
-			qdel(bulk)
-			CHECK_TICK
+	if(!saved)
+		return 0
+	var/chunk_size = 200
+	for(var/i = 1 to saved step chunk_size)
+		var/end = min(i + chunk_size - 1, saved)
+		var/list/placeholders = list()
+		var/list/params = list()
+		var/n = 0
+		for(var/j = i to end)
+			var/list/row = value_rows[j]
+			if(!islist(row))
+				continue
+			placeholders += "(:mp[n],:ty[n],:x[n],:y[n],:z[n],:px[n],:py[n],:dr[n],:nm[n],:ic[n],:ex[n])"
+			params["mp[n]"] = row["map_path"]
+			params["ty[n]"] = row["type"]
+			params["x[n]"]  = row["x"]
+			params["y[n]"]  = row["y"]
+			params["z[n]"]  = row["z"]
+			params["px[n]"] = row["pixel_x"]
+			params["py[n]"] = row["pixel_y"]
+			params["dr[n]"] = row["dir"]
+			params["nm[n]"] = row["name"]
+			params["ic[n]"] = row["icon_state"]
+			params["ex[n]"] = row["extra"]
+			n++
+		if(!n)
+			continue
+		var/datum/db_query/bulk = SSdbcore.NewQuery(
+			"INSERT INTO ss13_floor_items (map_path,type,x,y,z,pixel_x,pixel_y,dir,name,icon_state,extra) VALUES [placeholders.Join(",")]",
+			params
+		)
+		bulk.Execute()
+		databaseCheckQueryResult(bulk, "[log_context] bulk insert")
+		qdel(bulk)
+		CHECK_TICK
 	return saved
 
 /**
@@ -297,13 +367,22 @@
 		databaseCheckQueryResult(ship_wipe_q, "floorItemsFinalize ship scope delete")
 		qdel(ship_wipe_q)
 
-	// Collect all floor item rows then bulk INSERT in chunks
+	// Collect all floor item rows then bulk INSERT in chunks. Each item is
+	// isolated in its own try/catch -- without this, one item throwing during
+	// serialization (serializePersistentItem() has no internal guard) aborts
+	// this whole loop, which skips _floorItemsFlush() entirely and silently
+	// discards every OTHER floor item's saved state for the whole map, not
+	// just the one bad item. Mirrors objectsGetTrackContent()'s existing
+	// per-object guard for the tracked-object save path.
 	var/list/value_rows = list()
 	for(var/obj/item/I in world)
 		CHECK_TICK
-		var/row = _floorItemRow(I)
-		if(row)
-			value_rows += row
+		try
+			var/list/row = _floorItemRow(I)
+			if(row)
+				value_rows += list(row)
+		catch(var/exception/e)
+			log_subsystem_persistence_error("Floor items: Failed to serialize [I] ([I.type]) for save: [e]")
 
 	var/saved = _floorItemsFlush(value_rows, "floorItemsFinalize")
 	log_subsystem_persistence_info("Floor items: Saved [saved] floor items for map [SSatlas.current_map.path].")
@@ -329,9 +408,12 @@
 		CHECK_TICK
 		if(I.z != z)
 			continue
-		var/row = _floorItemRow(I)
-		if(row)
-			value_rows += row
+		try
+			var/list/row = _floorItemRow(I)
+			if(row)
+				value_rows += list(row)
+		catch(var/exception/e)
+			log_subsystem_persistence_error("Floor items: Failed to serialize [I] ([I.type]) for ship-Z save: [e]")
 
 	var/saved = _floorItemsFlush(value_rows, "floorItemsFinalizeZ")
 	log_subsystem_persistence_info("Floor items: Saved [saved] ship floor items for z=[z] ([scope]).")

@@ -77,3 +77,10 @@ define_sanity_output.txt
 # JavaScript tools
 **/node_modules
 /backups
+
+# Discord Rich Presence tool -- PyInstaller build output. The distributable
+# .exe is a build artifact (hosted for players to download), not source.
+/tools/discord_rpc/build/
+/tools/discord_rpc/dist/
+/tools/discord_rpc/*.spec
+/tools/discord_rpc/__pycache__/

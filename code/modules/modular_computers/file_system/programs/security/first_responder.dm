@@ -84,7 +84,7 @@
 		for(var/sid in GLOB.drydock_ships)
 			var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
 			if(DS && DS.repossessed)
-				repossessed_ships += list(list("shuttle_id" = DS.shuttle_id, "display_name" = DS.display_name()))
+				repossessed_ships += list(list("shuttle_id" = DS.shuttle_id, "display_name" = DS.display_name(), "reported_stolen" = DS.reported_stolen))
 	data["repossessed_ships"] = repossessed_ships
 	var/last_distress = user.ckey ? GLOB.hub_distress_last_called[user.ckey] : null
 	data["distress_cooldown"] = last_distress ? max(0, round((last_distress + DISTRESS_CALL_COOLDOWN - world.time) / 10)) : 0
@@ -360,6 +360,40 @@
 				log_and_message_admins("[key_name(user)] withdrew the schematic for repossessed ship [ship_name] (#[shuttle_id]) via First Responder (Hub officer authority)", user)
 			else
 				to_chat(user, SPAN_WARNING("Failed to withdraw the schematic for [ship_name]."))
+			return TRUE
+
+		if("report_not_stolen")
+			// Repossessing a ship already means the Hub has it in hand and
+			// has presumably sorted out the theft it was flagged for -- an
+			// officer can formally clear reported_stolen here rather than
+			// leaving it stuck (drydockGiveSchematic() otherwise refuses
+			// outright on a stolen ship, and the schematic's own examine
+			// text would keep reading "reported stolen" forever, since the
+			// only other clear path requires the ORIGINAL title-holder to
+			// physically hold it again). Same officer-rank gate as
+			// scuttle_repossessed/withdraw_schematic.
+			if(!can_run(user, TRUE, ACCESS_SECURITY, PROGRAM_ACCESS_ONE))
+				return TRUE
+			if(normalize_faction_uid(computer.persistent_network) != "hub")
+				to_chat(user, SPAN_WARNING("Requires a Hub-network terminal."))
+				return TRUE
+			if(!can_configure_faction_shackle(user, "hub", 1))
+				to_chat(user, SPAN_WARNING("Clearing a ship's stolen report requires officer rank or higher in the Hub."))
+				return TRUE
+			var/shuttle_id = text2num(params["shuttle_id"])
+			if(!shuttle_id)
+				return TRUE
+			var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
+			if(!DS || !DS.repossessed)
+				to_chat(user, SPAN_WARNING("That ship is no longer repossessed."))
+				return TRUE
+			if(!DS.reported_stolen)
+				to_chat(user, SPAN_WARNING("That ship isn't currently reported stolen."))
+				return TRUE
+			var/ship_name = DS.display_name()
+			SSpersistence.drydockClearStolenFlag(shuttle_id)
+			to_chat(user, SPAN_GOOD("[ship_name] is no longer reported stolen."))
+			log_and_message_admins("[key_name(user)] reported repossessed ship [ship_name] (#[shuttle_id]) as no longer stolen via First Responder (Hub officer authority)", user)
 			return TRUE
 
 /// Finds a passable turf adjacent to the target (the target itself as a

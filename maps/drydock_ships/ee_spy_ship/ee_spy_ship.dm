@@ -9,7 +9,7 @@
 	name = "Einstein Engines Research Ship"
 	id = "ee_spy_ship_dd"
 	mappath = "maps/drydock_ships/ee_spy_ship/ee_spy_ship.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/ship/ee_spy_ship
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/ee_spy_ship, /datum/shuttle/autodock/overmap/ee_shuttle)
 	sub_shuttle_tags = list("Einstein Engines Shuttle")

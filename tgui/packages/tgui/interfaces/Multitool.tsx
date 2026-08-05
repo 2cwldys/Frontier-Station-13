@@ -1,4 +1,4 @@
-import { Button, LabeledList, Section } from 'tgui-core/components';
+import { Box, Button, LabeledList, Section } from 'tgui-core/components';
 import type { BooleanLike } from 'tgui-core/react';
 import { useBackend } from '../backend';
 import { Window } from '../layouts';
@@ -6,11 +6,18 @@ import { Window } from '../layouts';
 export type MultitoolData = {
   tracking_apc: BooleanLike;
   selected_io: SelectedIo;
+  buffer_name: string;
+  airlock_checklist: AirlockChecklistItem[];
 };
 
 type SelectedIo = {
   name: string;
   type: string;
+};
+
+type AirlockChecklistItem = {
+  label: string;
+  linked: BooleanLike;
 };
 
 export const Multitool = (props) => {
@@ -32,9 +39,40 @@ export const Multitool = (props) => {
             onClick={() => act('track_apc')}
           />
         </Section>
+        <Section title="Buffer">
+          <LabeledList>
+            <LabeledList.Item label="Buffered">
+              {data.buffer_name || 'Empty'}
+            </LabeledList.Item>
+          </LabeledList>
+          <Button
+            disabled={!data.buffer_name}
+            content="Clear Buffer"
+            icon="stop"
+            onClick={() => act('clear_buffer')}
+          />
+        </Section>
+        {data.airlock_checklist ? <AirlockChecklist /> : ''}
         {data.selected_io ? <IoWindow /> : ''}
       </Window.Content>
     </Window>
+  );
+};
+
+export const AirlockChecklist = (props) => {
+  const { data } = useBackend<MultitoolData>();
+  return (
+    <Section title="Airlock Controller Links">
+      <LabeledList>
+        {data.airlock_checklist.map((item) => (
+          <LabeledList.Item key={item.label} label={item.label}>
+            <Box color={item.linked ? 'good' : 'bad'}>
+              {item.linked ? 'Linked' : 'Not Linked'}
+            </Box>
+          </LabeledList.Item>
+        ))}
+      </LabeledList>
+    </Section>
   );
 };
 

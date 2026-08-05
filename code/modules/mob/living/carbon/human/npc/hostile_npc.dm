@@ -25,6 +25,16 @@
 /// than dead/invalid.
 #define HOSTILE_NPC_LOS_GIVEUP_TIME (10 SECONDS)
 
+/// Minimum `force` a stowed item needs before a disarmed soldier will bother
+/// drawing it (draw_stowed_weapon()). Filters out pens/paperwork/spare mags
+/// while still catching anything that genuinely beats a bare fist.
+#define HOSTILE_NPC_MIN_DRAWN_WEAPON_FORCE 5
+
+/// How long a temporarily-provoked NPC keeps fighting back before standing
+/// down on its own -- "cut that out or I'll do some damage," not a
+/// permanent hostility switch.
+#define HOSTILE_NPC_PROVOKED_DURATION (6 SECONDS)
+
 /mob/living/carbon/human/npc/hostile
 	/// Persistence faction uid this NPC belongs to -- distinct from the
 	/// pre-existing lore mob/var/faction string every mob has. null = no
@@ -89,6 +99,11 @@
 	/// it simply never starts a fight. There is no "defend if attacked"
 	/// middle ground -- this mob type has no retaliation hooks.
 	var/passive_mode = FALSE
+	/// TRUE while passive_mode was broken by _react_to_hostile_attack() (a
+	/// temporary reaction), as opposed to a deliberate commander/beacon/
+	/// barracks Hostile order -- only the former auto-reverts, see
+	/// _calm_down_from_provocation().
+	var/provoked_temporarily = FALSE
 	/// Commander-item followers only. When TRUE, idle followers stay put
 	/// instead of closing distance to their commander -- toggled from the
 	/// commander_beacon's TGUI ("Follow"/"Hold Position" buttons). Does not
@@ -127,6 +142,11 @@
 	/// to this specific tile if bumped/pushed/thrown off it. Null for every
 	/// other spawner.
 	var/turf/guard_post_turf
+	/// The weapon this soldier was equipped with at spawn. Tracked so a
+	/// disarmed soldier recovers ITS OWN weapon (try_recover_weapon()) rather
+	/// than hoovering up whatever happens to be lying nearby, which would be
+	/// trivially baitable by dropping junk in front of it.
+	var/obj/item/primary_weapon
 
 /mob/living/carbon/human/npc/hostile/Initialize(mapload)
 	. = ..()
@@ -178,6 +198,7 @@
 	ordered_destination = null
 	patrol_anchor_turf = null
 	patrol_destination = null
+	primary_weapon = null
 	return ..()
 
 /// Applies a hostile NPC preset (persistence_hostile_npcs.dm's cached list
@@ -225,6 +246,12 @@
 	update_body()
 	regenerate_icons()
 
+	// Remember what they were issued so try_recover_weapon() can go pick up
+	// THIS weapon specifically after a disarm.
+	var/obj/item/issued_weapon = get_active_hand()
+	if(istype(issued_weapon))
+		primary_weapon = issued_weapon
+
 	// A real player would always grip a two-handed weapon with both hands
 	// in combat for the accuracy/recoil/delay bonus -- make sure a freshly
 	// equipped NPC does too, rather than fighting gimped forever.
@@ -260,6 +287,12 @@
 		resting = FALSE
 		update_canmove()
 		update_icon()
+
+	// A disarmed soldier retrieves its weapon rather than spending the rest of
+	// the round throwing punches next to its own rifle. Only consumes the tick
+	// while actively fetching -- an armed soldier falls straight through.
+	if(try_recover_weapon())
+		return
 
 	// An explicit player order outranks the AI's own target pick, and must be
 	// handled ABOVE the stance switch. Inside it, ordered_destination is only
@@ -345,10 +378,22 @@
 	for(var/obj/structure/machinery/optable/O in T)
 		var/mob/living/carbon/human/occ = O.occupant?.resolve()
 		if(occ && occ != src)
-			continue // table's occupant is someone else -- irrelevant to us
-		if(occ == src && !O.suppressing)
-			return FALSE // confirmed done -- stand up and walk off
-		return TRUE // not yet registered (hold so it CAN register), or actively suppressing
+			continue // someone else's patient -- irrelevant to us
+		if(occ == src)
+			return O.suppressing // ours: hold only while a cycle is running
+		// Nobody registered on this table yet. Only hold if we were actually
+		// PLACED here -- move_patient_to_table() sets resting TRUE, and the
+		// table's own (much slower) process() tick needs us still lying when
+		// it next runs or it can never claim us.
+		//
+		// A soldier merely STANDING on an empty table tile is not a patient.
+		// This used to fall through to a bare "return TRUE" for any null
+		// occupant, which froze think() before the stance switch on every
+		// tick -- so walking onto an unoccupied operating table permanently
+		// stopped a soldier following, fighting, and taking orders, while its
+		// stance/commander/move loop all still looked perfectly healthy.
+		if(resting || lying)
+			return TRUE
 	return FALSE
 
 /mob/living/carbon/human/npc/hostile/proc/get_targets(dist = 10)
@@ -573,10 +618,19 @@
 /mob/living/carbon/human/npc/hostile/proc/is_friendly(mob/living/L)
 	if(L == commander)
 		return TRUE
-	if(is_same_persistence_faction(L))
-		return TRUE
 	if(is_same_hostile_npc_pack(L))
 		return TRUE
+	if(is_same_persistence_faction(L))
+		// Same-faction (or allied-faction) hostile_npc soldiers stay
+		// unconditionally friendly to each other -- they have no job/rank
+		// concept, and this is what stops the faction's own troops from
+		// fighting one another. Only a real player's job matters below:
+		// Civilian (no job at all) isn't shielded from retaliation for
+		// disarming/grabbing/attacking/stripping a same-faction NPC; holding
+		// any actual job (including a custom faction-made one) still is.
+		if(istype(L, /mob/living/carbon/human/npc/hostile))
+			return TRUE
+		return ishuman(L) && human_holds_any_job(L)
 	return FALSE
 
 /// ignore_friendliness lets an explicit click-to-attack order
@@ -604,10 +658,9 @@
 /// order) then layers on guards an order still has to respect: never your
 /// own commander, never another of your own faction's/pack's hostile_npc
 /// soldiers (no forced fratricide), and never a real (player) member of
-/// your own or an allied faction who holds an actual job above the base
-/// Civilian tier (get_effective_faction_rank() rank > 0 -- the same
-/// "above base/Civilian rank" threshold airlock.dm/RFD.dm already use for
-/// this exact wording elsewhere).
+/// your own or an allied faction who holds any actual job
+/// (human_holds_any_job() -- a real station job or a custom
+/// faction-assigned one, read off their ID card).
 /mob/living/carbon/human/npc/hostile/proc/is_valid_ordered_attack_target(atom/candidate)
 	if(!is_valid_target(candidate, TRUE))
 		return FALSE
@@ -619,10 +672,21 @@
 	if(istype(L, /mob/living/carbon/human/npc/hostile) && is_same_persistence_faction(L))
 		return FALSE
 	if(is_same_persistence_faction(L))
-		var/target_uid = get_living_persistence_faction_uid(L)
-		if(get_effective_faction_rank(L, target_uid) > 0)
+		if(ishuman(L) && human_holds_any_job(L))
 			return FALSE
 	return TRUE
+
+/// TRUE if this human actually holds a job -- a real station job or a
+/// custom faction-assigned one, read straight off their ID card. Civilian
+/// (no job at all) is the only thing this excludes. Deliberately NOT based
+/// on DB faction-membership rank (get_effective_faction_rank()) -- that
+/// requires a ss13_faction_members row a newly-assigned member may not have
+/// yet, which was causing brand new faction members to read as unshielded
+/// and get attacked by their own faction's hostile NPCs despite a
+/// completely valid, correctly-stamped ID.
+/proc/human_holds_any_job(mob/living/carbon/human/H)
+	var/obj/item/card/id/ID = H.GetIdCard()
+	return ID && ID.assignment && ID.assignment != "Civilian"
 
 /// Mirrors portable_turret.dm's already-shipped employer_faction/
 /// normalize_faction_uid() bridge -- the only place in this codebase that
@@ -689,7 +753,7 @@
 
 /// Attacked while passive_mode is on by someone who isn't faction-friendly
 /// -- passive mode means "hold fire", not "stand there and take it forever".
-/// Breaks passive_mode (until a commander/beacon/barracks re-issues it) and
+/// Breaks passive_mode TEMPORARILY (see _calm_down_from_provocation()) and
 /// locks onto the attacker immediately instead of waiting for the next idle
 /// target scan (which would otherwise never happen at all -- get_targets()
 /// returns nothing while passive_mode is on). No-ops entirely once already
@@ -700,8 +764,22 @@
 	if(!isliving(attacker) || is_friendly(attacker))
 		return
 	passive_mode = FALSE
+	provoked_temporarily = TRUE
 	set_last_found_target(attacker)
 	change_stance(HOSTILE_STANCE_ATTACK)
+	addtimer(CALLBACK(src, PROC_REF(_calm_down_from_provocation)), HOSTILE_NPC_PROVOKED_DURATION)
+
+/// Reverts a temporary provoked-retaliation back to passive -- "cut that out
+/// or I'll do some damage," not a permanent hostility switch. No-ops if a
+/// real commander/beacon/barracks order has since taken over
+/// (provoked_temporarily already cleared), or the mob is gone.
+/mob/living/carbon/human/npc/hostile/proc/_calm_down_from_provocation()
+	if(QDELETED(src) || !provoked_temporarily)
+		return
+	provoked_temporarily = FALSE
+	passive_mode = TRUE
+	LoseTarget()
+	visible_message(SPAN_NOTICE("[src] stands down."))
 
 /// Melee weapon hit -- no reliable hit/miss signal on the human chain's
 /// attackby() (its return only means "handled, skip afterattack"), so react
@@ -730,11 +808,19 @@
 	_react_to_hostile_attack(user)
 
 /// Unarmed punch -- no reliable hit/miss return on the human chain, react
-/// unconditionally after ..(), mirroring simple_animal/hostile's own
-/// attack_hand() override.
+/// unconditionally after ..() for anything other than helpful intent
+/// (poking/helping a passive NPC shouldn't provoke it), mirroring
+/// simple_animal/hostile's own attack_hand() override.
 /mob/living/carbon/human/npc/hostile/attack_hand(mob/living/carbon/M as mob)
 	. = ..()
-	_react_to_hostile_attack(M)
+	if(M.a_intent != I_HELP)
+		_react_to_hostile_attack(M)
+
+/// Trying to strip a passive faction NPC's equipment via the strip/equipment
+/// menu is exactly as provoking as disarming/grabbing/hitting them.
+/mob/living/carbon/human/npc/hostile/handle_strip(slot_to_strip, mob/living/user)
+	_react_to_hostile_attack(user)
+	return ..()
 
 /// Thrown item hit -- mirrors simple_animal/hostile's own hitby() override
 /// exactly: resolve the original thrower through the throwingdatum, not the
@@ -853,6 +939,191 @@
 		W = get_inactive_hand()
 	return istype(W) ? W : null
 
+/// Re-grips a two-handed gun already in the active hand. toggle_wield()
+/// (gun.dm) hard-requires the gun be in the ACTIVE hand with the inactive
+/// hand EMPTY, so both are checked here rather than assumed.
+/mob/living/carbon/human/npc/hostile/proc/_rewield_active_gun()
+	var/obj/item/gun/G = get_active_hand()
+	if(!istype(G) || !G.is_wieldable || G.wielded)
+		return
+	if(get_inactive_hand())
+		return
+	G.toggle_wield(src)
+
+/// Recovers a dropped weapon after a disarm, and restores a two-handed grip.
+///
+/// Returns TRUE only when this tick was SPENT recovering (walking to the
+/// weapon, or picking it up), so think() can hand the tick over. Returns
+/// FALSE when already properly armed, or when there's nothing to recover --
+/// an intentionally unarmed soldier still fights with fists exactly as before.
+///
+/// Without this a disarmed soldier degraded permanently to unarmed melee and
+/// would keep closing to punching range while its own rifle lay on the floor
+/// beside it -- toggle_wield() was only ever called once, at spawn, and
+/// nothing anywhere picked a weapon back up.
+/mob/living/carbon/human/npc/hostile/proc/try_recover_weapon()
+	// Already holding something in the active hand -- just make sure a
+	// two-hander is actually gripped with both hands. Also covers a grip lost
+	// to anything else (e.g. a reload that shuffles hands).
+	if(get_active_hand())
+		_rewield_active_gun()
+		return FALSE
+
+	// Weapon ended up in the offhand -- swap it across, since toggle_wield()
+	// refuses to work on anything but the active hand.
+	if(get_inactive_hand())
+		swap_hand()
+		_rewield_active_gun()
+		return FALSE
+
+	// Both hands empty. Prefer the weapon this soldier was actually issued,
+	// and only if it's genuinely lying loose -- isturf() rules out one that's
+	// been picked up by someone else or stuffed in a bag.
+	//
+	// A gun that can't fire and can't be reloaded is skipped in both passes
+	// below -- that's what stops a soldier from instantly retrieving the dry
+	// weapon it just deliberately discarded (AttackTarget()) and looping on
+	// it forever. It's a live check rather than a remembered blacklist, so it
+	// needs no cleanup and self-corrects: if that gun is reloaded and dropped
+	// again, it becomes worth picking up again.
+	var/obj/item/recover_target
+	if(primary_weapon && !QDELETED(primary_weapon) && isturf(primary_weapon.loc) \
+		&& primary_weapon.z == z && get_dist(src, primary_weapon) <= 3 \
+		&& (!istype(primary_weapon, /obj/item/gun) || _gun_has_shots(primary_weapon)))
+		recover_target = primary_weapon
+	else
+		// Fallback for a disarm that flung the gun clear, or an issued weapon
+		// that's been destroyed -- anything immediately underfoot/adjacent.
+		for(var/obj/item/gun/G in range(1, src))
+			if(!isturf(G.loc))
+				continue
+			if(!_gun_has_shots(G))
+				continue
+			recover_target = G
+			break
+
+	// Nothing of ours on the floor to go and get -- last resort, draw whatever
+	// we're still carrying rather than fighting with fists.
+	if(!recover_target)
+		return draw_stowed_weapon()
+
+	if(!Adjacent(recover_target))
+		GLOB.move_manager.move_to(src, recover_target, 0, move_speed, INFINITY)
+		return TRUE
+
+	GLOB.move_manager.stop_looping(src)
+	put_in_active_hand(recover_target)
+	_rewield_active_gun()
+	return TRUE
+
+/// TRUE if I is worth drawing as a stopgap weapon. The offhand placeholder is
+/// bookkeeping, not gear (see gun.dm's toggle_wield()), so it's excluded.
+/mob/living/carbon/human/npc/hostile/proc/_is_drawable_weapon(obj/item/I)
+	if(!istype(I) || istype(I, /obj/item/offhand))
+		return FALSE
+	return I.force >= HOSTILE_NPC_MIN_DRAWN_WEAPON_FORCE
+
+/// TRUE if G can actually put rounds downrange -- either it's loaded right
+/// now, or it can genuinely be brought back by this soldier on its own.
+///
+/// "Dry" doesn't mean the same thing for every weapon, so each type is asked
+/// its own question:
+///
+///  - Projectile: is there a compatible loaded magazine anywhere in its gear?
+///    Uses find_spare_magazine(), the same lookup the reload path itself
+///    uses, so "can't shoot" here means exactly "can't reload" there.
+///  - Energy: can it actually recharge WHERE IT IS? A self-recharging gun is
+///    only temporarily dry and worth waiting on, but one that can't recharge
+///    is dead for good to an NPC -- nothing in the AI swaps power cells or
+///    goes looking for a recharger.
+/mob/living/carbon/human/npc/hostile/proc/_gun_has_shots(obj/item/gun/G)
+	if(!istype(G))
+		return FALSE
+	if(G.get_ammo() > 0)
+		return TRUE
+	if(istype(G, /obj/item/gun/projectile))
+		return !!find_spare_magazine(G)
+	if(istype(G, /obj/item/gun/energy))
+		return _energy_gun_can_recharge(G)
+	return TRUE // unknown gun type -- assume it's still good rather than bin it
+
+/// Mirrors try_recharge()'s own gating (projectiles/guns/energy.dm) rather
+/// than reinventing it, so this can't drift from what the gun will actually
+/// do: it needs a cell, needs self_recharge, and when use_external_power is
+/// set it needs an external supply that actually resolves.
+///
+/// That last one matters for NPCs specifically --
+/// get_external_power_supply() only ever resolves for a borg, a rig module
+/// or a recharger, never a weapon held in a human's hand. So an
+/// external-power gun carried by a soldier can never come back, and is
+/// correctly treated as spent.
+/mob/living/carbon/human/npc/hostile/proc/_energy_gun_can_recharge(obj/item/gun/energy/EG)
+	if(!istype(EG))
+		return FALSE
+	if(!EG.power_supply || !EG.self_recharge)
+		return FALSE
+	if(EG.use_external_power && !EG.get_external_power_supply())
+		return FALSE
+	return TRUE
+
+/// Last-resort re-arm: pulls the best weapon this soldier is STILL CARRYING
+/// out of its own gear once its issued weapon is gone for good (taken by
+/// whoever disarmed it, destroyed, or thrown out of reach). Sweeps the same
+/// slots -- and the same "also look inside storage items" rule --
+/// find_spare_magazine() already uses for reloads.
+///
+/// A stowed sidearm always beats a knife regardless of `force` (guns do their
+/// damage by shooting, not by being swung), so guns win outright; melee is
+/// picked by highest force among the rest. Without this a disarmed soldier
+/// throws punches with a perfectly good knife still on its belt.
+/// Selection half of draw_stowed_weapon(), split out so callers can ask
+/// "is there anything better than what I'm holding?" without committing to
+/// the swap (see AttackTarget()'s dry-gun branch).
+///
+/// Ranking: a gun that can actually fire beats melee, melee beats a gun with
+/// no shots left. That last part matters -- a dry stowed pistol used to win
+/// outright over a perfectly good knife purely for being a gun, so a soldier
+/// would "re-arm" into something it couldn't shoot.
+/mob/living/carbon/human/npc/hostile/proc/_find_stowed_weapon()
+	var/obj/item/best_gun
+	var/obj/item/best_dry_gun
+	var/obj/item/best_melee
+	for(var/obj/item/holder in list(back, belt, s_store, l_store, r_store))
+		if(!holder)
+			continue
+		var/list/candidates = list(holder)
+		if(istype(holder, /obj/item/storage))
+			var/obj/item/storage/S = holder
+			candidates += S.contents
+		for(var/obj/item/I in candidates)
+			if(istype(I, /obj/item/gun))
+				if(_gun_has_shots(I))
+					if(!best_gun)
+						best_gun = I
+				else if(!best_dry_gun)
+					best_dry_gun = I
+				continue
+			if(!_is_drawable_weapon(I))
+				continue
+			if(!best_melee || I.force > best_melee.force)
+				best_melee = I
+
+	return best_gun || best_melee || best_dry_gun
+
+/mob/living/carbon/human/npc/hostile/proc/draw_stowed_weapon()
+	var/obj/item/drawing = _find_stowed_weapon()
+	if(!drawing)
+		return FALSE
+	// Drop-then-take rather than a raw slot move: if put_in_active_hand()
+	// refuses for any reason the item ends up on the floor (recoverable next
+	// tick) instead of stranded in limbo mid-transfer.
+	if(!drop_from_inventory(drawing, get_turf(src)))
+		return FALSE
+	put_in_active_hand(drawing)
+	_rewield_active_gun()
+	visible_message(SPAN_WARNING("[src] draws \a [drawing]!"))
+	return TRUE
+
 /// Real line-of-sight check between src and target -- walks getline()'s
 /// (__HELPERS/unsorted.dm) proper Bresenham straight line between the two
 /// turfs rather than manually stepping via get_step_towards() (which can
@@ -954,6 +1225,20 @@
 			for(var/obj/item/ammo_magazine/AM in S.contents)
 				if(_magazine_fits(G, AM))
 					return AM
+	// Plate carrier pouches (and any other accessory-based pouch/webbing/
+	// holster) attach to the worn suit or uniform's own accessories list,
+	// not one of the fixed slots above -- and store their contents in a
+	// separate internal storage sub-object (accessory/storage's own `hold`
+	// var), not the accessory's own .contents.
+	for(var/obj/item/clothing/worn in list(wear_suit, w_uniform))
+		if(!worn || !LAZYLEN(worn.accessories))
+			continue
+		for(var/obj/item/clothing/accessory/storage/pouch in worn.accessories)
+			if(!pouch.hold)
+				continue
+			for(var/obj/item/ammo_magazine/AM in pouch.hold.contents)
+				if(_magazine_fits(G, AM))
+					return AM
 	return null
 
 /mob/living/carbon/human/npc/hostile/proc/MoveToTarget()
@@ -1028,13 +1313,38 @@
 			change_stance(HOSTILE_STANCE_ATTACK)
 			return FALSE
 		var/obj/item/gun/G = W
-		if(istype(G, /obj/item/gun/projectile) && G.get_ammo() <= 0)
-			var/obj/item/gun/projectile/GP = G
-			var/obj/item/ammo_magazine/spare = find_spare_magazine(GP)
-			if(spare)
-				if(GP.ammo_magazine)
-					GP.unload_ammo(src, TRUE, TRUE)
-				GP.load_ammo(spare, src)
+		// Any dry gun, not just a projectile one -- this branch used to be
+		// gated on /obj/item/gun/projectile, so an energy weapon at zero
+		// charge never reached it and could never be dealt with at all.
+		if(G.get_ammo() <= 0)
+			var/reloaded = FALSE
+			if(istype(G, /obj/item/gun/projectile))
+				var/obj/item/gun/projectile/GP = G
+				var/obj/item/ammo_magazine/spare = find_spare_magazine(GP)
+				if(spare)
+					if(GP.ammo_magazine)
+						GP.unload_ammo(src, TRUE, TRUE)
+					GP.load_ammo(spare, src)
+					reloaded = TRUE
+
+			// Ditch a weapon that genuinely can't come back, so the soldier
+			// falls through to something that still works.
+			//
+			// Gated on !reloaded first so a successful reload always wins
+			// outright -- it short-circuits before _gun_has_shots() is even
+			// consulted, rather than depending on get_ammo() having already
+			// updated from the load above.
+			//
+			// Only discards if there IS something better: a spent gun still
+			// swings for its own `force`, which beats bare fists, so a soldier
+			// carrying nothing else keeps it and pistol-whips instead.
+			//
+			// The drop is all that happens here -- think()'s existing
+			// try_recover_weapon() re-arms on the next tick through the normal
+			// path, and skips this gun now that _gun_has_shots() rejects it.
+			if(!reloaded && !_gun_has_shots(G) && _find_stowed_weapon())
+				visible_message(SPAN_WARNING("[src] discards \the [G]!"))
+				drop_from_inventory(G, get_turf(src))
 			hostile_last_attack = world.time
 			return TRUE
 		if(is_friendly_fire_blocked(last_found_target))
@@ -1096,6 +1406,22 @@
 	. += SPAN_NOTICE("<b>\[NPC AI\]</b> target=[last_found_target || "none"] (ordered=[target_is_ordered ? "YES" : "no"]) | passive=[passive_mode ? "YES" : "no"] | ff_blocked_since=[friendly_fire_blocked_since]")
 	. += SPAN_NOTICE("<b>\[NPC AI\]</b> thinking=[thinking_enabled ? "YES" : "NO"] | fast=[is_fast_processing ? "YES" : "no"] | in_slow_list=[(src in SSmob_ai.processing) ? "YES" : "no"] | in_fast_list=[(src in SSmob_fast_ai.processing) ? "YES" : "no"]")
 	. += SPAN_NOTICE("<b>\[NPC AI\]</b> move_loop=[loop_desc] | order_stuck_for=[order_progress_time ? "[(world.time - order_progress_time) / 10]s" : "n/a"] | unstick_tried=[order_unstick_attempted ? "YES" : "no"]")
+	// Movement capability. think() returns at its very first line on any
+	// non-zero stat, and /mob/living/Move() hard-returns on buckled_to
+	// (living.dm) -- either makes a mob that is being correctly TOLD to move
+	// silently not move, with every AI field above still reading healthy.
+	. += SPAN_NOTICE("<b>\[NPC AI\]</b> stat=[stat] | canmove=[canmove ? "YES" : "NO"] | lying=[lying ? "YES" : "no"] | resting=[resting ? "YES" : "no"] | buckled_to=[buckled_to || "none"] | anchored=[anchored ? "YES" : "no"]")
+	. += SPAN_NOTICE("<b>\[NPC AI\]</b> weakened=[weakened] | stunned=[stunned] | paralysis=[paralysis] | on_medical_table=[is_on_medical_table() ? "YES" : "no"]")
+	// Live pathing probe -- get_step_to() is the exact call the move loop
+	// itself makes each tick (movement_types.dm). If it yields nothing while
+	// a loop is active and distance is beyond min_dist, the loop is running
+	// and simply cannot produce a step, which is the whole answer.
+	if(commander && !QDELETED(commander))
+		var/turf/probe_step = get_step_to(src, commander)
+		. += SPAN_NOTICE("<b>\[NPC AI\]</b> dist_to_cmdr=[get_dist(src, commander)] | same_z=[(z == commander.z) ? "YES" : "NO"] | get_step_to=[probe_step ? "[probe_step.x],[probe_step.y]" : "NULL (no path!)"] | clear_path=[has_clear_path_to(commander) ? "YES" : "no"]")
+	if(istype(active_loop, /datum/move_loop/has_target/dist_bound))
+		var/datum/move_loop/has_target/dist_bound/DB = active_loop
+		. += SPAN_NOTICE("<b>\[NPC AI\]</b> loop_min_dist=[DB.distance] | loop_wants_move=[DB.check_dist() ? "YES" : "NO (thinks it arrived)"] | loop_delay=[DB.delay] | loop_running=[(DB.status & MOVELOOP_STATUS_RUNNING) ? "YES" : "NO"]")
 	// Beacon-side membership -- the AI state above can look perfect while an
 	// order never reaches this mob at all, which is only visible from here.
 	var/beacon_desc = "no commanding beacon found"

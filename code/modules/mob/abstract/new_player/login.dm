@@ -18,6 +18,12 @@
 		to_chat(src, "<div class=\"motd\">[GLOB.motd]</div>")
 	to_chat(src, "<div class='info'>Game ID: </div><div class='danger'>[GLOB.round_id]</div>")
 
+#ifdef SHOW_GIT_LOG
+	var/commit_url = SSgithub.get_commit_url()
+	if(commit_url)
+		to_chat(src, MATRIX_NOTICE("Running commit <a href='[commit_url]'>[copytext(GLOB.revdata.revision, 1, 8)]</a>"))
+#endif
+
 	// Open the Character Select UI first so it isn't competing with the lobby
 	// music download for the same connection right at first impression --
 	// music starts a moment later, once the UI has already had a head start.

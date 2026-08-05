@@ -9,7 +9,7 @@
 	name = "Kazhkz Privateer Ship"
 	id = "dominian_unathi_dd"
 	mappath = "maps/drydock_ships/dominian_unathi_privateer/dominian_unathi_privateer.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/ship/dominian_unathi/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/dominian_unathi, /datum/shuttle/autodock/overmap/dominian_unathi_shuttle)
 	sub_shuttle_tags = list("Kazhkz Fighter")

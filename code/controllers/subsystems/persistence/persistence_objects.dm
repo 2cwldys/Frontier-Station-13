@@ -348,6 +348,43 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
 	mergeConnectedNetworks(d2)
 
 // ============================================================
+// ATMOSPHERICS -- save and restore the pipe's connection geometry
+// ============================================================
+// The atmos equivalent of the cable case above. Pipe construction sets the
+// connection geometry AFTER new() (construction.dm: `P = new(src.loc)` then
+// `P.initialize_directions = pipe_dir`), so it is not part of the type's
+// defaults and was never captured -- objectsGetTrackContent() only saves
+// __dir/__anchored. A restored pipe was therefore rebuilt with its TYPE's
+// default directions, so it connected on the wrong axes and the pipe network
+// never reformed the way the player actually built it.
+//
+// Ordering is already correct for this: objectsApplyTrackContent() runs
+// before the atmos_batch is handed to SSmachinery.setup_atmos_machinery(),
+// so geometry is in place before the network is built.
+
+/obj/structure/machinery/atmospherics/persistent_objects_get_content()
+	return list("initialize_directions" = initialize_directions, "pipe_color" = pipe_color)
+
+/obj/structure/machinery/atmospherics/persistent_objects_apply_content(list/content, x, y, z)
+	..()  // base: forceMove to saved position
+	if(!islist(content))
+		return
+	if("initialize_directions" in content)
+		initialize_directions = text2num(content["initialize_directions"])
+	if("pipe_color" in content)
+		pipe_color = content["pipe_color"]
+
+// Heat-exchanging pipes carry a second, independent direction mask.
+/obj/structure/machinery/atmospherics/pipe/simple/heat_exchanging/persistent_objects_get_content()
+	. = ..()
+	.["initialize_directions_he"] = initialize_directions_he
+
+/obj/structure/machinery/atmospherics/pipe/simple/heat_exchanging/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(islist(content) && ("initialize_directions_he" in content))
+		initialize_directions_he = text2num(content["initialize_directions_he"])
+
+// ============================================================
 // CLOSET -- save and restore contents so fill() items are not duplicated
 // ============================================================
 
@@ -384,6 +421,102 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
 	if(!isnull(content["locked"]))
 		locked = content["locked"] ? TRUE : FALSE
 	update_icon()
+
+// ============================================================
+// STORAGE ITEMS (bags, boxes, satchels) -- save and restore contents on the
+// TRACKED-OBJECT path.
+//
+// Contents were only ever recorded by serializePersistentItem(), which the
+// floor-item sweep uses. But _floorItemRow() deliberately skips anything
+// already registered as a tracked object, and the tracked path's own
+// objectsGetTrackContent() resolves to the /obj/item override -- which records
+// wear state and nothing else. So a storage item that became tracked fell
+// through BOTH paths and lost everything inside it. Same shape as the closet
+// handler above, which has always done this correctly.
+// ============================================================
+
+/obj/item/storage/persistent_objects_get_content()
+	. = ..()
+	var/list/items = list()
+	for(var/obj/item/I in contents)
+		items += list(serializePersistentItem(I))
+	.["items"] = items
+
+/obj/item/storage/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content) || !islist(content["items"]))
+		return
+	// Drop whatever fill() placed during Initialize before restoring -- without
+	// this the saved contents stack on top of a fresh default load-out.
+	while(length(contents))
+		qdel(contents[1])
+	for(var/list/item_data in content["items"])
+		if(islist(item_data))
+			deserializePersistentItem(item_data, src)
+
+// ============================================================
+// CARTS -- engineering/janitorial/parcel carts had NO persistence hook at all,
+// so nothing they carried survived a save. They also aren't /obj/item/storage:
+// they hold loose items directly in contents, and additionally track a few
+// specific slots in their own typed vars (toolboxes, light replacer, and
+// stacked sheet lists), which are what the cart's UI actually reads. Restoring
+// contents alone would leave those vars null and the cart looking empty, so
+// both halves are rebuilt -- the typed vars are re-pointed at the restored
+// contents by type rather than being serialized twice.
+// ============================================================
+
+/obj/structure/cart/storage/persistent_objects_get_content()
+	. = ..()
+	var/list/items = list()
+	for(var/obj/item/I in contents)
+		items += list(serializePersistentItem(I))
+	.["items"] = items
+
+/obj/structure/cart/storage/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content) || !islist(content["items"]))
+		return
+	while(length(contents))
+		qdel(contents[1])
+	for(var/list/item_data in content["items"])
+		if(islist(item_data))
+			deserializePersistentItem(item_data, src)
+	_rebuild_cart_slots()
+	update_icon()
+
+/// Re-points a cart's typed convenience vars at whatever is actually in its
+/// contents after a restore. Subtypes with their own slot vars override this.
+/obj/structure/cart/storage/proc/_rebuild_cart_slots()
+	return
+
+/obj/structure/cart/storage/engineeringcart/_rebuild_cart_slots()
+	my_glass = list()
+	my_metal = list()
+	my_plasteel = list()
+	my_cable_coil = list()
+	my_lightreplacer = null
+	my_blue_toolbox = null
+	my_yellow_toolbox = null
+	my_red_toolbox = null
+	// Order matters: plasteel is a subtype-adjacent sibling of steel here, so
+	// match the most specific stack types first.
+	for(var/obj/item/I in contents)
+		if(istype(I, /obj/item/stack/material/plasteel))
+			my_plasteel += I
+		else if(istype(I, /obj/item/stack/material/glass))
+			my_glass += I
+		else if(istype(I, /obj/item/stack/material/steel))
+			my_metal += I
+		else if(istype(I, /obj/item/stack/cable_coil))
+			my_cable_coil += I
+		else if(istype(I, /obj/item/storage/toolbox/mechanical))
+			my_blue_toolbox = I
+		else if(istype(I, /obj/item/storage/toolbox/electrical))
+			my_yellow_toolbox = I
+		else if(istype(I, /obj/item/storage/toolbox/emergency))
+			my_red_toolbox = I
+		else if(istype(I, /obj/item/lightreplacer))
+			my_lightreplacer = I
 
 // ============================================================
 // COSMETIC COLOR -- these item types roll a random `color` in Initialize()

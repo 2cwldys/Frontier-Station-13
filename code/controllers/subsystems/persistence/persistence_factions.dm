@@ -774,6 +774,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 
 /datum/controller/subsystem/persistence/proc/setFactionRaidingEnabled(enabled)
 	GLOB.faction_raiding_enabled = enabled
+	SSstatistics.update_status()
 	if(!databaseCheckConnection("setFactionRaidingEnabled"))
 		return
 	var/datum/db_query/q = SSdbcore.NewQuery(
@@ -1296,30 +1297,19 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		return
 
 	var/saved = 0
-	// Aggregate tech per faction by scanning R&D servers with employer_faction set
-	var/list/faction_tech = list()
-	for(var/obj/structure/machinery/r_n_d/server/server in world)
-		if(!server.files)
+	// Every faction-tagged server sharing one faction points at the exact
+	// same /datum/research instance (get_faction_research_pool(), server.dm)
+	// -- so GLOB.faction_research_pools is already the complete, de-duplicated
+	// source of truth, one entry per faction. No need to scan/aggregate
+	// across servers at all.
+	for(var/fuid in GLOB.faction_research_pools)
+		var/datum/research/pool = GLOB.faction_research_pools[fuid]
+		if(!pool)
 			continue
-		// employer_faction is not defined on all R&D server subtypes  use try/catch
-		var/fuid = null
-		try
-			fuid = server.vars["employer_faction"]
-		catch
-			continue  // var not defined on this server type  skip it
-		if(!fuid || !istext(fuid))
-			continue
-		if(!(fuid in faction_tech))
-			faction_tech[fuid] = list()
-		for(var/tech_id in server.files.known_tech)
-			var/datum/tech/tech = server.files.known_tech[tech_id]
-			if(!faction_tech[fuid][tech_id] || tech.level > faction_tech[fuid][tech_id]["level"])
-				faction_tech[fuid][tech_id] = list("id"=tech_id, "level"=tech.level, "progress"=tech.next_level_progress)
-
-	for(var/fuid in faction_tech)
 		var/list/tech_list = list()
-		for(var/tid in faction_tech[fuid])
-			tech_list += list(faction_tech[fuid][tid])
+		for(var/tech_id in pool.known_tech)
+			var/datum/tech/tech = pool.known_tech[tech_id]
+			tech_list += list(list("id"=tech_id, "level"=tech.level, "progress"=tech.next_level_progress))
 		var/tech_json = json_encode(tech_list)
 		var/datum/db_query/q = SSdbcore.NewQuery(
 			{"INSERT INTO ss13_faction_research (faction_uid, map_path, tech_data, saved_at)
@@ -1725,6 +1715,10 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[z]"]
 	if(istype(marker))
 		marker.name = (new_name != "" ? new_name : initial(marker.name))
+		// Assigning marker.name directly bypasses update_name(), which is the
+		// only thing that emits COMSIG_BASENAME_SETNAME -- so dependents have
+		// to be refreshed explicitly.
+		refresh_site_blueprints(z)
 	return null
 
 /// Pin/unpin overmap away sites for persistence (ss13_persistent_away_sites).
@@ -1906,6 +1900,9 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 				var/datum/map_template/rename_template = GLOB.map_templates["[rename_row["last_z"]]"]
 				if(rename_marker && rename_template && rename_template.id == rename_row["template"])
 					rename_marker.name = (new_site_name != "" ? new_site_name : initial(rename_marker.name))
+					// Direct assignment bypasses update_name(), the only thing
+					// that emits COMSIG_BASENAME_SETNAME -- refresh dependents.
+					refresh_site_blueprints(rename_row["last_z"])
 			to_chat(usr, SPAN_GOOD("'[rename_row["template"]]' [new_site_name != "" ? "renamed to '[new_site_name]'" : "name restored to template default"] -- persists across reboots."))
 			log_and_message_admins("[new_site_name != "" ? "renamed pinned overmap site '[rename_row["template"]]' to '[new_site_name]'" : "cleared custom name on pinned overmap site '[rename_row["template"]]'"]", usr)
 

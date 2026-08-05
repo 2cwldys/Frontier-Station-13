@@ -14,7 +14,7 @@
 	name = "Independent Skiff"
 	id = "lone_spacer"
 	mappath = "maps/drydock_ships/lone_spacer/lone_spacer.dmm"
-	price = 0
+	price = 1000000
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/lone_spacer)
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/lone_spacer

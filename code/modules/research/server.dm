@@ -10,6 +10,12 @@
 	var/id_with_upload_string = ""		//String versions for easy editing in map editor.
 	var/id_with_download_string = ""
 	var/server_id = 0
+	/// Faction tagger compatible var -- "" (untagged/global) or a real
+	/// faction_uid. When tagged, this server's tech levels save/restore
+	/// against that faction's own research cache (ss13_faction_research)
+	/// instead of the global one -- see applyPersistentTechLevels() and
+	/// factionResearchFinalize() (persistence_factions.dm).
+	var/persistent_network = ""
 	var/produces_heat = TRUE
 	idle_power_usage = 800
 	var/delay = 10
@@ -28,6 +34,72 @@
 /obj/structure/machinery/r_n_d/server/upgrade_hints(mob/user, distance, is_adjacent)
 	. += ..()
 	. += "Upgraded <b>scanning modules</b> will reduce active power usage."
+
+// ------- Faction-shared research pool -------
+//
+// Every server tagged to the same faction points `files` at the SAME
+// /datum/research instance here, rather than each keeping its own -- so
+// research progress is genuinely shared live (a tech_processor feeding any
+// one of a faction's servers is immediately visible on every other
+// same-faction server's console/lathe), not just reconciled at the next
+// persistence save/restore.
+
+/// faction_uid -> shared /datum/research instance for that faction's R&D servers.
+GLOBAL_LIST_EMPTY(faction_research_pools)
+
+/// Returns the shared research pool for faction_uid, creating and seeding it
+/// (from ss13_faction_research, via applyPersistentTechLevels()) the first
+/// time any server asks for it. Null (global/untagged) is never pooled here
+/// -- callers fall back to a plain per-server /datum/research in that case.
+/proc/get_faction_research_pool(faction_uid)
+	if(!faction_uid)
+		return null
+	faction_uid = normalize_faction_uid(faction_uid)
+	if(!faction_uid)
+		return null
+	if(!GLOB.faction_research_pools[faction_uid])
+		var/datum/research/pool = new()
+		pool.applyPersistentTechLevels(faction_uid)
+		GLOB.faction_research_pools[faction_uid] = pool
+	return GLOB.faction_research_pools[faction_uid]
+
+// ------- Faction tagger compatibility -------
+
+/obj/structure/machinery/r_n_d/server/faction_tagger_compatible()
+	return TRUE
+
+/obj/structure/machinery/r_n_d/server/faction_tagger_get_uid()
+	return persistent_network
+
+/obj/structure/machinery/r_n_d/server/faction_tagger_set(new_uid, mob/user)
+	persistent_network = new_uid || ""
+	// Switch onto the new faction's shared pool (or back to an independent
+	// datum if untagged) immediately -- whatever progress this server made
+	// under its old context isn't carried over, same as any other faction
+	// machine starting fresh under a new tag.
+	files = persistent_network ? get_faction_research_pool(persistent_network) : new /datum/research(src)
+	return TRUE
+
+// ------- Persistence: only the faction tag itself needs to survive a
+// reboot here -- tech levels themselves live on the shared pool (or the
+// global cache when untagged), not on the server object.
+
+/obj/structure/machinery/r_n_d/server/persistent_objects_get_content()
+	var/list/content = ..()
+	content["persistent_network"] = persistent_network
+	return content
+
+/obj/structure/machinery/r_n_d/server/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["persistent_network"]))
+		persistent_network = content["persistent_network"]
+		// setup() (Initialize()) already ran and gave this server a throwaway
+		// independent datum before this restored tag was known. Switch onto
+		// the real shared pool now -- nothing of value is lost, that
+		// placeholder never had a chance to accumulate any progress.
+		files = persistent_network ? get_faction_research_pool(persistent_network) : new /datum/research(src)
 
 /obj/structure/machinery/r_n_d/server/Destroy()
 	for(var/obj/structure/machinery/r_n_d/tech_processor/TP as anything in linked_processors)
@@ -49,8 +121,9 @@
 
 /obj/structure/machinery/r_n_d/server/proc/setup()
 	if(!files)
-		files = new /datum/research(src)
-	files.applyPersistentTechLevels()
+		files = persistent_network ? get_faction_research_pool(persistent_network) : new /datum/research(src)
+		if(!persistent_network)
+			files.applyPersistentTechLevels()
 	var/list/temp_list
 	if(!id_with_upload.len)
 		temp_list = list()
@@ -193,7 +266,7 @@
 
 /obj/structure/machinery/r_n_d/server/advanced/setup()
 	if(!files)
-		files = new /datum/research/hightech(src)
+		files = persistent_network ? get_faction_research_pool(persistent_network) : new /datum/research/hightech(src)
 	var/list/temp_list
 	if(!id_with_upload.len)
 		temp_list = list()
