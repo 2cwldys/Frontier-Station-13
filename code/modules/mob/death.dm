@@ -92,6 +92,13 @@
 	GLOB.living_mob_list -= src
 	GLOB.dead_mob_list |= src
 
+	var/turf/death_turf = get_turf(src)
+	if(death_turf)
+		var/obj/effect/overmap/visitable/sector = GLOB.map_sectors["[death_turf.z]"]
+		var/sector_name = sector ? sector.name : "unknown sector"
+		var/sec_level = zone_security_name(zone_security_get(death_turf.z))
+		log_admin("DEATH: [key_name(src)] died in [sector_name] (security: [sec_level]).")
+
 	update_icon()
 
 	if(SSticker.mode)
