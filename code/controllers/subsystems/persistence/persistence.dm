@@ -262,6 +262,19 @@ SUBSYSTEM_DEF(persistence)
 	SSstatistics.update_status()
 	feedback_add_details("admin_verb", "TSJ")
 
+/// Heads-up broadcast only -- does not itself trigger any save or reboot.
+/// Run this first, then separately trigger the actual forced save (Force
+/// Persistence Save) and/or reboot.
+/datum/admins/proc/warn_pending_save()
+	set name = "Warn Pending Save"
+	set category = "Persistence"
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	to_world(FONT_LARGE(EXAMINE_BLOCK_RED("[SPAN_BOLD("ATTENTION")]: A forced save and reboot is coming shortly to refresh the game world and overmap. Get to a safe location.")))
+	log_and_message_admins("issued a pending-save warning to the server", usr)
+
 /datum/admins/proc/toggle_persistence()
 	set name = "Toggle Persistence"
 	set category = "Persistence"
@@ -620,6 +633,12 @@ SUBSYSTEM_DEF(persistence)
 		cargoImportsInitialize()
 	catch(var/exception/ci_e)
 		log_subsystem_persistence_error("Cargo imports init failed: [ci_e] on [ci_e.file]:[ci_e.line]")
+
+	log_subsystem_persistence_info("Starting drydock ship price initialization...")
+	try
+		drydockShipPricesInitialize()
+	catch(var/exception/dsp_e)
+		log_subsystem_persistence_error("Drydock ship price init failed: [dsp_e] on [dsp_e.file]:[dsp_e.line]")
 
 	log_subsystem_persistence_info("Starting bounties initialization...")
 	try
