@@ -352,6 +352,9 @@
 	if(tagged_uid && _owner_faction_uid(user) != tagged_uid)
 		to_chat(user, SPAN_WARNING("\The [src] refuses to respond -- it's keyed to a different faction."))
 		return
+	if(_hub_restriction_blocked(user))
+		to_chat(user, SPAN_WARNING("\The [src] refuses to activate -- this is Hub-controlled territory, restricted to Hub personnel."))
+		return
 	owner = user
 	spawning_enabled = TRUE
 	to_chat(user, SPAN_NOTICE("\The [src] activates, rallying your soldiers."))
@@ -637,6 +640,17 @@
 	var/uid = _owner_faction_uid(user)
 	return uid && islist(GLOB.persistence_faction_cache) && (uid in GLOB.persistence_faction_cache)
 
+/// TRUE if user is standing in a HIGHSEC area without holding an actual
+/// post (rank > 0) in the Hub faction -- HIGHSEC is Hub jurisdiction, so a
+/// commander beacon shouldn't be usable there by anyone else, same
+/// get_effective_faction_rank() threshold zone_engineering_exempt()/
+/// airlock.dm's allowed()/RFD.dm already use for "trusted Hub personnel."
+/obj/item/commander_beacon/proc/_hub_restriction_blocked(mob/living/user)
+	var/turf/T = get_turf(user)
+	if(!T || zone_security_get(T.z) != ZONE_HIGHSEC)
+		return FALSE
+	return get_effective_faction_rank(user, "hub") <= 0
+
 /// fauna_spawner.start_spawning()'s exact shape (mob_spawner.dm), capped at
 /// 2 instead of 5 -- see faction_barracks.dm's identical loop for the
 /// faction-machine counterpart. Same departure as that loop: the long
@@ -667,6 +681,10 @@
 			if(tagged_uid && _owner_faction_uid(owner) != tagged_uid)
 				spawning_enabled = FALSE
 				to_chat(owner, SPAN_WARNING("\The [src] deactivates -- it's keyed to a different faction."))
+				break
+			if(_hub_restriction_blocked(owner))
+				spawning_enabled = FALSE
+				to_chat(owner, SPAN_WARNING("\The [src] deactivates -- you've entered Hub-controlled territory."))
 				break
 			if(length(active_mobs) < max_active_mobs)
 				spawn_soldier()

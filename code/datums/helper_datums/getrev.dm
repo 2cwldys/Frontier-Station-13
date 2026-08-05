@@ -44,6 +44,19 @@ GLOBAL_DATUM_INIT(revdata, /datum/getrev, new())
 	set name = "Show Server Revision"
 	set desc = "Check the current server code revision"
 
+	show_revision_info()
+
+/// Whether the auto-display (new_player.dm, right after the cryo wake-up
+/// message) has already fired for this client this session -- only ever
+/// once per connection, no matter how many times they cryo/exit their
+/// character in the same session. Doesn't gate the manual verb above.
+/client/var/auto_shown_revision_info = FALSE
+
+/// Shared by the verb above and the auto-display on spawning into a
+/// character (new_player.dm, right after the cryo wake-up message).
+/client/proc/show_revision_info()
+#ifdef SHOW_GIT_LOG
+	to_chat(src, "<hr>")
 	if(GLOB.revdata.revision)
 		to_chat(src, "<b>Server revision:</b> [GLOB.revdata.branch] - [GLOB.revdata.date]")
 		if(GLOB.config.githuburl)
@@ -53,10 +66,10 @@ GLOBAL_DATUM_INIT(revdata, /datum/getrev, new())
 	else
 		to_chat(src, "Revision unknown")
 
-	to_chat(src, "<b>Current Map:</b> [SSatlas.current_map.full_name]")
-
 	if(GLOB.revdata.test_merges.len)
 		to_chat(src, GLOB.revdata.testmerge_overview())
+	to_chat(src, "<hr>")
+#endif
 
 /datum/getrev/proc/testmerge_overview()
 	if (!test_merges.len)

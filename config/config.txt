@@ -262,7 +262,7 @@ HUB_TAGLINE A fully persistent fork of Aurora.3, featuring a wartorn phoron-dens
 # WIKIURL http://example.com
 
 ## GitHub address
-# GITHUBURL https://github.com/example-user/example-repository
+GITHUBURL https://github.com/2cwldys/Frontier-Station-13
 
 ## Rules address
 # RULESURL https://aurorastation.org/rules.html
@@ -574,6 +574,19 @@ FAIL2TOPIC_ENABLED 0
 ## Once enabled, make sure to write a news.json in the configuration
 ## folder as well.
 #NEWS_USE_FORUM_API
+
+### GitHub configuration
+### Used to announce pull request activity and show the running commit.
+### The repo owner/name are taken from the GITHUBURL setting elsewhere in
+### this file -- no need to set them again here.
+## Optional: only announce PRs targeting this base branch. Leave commented
+## out to announce PRs targeting any branch.
+#GITHUB_BRANCH main
+## Optional personal access token to raise the API rate limit -- this is a
+## secret, so it does NOT go here. Set GITHUB_TOKEN in .env at the repo root
+## instead (see .env.example).
+## Uncomment to enable polling for pull request activity.
+GITHUB_ENABLED
 
 ### Auto-profiler configuration
 ### Able to detect longer pauses in game execution and dump out the profiler

@@ -615,6 +615,12 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/ce_e)
 		log_subsystem_persistence_error("Cargo exports init failed: [ce_e] on [ce_e.file]:[ce_e.line]")
 
+	log_subsystem_persistence_info("Starting cargo imports initialization...")
+	try
+		cargoImportsInitialize()
+	catch(var/exception/ci_e)
+		log_subsystem_persistence_error("Cargo imports init failed: [ci_e] on [ci_e.file]:[ci_e.line]")
+
 	log_subsystem_persistence_info("Starting bounties initialization...")
 	try
 		bountiesInitialize()

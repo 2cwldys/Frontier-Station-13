@@ -475,6 +475,12 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 	// global.forum_api_key - see modules/http/forum_api.dm
 	var/news_use_forum_api = FALSE
 
+	// owner/repo are parsed by SSgithub from githuburl (below), not duplicated here
+	/// Optional: only announce PRs targeting this base branch. Unset = all branches.
+	var/github_branch
+	// GitHub personal access token - see .env (GITHUB_TOKEN), not config.txt
+	var/github_enabled = FALSE
+
 	var/authentik_api_url
 	var/authentik_api_key
 	var/use_authentik_api = FALSE
@@ -1103,6 +1109,11 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 
 				if ("news_use_forum_api")
 					news_use_forum_api = TRUE
+
+				if ("github_branch")
+					github_branch = value
+				if ("github_enabled")
+					github_enabled = TRUE
 
 				if ("profiler_enabled")
 					profiler_is_enabled = TRUE

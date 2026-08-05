@@ -219,6 +219,7 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/remove_away_site,
 	/datum/admins/proc/manage_away_site_mob_presets,
 	/datum/admins/proc/manage_cargo_exports,
+	/datum/admins/proc/modify_cargo_imports,
 	/datum/admins/proc/repair_dual_tagged_devices,
 	/datum/admins/proc/manage_missions,
 	/datum/admins/proc/set_zone_security,
