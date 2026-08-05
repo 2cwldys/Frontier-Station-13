@@ -9,7 +9,7 @@
 	name = "Unified Sadar Fleet Scout"
 	id = "sadar_scout"
 	mappath = "maps/drydock_ships/sadar_scout/sadar_scout.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/ship/sadar_scout/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/sadar_scout, /datum/shuttle/autodock/overmap/sadar_shuttle)
 	sub_shuttle_tags = list("Modified Salvage Skiff")

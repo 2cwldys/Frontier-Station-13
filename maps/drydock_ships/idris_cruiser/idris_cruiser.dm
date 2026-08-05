@@ -9,7 +9,7 @@
 	name = "Idris Cruiser"
 	id = "idris_cruiser"
 	mappath = "maps/drydock_ships/idris_cruiser/idris_cruiser.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/ship/idris_cruiser/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/idris_cruiser, /datum/shuttle/autodock/overmap/idris_cruiser_shuttle)
 	sub_shuttle_tags = list("Idris Runabout")

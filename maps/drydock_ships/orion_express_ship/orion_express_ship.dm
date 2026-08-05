@@ -9,7 +9,7 @@
 	name = "Orion Express Mobile Station"
 	id = "orion_express_ship_dd"
 	mappath = "maps/drydock_ships/orion_express_ship/orion_express_ship.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/ship/orion/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/orion_express_ship, /datum/shuttle/autodock/overmap/orion_express_shuttle)
 	sub_shuttle_tags = list("Orion Express Shuttle")

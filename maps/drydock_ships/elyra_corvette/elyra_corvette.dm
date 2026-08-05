@@ -9,7 +9,7 @@
 	name = "Elyran Corvette"
 	id = "elyran_corvette_dd"
 	mappath = "maps/drydock_ships/elyra_corvette/elyra_corvette.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/ship/elyran_corvette/cic
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/elyran_corvette, /datum/shuttle/autodock/overmap/elyran_shuttle)
 	sub_shuttle_tags = list("Elyran Naval Shuttle")

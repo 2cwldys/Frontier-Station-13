@@ -9,7 +9,7 @@
 	name = "Ti'Rakqi Smuggler"
 	id = "tirakqi_smuggler"
 	mappath = "maps/drydock_ships/tirakqi_smuggler/tirakqi_smuggler.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/ship/tirakqi_smuggler/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/tirakqi_smuggler, /datum/shuttle/autodock/overmap/tirakqi_smuggler_shuttle)
 	sub_shuttle_tags = list("Ti'Rakqi Shuttle")

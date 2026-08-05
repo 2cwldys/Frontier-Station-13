@@ -9,7 +9,7 @@
 	name = "Independent Freighter"
 	id = "tramp_freighter"
 	mappath = "maps/drydock_ships/tramp_freighter/tramp_freighter.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/tramp_freighter/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/tramp_freighter, /datum/shuttle/autodock/overmap/freighter_shuttle)
 	sub_shuttle_tags = list("Freight Shuttle")

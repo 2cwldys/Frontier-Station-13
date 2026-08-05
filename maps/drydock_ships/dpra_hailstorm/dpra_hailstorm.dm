@@ -9,7 +9,7 @@
 	name = "Hailstorm Ship"
 	id = "hailstorm_ship_dd"
 	mappath = "maps/drydock_ships/dpra_hailstorm/hailstorm_ship.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/hailstorm_ship/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/hailstorm_ship, /datum/shuttle/autodock/overmap/hailstorm_shuttle)
 	sub_shuttle_tags = list("Spacer Militia Shuttle")

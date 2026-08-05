@@ -9,7 +9,7 @@
 	name = "SPLF Auxiliary Vessel"
 	id = "splf_raider"
 	mappath = "maps/drydock_ships/sol_splf/splf_raider.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/splf_raider/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/splf_raider, /datum/shuttle/autodock/overmap/splf_shuttle)
 	sub_shuttle_tags = list("SPLF Shuttle")

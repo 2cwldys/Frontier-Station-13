@@ -9,7 +9,7 @@
 	name = "Tarwa Conglomerate Ship"
 	id = "tarwa_conglomerate"
 	mappath = "maps/drydock_ships/unathi_tarwa/unathi_pirate_tarwa.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/tarwa_ship/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/tarwa, /datum/shuttle/autodock/overmap/tarwa_shuttle)
 	sub_shuttle_tags = list("Tarwa Conglomerate Shuttle")

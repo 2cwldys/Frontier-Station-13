@@ -9,7 +9,7 @@
 	name = "Ranger Gunboat"
 	id = "ranger_corvette_dd"
 	mappath = "maps/drydock_ships/coc_ranger/coc_ship.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/ship/ranger_corvette/bridge
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/ranger_corvette, /datum/shuttle/autodock/overmap/ranger_shuttle)
 	sub_shuttle_tags = list("Ranger Shuttle")

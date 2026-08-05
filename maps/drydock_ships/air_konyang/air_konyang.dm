@@ -9,7 +9,7 @@
 	name = "Air Konyang Transport"
 	id = "air_konyang"
 	mappath = "maps/drydock_ships/air_konyang/air_konyang.dmm"
-	price = 0
+	price = 1000000
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/air_konyang)
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/air_konyang

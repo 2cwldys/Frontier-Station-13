@@ -12,7 +12,7 @@
 	name = "Militia Ship"
 	id = "militia_ship_dd"
 	mappath = "maps/drydock_ships/wildlands_militia/militia_ship.dmm"
-	price = 0
+	price = 1000000
 	bridge_area_type = /area/ship/militia_ship
 	shuttles_to_initialise = list(/datum/shuttle/autodock/overmap/drydock_ship/militia_ship, /datum/shuttle/autodock/overmap/militia_shuttle)
 	sub_shuttle_tags = list("Militia Ship")
