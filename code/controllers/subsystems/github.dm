@@ -15,7 +15,7 @@
  */
 SUBSYSTEM_DEF(github)
 	name = "GitHub"
-	wait = 5 MINUTES
+	wait = 90 SECONDS // unauthenticated default -- Initialize() shortens this to 20s once a GITHUB_TOKEN is confirmed present
 	var/enabled = FALSE
 	/// "[pr number]" -> "open"|"merged"|"closed", used to detect state transitions between polls
 	var/list/known_prs = list()
@@ -31,6 +31,12 @@ SUBSYSTEM_DEF(github)
 	_parse_repo_path()
 	github_token = _read_env_var("GITHUB_TOKEN")
 	enabled = GLOB.config.github_enabled && github_owner && github_repo
+
+	// 20s = 180 req/hr, well under the 5000/hr authenticated budget.
+	// 90s (the unauthenticated default above) = 40 req/hr, comfortably under
+	// the 60/hr unauthenticated cap with margin for anything else on the IP.
+	if(github_token)
+		wait = 20 SECONDS
 
 	return SS_INIT_SUCCESS
 
