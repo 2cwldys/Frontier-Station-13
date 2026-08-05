@@ -142,8 +142,15 @@
 		client.update_skybox(TRUE)
 
 	// Security-zone baseline: silent for nullsec on a fresh mob, announces
-	// non-nullsec zones on join/possession (persistence_zone_security.dm)
-	check_zone_announce(quiet_baseline = (zone_announce_level == -1))
+	// non-nullsec zones on join/possession (persistence_zone_security.dm).
+	// Deferred one tick -- LateLogin() fires synchronously the instant a mob's
+	// key is assigned (new_player.dm's cryo-rejoin/fresh-spawn wake flows),
+	// which is before those flows print their own wake-up/revision-info chat
+	// lines further down the SAME synchronous call. Without this, the zone
+	// banner always wins the race and prints first regardless of source
+	// order. A 1-tick delay is imperceptible for every other caller of
+	// check_zone_announce() (ordinary movement, beacon changes).
+	addtimer(CALLBACK(src, PROC_REF(check_zone_announce), (zone_announce_level == -1)), 1)
 
 	if(spell_masters)
 		for(var/atom/movable/screen/movable/spell_master/spell_master in spell_masters)

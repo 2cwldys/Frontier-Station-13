@@ -111,27 +111,51 @@
 		return 0
 
 	var/obj/item/I
+	var/extra_raw = data["extra"]
 	try
-		var/extra_str = data["extra"]
-		if(extra_str && istext(extra_str) && length(extra_str) > 2 && extra_str != "null")
-			var/list/item_tree = json_decode(extra_str)
+		var/list/item_tree
+		// Primary path, identical to the player-inventory restore
+		// (applyPersistentInventory(), persistence_mobs.dm): `extra` is a
+		// MEDIUMTEXT column (V142) like every other persistence blob in this
+		// schema, so it comes back as JSON text. It was originally declared
+		// JSON (V034) -- the only such column in the codebase -- which does
+		// not read back as text, so this decode never ran and every item
+		// respawned stateless: bags reverted to fill() defaults and
+		// faction-tagged gear lost its tag/colour.
+		if(istext(extra_raw) && length(extra_raw) > 2 && extra_raw != "null")
+			item_tree = json_decode(extra_raw)
+		// Defensive: tolerate an already-decoded value should a driver or
+		// column type ever hand one back again.
+		else if(islist(extra_raw))
+			var/list/candidate = extra_raw
+			if(candidate["type"])
+				item_tree = candidate
+			else if(length(candidate) == 1 && istext(candidate[1]))
+				item_tree = json_decode(candidate[1])
+
+		if(item_tree && item_tree["type"])
 			I = deserializePersistentItem(item_tree, T)
 #ifdef PERSISTENCE_FLOOR_ITEM_DEBUG
 			if(istype(I, /obj/item/clothing))
 				var/obj/item/clothing/dbg_c = I
 				log_subsystem_persistence_info("FloorItemDebug: restored '[I]' ([data["type"]]) WITH state -- faction_tag_uid=[dbg_c.faction_tag_uid || "null"], color=[dbg_c.color || "null"]")
 #endif
-		else
-			var/path = text2path(data["type"])
-			if(path && ispath(path, /obj/item))
-				I = new path(T)
-#ifdef PERSISTENCE_FLOOR_ITEM_DEBUG
-				if(ispath(path, /obj/item/clothing))
-					log_subsystem_persistence_info("FloorItemDebug: restored '[data["type"]]' with NO extra blob -- spawned stateless, any faction tag/colour is gone. extra was: [isnull(data["extra"]) ? "NULL" : "'[data["extra"]]'"]")
-#endif
 	catch(var/exception/floor_e)
-		log_subsystem_persistence_error("Floor items: Failed to restore [data["type"]] at ([data["x"]],[data["y"]],[data["z"]]): [floor_e] -- extra was: [isnull(data["extra"]) ? "NULL" : "'[data["extra"]]'"]")
-		return 0
+		log_subsystem_persistence_error("Floor items: state restore failed for [data["type"]] at ([data["x"]],[data["y"]],[data["z"]]): [floor_e] -- falling back to a stateless spawn.")
+
+	// ALWAYS fall back. floorItemsInitialize() has already deleted the map's own
+	// copy of this item by now, so "restore produced nothing" does not mean
+	// "leave it alone" -- it means the item is gone from the world entirely.
+	// Letting a failed decode skip creation is what turned a blank-state bug
+	// into a full world wipe.
+	if(!I || QDELETED(I))
+		var/path = text2path(data["type"])
+		if(path && ispath(path, /obj/item))
+			I = new path(T)
+#ifdef PERSISTENCE_FLOOR_ITEM_DEBUG
+			if(ispath(path, /obj/item/clothing))
+				log_subsystem_persistence_info("FloorItemDebug: '[data["type"]]' fell back to a stateless spawn -- any faction tag/colour is gone. extra was: [isnull(extra_raw) ? "NULL" : (islist(extra_raw) ? "list(len=[length(extra_raw)])" : "'[extra_raw]'")]")
+#endif
 
 	if(!I || QDELETED(I))
 		return 0
