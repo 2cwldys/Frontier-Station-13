@@ -46,6 +46,34 @@
 		set_pin_data(IC_OUTPUT, 1, TRUE)
 		return TRUE
 
+// items_contained sits in `contents`, same as any inserted item, but this
+// isn't a /obj/item/storage subtype -- the generic storage-contents
+// recursion in serializePersistentItem() (persistence_mobs.dm) never
+// reaches it without this override, so an inserted paper/beaker would
+// otherwise vanish and items_contained come back empty on restore.
+/obj/item/integrated_circuit/insert_slot/persistent_objects_get_content()
+	var/list/content = ..()
+	var/list/item_data = list()
+	for(var/obj/item/O in items_contained)
+		var/list/serialized = serializePersistentItem(O)
+		if(serialized)
+			item_data += list(serialized)
+	content["slot_items"] = item_data
+	return content
+
+/obj/item/integrated_circuit/insert_slot/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content) || !islist(content["slot_items"]))
+		return
+	for(var/obj/item/old in items_contained)
+		qdel(old)
+	items_contained = list()
+	for(var/list/item_entry in content["slot_items"])
+		var/obj/item/restored = deserializePersistentItem(item_entry, src)
+		if(restored)
+			items_contained += restored
+	set_pin_data(IC_OUTPUT, 1, length(items_contained) > 0)
+
 /obj/item/integrated_circuit/insert_slot/paper_tray
 	name = "paper tray"
 	desc = "A simple paper tray similar to one from a printer."

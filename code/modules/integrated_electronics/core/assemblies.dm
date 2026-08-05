@@ -363,3 +363,127 @@
 /obj/item/electronic_assembly/proc/on_unanchored()
 	for(var/obj/item/integrated_circuit/IC in contents)
 		IC.on_unanchored()
+
+// ------- Persistence -------
+//
+// Routes through the same generic /obj persistent_objects_get_content()/
+// apply_content() passthrough persistence_mobs.dm's serializePersistentItem()/
+// deserializePersistentItem() already use for any non-ID-card item (see
+// their "obj_content" branch) -- no changes needed there, this is a
+// self-contained override.
+//
+// Each integrated_circuit's own type/state is captured recursively via
+// serializePersistentItem() (same as rig components), so this only needs to
+// additionally capture what a fresh new() can't reconstruct: the assembly's
+// own cosmetic/config vars, and the wiring graph between circuits, which is
+// pure live object references (/datum/integrated_io.linked) that don't
+// survive a save. Since a circuit type's inputs/outputs/activators lists are
+// always rebuilt in the same fixed order (setup_io(), helpers.dm), a pin's
+// identity is stable as (circuit's index in contents, which io list, index
+// within that list) -- no persistent ID vars needed anywhere.
+/obj/item/electronic_assembly/persistent_objects_get_content()
+	var/list/content = ..()
+	content["detail_color"] = detail_color
+	content["opened"] = opened
+	if(battery)
+		content["battery"] = serializePersistentItem(battery)
+
+	var/list/all_circuits = list()
+	var/list/circuit_data = list()
+	for(var/obj/item/integrated_circuit/circuit in contents)
+		all_circuits += circuit
+		circuit_data += list(serializePersistentItem(circuit))
+	content["circuits"] = circuit_data
+
+	// pin_data: player-set constant values (text/number/list only -- a
+	// weakref'd object reference can't meaningfully survive a reboot, so
+	// those pins just come back empty, same as any other dropped object ref
+	// elsewhere in this persistence system).
+	var/list/pin_data = list()
+	// links: every (from -> to) pin pair, recorded once per direction --
+	// linked is bidirectional (pins.dm's wirer/disconnect() keep both sides
+	// in sync), so this naturally records each link twice; restore below is
+	// idempotent (|=) so that's harmless.
+	var/list/link_data = list()
+	for(var/c_index = 1, c_index <= length(all_circuits), c_index++)
+		var/obj/item/integrated_circuit/circuit = all_circuits[c_index]
+		for(var/list_name in list("inputs", "outputs", "activators"))
+			var/list/io_list = circuit.vars[list_name]
+			for(var/p_index = 1, p_index <= length(io_list), p_index++)
+				var/datum/integrated_io/pin = io_list[p_index]
+				if(isnum(pin.data) || istext(pin.data) || islist(pin.data))
+					pin_data += list(list("c" = c_index, "l" = list_name, "p" = p_index, "v" = pin.data))
+				for(var/datum/integrated_io/linked_pin in pin.linked)
+					var/to_c_index = all_circuits.Find(linked_pin.holder)
+					if(!to_c_index)
+						continue // linked to a circuit outside this assembly -- can't resolve, skip
+					var/to_list_name = (linked_pin in linked_pin.holder.inputs) ? "inputs" : ((linked_pin in linked_pin.holder.outputs) ? "outputs" : "activators")
+					var/to_p_index = linked_pin.holder.vars[to_list_name].Find(linked_pin)
+					if(!to_p_index)
+						continue
+					link_data += list(list("c" = c_index, "l" = list_name, "p" = p_index, "tc" = to_c_index, "tl" = to_list_name, "tp" = to_p_index))
+	content["pin_data"] = pin_data
+	content["links"] = link_data
+	return content
+
+/obj/item/electronic_assembly/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["detail_color"]))
+		detail_color = content["detail_color"]
+	if(!isnull(content["opened"]))
+		opened = content["opened"]
+	if(content["battery"])
+		if(battery)
+			qdel(battery)
+		battery = deserializePersistentItem(content["battery"], src)
+
+	if(!islist(content["circuits"]))
+		update_icon()
+		return
+
+	// Construct the full replacement set before deleting anything already in
+	// contents (a printed/pre-built assembly can arrive with circuits
+	// already installed) -- same "construct before destroying" caution as
+	// the rig component restore above: a failed restore should never cost
+	// more than it has to.
+	var/list/old_circuits = list()
+	for(var/obj/item/integrated_circuit/old in contents)
+		old_circuits += old
+
+	var/list/all_circuits = list()
+	for(var/list/circuit_data in content["circuits"])
+		var/obj/item/integrated_circuit/restored = deserializePersistentItem(circuit_data, src)
+		if(istype(restored))
+			restored.assembly = src
+		all_circuits += restored
+
+	if(islist(content["pin_data"]))
+		for(var/list/entry in content["pin_data"])
+			var/obj/item/integrated_circuit/circuit = (entry["c"] >= 1 && entry["c"] <= length(all_circuits)) ? all_circuits[entry["c"]] : null
+			if(!istype(circuit))
+				continue
+			var/list/io_list = circuit.vars[entry["l"]]
+			if(entry["p"] >= 1 && entry["p"] <= length(io_list))
+				var/datum/integrated_io/pin = io_list[entry["p"]]
+				pin.data = entry["v"]
+
+	if(islist(content["links"]))
+		for(var/list/entry in content["links"])
+			var/obj/item/integrated_circuit/from_circuit = (entry["c"] >= 1 && entry["c"] <= length(all_circuits)) ? all_circuits[entry["c"]] : null
+			var/obj/item/integrated_circuit/to_circuit = (entry["tc"] >= 1 && entry["tc"] <= length(all_circuits)) ? all_circuits[entry["tc"]] : null
+			if(!istype(from_circuit) || !istype(to_circuit))
+				continue
+			var/list/from_list = from_circuit.vars[entry["l"]]
+			var/list/to_list = to_circuit.vars[entry["tl"]]
+			if(entry["p"] < 1 || entry["p"] > length(from_list) || entry["tp"] < 1 || entry["tp"] > length(to_list))
+				continue
+			var/datum/integrated_io/from_pin = from_list[entry["p"]]
+			var/datum/integrated_io/to_pin = to_list[entry["tp"]]
+			from_pin.linked |= to_pin
+
+	for(var/obj/item/integrated_circuit/old in old_circuits)
+		qdel(old)
+
+	update_icon()

@@ -761,6 +761,23 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	catch(var/exception/ad_e)
 		log_subsystem_persistence_error("Faction sweep: autodoc sweep failed: [ad_e]")
 
+	// R&D servers -- claiming one switches it onto that faction's shared
+	// research pool (get_faction_research_pool(), server.dm), live-shared
+	// with every other server already tagged to the same faction, and
+	// independent of the global pool and every other faction's servers.
+	// See persistence_factions.dm's factionResearchFinalize().
+	try
+		for(var/obj/structure/machinery/r_n_d/server/RD in world)
+			if(!(GET_Z(RD) in zs))
+				continue
+			if(RD.persistent_network)
+				continue
+			RD.persistent_network = faction_uid
+			RD.files = get_faction_research_pool(faction_uid)
+			configured++
+	catch(var/exception/rd_e)
+		log_subsystem_persistence_error("Faction sweep: R&D server sweep failed: [rd_e]")
+
 	try
 		for(var/area/A in GLOB.areas)
 			if(!A.is_blueprint_area)
