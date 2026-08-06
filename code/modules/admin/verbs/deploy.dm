@@ -28,10 +28,7 @@
 	// See the identical guard in trigger_database_backup() (persistence_backups.dm)
 	// and GLOB.config.server_root_path's doc comment (configuration.dm) -- same
 	// relative-command-vs-DD's-OS-cwd fragility, same fix.
-	if(GLOB.config.server_root_path)
-		command = (world.system_type == UNIX) \
-			? "cd \"[GLOB.config.server_root_path]\" && [command]" \
-			: "cd /d \"[GLOB.config.server_root_path]\" && [command]"
+	command = prefix_server_root_cd(command)
 	var/list/result = world.shelleo(command)
 	var/errorcode = result[1]
 
