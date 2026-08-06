@@ -402,7 +402,6 @@ SUBSYSTEM_DEF(discord)
 			OutData["embeds"] = list(emb)
 		if (WEBHOOK_ADMIN_LOG)
 			var/emb = list(
-				"title" = "Admin Log",
 				"description" = data["message"],
 				"color" = HEX_COLOR_BLUE
 			)
