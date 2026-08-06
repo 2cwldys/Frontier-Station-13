@@ -1454,10 +1454,15 @@ modules/mob/living/carbon/human/life.dm if you die, you will be zoomed out.
 			SPAN_NOTICE("You fully restore \the [src] with \the [attacking_item]."))
 		return TRUE
 
-	// Repairs a worn item with a roll of tape -- Aurora's closest existing
-	// analog to an "adhesive quality" repair item, already consumed the same
-	// way (single-use, qdel on use) by rods.dm and the improvised pipe gun.
-	if(degrades_with_use && istype(attacking_item, /obj/item/tape_roll))
+	// Lower repair tier -- restores condition but cannot revive a broken item,
+	// which is what separates it from the nanopaste branch above.
+	//
+	// This used to accept /obj/item/tape_roll. That type is the game's duct tape
+	// (Initial commit) and also handles taping eyes/mouths/hands, surgical bone
+	// gluing, splints, sticking paper and the improvised pipe gun -- and it shares
+	// its display name with the unrelated /obj/item/taperoll. Repairs got their own
+	// item so tape could go back to being tape. See items/weapons/repair_nanites.dm.
+	if(degrades_with_use && istype(attacking_item, /obj/item/repairnanites))
 		if(wear_holder.wear_broken)
 			to_chat(user, SPAN_WARNING("\The [src] is beyond repair."))
 			return TRUE
@@ -1466,8 +1471,9 @@ modules/mob/living/carbon/human/life.dm if you die, you will be zoomed out.
 			return TRUE
 		wear_holder.wear_durability = wear_holder.wear_max_durability
 		wear_holder.on_wear_state_changed()
-		user.visible_message(SPAN_NOTICE("[user] patches up \the [src] with [attacking_item]."), \
-			SPAN_NOTICE("You patch \the [src] back to full condition."))
+		playsound(src, 'sound/machines/rig/rig_deploy.ogg', 30, FALSE)
+		user.visible_message(SPAN_NOTICE("[user] runs a cartridge of repair nanites over \the [src]."), \
+			SPAN_NOTICE("You restore \the [src] to full condition with \the [attacking_item]."))
 		qdel(attacking_item)
 		return TRUE
 	return ..()
