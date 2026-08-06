@@ -393,8 +393,6 @@
 	if(old_strength == new_strength)
 		return
 
-	var/lo = min(old_strength, new_strength)
-	var/hi = max(old_strength, new_strength)
 	var/declining = (new_strength < old_strength)
 
 	// High-to-low order -- reversed below when recovering, so each
@@ -410,7 +408,13 @@
 
 	for(var/list/checkpoint in checkpoints)
 		var/point = checkpoint[1]
-		if(point >= lo && point <= hi)
+		// Count a checkpoint only where it's actually crossed INTO -- the
+		// value we started from is excluded, the value we landed on is
+		// included. Inclusive at both ends would re-announce a checkpoint the
+		// shields are sitting exactly on (150 of 300, at regen_rate 2) on the
+		// very next tick, and fire shields_are_down every time charging
+		// starts from 0.
+		if(declining ? (point >= new_strength && point < old_strength) : (point > old_strength && point <= new_strength))
 			_announce_to_ship(checkpoint[2], 50, TRUE)
 
 /// Fades the shield bubble in on the generator itself, and mirrors the same

@@ -116,8 +116,6 @@
 	if(isnull(old_strength) || old_strength == -1 || old_strength == new_strength)
 		return
 
-	var/lo = min(old_strength, new_strength)
-	var/hi = max(old_strength, new_strength)
 	var/declining = (new_strength < old_strength)
 	var/max_strength = target_gen.max_shield_strength
 
@@ -132,7 +130,10 @@
 
 	for(var/list/checkpoint in checkpoints)
 		var/point = checkpoint[1]
-		if(point >= lo && point <= hi)
+		// Crossed-INTO test, same as the own-ship generator's own tier check
+		// (_check_tier_transition(), ship_shield_generator.dm) -- see its
+		// comment for why both ends can't be inclusive.
+		if(declining ? (point >= new_strength && point < old_strength) : (point > old_strength && point <= new_strength))
 			announce_to_ship_z(linked.map_z, checkpoint[2], 50, TRUE)
 
 /obj/structure/machinery/computer/ship/targeting/ui_interact(mob/user, datum/tgui/ui)
