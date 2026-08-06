@@ -993,7 +993,10 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 		qdel(cq)
 	for(var/obj/item/clothing/C in world)
 		if(C.faction_tag_uid == uid)
-			C.color = new_color
+			if(C.has_accents)
+				C.accent_color = new_color
+			else
+				C.color = new_color
 			C.update_icon()
 			C.update_clothing_icon()
 	return TRUE
