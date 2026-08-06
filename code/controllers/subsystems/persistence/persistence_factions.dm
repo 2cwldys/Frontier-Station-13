@@ -2119,6 +2119,14 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			continue
 		if(locate(/obj/effect/overmap/visitable) in candidate)
 			continue
+		// Also avoid any tile a Supply Beacon already occupies (persistence_
+		// supply_beacons.dm) -- a beacon isn't a /visitable so the check above
+		// misses it. Pinned/explicitly-placed away-sites bypass this proc
+		// entirely (they pass their own target_tile straight into
+		// _spawn_away_site_for_template()), so this only ever affects random
+		// generation, exactly as intended.
+		if(locate(/obj/effect/overmap/supply_beacon) in candidate)
+			continue
 		var/blocked = FALSE
 		for(var/list/entry in secured_sectors)
 			if(get_dist(candidate, entry["sector"]) <= entry["radius"])

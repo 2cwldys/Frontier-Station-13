@@ -457,6 +457,11 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_panic("Unhandled exception during stock market persistence finalization: [stock_market_e]")
 
 	try
+		supplyBeaconsSaveAll()
+	catch(var/exception/supply_beacon_e)
+		log_subsystem_persistence_panic("Unhandled exception during supply beacon persistence finalization: [supply_beacon_e]")
+
+	try
 		recordsFinalize()
 	catch(var/exception/records_e)
 		log_subsystem_persistence_panic("Unhandled exception during records persistence finalization: [records_e]")
@@ -773,6 +778,12 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/stock_market_e)
 		log_subsystem_persistence_panic("Unhandled exception during stock market initialization: [stock_market_e]")
 
+	log_subsystem_persistence_info("Starting supply beacon initialization...")
+	try
+		supplyBeaconsInitialize()
+	catch(var/exception/supply_beacon_e)
+		log_subsystem_persistence_panic("Unhandled exception during supply beacon initialization: [supply_beacon_e]")
+
 	log_subsystem_persistence_info("Starting faction shareholders initialization...")
 	try
 		factionShareholdersInitialize()
@@ -980,6 +991,11 @@ SUBSYSTEM_DEF(persistence)
 		stockMarketSaveCompanies()
 	catch(var/exception/stock_market_e)
 		log_subsystem_persistence_panic("Unhandled exception during stock market persistence finalization: [stock_market_e]")
+
+	try
+		supplyBeaconsSaveAll()
+	catch(var/exception/supply_beacon_e)
+		log_subsystem_persistence_panic("Unhandled exception during supply beacon persistence finalization: [supply_beacon_e]")
 
 	try
 		recordsFinalize()

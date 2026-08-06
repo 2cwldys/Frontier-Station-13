@@ -780,6 +780,62 @@
 	icon_state = "security_crate"
 	secure = TRUE
 
+/// Supply Beacon Terminal commodity crate -- always empty, never openable by
+/// any means (no loot to protect, so no need to guard against forced/
+/// explosive entry separately -- can_open() is the only gate this base
+/// closet type has at all). Exists purely as a tradeable token for
+/// persistence_supply_beacons.dm's buy/sell price system; one subtype per
+/// commodity below for the label/icon.
+/obj/structure/closet/crate/supply_beacon
+	name = "sealed supply crate"
+	desc = "A tamper-proof shipping container used by Supply Beacon Terminal networks. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	icon_state = "crate"
+	secure = TRUE
+	/// Key into GLOB.supply_beacon_commodities (persistence_supply_beacons.dm) --
+	/// lets the trading program identify a crate's commodity generically
+	/// instead of istype-chaining every subtype below.
+	var/commodity_key
+	/// How many units of commodity_key this single crate represents -- a
+	/// bought batch is one crate object stacked to `amount`, not one object
+	/// per unit, so a large purchase doesn't litter a telepad with hundreds
+	/// of crates. Selling can partially consume a stack (see the Supply
+	/// Beacon Terminal program's sell handler) by decrementing this and
+	/// refreshing the label instead of always deleting the whole crate.
+	var/amount = 1
+
+/obj/structure/closet/crate/supply_beacon/can_open()
+	return FALSE
+
+/obj/structure/closet/crate/supply_beacon/Initialize()
+	. = ..()
+	refresh_label()
+
+/// Appends the current stack size to the crate's base (initial) name --
+/// re-derives from `initial(name)` rather than string-editing the live
+/// name, so this is always safe to call again after `amount` changes.
+/obj/structure/closet/crate/supply_beacon/proc/refresh_label()
+	name = "[initial(name)] (x[amount])"
+
+/obj/structure/closet/crate/supply_beacon/zenithium
+	name = "sealed zenithium crate"
+	desc = "A tamper-proof crate marked ZENITHIUM. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "zenithium"
+
+/obj/structure/closet/crate/supply_beacon/coraline
+	name = "sealed coraline crate"
+	desc = "A tamper-proof crate marked CORALINE. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "coraline"
+
+/obj/structure/closet/crate/supply_beacon/veridium
+	name = "sealed veridium crate"
+	desc = "A tamper-proof crate marked VERIDIUM. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "veridium"
+
+/obj/structure/closet/crate/supply_beacon/pyrolite
+	name = "sealed pyrolite crate"
+	desc = "A tamper-proof crate marked PYROLITE. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "pyrolite"
+
 /obj/structure/closet/crate/drinks
 	name = "exotic drinks crate"
 	desc = "A crate packed with boxes of various beverages. Handle with care!"

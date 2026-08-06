@@ -262,6 +262,15 @@
 	closeToolTip(usr)
 
 /obj/effect/overmap/visitable/proc/target(var/obj/effect/overmap/O, var/obj/structure/machinery/computer/ship/C)
+	// Supply Beacons have no Z-level at all (code/modules/overmap/
+	// supply_beacon.dm) -- there's nothing behind the marker for a weapon to
+	// actually hit, so refuse the lock outright instead of letting one
+	// through that firing_command() would have to handle later. Unlike the
+	// bombardment-protection check below, this never needs a defense-in-
+	// depth fire-time recheck -- a beacon's targetability never changes.
+	if(istype(O, /obj/effect/overmap/supply_beacon))
+		to_chat(usr, SPAN_WARNING("Your computer refuses to fire at automated trade beacons."))
+		return
 	// Ship-to-site bombardment only -- ship targets (including drydock
 	// ships) are untouched, matching this codebase's own deliberate "log,
 	// don't block" stance on ship-to-ship combat (see the fire handler's
