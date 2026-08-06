@@ -802,13 +802,84 @@
 	/// Beacon Terminal program's sell handler) by decrementing this and
 	/// refreshing the label instead of always deleting the whole crate.
 	var/amount = 1
+	/// ss13_supply_beacons.beacon_id of the beacon this crate was BOUGHT from.
+	/// A crate can never be sold back to its own origin beacon (see the Supply
+	/// Beacon Terminal's sell handler) -- you have to actually haul it
+	/// somewhere else, which is the entire point of the price spread between
+	/// beacons. Deliberately a permanent property of the crate rather than a
+	/// timer: it still holds long after the 30-minute trade cooldown lapses.
+	var/origin_beacon_id
+	/// Human-readable name of that origin beacon, shown on examine. Stored
+	/// rather than looked up so it still reads correctly if the beacon is
+	/// later renamed or removed entirely.
+	var/origin_beacon_label
 
 /obj/structure/closet/crate/supply_beacon/can_open()
 	return FALSE
 
+/// The base crate's own CanPass() (above) refuses to let one crate move onto
+/// a tile already holding another crate at all (barring the table-exemption
+/// case) -- which would mean a player pushing one of these onto another can
+/// never actually stack them, since the push is itself a Move() that CanPass()
+/// gates. Relaxed here for crate-vs-crate specifically so these can share a
+/// tile and merge_stacks_on_turf() can fold them together; every other
+/// mover (players, bots, projectiles) still goes through the normal chain
+/// below, so density/collision/pushing against a mob is completely
+/// unaffected -- players still bump into and can still push these normally.
+/obj/structure/closet/crate/supply_beacon/CanPass(atom/movable/mover, turf/target, height=0, air_group=0)
+	if(istype(mover, /obj/structure/closet/crate/supply_beacon))
+		return TRUE
+	return ..()
+
 /obj/structure/closet/crate/supply_beacon/Initialize()
 	. = ..()
 	refresh_label()
+
+/// A push that lands one of these on a tile already holding a matching crate
+/// (same commodity + origin beacon, see can_stack_with()) merges them instead
+/// of just leaving two objects visually overlapped -- CanPass() above is what
+/// lets the push complete at all; this is what makes it actually stack rather
+/// than just coexist.
+/obj/structure/closet/crate/supply_beacon/Move(atom/newloc, dir)
+	. = ..()
+	if(.)
+		merge_stacks_on_turf()
+
+/obj/structure/closet/crate/supply_beacon/examine(mob/user)
+	. = ..()
+	if(origin_beacon_label)
+		. += SPAN_NOTICE("Ordered from: [origin_beacon_label]")
+
+/// Same commodity AND same origin beacon can merge into one stack. Origin has
+/// to match too -- otherwise merging would silently launder the can't-sell-at-
+/// origin restriction by folding a local crate into a hauled-in one.
+/obj/structure/closet/crate/supply_beacon/proc/can_stack_with(obj/structure/closet/crate/supply_beacon/other)
+	if(QDELETED(other) || other == src)
+		return FALSE
+	if(other.type != type)
+		return FALSE
+	if(other.commodity_key != commodity_key)
+		return FALSE
+	if(other.origin_beacon_id != origin_beacon_id)
+		return FALSE
+	return TRUE
+
+/// Folds any stackable sibling already on this turf into src, deleting them.
+/// Returns TRUE if anything was absorbed.
+/obj/structure/closet/crate/supply_beacon/proc/merge_stacks_on_turf()
+	var/turf/T = get_turf(src)
+	if(!T)
+		return FALSE
+	var/merged = FALSE
+	for(var/obj/structure/closet/crate/supply_beacon/other in T)
+		if(!can_stack_with(other))
+			continue
+		amount += other.amount
+		qdel(other)
+		merged = TRUE
+	if(merged)
+		refresh_label()
+	return merged
 
 /// Appends the current stack size to the crate's base (initial) name --
 /// re-derives from `initial(name)` rather than string-editing the live
