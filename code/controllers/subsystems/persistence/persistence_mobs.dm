@@ -1219,6 +1219,15 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		if(istype(HC) && HC != I)
 			data["device_cell_charge"] = HC.charge
 
+	// Visor/mask toggle state -- see persistent_toggle_vars' own doc comment
+	// (obj/item base vars, items.dm) for why this is a declared list instead
+	// of another istype() branch per helmet/goggle type.
+	if(length(I.persistent_toggle_vars))
+		var/list/toggle_data = list()
+		for(var/vname in I.persistent_toggle_vars)
+			toggle_data[vname] = I.vars[vname]
+		data["toggle_vars"] = toggle_data
+
 	// Ballistic guns: internal rounds, chambered state, fitted magazine
 	if(istype(I, /obj/item/gun/projectile))
 		var/obj/item/gun/projectile/G = I
@@ -1423,6 +1432,15 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	var/obj/item/I = new item_type(holder)
 	if(!I || QDELETED(I))
 		return null
+
+	// Visor/mask toggle state -- see persistent_toggle_vars' own doc comment
+	// (obj/item base vars, items.dm). Restored before the other blocks below
+	// purely for proximity to construction; order doesn't matter here since
+	// nothing else reads these vars during restore.
+	if(data["toggle_vars"])
+		var/list/toggle_data = data["toggle_vars"]
+		for(var/vname in toggle_data)
+			I.vars[vname] = toggle_data[vname]
 
 	// Storage contents. Keyed on PRESENCE, not truthiness -- a saved-empty
 	// container serializes "contents" as an empty list, and that still has to
