@@ -9,8 +9,6 @@
  */
 
 #define PERSISTENCE_CRYO_TIMEOUT (60 SECONDS)
-#define PERSISTENCE_BASE_SLOTS   1
-#define PERSISTENCE_ADMIN_SLOTS  3
 
 // Cryo state vars on the human mob
 /mob/living/carbon/human
@@ -1068,8 +1066,9 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 
 /**
  * Returns the number of character slots for a given ckey.
- * Admins get PERSISTENCE_ADMIN_SLOTS; players get PERSISTENCE_BASE_SLOTS
- * unless overridden in ss13_character_slots.
+ * Admins get GLOB.config.character_slots + GLOB.config.admin_character_slots
+ * (CHARACTER_SLOTS/ADMIN_CHARACTER_SLOTS, config.txt); players get just
+ * GLOB.config.character_slots -- unless overridden in ss13_character_slots.
  */
 /proc/persistence_get_character_slots(ckey)
 	// Check per-player override in DB
@@ -1088,9 +1087,9 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 	// Admin default
 	var/client/C = GLOB.directory[ckey]
 	if(C && C.holder && (C.holder.rights & R_ADMIN))
-		return PERSISTENCE_ADMIN_SLOTS
+		return GLOB.config.character_slots + GLOB.config.admin_character_slots
 
-	return PERSISTENCE_BASE_SLOTS
+	return GLOB.config.character_slots
 
 // ============================================================
 // ADMIN VERB  set slot limit
@@ -1188,5 +1187,3 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 	log_subsystem_persistence_info("LaceVault: Restored [restored] vaulted lace(s)[orphaned ? ", [orphaned] row(s) left pending (no vault at coords)" : ""].")
 
 #undef PERSISTENCE_CRYO_TIMEOUT
-#undef PERSISTENCE_BASE_SLOTS
-#undef PERSISTENCE_ADMIN_SLOTS

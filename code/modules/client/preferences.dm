@@ -558,7 +558,7 @@ GLOBAL_LIST_EMPTY_TYPED(preferences_datums, /datum/preferences)
 
 /datum/preferences/proc/get_slot_limit(mob/user)
 	if(user?.client?.holder && (user.client.holder.rights & R_ADMIN))
-		return GLOB.config.admin_character_slots
+		return GLOB.config.character_slots + GLOB.config.admin_character_slots
 	return GLOB.config.character_slots
 
 /datum/preferences/proc/open_load_dialog_sql(mob/user)

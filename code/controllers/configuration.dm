@@ -901,6 +901,9 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 				if("character_slots")
 					GLOB.config.character_slots = text2num(value)
 
+				if("admin_character_slots")
+					GLOB.config.admin_character_slots = text2num(value)
+
 				if("loadout_slots")
 					GLOB.config.loadout_slots = text2num(value)
 

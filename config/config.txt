@@ -350,8 +350,14 @@ ALLOW_CULT_GHOSTWRITER
 ## Sets the minimum number of cultists needed for ghosts to write in blood.
 REQ_CULT_GHOSTWRITER 6
 
-## Sets the number of available character slots
-CHARACTER_SLOTS 10
+## Sets the number of available character slots every player gets by default.
+## Drives persistence_get_character_slots() (persistence_cryo.dm) directly --
+## an admin's own default is this PLUS ADMIN_CHARACTER_SLOTS below, not a
+## separate total. A per-ckey override set via the "Set Character Slots"
+## admin verb still wins over both when one exists.
+CHARACTER_SLOTS 1
+## Additional character slots admins get on top of CHARACTER_SLOTS above.
+ADMIN_CHARACTER_SLOTS 3
 ## Sets the number of available loadout slots
 LOADOUT_SLOTS 3
 
