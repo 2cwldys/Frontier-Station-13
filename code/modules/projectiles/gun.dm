@@ -1112,7 +1112,7 @@ ABSTRACT_TYPE(/obj/item/gun)
 		update_icon()
 		return TRUE
 
-	if(istype(pin) && pin.attackby(attacking_item, user)) //Allows users to use their ID on a gun with a wireless-control firing pin to register their identity.
+	if(istype(pin) && istype(attacking_item, /obj/item/card/id) && pin.attackby(attacking_item, user)) //Allows users to use their ID on a gun with a wireless-control firing pin to register their identity.
 		return TRUE
 
 	if(istype(attacking_item, /obj/item/ammo_display))

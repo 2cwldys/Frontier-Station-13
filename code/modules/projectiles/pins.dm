@@ -15,6 +15,7 @@ Firing pins as a rule can't be removed without replacing them, blame a really sh
 	obj_flags = OBJ_FLAG_CONDUCTABLE
 	w_class = WEIGHT_CLASS_TINY
 	attack_verb = list("poked")
+	degrades_with_use = FALSE // Electronic authentication module -- doesn't wear down or need repairing.
 	var/emagged = FALSE
 	var/fail_message = SPAN_WARNING("INVALID USER.")
 	var/selfdestruct = 0 // Explode when user check is failed.
