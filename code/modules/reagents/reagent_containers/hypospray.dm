@@ -103,6 +103,9 @@
 		admin_inject_log(user, M, src, contained, temp, trans)
 		to_chat(user, SPAN_NOTICE("[trans] units injected. [reagents.total_volume] units remaining in \the [src]."))
 
+	// Single choke point for hypospray use -- both attack() (via do_mob) and
+	// afterattack() land here, so wear is applied once per actual injection.
+	degrade_durability(durability_per_use)
 	update_icon()
 	return TRUE
 

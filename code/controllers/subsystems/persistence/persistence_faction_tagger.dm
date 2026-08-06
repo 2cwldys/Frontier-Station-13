@@ -295,6 +295,7 @@
 /// whatever the faction color happened to be at the time.
 /obj/item/clothing/var/faction_tag_uid = null
 /obj/item/clothing/var/faction_tag_original_color = null
+/obj/item/clothing/var/faction_tag_original_accent_color = null
 /obj/item/clothing/var/faction_tag_original_captured = FALSE
 
 /obj/item/clothing/faction_tagger_compatible()
@@ -303,12 +304,22 @@
 /obj/item/clothing/faction_tagger_get_uid()
 	return faction_tag_uid
 
+/// Tints only the accent overlay (has_accents/accent_color, items.dm) when
+/// this item actually has one -- the base garment's own color stays
+/// untouched, so tagging doesn't blot out the item's own look. Items with
+/// no accent layer fall back to the original full-atom recolor, since
+/// accent_color would otherwise have nothing to tint and tagging would
+/// silently become invisible.
 /obj/item/clothing/faction_tagger_set(new_uid, mob/user)
 	if(!faction_tag_original_captured)
 		faction_tag_original_color = color
+		faction_tag_original_accent_color = accent_color
 		faction_tag_original_captured = TRUE
 	faction_tag_uid = new_uid
-	color = new_uid ? get_faction_color(new_uid) : faction_tag_original_color
+	if(has_accents)
+		accent_color = new_uid ? get_faction_color(new_uid) : faction_tag_original_accent_color
+	else
+		color = new_uid ? get_faction_color(new_uid) : faction_tag_original_color
 	update_icon()
 	update_clothing_icon()
 	return TRUE
@@ -323,6 +334,7 @@
 		return content
 	content["faction_tag_uid"] = faction_tag_uid
 	content["faction_tag_original_color"] = faction_tag_original_color
+	content["faction_tag_original_accent_color"] = faction_tag_original_accent_color
 	content["faction_tag_original_captured"] = TRUE
 	return content
 
@@ -335,8 +347,12 @@
 		return
 	faction_tag_uid = content["faction_tag_uid"]
 	faction_tag_original_color = content["faction_tag_original_color"]
+	faction_tag_original_accent_color = content["faction_tag_original_accent_color"]
 	faction_tag_original_captured = TRUE
-	color = faction_tag_uid ? get_faction_color(faction_tag_uid) : faction_tag_original_color
+	if(has_accents)
+		accent_color = faction_tag_uid ? get_faction_color(faction_tag_uid) : faction_tag_original_accent_color
+	else
+		color = faction_tag_uid ? get_faction_color(faction_tag_uid) : faction_tag_original_color
 	update_icon()
 	update_clothing_icon()
 

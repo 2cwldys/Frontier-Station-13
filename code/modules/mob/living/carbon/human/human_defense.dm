@@ -81,6 +81,28 @@ emp_act
 		return
 	return ..()
 
+/mob/living/carbon/human/wear_unarmored_headgear(def_zone)
+	if(!head)
+		return
+	// Armored helmets are already worn down by the armor loop in
+	// get_blocked_ratio() -- charging them again here would double their rate.
+	if(head.GetComponent(/datum/component/armor))
+		return
+	// A null def_zone only reaches here on a non-dispersed hit; don't guess a
+	// zone and wear the hat for a blow that may not have landed on the head.
+	if(isnull(def_zone))
+		return
+	var/obj/item/organ/external/hit_organ = def_zone
+	if(!istype(hit_organ))
+		hit_organ = get_organ(check_zone(def_zone))
+	if(!istype(hit_organ) || !(hit_organ.body_part & HEAD))
+		return
+	// Respect coverage the same way get_armors_by_zone() does -- a hat that
+	// doesn't cover the struck part shouldn't take the hit.
+	if(!(head.body_parts_covered & hit_organ.body_part))
+		return
+	head.degrade_durability(WEAR_HEADGEAR_UNARMORED_HIT)
+
 /mob/living/carbon/human/get_armors_by_zone(obj/item/organ/external/def_zone, damage_type, damage_flags)
 	. = ..()
 	if(!def_zone)

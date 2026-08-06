@@ -5,6 +5,9 @@
 	GLOB.admin_log.Add(text)
 	if (GLOB.config.logsettings["log_admin"])
 		WRITE_LOG(GLOB.config.logfiles["world_game_log"], "ADMIN: [text]")
+#ifdef EXPORT_ADMIN_LOG_TO_DISCORD
+	SSdiscord.post_webhook_event(WEBHOOK_ADMIN_LOG, list("message" = SSdiscord.discord_escape(text)))
+#endif
 
 /// Logging for admin actions on or with circuits
 /proc/log_admin_circuit(text)

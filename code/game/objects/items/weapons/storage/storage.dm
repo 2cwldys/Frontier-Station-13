@@ -524,6 +524,12 @@
 	if(!item_to_check.dropsafety())
 		return FALSE
 
+	//Items that refuse to be stored at all
+	if(!item_to_check.can_enter_storage)
+		if(!stop_messages)
+			to_chat(usr, SPAN_NOTICE("\The [item_to_check] cannot be stored in \the [src]."))
+		return FALSE
+
 	//Check if the item is in the storage already
 	if(src.loc == item_to_check)
 		return FALSE
@@ -607,6 +613,13 @@
 		orient2hud(user)
 		if(user.s_active)
 			user.s_active.show_to(user)
+	// Wears the CONTAINER, not the item going into it. Gated on a real user so
+	// container prefill can never pre-wear a bag before a player touches it
+	// (most fill() implementations new items straight into src and bypass this
+	// proc entirely, but the gate costs nothing). Fractional deliberately --
+	// this fires once per item moved, so emptying a full bag is ~20 charges.
+	if(user)
+		degrade_durability(WEAR_STORAGE_PER_ITEM)
 	queue_icon_update()
 	return 1
 
@@ -627,6 +640,7 @@
 	W.on_enter_storage(src)
 	if (user)
 		W.dropped(user)
+		degrade_durability(WEAR_STORAGE_PER_ITEM)
 
 /obj/item/storage/proc/handle_storage_deferred(mob/user)
 	add_fingerprint(user)
@@ -672,6 +686,11 @@
 		W.maptext = ""
 	if(display_contents_initials)
 		W.ClearOverlays()
+	// See handle_item_insertion() -- same per-item container wear. usr rather
+	// than a user arg because this proc has no user parameter; a null usr means
+	// something moved the item programmatically, which shouldn't cost wear.
+	if(usr)
+		degrade_durability(WEAR_STORAGE_PER_ITEM)
 	W.on_exit_storage(src)
 	update_icon()
 	return TRUE
@@ -699,6 +718,9 @@
 
 	if(W.maptext)
 		W.maptext = ""
+
+	if(user)
+		degrade_durability(WEAR_STORAGE_PER_ITEM)
 
 	W.on_exit_storage(src)
 

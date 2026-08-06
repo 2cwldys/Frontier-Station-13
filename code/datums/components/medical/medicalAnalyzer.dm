@@ -107,6 +107,13 @@
 
 		health_scan_mob(target_mob, user, FALSE, sound_scan = sound_scan)
 		ui_interact(user)
+		// Wear on a completed scan of someone else. Deliberately NOT in
+		// attack_self() below -- self-scans go through the item's own
+		// attack_self(), which the click handler already charges, and adding it
+		// here too would double-charge a self-scan.
+		var/obj/item/analyzer_item = owner
+		if(istype(analyzer_item))
+			analyzer_item.degrade_durability(analyzer_item.durability_per_use)
 
 		owner.add_fingerprint(user)
 	else

@@ -101,6 +101,10 @@ ABSTRACT_TYPE(/obj/item/gun)
 
 	var/burst = 1
 	var/can_autofire = FALSE
+	/// Guns wear per trigger pull (COMSIG_GUN_FIRED -> on_gun_fired), so the
+	/// in-hand activation hook must not also charge them -- attack_self() on a
+	/// gun is a firemode toggle, which is a setting change, not use.
+	wear_on_activation = FALSE
 	/// Delay after shooting before the gun can be used again
 	var/fire_delay = 6
 	/// Delay between shots, if firing in bursts
@@ -1108,7 +1112,7 @@ ABSTRACT_TYPE(/obj/item/gun)
 		update_icon()
 		return TRUE
 
-	if(istype(pin) && pin.attackby(attacking_item, user)) //Allows users to use their ID on a gun with a wireless-control firing pin to register their identity.
+	if(istype(pin) && istype(attacking_item, /obj/item/card/id) && pin.attackby(attacking_item, user)) //Allows users to use their ID on a gun with a wireless-control firing pin to register their identity.
 		return TRUE
 
 	if(istype(attacking_item, /obj/item/ammo_display))

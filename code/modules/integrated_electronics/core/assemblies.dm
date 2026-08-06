@@ -300,6 +300,18 @@
 		return TRUE
 
 	else
+		// Reload an installed circuit's consumable in place -- bluespace crystals,
+		// a gun, a grenade. Without this the only way to reload was to pop the
+		// circuit out, which runs disconnect_all() and wipes all of its wiring.
+		//
+		// MUST come before the scanner pass below: obj_scanner's attackby_react()
+		// accepts ANY atom on help intent and returns TRUE, so a reload placed
+		// after it would be unreachable in any assembly containing a scanner.
+		// Reload implementations type-check strictly, so they can't steal items
+		// intended for a scanner or an insert_slot.
+		for(var/obj/item/integrated_circuit/S in contents)
+			if(S.try_reload(attacking_item, user))
+				return TRUE
 		for(var/obj/item/integrated_circuit/insert_slot/S in contents)  //Attempt to insert the item into any contained insert_slots
 			if(S.insert(attacking_item, user))
 				return TRUE

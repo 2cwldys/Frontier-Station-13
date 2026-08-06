@@ -1,0 +1,260 @@
+SUPPLY BEACON TERMINAL
+======================
+
+Overview
+--------
+Supply Beacons are a player-driven trade loop: fixed overmap markers that
+buy and sell commodity crates at prices which drift over time (like the
+stock market) and move with local supply/demand. Ship captains profit by
+buying a commodity cheap at one beacon and hauling it to another beacon
+where it sells for more.
+
+This is an original system, not a port of any pre-existing merchant/cargo
+delivery mechanic. It reuses three pieces of already-existing
+infrastructure -- the stock market's price-drift math, the crate
+"can_open() always FALSE" trick, and the existing cargo telepad delivery
+pipeline -- but the beacon object, its persistence, the trading program,
+and the admin tooling are all new.
+
+
+The beacon object
+------------------
+Type: /obj/effect/overmap/supply_beacon
+File: code/modules/overmap/supply_beacon.dm
+
+A beacon has NO Z-level of its own -- it is a marker on the overmap chart
+only, nothing a ship can actually fly into or land on. It deliberately does
+NOT subtype /obj/effect/overmap/visitable, the same way distress-signal
+"events" don't (see /obj/effect/overmap/event's own doc comment,
+events/event.dm) -- subtyping visitable would drag in a large amount of
+ship/sector machinery (holopads, telecomms, ship weapons, waypoints) a
+simple trade marker has no use for.
+
+Icon/icon_state match the Frontier Beacon Depot (CentCom's own overmap
+marker, centcom_overmap.dm) for visual parity -- both read as "a fixed
+depot marker," not a flyable sector.
+
+Each beacon carries its own price state per commodity directly as vars
+(commodity_prices, commodity_previous_prices, commodity_price_high,
+commodity_price_low) -- there is no shared company/stock datum the way the
+stock market has; every beacon's prices are fully independent of every
+other beacon's.
+
+Placement is admin-only via the "Modify Cargo Beacons" verb (Persistence
+category) -- there is no code-side seed list of beacons the way the stock
+market seeds placeholder companies. A brand new server has zero beacons
+until an admin places one.
+
+
+Commodities and pricing
+------------------------
+File: code/controllers/subsystems/persistence/persistence_supply_beacons.dm
+
+Four placeholder commodities exist today, keyed by GLOB.supply_beacon_commodities:
+
+    zenithium   base 3000cr, volatility 1.5
+    coraline    base 2000cr, volatility 2.2
+    veridium    base 4000cr, volatility 1.0
+    pyrolite    base 1500cr, volatility 2.5
+
+These are flavor names only (same "placeholder, not final" convention the
+stock market's own seed list uses) -- renaming one just means editing this
+list plus its matching crate subtype in crates.dm; it does not need a
+database migration, since the `commodity` column is a plain string, not a
+foreign key.
+
+Every beacon starts each commodity at that commodity's base_price when the
+beacon is placed, then drifts independently from there. SSsupply_beacons
+(code/controllers/subsystems/supply_beacons.dm) ticks every 30 seconds --
+same Geometric Brownian Motion mean-reverting random walk the stock market
+uses (tick_price(), stock_market.dm), just run once per beacon per
+commodity instead of once per company. This tick runs in the background on
+the Master Controller's own subsystem loop, independent of whether any
+player has the trading program open -- exactly like the stock market's own
+5-second tick, which was previously (and is no longer) accidentally gated
+on an active round via RUNLEVELS_PLAYING. Neither subsystem has that gate.
+
+An actual buy or sell at a beacon nudges that commodity's price at THAT
+BEACON ONLY (apply_trade_impact(), supply_beacon.dm) -- buying pushes it
+up, selling pushes it down, square-root-scaled and capped per trade, same
+shape as the stock market's own trade-impact math. Prices at every other
+beacon for the same commodity are untouched. That per-beacon divergence is
+the entire point of the loop -- it is what makes hauling between beacons
+profitable.
+
+Price is hard-floored at 1000cr (SUPPLY_BEACON_PRICE_FLOOR) -- drift and
+trade impact never push it lower, no matter how much gets dumped on one
+beacon. There is no ceiling, matching the stock market's own unclamped
+upside.
+
+An admin can directly set a beacon's commodity price ("Modify Cargo
+Beacons" -> Set Commodity Price). This mutates the live beacon object
+in place, so the next background tick just keeps random-walking from
+the new value -- an admin edit becomes the new baseline, exactly like
+the stock market's own "Manage Stock Market" admin tool.
+
+
+Crates
+------
+File: code/game/objects/structures/crates_lockers/crates.dm
+
+One crate subtype per commodity (/obj/structure/closet/crate/supply_beacon/
+zenithium, /coraline, /veridium, /pyrolite), all under the shared
+/obj/structure/closet/crate/supply_beacon base type. This base type:
+
+  - overrides can_open() to always return FALSE -- permanently unopenable,
+    by any means. There is nothing inside to protect against forced or
+    explosive entry separately; can_open() is the only gate the base
+    closet type has at all.
+  - carries commodity_key (matches a GLOB.supply_beacon_commodities key)
+    so the trading program can identify a crate generically instead of
+    istype-chaining every subtype.
+  - carries amount -- a single crate object represents a whole purchased
+    stack (e.g. "sealed coraline crate (x50)"), not one object per unit,
+    so a large purchase doesn't litter a telepad with hundreds of crates.
+    Selling can partially consume a stack (decrementing amount and
+    refreshing the label) instead of always deleting the whole crate.
+
+A bought crate is also labeled with who paid for it -- a faction name, a
+character name, or a ship name, depending on which billing mode the
+purchasing console was in -- using the exact same removable-label
+mechanic Cargo Order crates and hand-labeled items already use
+(name_unlabel + the shared /atom/proc/remove_label verb). This label is
+PURELY INFORMATIONAL. Nothing in the sell path checks it. A crate is
+identified and sold purely by physical possession (whichever telepad it
+is currently sitting on) plus its commodity_key -- if a shipment is
+stolen mid-haul, whoever ends up holding it can sell it through their own
+console, no different from any other stolen cargo. This is a deliberate
+piracy hook, not an oversight.
+
+
+The trading program
+--------------------
+Type: /datum/computer_file/program/civilian/supplybeaconterminal
+Files: code/modules/modular_computers/file_system/programs/civilian/
+       supply_beacon_terminal.dm
+       tgui/packages/tgui/interfaces/SupplyBeaconTerminal.tsx
+
+"Supply Beacon Terminal" runs on consoles and laptops only (usage_flags =
+PROGRAM_CONSOLE | PROGRAM_LAPTOP) -- never a PDA. It is a bridge/ops
+terminal, not a pocket device.
+
+Range gate: a beacon's actual prices are only sent to the client once the
+console's own ship is within one overmap tile of that beacon (on it or
+adjacent) -- supply_beacon_ship_in_range(), checked against the ship's own
+overmap marker (GLOB.map_sectors["[z]"]), since the beacon itself has no Z
+to be physically near. A beacon outside range shows only its label and
+coordinates in the list -- no prices, no trading.
+
+Billing follows the same three-way split every other cargo program in this
+codebase uses (Cargo Order, Cargo Exports):
+
+  - Faction  -- pays/credits the linked faction's treasury directly
+                (faction_debit()/faction_credit()).
+  - Personal -- pays/credits the operator's own bank account, resolved
+                from whichever ID card is physically in the console.
+  - Crew     -- pays/credits the drydock ship's owner account, resolved
+                via the console's current Z, not the operator's identity.
+
+Buying: choose a commodity and amount, pay the beacon's current price
+times amount, and a single (possibly stacked) crate materializes at a
+delivery telepad in that same billing scope -- via
+persistence_telepad_deliver(), the exact same helper a normal faction/
+personal/crew cargo order delivery uses (same arrival spark + phasein
+sound). If more than one telepad is in scope, the program shows the same
+dropdown picker Cargo Order/Cargo Exports already have.
+
+Selling: choose a commodity and amount. The program scans every telepad in
+the console's own billing scope (no picker needed) for matching crates,
+consumes however many units were requested (splitting a partially-consumed
+stack rather than always deleting whole crates), credits the account at
+the beacon's current price, and plays the same send-off flourish (spark +
+phasein sound + a fading decorative portal) Cargo Exports' own "Export
+Items at Telepad" action uses.
+
+Cooldown: any buy or sell at a beacon locks that same (billing source,
+beacon) pair out of trading with that beacon again, in EITHER direction,
+for 30 minutes (SUPPLY_BEACON_TRADE_COOLDOWN). This is in-memory only
+(GLOB.supply_beacon_trade_cooldowns), not database-backed -- a lockout
+surviving a server restart isn't worth the persistence weight.
+
+
+Away-site collision avoidance
+------------------------------
+File: code/controllers/subsystems/persistence/persistence_factions.dm
+Proc: _pick_free_overmap_tile()
+
+Random away-site/ruin generation already avoided stacking on another ship
+or sector marker (any /obj/effect/overmap/visitable). Since a Supply
+Beacon is deliberately NOT a /visitable, that check was extended with a
+second one for /obj/effect/overmap/supply_beacon specifically, so random
+generation now also skips any tile a beacon already occupies.
+
+Admin-pinned/explicitly-placed away sites bypass this proc entirely (they
+pass their own fixed coordinates straight into
+_spawn_away_site_for_template()), so a deliberately admin-placed site can
+still coexist with a beacon on the same tile -- only RANDOM generation
+avoids beacons.
+
+The reverse direction is a hard rule, not a warning: "Modify Cargo
+Beacons" -> Place Beacon refuses outright to place a new beacon on a tile
+that already has any /visitable (ship, sector, away site) sitting on it --
+same refusal the existing "Generate Away Site" admin verb already uses,
+just enforced for beacon placement too.
+
+
+Weapons targeting
+------------------
+File: code/modules/overmap/overmap_object.dm
+Proc: /obj/effect/overmap/visitable/proc/target()
+
+A ship's targeting console refuses to establish a weapons lock on a Supply
+Beacon at all ("Your computer refuses to fire at automated trade
+beacons.") -- there is no Z-level behind the marker for a weapon to
+actually hit. Unlike the existing site-bombardment-protection check in the
+same proc (which needs a second, defense-in-depth check at actual fire
+time, since a zone's protected status can change between lock and fire), a
+beacon's targetability never changes, so a single check at lock-on time is
+sufficient.
+
+
+Persistence
+-----------
+Files: code/controllers/subsystems/supply_beacons.dm            (ticking)
+       code/controllers/subsystems/persistence/
+           persistence_supply_beacons.dm                        (load/save)
+       SQL/migrate-2023/V143__supply_beacons.sql                (schema)
+
+Two tables:
+
+  ss13_supply_beacons             beacon_id, x, y, notes
+  ss13_supply_beacon_commodities  beacon_id, commodity, current_price,
+                                   previous_price, price_high, price_low
+                                   (composite PK on beacon_id+commodity,
+                                   cascades on beacon delete)
+
+Beacons load at boot (SSpersistence.supplyBeaconsInitialize(), called
+alongside the stock market's own boot-time load). Prices save on every
+SSsupply_beacons tick (supplyBeaconsSaveAll(), decoupled from
+SSpersistence's own heavier periodic autosave, same reasoning the stock
+market's stockMarketSaveCompanies() already uses) and again on every
+forced/shutdown save.
+
+
+Admin tooling
+-------------
+Verb: "Modify Cargo Beacons" (Persistence category)
+File: code/controllers/subsystems/persistence/persistence_supply_beacons.dm
+
+A tgui_input_list menu loop, same shape as "Manage Stock Market" and
+"Modify Cargo Imports":
+
+  Place Beacon         pick overmap X/Y (defaults to your current tile if
+                        you're standing on the overmap), optional label.
+                        Hard-refuses an already-occupied tile.
+  Remove Beacon         pick from a list of placed beacons, confirm, gone
+                        for good (DB rows deleted, marker qdel'd).
+  Set Commodity Price   pick a beacon, pick a commodity, set its current
+                        price directly (floor still enforced).
+  View Beacons          plain-text dump of every beacon and its current
+                        prices.

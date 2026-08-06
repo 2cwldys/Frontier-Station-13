@@ -264,14 +264,14 @@
 	groupable = TRUE
 	spawn_amount = 1
 
-/singleton/cargo_item/taperoll
+/singleton/cargo_item/repairnanites
 	category = "supply"
-	name = "repairing tape"
+	name = "repair nanites"
 	supplier = "Hub"
-	description = "A roll of sticky tape, used to repair items."
-	price = 8
+	description = "A sealed cartridge of maintenance nanites, used to restore worn equipment to full condition. Cannot repair something already broken."
+	price = 500
 	items = list(
-		/obj/item/tape_roll
+		/obj/item/repairnanites
 	)
 	access = 0
 	container_type = "crate"

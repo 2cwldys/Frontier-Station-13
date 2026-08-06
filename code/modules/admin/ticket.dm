@@ -24,6 +24,8 @@ GLOBAL_LIST_EMPTY(ticket_panels)
 	opened_time = world.time
 	opened_rt = world.realtime
 
+	log_admin("TICKET: #[id] opened by [key_name(client_by_ckey(owner))].")
+
 	if (GLOB.config.ticket_reminder_period)
 		reminder_timer = addtimer(CALLBACK(src, PROC_REF(remind)), GLOB.config.ticket_reminder_period SECONDS, TIMER_UNIQUE|TIMER_STOPPABLE)
 
@@ -37,6 +39,8 @@ GLOBAL_LIST_EMPTY(ticket_panels)
 	src.status = TICKET_CLOSED
 	src.closed_by = closing_key
 	src.closed_rt = world.realtime
+
+	log_admin("TICKET: #[id] closed by [closing_key].")
 
 	update_ticket_panels()
 
@@ -98,6 +102,8 @@ GLOBAL_LIST_EMPTY(ticket_panels)
 
 	assigned_admins |= assigned_admin.ckey
 	src.status = TICKET_ASSIGNED
+
+	log_admin("TICKET: #[id] taken by [key_name(assigned_admin)].")
 
 	var/client/owner_client = client_by_ckey(src.owner)
 	if(owner_client && owner_client.adminhelped == ADMINHELPED_DISCORD)

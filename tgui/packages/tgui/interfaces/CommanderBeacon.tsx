@@ -192,6 +192,20 @@ export const CommanderBeacon = (props) => {
           <Button
             fluid
             mt={1}
+            icon="power-off"
+            content="Enable All Guards"
+            onClick={() => act('set_all_guards_enabled')}
+          />
+          <Button
+            fluid
+            mt={1}
+            icon="ban"
+            content="Disable All Guards"
+            onClick={() => act('set_all_guards_disabled')}
+          />
+          <Button
+            fluid
+            mt={1}
             icon="crosshairs"
             content="Set All Guards Hostile"
             onClick={() => act('set_all_guards_hostile')}

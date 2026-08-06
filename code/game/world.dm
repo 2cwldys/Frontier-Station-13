@@ -312,8 +312,8 @@ GLOBAL_LIST_INIT(world_api_rate_limit, list())
 
 	if (saving)
 		s += "<br><b>SAVE IN PROGRESS</b>"
-
-	s += "<br>Factions: <b>[length(GLOB.persistence_faction_cache)]</b>"
+	else
+		s += "<br>Factions: <b>[length(GLOB.persistence_faction_cache)]</b>"
 
 	// Commented out, not deleted -- BYOND's hub already shows a live player
 	// count natively per listing, and duplicating it here was pushing the

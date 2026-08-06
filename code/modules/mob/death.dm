@@ -92,8 +92,13 @@
 	GLOB.living_mob_list -= src
 	GLOB.dead_mob_list |= src
 
+	// Player deaths only. death() fires for every NPC/simplemob too, and
+	// key_name() renders a clientless mob as "*no key*" -- with the admin-log
+	// Discord webhook live that floods the channel with meaningless entries.
+	// Keyed on ckey/mind.key rather than client so a player who died while
+	// disconnected still logs (exactly the death an admin wants to see).
 	var/turf/death_turf = get_turf(src)
-	if(death_turf)
+	if(death_turf && (ckey || mind?.key))
 		var/obj/effect/overmap/visitable/sector = GLOB.map_sectors["[death_turf.z]"]
 		var/sector_name = sector ? sector.name : "unknown sector"
 		var/sec_level = zone_security_name(zone_security_get(death_turf.z))
