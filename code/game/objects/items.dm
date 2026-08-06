@@ -41,6 +41,12 @@
 	var/durability_per_use = 1
 	/// TRUE once wear_durability hits 0 -- refuses further tool/gun use until repaired.
 	var/wear_broken = FALSE
+	/// Whether this can be put into an /obj/item/storage container at all.
+	/// Cleared on single-use items that are CONSUMED by their own attackby
+	/// interaction -- storage's attackby runs the parent for its side effects and
+	/// then inserts regardless of the result, so a consumed item would otherwise
+	/// be both used up and stored, duplicating it. See /obj/item/repairnanites.
+	var/can_enter_storage = TRUE
 	/// Whether activating this in-hand (attack_self) counts as use and costs
 	/// durability. Clear it on items whose activation is a MODE CHANGE rather
 	/// than use -- a gun's firemode toggle isn't wear, and guns already pay per

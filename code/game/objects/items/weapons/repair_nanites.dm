@@ -24,3 +24,9 @@
 	drop_sound = 'sound/items/drop/component.ogg'
 	pickup_sound = 'sound/items/pickup/component.ogg'
 	origin_tech = list(TECH_MATERIAL = 4, TECH_ENGINEERING = 3)
+	// Cannot go into a bag. /obj/item/storage/attackby() calls the parent for its
+	// side effects, discards the result, and inserts the item regardless -- so
+	// applying a cartridge to a container repaired it, consumed the cartridge,
+	// and then stored the consumed cartridge, duplicating it. Refusing storage
+	// outright closes that off.
+	can_enter_storage = FALSE

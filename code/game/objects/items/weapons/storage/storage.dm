@@ -524,6 +524,12 @@
 	if(!item_to_check.dropsafety())
 		return FALSE
 
+	//Items that refuse to be stored at all
+	if(!item_to_check.can_enter_storage)
+		if(!stop_messages)
+			to_chat(usr, SPAN_NOTICE("\The [item_to_check] cannot be stored in \the [src]."))
+		return FALSE
+
 	//Check if the item is in the storage already
 	if(src.loc == item_to_check)
 		return FALSE
