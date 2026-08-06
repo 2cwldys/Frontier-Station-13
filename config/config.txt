@@ -357,7 +357,7 @@ REQ_CULT_GHOSTWRITER 6
 ## admin verb still wins over both when one exists.
 CHARACTER_SLOTS 1
 ## Additional character slots admins get on top of CHARACTER_SLOTS above.
-ADMIN_CHARACTER_SLOTS 3
+ADMIN_CHARACTER_SLOTS 2
 ## Sets the number of available loadout slots
 LOADOUT_SLOTS 3
 
