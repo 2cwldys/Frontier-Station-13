@@ -40,6 +40,13 @@ type TelepadChoice = {
   area_name: string;
 };
 
+type CartLine = {
+  key: string;
+  name: string;
+  amount: number;
+  line_total: number;
+};
+
 type SupplyBeaconTerminalData = {
   faction_uid: string | null;
   faction_name: string | null;
@@ -57,6 +64,10 @@ type SupplyBeaconTerminalData = {
   cooldown_remaining: number;
   telepad_choices: TelepadChoice[];
   selected_telepad_ref: string | null;
+  cart: CartLine[];
+  cart_total: number;
+  sell_cart: CartLine[];
+  sell_cart_total: number;
   status_message: string;
 };
 
@@ -85,6 +96,10 @@ export const SupplyBeaconTerminal = (props) => {
     cooldown_remaining,
     telepad_choices = [],
     selected_telepad_ref,
+    cart = [],
+    cart_total,
+    sell_cart = [],
+    sell_cart_total,
     status_message,
   } = data;
 
@@ -227,6 +242,90 @@ export const SupplyBeaconTerminal = (props) => {
           </Table>
         </Section>
 
+        {(cart.length > 0 || sell_cart.length > 0) && (
+          <Section title="Cart">
+            <Box color="label" mb={1}>
+              Nothing is charged or delivered until Checkout -- staging
+              multiple lines and checking out once uses a single 30-minute
+              cooldown for the whole order instead of one per item.
+            </Box>
+            {cart.length > 0 && (
+              <Box mb={1}>
+                <Box bold>Buying</Box>
+                <Table>
+                  {cart.map((line) => (
+                    <Table.Row key={`buy-${line.key}`}>
+                      <Table.Cell>{line.name}</Table.Cell>
+                      <Table.Cell>x{line.amount}</Table.Cell>
+                      <Table.Cell>{line.line_total} cr</Table.Cell>
+                      <Table.Cell>
+                        <Button
+                          icon="times"
+                          color="bad"
+                          onClick={() =>
+                            act('cart_remove', { commodity: line.key })
+                          }
+                        />
+                      </Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table>
+                <Box mt={1}>
+                  <b>Total: {cart_total} cr</b>
+                  <Button
+                    ml={2}
+                    color="good"
+                    disabled={!selected_in_range || cooldown_remaining > 0}
+                    onClick={() => act('cart_checkout')}
+                  >
+                    Checkout Purchase
+                  </Button>
+                  <Button ml={1} onClick={() => act('cart_clear')}>
+                    Clear
+                  </Button>
+                </Box>
+              </Box>
+            )}
+            {sell_cart.length > 0 && (
+              <Box>
+                <Box bold>Selling</Box>
+                <Table>
+                  {sell_cart.map((line) => (
+                    <Table.Row key={`sell-${line.key}`}>
+                      <Table.Cell>{line.name}</Table.Cell>
+                      <Table.Cell>x{line.amount}</Table.Cell>
+                      <Table.Cell>{line.line_total} cr</Table.Cell>
+                      <Table.Cell>
+                        <Button
+                          icon="times"
+                          color="bad"
+                          onClick={() =>
+                            act('sell_cart_remove', { commodity: line.key })
+                          }
+                        />
+                      </Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table>
+                <Box mt={1}>
+                  <b>Total: {sell_cart_total} cr</b>
+                  <Button
+                    ml={2}
+                    color="bad"
+                    disabled={!selected_in_range || cooldown_remaining > 0}
+                    onClick={() => act('sell_cart_checkout')}
+                  >
+                    Checkout Sale
+                  </Button>
+                  <Button ml={1} onClick={() => act('sell_cart_clear')}>
+                    Clear
+                  </Button>
+                </Box>
+              </Box>
+            )}
+          </Section>
+        )}
+
         {selectedBeacon && (
           <Section
             title={
@@ -347,6 +446,26 @@ const CommodityRow = (props: {
         >
           Sell
         </Button>
+        <Button
+          ml={1}
+          icon="cart-plus"
+          tooltip="Add to buy cart -- stage without charging yet"
+          onClick={() =>
+            act('cart_add', { commodity: price.key, amount, beacon_id: beaconId })
+          }
+        />
+        <Button
+          ml={1}
+          icon="cart-arrow-down"
+          tooltip="Add to sell cart -- stage without selling yet"
+          onClick={() =>
+            act('sell_cart_add', {
+              commodity: price.key,
+              amount,
+              beacon_id: beaconId,
+            })
+          }
+        />
       </Table.Cell>
     </Table.Row>
   );

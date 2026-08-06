@@ -38,6 +38,14 @@
 	/// convention as Cargo Order's co.delivery_telepad / Cargo Exports'
 	/// selected_export_telepad.
 	var/obj/structure/machinery/telepad_cargo/selected_telepad
+	/// Staged purchase lines, commodity_key -> amount. The trade cooldown is
+	/// per (source, beacon) and fires on ANY completed trade, so buying one
+	/// commodity at a time burned a full 30-minute lockout per item. Staging
+	/// here and checking out once makes an arbitrarily large order a single
+	/// transaction: one charge, one cooldown.
+	var/list/cart = list()
+	/// Same as `cart` above, but for staged SELL lines -- see _checkout_sale().
+	var/list/sell_cart = list()
 
 /**
  * The console's own-scope cargo telepads (faction/personal/crew, same
@@ -146,8 +154,289 @@
 	if(length(data["telepad_choices"]) && selected_telepad && !QDELETED(selected_telepad) && (selected_telepad in candidate_pads))
 		data["selected_telepad_ref"] = "\ref[selected_telepad]"
 
+	// Cart lines rendered with current beacon pricing (if a beacon is
+	// selected and in range) so the TGUI can show a running total without
+	// re-deriving prices client-side.
+	data["cart"] = list()
+	data["cart_total"] = 0
+	for(var/commodity_key in cart)
+		var/list/commodity = GLOB.supply_beacon_commodities[commodity_key]
+		if(!commodity)
+			continue
+		var/line_qty = cart[commodity_key]
+		var/unit_price = (selected && !QDELETED(selected)) ? selected.commodity_prices[commodity_key] : 0
+		data["cart"] += list(list(
+			"key" = commodity_key,
+			"name" = commodity["name"],
+			"amount" = line_qty,
+			"line_total" = unit_price * line_qty,
+		))
+		data["cart_total"] += unit_price * line_qty
+
+	data["sell_cart"] = list()
+	data["sell_cart_total"] = 0
+	for(var/commodity_key in sell_cart)
+		var/list/commodity = GLOB.supply_beacon_commodities[commodity_key]
+		if(!commodity)
+			continue
+		var/line_qty = sell_cart[commodity_key]
+		var/unit_price = (selected && !QDELETED(selected)) ? selected.commodity_prices[commodity_key] : 0
+		data["sell_cart"] += list(list(
+			"key" = commodity_key,
+			"name" = commodity["name"],
+			"amount" = line_qty,
+			"line_total" = unit_price * line_qty,
+		))
+		data["sell_cart_total"] += unit_price * line_qty
+
 	data["status_message"] = status_message
 	return data
+
+/**
+ * Charges ONCE for `order` (commodity_key -> amount), spawns every crate on
+ * the resolved delivery pad, applies per-commodity price impact, and sets the
+ * trade cooldown a single time.
+ *
+ * Shared by the single-item Buy button and multi-line cart checkout so the two
+ * behave identically -- the whole point of the cart is that N line items cost
+ * ONE cooldown rather than N. Billing-mode resolution (personal / crew /
+ * faction) mirrors the same 3-way branch get_supply_beacon_source_key() uses,
+ * so "who pays" always matches "who the cooldown is keyed to".
+ */
+/datum/computer_file/program/civilian/supplybeaconterminal/proc/_checkout_purchase(mob/user, obj/effect/overmap/supply_beacon/B, source_key, list/order)
+	if(!length(order))
+		status_message = "Nothing to purchase."
+		return TRUE
+
+	var/total_cost = 0
+	for(var/commodity_key in order)
+		var/list/commodity = GLOB.supply_beacon_commodities[commodity_key]
+		if(!commodity)
+			status_message = "Unknown commodity in order."
+			return TRUE
+		total_cost += B.commodity_prices[commodity_key] * order[commodity_key]
+
+	// Same-Z-only (get_candidate_pads()) -- crates MUST materialize on THIS
+	// console's own ship/station, never a different telepad the same
+	// faction/character/ship happens to own elsewhere.
+	var/list/candidate_pads = get_candidate_pads()
+	var/obj/structure/machinery/telepad_cargo/pad = (selected_telepad in candidate_pads) ? selected_telepad : (length(candidate_pads) ? candidate_pads[1] : null)
+	var/turf/telepad_turf = pad ? get_turf(pad) : null
+
+	var/net = normalize_faction_uid(computer.persistent_network)
+	var/is_personal = computer.personal_ckey
+	var/is_crew = computer.crew_tagged
+	/// Who paid -- stamped onto each crate's label (purely informational, same
+	/// as a Cargo Order crate's "(order_id - ordered_by)" tag). Deliberately
+	/// does NOT gate who can later SELL the crate -- ownership here is
+	/// physical possession only, so a hijacked shipment can be sold by whoever
+	/// is holding it.
+	var/owner_label
+
+	if(is_personal)
+		var/obj/item/card/id/I = user.GetIdCard()
+		var/datum/money_account/acc = I?.associated_account_number ? SSeconomy.get_account(I.associated_account_number) : null
+		if(!acc)
+			status_message = "No linked bank account found on your ID."
+			return TRUE
+		if(acc.money < total_cost)
+			status_message = "Insufficient funds -- that would cost [total_cost] cr."
+			return TRUE
+		if(!telepad_turf)
+			status_message = "No personally-tagged telepad found on this ship/station. Place and personally tag a cargo telepad here."
+			return TRUE
+		acc.adjust_money(-total_cost)
+		owner_label = computer.personal_char_name
+	else if(is_crew)
+		var/datum/drydock_ship/crew_ship = _drydock_ship_at(GET_Z(computer))
+		if(!crew_ship)
+			status_message = "This console isn't aboard a deployed drydock ship."
+			return TRUE
+		var/datum/money_account/acc = crew_ship.owner_account_number ? SSeconomy.get_account(crew_ship.owner_account_number) : null
+		if(!acc)
+			status_message = "This ship has no linked owner account on file."
+			return TRUE
+		if(acc.money < total_cost)
+			status_message = "Insufficient funds -- that would cost [total_cost] cr."
+			return TRUE
+		if(!telepad_turf)
+			status_message = "No crew-tagged telepad found aboard [crew_ship.display_name()]."
+			return TRUE
+		acc.adjust_money(-total_cost)
+		owner_label = crew_ship.display_name()
+	else if(net)
+		if(!telepad_turf)
+			status_message = "No faction telepad found for network '[net]' on this ship/station."
+			return TRUE
+		if(!faction_debit(net, total_cost, "Supply Beacon purchase (#[B.beacon_id])"))
+			status_message = "[get_faction_name(net)]'s treasury can't cover that purchase."
+			return TRUE
+		owner_label = get_faction_name(net)
+	else
+		status_message = "This terminal isn't linked to a faction, personal, or crew network."
+		return TRUE
+
+	var/list/delivered = list()
+	var/list/summary = list()
+	for(var/commodity_key in order)
+		var/list/commodity = GLOB.supply_beacon_commodities[commodity_key]
+		var/line_amount = order[commodity_key]
+		var/crate_type = commodity["crate_type"]
+		var/obj/structure/closet/crate/supply_beacon/crate = new crate_type(telepad_turf)
+		crate.amount = line_amount
+		crate.refresh_label()
+		// Permanently stamp which beacon this came from -- the sell handler
+		// refuses to buy a crate back at its own origin, so hauling it
+		// elsewhere is the only way to realize the price spread. A crate
+		// property, not a timer, so it outlives the trade cooldown entirely.
+		crate.origin_beacon_id = B.beacon_id
+		crate.origin_beacon_label = B.name
+		// Ownership tag is a removable label, not a lock. Same convention as a
+		// Cargo Order crate (spawn_order_crate(), cargo.dm) and the hand
+		// labeler (handlabeler.dm): name_unlabel captures the untagged name so
+		// Remove Label can strip the tag later without losing the
+		// commodity/amount identification underneath.
+		crate.name_unlabel = crate.name
+		crate.name = "[crate.name] ([owner_label])"
+		crate.verbs += /atom/proc/remove_label
+		delivered += crate
+		B.apply_trade_impact(commodity_key, line_amount, TRUE)
+		summary += "[line_amount]x [commodity["name"]]"
+
+	persistence_telepad_deliver(delivered, telepad_turf)
+	// Fold each new crate into any identical stack already on the pad (same
+	// commodity AND same origin beacon) so repeat purchases don't litter it.
+	for(var/obj/structure/closet/crate/supply_beacon/crate in delivered)
+		if(!QDELETED(crate))
+			crate.merge_stacks_on_turf()
+
+	// ONE cooldown for the whole order, however many lines it had.
+	supply_beacon_set_cooldown(source_key, B.beacon_id)
+	cart = list()
+	status_message = "Purchased [english_list(summary)] for [total_cost] cr."
+	log_game("[key_name(user)] bought [english_list(summary)] from Supply Beacon #[B.beacon_id] for [total_cost] cr via Supply Beacon Terminal.")
+	return TRUE
+
+/**
+ * Mirrors _checkout_purchase() for the sell side -- credits ONCE for `order`
+ * (commodity_key -> amount), consuming crates across every candidate pad and
+ * applying per-commodity price impact, then sets the trade cooldown a single
+ * time for the whole basket. See _checkout_purchase()'s own doc comment for
+ * why one cooldown for N lines is the entire point of the cart.
+ *
+ * Availability for EVERY line is validated up front before anything is
+ * touched -- a partially-fillable cart refuses outright rather than selling
+ * what it can and silently dropping the rest.
+ */
+/datum/computer_file/program/civilian/supplybeaconterminal/proc/_checkout_sale(mob/user, obj/effect/overmap/supply_beacon/B, source_key, list/order)
+	if(!length(order))
+		status_message = "Nothing to sell."
+		return TRUE
+
+	// Same-Z-only (get_candidate_pads()) -- only ever look for crates
+	// physically sitting on THIS ship/station's own telepads, never a
+	// different one the same faction/character/ship owns elsewhere.
+	var/list/candidate_pads = get_candidate_pads()
+	if(!length(candidate_pads))
+		status_message = "No delivery-enabled telepad found on this ship/station."
+		return TRUE
+
+	var/list/found_crates_by_commodity = list()
+	for(var/commodity_key in order)
+		var/list/commodity = GLOB.supply_beacon_commodities[commodity_key]
+		if(!commodity)
+			status_message = "Unknown commodity in order."
+			return TRUE
+		var/list/found_crates = list()
+		var/total_available = 0
+		var/origin_blocked = 0
+		for(var/obj/structure/machinery/telepad_cargo/pad in candidate_pads)
+			var/turf/pad_turf = get_turf(pad)
+			if(!pad_turf)
+				continue
+			for(var/obj/structure/closet/crate/supply_beacon/crate in pad_turf)
+				if(crate.commodity_key != commodity_key)
+					continue
+				// A crate can't be sold back to the beacon it was bought from --
+				// that would be a risk-free round trip on the buy/sell spread
+				// without ever hauling anything. Counted separately so the
+				// refusal can say why.
+				if(crate.origin_beacon_id && crate.origin_beacon_id == B.beacon_id)
+					origin_blocked += crate.amount
+					continue
+				found_crates += crate
+				total_available += crate.amount
+		if(total_available < order[commodity_key])
+			if(origin_blocked)
+				status_message = "Only [total_available]x [commodity["name"]] sellable here -- [origin_blocked]x was bought from this beacon and must be hauled elsewhere to sell."
+			else
+				status_message = "Only [total_available]x [commodity["name"]] found on your telepad(s) -- need [order[commodity_key]]."
+			return TRUE
+		found_crates_by_commodity[commodity_key] = found_crates
+
+	var/total_proceeds = 0
+	var/list/touched_turfs = list()
+	var/list/summary = list()
+	for(var/commodity_key in order)
+		var/list/commodity = GLOB.supply_beacon_commodities[commodity_key]
+		var/remaining = order[commodity_key]
+		// Consume crates greedily until `remaining` units are accounted for --
+		// a fully-consumed crate is deleted, a partially-consumed one just has
+		// its stack (and label) shrunk.
+		for(var/obj/structure/closet/crate/supply_beacon/crate in found_crates_by_commodity[commodity_key])
+			if(remaining <= 0)
+				break
+			var/turf/crate_turf = get_turf(crate)
+			if(crate_turf)
+				touched_turfs |= crate_turf
+			if(crate.amount <= remaining)
+				remaining -= crate.amount
+				qdel(crate)
+			else
+				crate.amount -= remaining
+				crate.refresh_label()
+				remaining = 0
+		total_proceeds += B.commodity_prices[commodity_key] * order[commodity_key]
+		B.apply_trade_impact(commodity_key, order[commodity_key], FALSE)
+		summary += "[order[commodity_key]]x [commodity["name"]]"
+
+	// Send-off feedback -- matches Cargo Exports' own export_now exactly, so a
+	// Supply Beacon sale looks/sounds consistent with every other way goods
+	// leave through a telepad.
+	for(var/turf/touched in touched_turfs)
+		spark(touched, 5, GLOB.alldirs)
+		playsound(touched, 'sound/effects/phasein.ogg', 50, 1)
+		new /obj/effect/portal/decorative/fading(touched)
+
+	var/net = normalize_faction_uid(computer.persistent_network)
+	var/is_personal = computer.personal_ckey
+	var/is_crew = computer.crew_tagged
+
+	if(is_personal)
+		var/obj/item/card/id/I = user.GetIdCard()
+		var/datum/money_account/acc = I?.associated_account_number ? SSeconomy.get_account(I.associated_account_number) : null
+		if(!acc)
+			status_message = "Sold [english_list(summary)] for [total_proceeds] cr, but no linked bank account was found to credit."
+		else
+			acc.adjust_money(total_proceeds)
+			status_message = "Sold [english_list(summary)] for [total_proceeds] cr to your personal account."
+	else if(is_crew)
+		var/datum/drydock_ship/crew_ship = _drydock_ship_at(GET_Z(computer))
+		var/datum/money_account/acc = (crew_ship && crew_ship.owner_account_number) ? SSeconomy.get_account(crew_ship.owner_account_number) : null
+		if(!acc)
+			status_message = "Sold [english_list(summary)] for [total_proceeds] cr, but [crew_ship ? crew_ship.display_name() : "the ship"]'s owner account could not be found."
+		else
+			acc.adjust_money(total_proceeds)
+			status_message = "Sold [english_list(summary)] for [total_proceeds] cr to [crew_ship.display_name()]'s account."
+	else
+		faction_credit(net, total_proceeds, "Supply Beacon sale (#[B.beacon_id])")
+		status_message = "Sold [english_list(summary)] for [total_proceeds] cr to [get_faction_name(net)]."
+
+	// ONE cooldown for the whole order, however many lines it had.
+	supply_beacon_set_cooldown(source_key, B.beacon_id)
+	sell_cart = list()
+	log_game("[key_name(user)] sold [english_list(summary)] to Supply Beacon #[B.beacon_id] for [total_proceeds] cr via Supply Beacon Terminal.")
+	return TRUE
 
 /datum/computer_file/program/civilian/supplybeaconterminal/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
 	if(..())
@@ -205,91 +494,61 @@
 				status_message = "This beacon is on cooldown for [DisplayTimeText(cooldown SECONDS)] more."
 				return TRUE
 
-			var/cost = B.commodity_prices[commodity_key] * amount
-			var/net = normalize_faction_uid(computer.persistent_network)
-			var/is_personal = computer.personal_ckey
-			var/is_crew = computer.crew_tagged
-			var/turf/telepad_turf
-			var/datum/drydock_ship/crew_ship
-			/// Who paid -- stamped onto the crate's label below (purely
-			/// informational, same as a Cargo Order crate's "(order_id -
-			/// ordered_by)" tag). Deliberately does NOT gate who can later
-			/// SELL the crate -- ownership here is physical possession only,
-			/// so a hijacked shipment can be sold by whoever's holding it.
-			var/owner_label
+			// A single "Buy" is just a one-line cart checked out immediately --
+			// same code path, so it charges and sets the trade cooldown exactly
+			// once, identically to a multi-line cart.
+			return _checkout_purchase(user, B, source_key, list("[commodity_key]" = amount))
 
-			// Same-Z-only (get_candidate_pads()) -- the crate MUST
-			// materialize on THIS console's own ship/station, never a
-			// different telepad the same faction/character/ship happens to
-			// own elsewhere (see that proc's own doc comment for why).
-			var/list/candidate_pads = get_candidate_pads()
-			var/obj/structure/machinery/telepad_cargo/pad = (selected_telepad in candidate_pads) ? selected_telepad : (length(candidate_pads) ? candidate_pads[1] : null)
-			if(pad)
-				telepad_turf = get_turf(pad)
+		// ---- Cart ------------------------------------------------------------
+		// The 30-minute trade cooldown is per (source, beacon) and fires on ANY
+		// completed trade, so buying commodities one at a time cost a whole
+		// lockout per item. Staging lines in a cart and checking out once makes
+		// an arbitrarily large order a single transaction -- one charge, one
+		// price impact per commodity, one cooldown.
+		if("cart_add")
+			var/commodity_key = params["commodity"]
+			if(!GLOB.supply_beacon_commodities[commodity_key])
+				status_message = "Unknown commodity."
+				return TRUE
+			var/amount = text2num(params["amount"])
+			if(!amount || amount <= 0)
+				status_message = "Enter a valid amount."
+				return TRUE
+			cart[commodity_key] = (cart[commodity_key] || 0) + amount
+			status_message = "Cart: [cart[commodity_key]]x [GLOB.supply_beacon_commodities[commodity_key]["name"]]."
+			return TRUE
 
-			if(is_personal)
-				var/obj/item/card/id/I = user.GetIdCard()
-				var/datum/money_account/acc = I?.associated_account_number ? SSeconomy.get_account(I.associated_account_number) : null
-				if(!acc)
-					status_message = "No linked bank account found on your ID."
-					return TRUE
-				if(acc.money < cost)
-					status_message = "Insufficient funds -- that would cost [cost] cr."
-					return TRUE
-				if(!telepad_turf)
-					status_message = "No personally-tagged telepad found on this ship/station. Place and personally tag a cargo telepad here."
-					return TRUE
-				acc.adjust_money(-cost)
-				owner_label = computer.personal_char_name
-			else if(is_crew)
-				crew_ship = _drydock_ship_at(GET_Z(computer))
-				if(!crew_ship)
-					status_message = "This console isn't aboard a deployed drydock ship."
-					return TRUE
-				var/datum/money_account/acc = crew_ship.owner_account_number ? SSeconomy.get_account(crew_ship.owner_account_number) : null
-				if(!acc)
-					status_message = "This ship has no linked owner account on file."
-					return TRUE
-				if(acc.money < cost)
-					status_message = "Insufficient funds -- that would cost [cost] cr."
-					return TRUE
-				if(!telepad_turf)
-					status_message = "No crew-tagged telepad found aboard [crew_ship.display_name()]."
-					return TRUE
-				acc.adjust_money(-cost)
-				owner_label = crew_ship.display_name()
-			else if(net)
-				if(!telepad_turf)
-					status_message = "No faction telepad found for network '[net]' on this ship/station."
-					return TRUE
-				if(!faction_debit(net, cost, "Supply Beacon purchase (#[B.beacon_id])"))
-					status_message = "[get_faction_name(net)]'s treasury can't cover that purchase."
-					return TRUE
-				owner_label = get_faction_name(net)
-			else
+		if("cart_remove")
+			var/commodity_key = params["commodity"]
+			cart -= commodity_key
+			status_message = "Removed from cart."
+			return TRUE
+
+		if("cart_clear")
+			cart = list()
+			status_message = "Cart cleared."
+			return TRUE
+
+		if("cart_checkout")
+			if(!length(cart))
+				status_message = "Cart is empty."
+				return TRUE
+			var/obj/effect/overmap/supply_beacon/B = selected_beacon_id ? SSsupply_beacons.beacons["[selected_beacon_id]"] : null
+			if(!B || QDELETED(B))
+				status_message = "Select a beacon first."
+				return TRUE
+			if(!computer || !supply_beacon_ship_in_range(GET_Z(computer), B))
+				status_message = "Your ship must be adjacent to the beacon to trade."
+				return TRUE
+			var/source_key = get_supply_beacon_source_key(computer)
+			if(!source_key)
 				status_message = "This terminal isn't linked to a faction, personal, or crew network."
 				return TRUE
-
-			var/crate_type = commodity["crate_type"]
-			var/obj/structure/closet/crate/supply_beacon/crate = new crate_type(telepad_turf)
-			crate.amount = amount
-			crate.refresh_label()
-			// Ownership tag is a removable label, not a lock -- see
-			// owner_label's own doc comment above. Same convention as a
-			// Cargo Order crate (spawn_order_crate(), cargo.dm) and the hand
-			// labeler (handlabeler.dm): name_unlabel captures the untagged
-			// name so Remove Label can strip the tag later without losing
-			// the commodity/amount identification underneath.
-			crate.name_unlabel = crate.name
-			crate.name = "[crate.name] ([owner_label])"
-			crate.verbs += /atom/proc/remove_label
-			persistence_telepad_deliver(list(crate), telepad_turf)
-
-			B.apply_trade_impact(commodity_key, amount, TRUE)
-			supply_beacon_set_cooldown(source_key, B.beacon_id)
-			status_message = "Purchased [amount]x [commodity["name"]] for [cost] cr."
-			log_game("[key_name(user)] bought [amount]x [commodity_key] from Supply Beacon #[B.beacon_id] for [cost] cr via Supply Beacon Terminal.")
-			return TRUE
+			var/cooldown = supply_beacon_cooldown_remaining(source_key, B.beacon_id)
+			if(cooldown > 0)
+				status_message = "This beacon is on cooldown for [DisplayTimeText(cooldown SECONDS)] more."
+				return TRUE
+			return _checkout_purchase(user, B, source_key, cart.Copy())
 
 		if("sell")
 			var/obj/effect/overmap/supply_beacon/B = selected_beacon_id ? SSsupply_beacons.beacons["[selected_beacon_id]"] : null
@@ -300,15 +559,13 @@
 				status_message = "Your ship must be adjacent to the beacon to trade."
 				return TRUE
 			var/commodity_key = params["commodity"]
-			var/list/commodity = GLOB.supply_beacon_commodities[commodity_key]
-			if(!commodity)
+			if(!GLOB.supply_beacon_commodities[commodity_key])
 				status_message = "Unknown commodity."
 				return TRUE
 			var/amount = text2num(params["amount"])
 			if(!amount || amount <= 0)
 				status_message = "Enter a valid amount."
 				return TRUE
-
 			var/source_key = get_supply_beacon_source_key(computer)
 			if(!source_key)
 				status_message = "This terminal isn't linked to a faction, personal, or crew network."
@@ -318,87 +575,52 @@
 				status_message = "This beacon is on cooldown for [DisplayTimeText(cooldown SECONDS)] more."
 				return TRUE
 
-			var/net = normalize_faction_uid(computer.persistent_network)
-			var/is_personal = computer.personal_ckey
-			var/is_crew = computer.crew_tagged
+			// A single "Sell" is just a one-line cart checked out immediately --
+			// see _checkout_sale()'s own doc comment for why this matters.
+			return _checkout_sale(user, B, source_key, list("[commodity_key]" = amount))
 
-			// Same-Z-only (get_candidate_pads()) -- only ever look for crates
-			// physically sitting on THIS ship/station's own telepads, never a
-			// different one the same faction/character/ship owns elsewhere.
-			var/list/candidate_pads = get_candidate_pads()
-			if(!length(candidate_pads))
-				status_message = "No delivery-enabled telepad found on this ship/station."
+		// ---- Sell cart ---------------------------------------------------
+		if("sell_cart_add")
+			var/commodity_key = params["commodity"]
+			if(!GLOB.supply_beacon_commodities[commodity_key])
+				status_message = "Unknown commodity."
 				return TRUE
-
-			// Gather every matching crate sitting on any candidate pad's turf.
-			var/list/found_crates = list()
-			var/total_available = 0
-			for(var/obj/structure/machinery/telepad_cargo/pad in candidate_pads)
-				var/turf/pad_turf = get_turf(pad)
-				if(!pad_turf)
-					continue
-				for(var/obj/structure/closet/crate/supply_beacon/crate in pad_turf)
-					if(crate.commodity_key != commodity_key)
-						continue
-					found_crates += crate
-					total_available += crate.amount
-
-			if(total_available < amount)
-				status_message = "Only [total_available]x [commodity["name"]] found on your telepad(s) -- need [amount]."
+			var/amount = text2num(params["amount"])
+			if(!amount || amount <= 0)
+				status_message = "Enter a valid amount."
 				return TRUE
-
-			// Consume crates greedily until `amount` units are accounted for --
-			// a fully-consumed crate is deleted, a partially-consumed one just
-			// has its stack (and label) shrunk. Tracks every turf actually
-			// touched so the send-off flourish below can hit each of them,
-			// same as Cargo Exports' own export_now.
-			var/remaining = amount
-			var/list/touched_turfs = list()
-			for(var/obj/structure/closet/crate/supply_beacon/crate in found_crates)
-				if(remaining <= 0)
-					break
-				var/turf/crate_turf = get_turf(crate)
-				if(crate_turf)
-					touched_turfs |= crate_turf
-				if(crate.amount <= remaining)
-					remaining -= crate.amount
-					qdel(crate)
-				else
-					crate.amount -= remaining
-					crate.refresh_label()
-					remaining = 0
-
-			// Send-off feedback -- matches Cargo Exports' own export_now
-			// exactly, so a Supply Beacon sale looks/sounds consistent with
-			// every other way goods leave through a telepad.
-			for(var/turf/touched in touched_turfs)
-				spark(touched, 5, GLOB.alldirs)
-				playsound(touched, 'sound/effects/phasein.ogg', 50, 1)
-				new /obj/effect/portal/decorative/fading(touched)
-
-			var/proceeds = B.commodity_prices[commodity_key] * amount
-
-			if(is_personal)
-				var/obj/item/card/id/I = user.GetIdCard()
-				var/datum/money_account/acc = I?.associated_account_number ? SSeconomy.get_account(I.associated_account_number) : null
-				if(!acc)
-					status_message = "Sold [amount]x [commodity["name"]] for [proceeds] cr, but no linked bank account was found to credit."
-				else
-					acc.adjust_money(proceeds)
-					status_message = "Sold [amount]x [commodity["name"]] for [proceeds] cr to your personal account."
-			else if(is_crew)
-				var/datum/drydock_ship/crew_ship = _drydock_ship_at(GET_Z(computer))
-				var/datum/money_account/acc = (crew_ship && crew_ship.owner_account_number) ? SSeconomy.get_account(crew_ship.owner_account_number) : null
-				if(!acc)
-					status_message = "Sold [amount]x [commodity["name"]] for [proceeds] cr, but [crew_ship ? crew_ship.display_name() : "the ship"]'s owner account could not be found."
-				else
-					acc.adjust_money(proceeds)
-					status_message = "Sold [amount]x [commodity["name"]] for [proceeds] cr to [crew_ship.display_name()]'s account."
-			else
-				faction_credit(net, proceeds, "Supply Beacon sale (#[B.beacon_id])")
-				status_message = "Sold [amount]x [commodity["name"]] for [proceeds] cr to [get_faction_name(net)]."
-
-			B.apply_trade_impact(commodity_key, amount, FALSE)
-			supply_beacon_set_cooldown(source_key, B.beacon_id)
-			log_game("[key_name(user)] sold [amount]x [commodity_key] to Supply Beacon #[B.beacon_id] for [proceeds] cr via Supply Beacon Terminal.")
+			sell_cart[commodity_key] = (sell_cart[commodity_key] || 0) + amount
+			status_message = "Sell cart: [sell_cart[commodity_key]]x [GLOB.supply_beacon_commodities[commodity_key]["name"]]."
 			return TRUE
+
+		if("sell_cart_remove")
+			var/commodity_key = params["commodity"]
+			sell_cart -= commodity_key
+			status_message = "Removed from sell cart."
+			return TRUE
+
+		if("sell_cart_clear")
+			sell_cart = list()
+			status_message = "Sell cart cleared."
+			return TRUE
+
+		if("sell_cart_checkout")
+			if(!length(sell_cart))
+				status_message = "Sell cart is empty."
+				return TRUE
+			var/obj/effect/overmap/supply_beacon/B = selected_beacon_id ? SSsupply_beacons.beacons["[selected_beacon_id]"] : null
+			if(!B || QDELETED(B))
+				status_message = "Select a beacon first."
+				return TRUE
+			if(!computer || !supply_beacon_ship_in_range(GET_Z(computer), B))
+				status_message = "Your ship must be adjacent to the beacon to trade."
+				return TRUE
+			var/source_key = get_supply_beacon_source_key(computer)
+			if(!source_key)
+				status_message = "This terminal isn't linked to a faction, personal, or crew network."
+				return TRUE
+			var/cooldown = supply_beacon_cooldown_remaining(source_key, B.beacon_id)
+			if(cooldown > 0)
+				status_message = "This beacon is on cooldown for [DisplayTimeText(cooldown SECONDS)] more."
+				return TRUE
+			return _checkout_sale(user, B, source_key, sell_cart.Copy())
