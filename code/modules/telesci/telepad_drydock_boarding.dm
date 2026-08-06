@@ -497,6 +497,13 @@
 			if(!destination)
 				return FALSE
 
+	// Right here, not after the delivery below -- this is the moment
+	// boarding is actually committed and, for the picker path, exactly when
+	// the eye-view camera lets go and control returns to L's own body. The
+	// 15-second spool-up and portal still follow same as before; only the
+	// confirmation cue moved to mark "boarding started" instead of
+	// "boarding finished."
+	play_announcer_sound_priority(L, 'sound/AI/announcements/boarding_the_ship.ogg')
 	cooldown[L.ckey] = world.time
 	L.visible_message(SPAN_NOTICE("[L] begins boarding a ship."), SPAN_NOTICE("You begin boarding the ship..."))
 	// Sparks at both the boarder's own tile and the ship-side landing spot --
@@ -549,7 +556,6 @@
 
 	_drydock_deliver_with_portal(L, final_destination)
 	to_chat(L, SPAN_GOOD("You board the ship."))
-	play_announcer_sound_gated(L, 'sound/AI/announcements/boarding_the_ship.ogg')
 	log_drydock("_drydock_board_deliver: [key_name(L)] boarded shuttle_id=[target.shuttle_id].")
 	return TRUE
 
@@ -947,7 +953,7 @@
 			// destination-only spark.
 			_drydock_deliver_with_portal(L, destination)
 			to_chat(L, SPAN_GOOD("You disembark the ship."))
-			play_announcer_sound_gated(L, 'sound/AI/announcements/exiting_ship.ogg')
+			play_announcer_sound_priority(L, 'sound/AI/announcements/exiting_ship.ogg')
 			log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id] at its docked beacon.")
 			return TRUE
 
@@ -955,6 +961,12 @@
 		destination = _drydock_pick_destination_turf(L, target_z, anchor_turf)
 		if(!destination)
 			return FALSE
+
+	// Right here, not after the delivery below -- see the matching comment
+	// in _drydock_board_deliver(). For the picker path this is exactly when
+	// the eye-view camera releases back to L; for the hub route there's no
+	// eye view step, but the destination is equally committed at this point.
+	play_announcer_sound_priority(L, 'sound/AI/announcements/exiting_ship.ogg')
 
 	// Sparks at both the disembarking player's own tile and the landing
 	// spot -- warns anyone already there that someone's about to portal in.
@@ -989,7 +1001,6 @@
 
 	_drydock_deliver_with_portal(L, destination)
 	to_chat(L, SPAN_GOOD("You disembark the ship."))
-	play_announcer_sound_gated(L, 'sound/AI/announcements/exiting_ship.ogg')
 	log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id][is_hub_target ? " via the Hub telepad" : " choosing a landing spot"].")
 	return TRUE
 

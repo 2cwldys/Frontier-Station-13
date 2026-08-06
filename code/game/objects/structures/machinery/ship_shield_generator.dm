@@ -31,6 +31,13 @@
 #define SHIELD_TIER_NORMAL "normal" // active, >50% but not yet full -- no line, see file header
 #define SHIELD_TIER_MAX "max" // active, at 100% of max
 
+/// Announcer queue supersede keys (see play_announcer_sound(), announce.dm)
+/// for the own-ship and enemy-ship tier readouts -- kept separate so an
+/// enemy tier update can never purge a still-pending OWN tier line and vice
+/// versa.
+#define SHIELD_TIER_ANNOUNCE_KEY_OWN "shield_tier_own"
+#define SHIELD_TIER_ANNOUNCE_KEY_ENEMY "shield_tier_enemy"
+
 /// See the SHIELD_TIER_* defines above for what each bucket means.
 /proc/get_shield_tier(obj/structure/machinery/ship_shield_generator/gen)
 	if(!gen || !gen.active)
@@ -44,6 +51,31 @@
 	if(gen.shield_strength <= gen.max_shield_strength * 0.5)
 		return SHIELD_TIER_FIFTY
 	return SHIELD_TIER_NORMAL
+
+/// Damage-per-simulated-rock when an asteroid wave is absorbed instead of
+/// blocked outright -- see absorb_meteor_wave() and meteors.dm's send_wave().
+/// First-pass tuning, same spirit as absorb_hit()'s devastation/heavy/light
+/// weights -- rebalance here without touching anything else.
+#define SHIELD_METEOR_DAMAGE_PER_ROCK 27
+
+/// Blocks pod warp (warp.dm) and Personal Travel leaps (personal_travel.dm)
+/// from targeting a ship whose shields are up, UNLESS the traveler is crew/
+/// faction of that same ship -- reuses _drydock_full_access_check()
+/// (telepad_drydock_boarding.dm), the same owner/faction/crew-list check
+/// drydock boarding itself already gates interior access on, so "who counts
+/// as this ship's own people" can never drift between the two systems. A
+/// non-drydock ship (NPC/pirate) has no crew list to match against, so its
+/// shields block everyone with no bypass -- correct, since there's no
+/// player crew to exempt.
+/proc/ship_shields_block_travel(obj/effect/overmap/visitable/target, mob/user)
+	if(!istype(target, /obj/effect/overmap/visitable/ship))
+		return FALSE
+	var/obj/effect/overmap/visitable/ship/VS = target
+	if(!VS.shield_generator || !VS.shield_generator.shields_up())
+		return FALSE
+	if(length(target.map_z) && _drydock_full_access_check(user, target.map_z[1]))
+		return FALSE
+	return TRUE
 
 /// Mirrors /obj/effect/pod_shield_bubble (secondary_systems.dm) exactly --
 /// same asset, same vis_contents technique (not AddOverlays(), which can't
@@ -216,10 +248,13 @@
 		if(!_hook_up_to_ship())
 			to_chat(user, SPAN_WARNING("\The [src] cannot locate this ship on the overmap."))
 			return
-		// Explicitly ship-only -- a station sector is /visitable but not
-		// /visitable/ship, so this refuses cleanly there without needing a
-		// separate drydock-registry/shuttle-area lookup at all.
-		if(!istype(linked, /obj/effect/overmap/visitable/ship))
+		// Scoped to ship/landable specifically, not the whole ship hierarchy --
+		// the same istype() pitfall faction_beacon.dm already hit and fixed
+		// (see its own doc comment): ship/stationary (sensor relays and other
+		// away-site installations that just use a ship-shaped overmap icon)
+		// is non-flyable scenery, not a real drydock ship or shuttle, and was
+		// wrongly passing a bare /ship check.
+		if(!istype(linked, /obj/effect/overmap/visitable/ship/landable))
 			to_chat(user, SPAN_WARNING("\The [src] can only be activated aboard a drydock ship or shuttle, not a station."))
 			return
 		if(!HasFuel())
@@ -269,8 +304,11 @@
 /// (the existing per-client announcer_queue/announcer_free_at system,
 /// ASFX_ANNOUNCER-gated, so two lines never overlap for the same
 /// listener); plain VFX/struck effects just play directly, gated only on
-/// ear_deaf.
-/proc/announce_to_ship_z(list/map_z, sound_path, volume, use_announcer_queue)
+/// ear_deaf. supersede_key is passed straight through to
+/// play_announcer_sound() -- see its own doc comment (announce.dm) for why
+/// tier readouts need it and one-shot lines (fire confirmation, lock-on)
+/// should leave it null.
+/proc/announce_to_ship_z(list/map_z, sound_path, volume, use_announcer_queue, supersede_key = null)
 	if(!length(map_z))
 		return
 	for(var/mob/M in GLOB.player_list)
@@ -278,21 +316,27 @@
 			continue
 		if(use_announcer_queue)
 			if(M.client.prefs.sfx_toggles & ASFX_ANNOUNCER)
-				play_announcer_sound(M, sound_path, volume)
+				play_announcer_sound(M, sound_path, volume, supersede_key)
 		else
 			M << sound(sound_path, volume = volume)
 
 /// Thin per-instance wrapper around announce_to_ship_z() for this
 /// generator's own linked ship -- see that proc's doc comment.
-/obj/structure/machinery/ship_shield_generator/proc/_announce_to_ship(sound_path, volume, use_announcer_queue)
+/obj/structure/machinery/ship_shield_generator/proc/_announce_to_ship(sound_path, volume, use_announcer_queue, supersede_key = null)
 	if(!istype(linked))
 		return
-	announce_to_ship_z(linked.map_z, sound_path, volume, use_announcer_queue)
+	announce_to_ship_z(linked.map_z, sound_path, volume, use_announcer_queue, supersede_key)
 
 /// Checked after every regen tick (process()) and every absorbed hit
 /// (absorb_hit()) -- announces a voice line, and shows/hides the shield
 /// bubble, only on an actual tier crossing (see get_shield_tier()'s own
 /// doc comment for why the up/down announcements are asymmetric).
+/// Passes SHIELD_TIER_ANNOUNCE_KEY_OWN so a rapid multi-hit barrage that
+/// crosses several tiers within one voice line's duration only ever leaves
+/// the LATEST tier queued -- without this, a fast combat sequence could
+/// queue "fifty percent" then "twenty-five percent" back to back, and the
+/// second would only play several seconds late, well after the real value
+/// had moved on again.
 /obj/structure/machinery/ship_shield_generator/proc/_check_tier_transition()
 	var/new_tier = get_shield_tier(src)
 	if(new_tier == last_shield_tier)
@@ -310,7 +354,7 @@
 		if(SHIELD_TIER_DOWN)
 			sound_path = 'sound/AI/announcements/shields_are_down.ogg'
 	if(sound_path)
-		_announce_to_ship(sound_path, 50, TRUE)
+		_announce_to_ship(sound_path, 50, TRUE, SHIELD_TIER_ANNOUNCE_KEY_OWN)
 
 	if(new_tier == SHIELD_TIER_DOWN || new_tier == SHIELD_TIER_NONE)
 		hide_bubble()
@@ -328,6 +372,13 @@
 		if(!overmap_bubble)
 			overmap_bubble = new /obj/effect/ship_shield_bubble/overmap(linked)
 			linked.add_vis_contents(overmap_bubble)
+		// Match the marker's own invisibility exactly -- ship markers are
+		// INVISIBILITY_OVERMAP (requires_contact), not 0, so whoever can
+		// already see the ship icon (its owner, or anyone with sensor
+		// contact) sees the bubble too, same as the icon itself, instead of
+		// the bubble being gated by a different threshold than the ship it's
+		// attached to.
+		overmap_bubble.invisibility = linked.invisibility
 		animate(overmap_bubble, alpha = 255, time = 1 SECOND)
 
 /// Fades the bubble back out rather than cutting it instantly -- left
@@ -380,19 +431,20 @@
  * the hit was absorbed (caller must qdel the projectile and never let it
  * deal real damage) or FALSE if it should proceed normally.
  */
-/obj/structure/machinery/ship_shield_generator/proc/absorb_hit(obj/projectile/ship_ammo/incoming)
-	if(!active || !HasFuel() || shield_strength <= 0)
-		return FALSE
+/// The exact "are shields actually up" gate absorb_hit() has always used --
+/// pulled out so ship_shields_block_travel() (external callers, pod/
+/// personal-travel boarding lockout) and absorb_hit()/absorb_meteor_wave()
+/// (internal, weapon/hazard damage) can never disagree about what "up"
+/// means.
+/obj/structure/machinery/ship_shield_generator/proc/shields_up()
+	return active && HasFuel() && shield_strength > 0
 
-	// Weighted composite of the shot's devastation/heavy/light explosion
-	// radii (explosion_strength, _ship_ammunition.dm -- stored there for
-	// exactly this) into a single "shield damage" number. Tuned as a first
-	// pass; rebalance via these weights or max_shield_strength/regen_rate
-	// without touching anything else.
-	var/list/strength = incoming?.explosion_strength
-	var/damage = 0
-	if(islist(strength) && length(strength) >= 3)
-		damage = (strength[1] * 15) + (strength[2] * 8) + (strength[3] * 4)
+/// Shared damage/sound/shake/struck-alternate/tier-check tail for anything
+/// that hits the shield -- weapon fire (absorb_hit()) and, now, an asteroid
+/// wave redirected here instead of hitting the hull (absorb_meteor_wave()).
+/// Both need to look and sound identical, so both funnel through this one
+/// proc instead of duplicating the tail.
+/obj/structure/machinery/ship_shield_generator/proc/_apply_shield_damage(damage)
 	shield_strength = max(0, shield_strength - damage)
 
 	var/turf/hit_turf = get_turf(src)
@@ -410,6 +462,35 @@
 	_announce_to_ship(struck_sound, 60, FALSE)
 
 	_check_tier_transition()
+
+/obj/structure/machinery/ship_shield_generator/proc/absorb_hit(obj/projectile/ship_ammo/incoming)
+	if(!shields_up())
+		return FALSE
+
+	// Weighted composite of the shot's devastation/heavy/light explosion
+	// radii (explosion_strength, _ship_ammunition.dm -- stored there for
+	// exactly this) into a single "shield damage" number. Tuned as a first
+	// pass; rebalance via these weights or max_shield_strength/regen_rate
+	// without touching anything else.
+	var/list/strength = incoming?.explosion_strength
+	var/damage = 0
+	if(islist(strength) && length(strength) >= 3)
+		damage = (strength[1] * 15) + (strength[2] * 8) + (strength[3] * 4)
+	_apply_shield_damage(damage)
+	return TRUE
+
+/**
+ * Called from meteor_wave/send_wave() (meteors.dm) instead of the real
+ * spawn_meteors() call when the target ship's shields are up -- an asteroid
+ * wave costs shield charge exactly like taking weapon fire (same sound/
+ * shake/struck alternation/tier check via _apply_shield_damage()) rather
+ * than ever reaching the hull. wave_size is the same get_wave_size() value
+ * that would otherwise have decided how many real meteors to spawn.
+ */
+/obj/structure/machinery/ship_shield_generator/proc/absorb_meteor_wave(wave_size)
+	if(!shields_up())
+		return FALSE
+	_apply_shield_damage(wave_size * SHIELD_METEOR_DAMAGE_PER_ROCK)
 	return TRUE
 
 /obj/structure/machinery/ship_shield_generator/attackby(obj/item/attacking_item, mob/user, params)

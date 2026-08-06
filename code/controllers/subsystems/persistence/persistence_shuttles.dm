@@ -719,6 +719,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	if(user)
 		to_chat(user, SPAN_GOOD("Ship identity updated."))
 	log_drydock("drydockRename: [acting] renamed shuttle_id=[shuttle_id] to name='[DS.custom_name]', class='[DS.custom_class]'.")
+	log_and_message_admins("renamed drydock ship #[shuttle_id] to '[DS.display_name()]'.", user)
 	return TRUE
 
 /// Seizes ownership of a ship for the Hub -- snapshots whatever ownership
@@ -1116,6 +1117,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	if(user)
 		to_chat(user, SPAN_GOOD("Sub-ship renamed."))
 	log_drydock("drydockRenameSubship: [acting] renamed shuttle_id=[shuttle_id]'s sub-ship '[shuttle_tag]' to '[new_name]'.")
+	log_and_message_admins("renamed drydock ship #[shuttle_id]'s sub-ship '[shuttle_tag]' to '[new_name]'.", user)
 	return TRUE
 
 /// Applies each persisted sub-ship custom name (ss13_drydock_subship_names)
@@ -1595,7 +1597,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// Every refusal above has already returned -- this retrieval is
 	// actually going to happen from here on.
 	if(user)
-		play_announcer_sound_gated(user, 'sound/AI/announcements/retrieving_ship_please_wait.ogg')
+		play_announcer_sound_priority(user, 'sound/AI/announcements/retrieving_ship_please_wait.ogg')
 	var/datum/db_query/bq = SSdbcore.NewQuery(
 		{"INSERT INTO ss13_drydock_ships_backup (shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, purchased_at)
 		SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, purchased_at FROM ss13_drydock_ships WHERE shuttle_id = :id
@@ -2093,7 +2095,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 	if(user)
 		to_chat(user, SPAN_NOTICE("Stashing ship -- this may take a moment, please be patient."))
-		play_announcer_sound_gated(user, 'sound/AI/announcements/stashing_ship_please_wait.ogg')
+		play_announcer_sound_priority(user, 'sound/AI/announcements/stashing_ship_please_wait.ogg')
 
 	var/scope = "ship:d:[shuttle_id]"
 	var/stash_z = DS.z
@@ -2137,7 +2139,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 	if(user)
 		to_chat(user, SPAN_GOOD("Ship stashed."))
-		play_announcer_sound_gated(user, 'sound/AI/announcements/ship_successfully_stashed.ogg')
+		play_announcer_sound_priority(user, 'sound/AI/announcements/ship_successfully_stashed.ogg')
 		log_and_message_admins("stashed drydock ship '[DS.display_name()]' (#[shuttle_id]).", user, stash_location)
 	// force=TRUE is a system/officer-authority override (shutdown sweep,
 	// admin Force Stash, First Responder seizure) -- never the acting user

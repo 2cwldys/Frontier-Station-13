@@ -278,6 +278,9 @@
 			if(!length(target_sector.map_z))
 				to_chat(user, SPAN_WARNING("That destination is no longer valid."))
 				return TRUE
+			if(ship_shields_block_travel(target_sector, user))
+				to_chat(user, SPAN_WARNING("That ship's shields are still up -- you cannot leap aboard."))
+				return TRUE
 			target_z = target_sector.map_z[1]
 			// Checked before the eye-view pick opens, same as the hardsuit
 			// check above -- a raid-blocked player gets an immediate refusal
@@ -352,6 +355,9 @@
 		var/obj/effect/overmap/visitable/recheck_my_sector = _current_sector(user)
 		if(!istype(recheck_sector) || !istype(recheck_my_sector) || get_dist(recheck_my_sector, recheck_sector) > PERSONAL_TRAVEL_LEAP_RANGE)
 			to_chat(user, SPAN_WARNING("You're no longer close enough to leap there."))
+			return TRUE
+		if(ship_shields_block_travel(recheck_sector, user))
+			to_chat(user, SPAN_WARNING("That ship's shields came back up -- the jump is aborted."))
 			return TRUE
 		if(destination.density || !_drydock_pick_turf_valid(destination, user, target_z))
 			to_chat(user, SPAN_WARNING("The landing point is no longer available."))
@@ -556,6 +562,9 @@
 		return COMSIG_MOB_CANCEL_CLICKON
 	if(!my_sector || get_dist(my_sector, target) > PERSONAL_TRAVEL_LEAP_RANGE || !length(target.map_z))
 		to_chat(source, SPAN_WARNING("\The [target] is out of leap range."))
+		return COMSIG_MOB_CANCEL_CLICKON
+	if(ship_shields_block_travel(target, source))
+		to_chat(source, SPAN_WARNING("\The [target]'s shields are up -- it cannot be primed as a leap destination."))
 		return COMSIG_MOB_CANCEL_CLICKON
 	primed_ref = "\ref[target]"
 	to_chat(source, SPAN_GOOD("Primed [target.name] as the leap destination."))

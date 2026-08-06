@@ -106,7 +106,7 @@
 		if(SHIELD_TIER_MAX)
 			sound_path = 'sound/AI/announcements/enemy_shields_at_max.ogg'
 	if(sound_path && istype(linked))
-		announce_to_ship_z(linked.map_z, sound_path, 50, TRUE)
+		announce_to_ship_z(linked.map_z, sound_path, 50, TRUE, SHIELD_TIER_ANNOUNCE_KEY_ENEMY)
 
 /obj/structure/machinery/computer/ship/targeting/ui_interact(mob/user, datum/tgui/ui)
 	ui = SStgui.try_update_ui(user, src, ui)

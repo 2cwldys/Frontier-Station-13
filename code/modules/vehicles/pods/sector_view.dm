@@ -186,6 +186,9 @@
 	if(!current || get_dist(current, target) > POD_WARP_RANGE || !length(target.map_z))
 		to_chat(source, SPAN_WARNING("\The [target] is out of jump range."))
 		return COMSIG_MOB_CANCEL_CLICKON
+	if(ship_shields_block_travel(target, source))
+		to_chat(source, SPAN_WARNING("\The [target]'s shields are still up -- it cannot be primed as a jump destination."))
+		return COMSIG_MOB_CANCEL_CLICKON
 	primed_ref = "\ref[target]"
 	to_chat(source, SPAN_GOOD("Primed [target.name] as the jump destination."))
 	return COMSIG_MOB_CANCEL_CLICKON

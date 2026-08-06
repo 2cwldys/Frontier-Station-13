@@ -113,6 +113,13 @@ SUBSYSTEM_DEF(persistence)
 	/// current pause, never the admin's own "Toggle Autosave Pause" verb --
 	/// so auto-resume can never override a pause the admin explicitly chose.
 	var/autosave_auto_paused = FALSE
+	/// Set by fire()'s drydock-defer branch so update_nextfire() (below) can
+	/// honor a short retry instead of SS_POST_FIRE_TIMING's normal 30-minute
+	/// recompute, which otherwise unconditionally overwrites whatever fire()
+	/// itself assigns to next_fire the instant it returns (master/subsystem.dm)
+	/// -- a plain `next_fire =` assignment inside fire() can never survive on
+	/// its own for a SS_POST_FIRE_TIMING subsystem.
+	var/deferred_retry_at = 0
 
 /**
  * Subsystem info stub message generation.
@@ -120,6 +127,15 @@ SUBSYSTEM_DEF(persistence)
 /datum/controller/subsystem/persistence/stat_entry(msg)
 	msg = ("Register: [length(GLOB.persistence_object_track_register)] | Prevent saving: [SSpersistence.prevent_saving ? "TRUE" : "FALSE"] | Saving: [SSpersistence.save_in_progress ? "YES" : "NO"] | Autosave: [SSpersistence.autosave_paused ? "PAUSED" : "active"]")
 	return msg
+
+/// Honors a short drydock-deferral retry (deferred_retry_at) when fire() set
+/// one; otherwise defers to the normal SS_POST_FIRE_TIMING recompute.
+/datum/controller/subsystem/persistence/update_nextfire(reset_time = FALSE)
+	if(!reset_time && deferred_retry_at)
+		next_fire = deferred_retry_at
+		deferred_retry_at = 0
+		return
+	..()
 
 /**
  * Periodic save  fires every 30 minutes and saves all persistence data.
@@ -138,7 +154,8 @@ SUBSYSTEM_DEF(persistence)
 	// queued op starts the moment the active one ends). next_fire drives the
 	// HUD "NEXT SAVE" countdown, so the deferral is visible to everyone.
 	if(GLOB.drydock_op_active || length(GLOB.drydock_op_queue))
-		next_fire = world.time + (1 MINUTE)
+		deferred_retry_at = world.time + (1 MINUTE)
+		next_fire = deferred_retry_at // keeps the HUD "NEXT SAVE" countdown honest in the interim
 		log_subsystem_persistence_info("Persistence: Periodic save deferred -- ship stash/retrieve in progress.")
 		return
 

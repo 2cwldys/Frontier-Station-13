@@ -56,6 +56,8 @@ LINES = [
     "ship_successfully_stashed",
     "boarding_the_ship",
     "exiting_ship",
+    "cloak_online",
+    "cloak_offline",
 ]
 
 # Pushed well past sound/AI/Voice how-to.txt's documented Audacity chain --

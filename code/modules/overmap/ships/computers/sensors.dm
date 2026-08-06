@@ -312,6 +312,7 @@
 			linked.set_new_class(new_class)
 			playsound(src, 'sound/machines/twobeep.ogg', 50)
 			visible_message(SPAN_NOTICE("\The [src] beeps, <i>\"IFF change to ship class registered.\"</i>"))
+			log_and_message_admins("changed [linked]'s IFF class designation to '[new_class]' via [src].", usr)
 			return TRUE
 
 		if(action == "change_ship_name")

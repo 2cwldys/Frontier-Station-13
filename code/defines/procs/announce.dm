@@ -112,6 +112,15 @@
 
 /client/var/list/announcer_queue = list()
 /client/var/announcer_free_at = 0
+/// Bumped on every dispatch (immediate or queued) onto CHANNEL_ANNOUNCER --
+/// each scheduled _dispatch_next_announcer_sound() callback is stamped with
+/// the value at the time it was scheduled, and no-ops if it no longer
+/// matches by the time it fires. Needed because
+/// play_announcer_sound_priority() can jump the channel ahead of whatever
+/// was already playing/scheduled; without this, that earlier sound's own
+/// still-pending dispatch timer would fire on schedule and cut the priority
+/// sound off early.
+/client/var/announcer_seq = 0
 
 /// Single entry point for every ASFX_ANNOUNCER-gated voice line. Plays
 /// immediately on the shared CHANNEL_ANNOUNCER if free, otherwise queues --
@@ -122,32 +131,66 @@
 /// by scripts/voicegen/build_bookended_lines.py) -- falls back to a safe
 /// default if a sound was added to a call site before the manifest was
 /// regenerated for it.
-/proc/play_announcer_sound(mob/M, sound_path, volume = 50)
+///
+/// supersede_key: when non-null, any OTHER not-yet-played queue entry
+/// sharing this key is dropped before this one is added/played -- for
+/// readouts where only the latest state is ever worth hearing (shield tier
+/// crossings, ship_shield_generator.dm), so a fast run of crossings can't
+/// leave several stale announcements queued back to back. Leave null for
+/// anything where order/completeness matters (e.g. personal confirmations).
+/proc/play_announcer_sound(mob/M, sound_path, volume = 50, supersede_key = null)
 	if(!M.client)
 		return
+	if(supersede_key)
+		for(var/i in 1 to LAZYLEN(M.client.announcer_queue))
+			var/list/queued = M.client.announcer_queue[i]
+			if(length(queued) >= 3 && queued[3] == supersede_key)
+				M.client.announcer_queue.Cut(i, i + 1)
+				break
 	var/duration = GLOB.announcer_sound_durations["[sound_path]"] || 3 SECONDS
 	if(M.client.announcer_free_at <= world.time)
 		M << sound(sound_path, volume = volume, channel = CHANNEL_ANNOUNCER)
 		M.client.announcer_free_at = world.time + duration
-		addtimer(CALLBACK(M.client, TYPE_PROC_REF(/client, _dispatch_next_announcer_sound)), duration)
+		M.client.announcer_seq++
+		addtimer(CALLBACK(M.client, TYPE_PROC_REF(/client, _dispatch_next_announcer_sound), M.client.announcer_seq), duration)
 	else
-		LAZYADD(M.client.announcer_queue, list(list(sound_path, volume)))
+		LAZYADD(M.client.announcer_queue, list(list(sound_path, volume, supersede_key)))
 
-/// Single-mob counterpart to announce_to_ship_z() (ship_shield_generator.dm)
-/// -- for personal confirmation lines (boarding, drydock retrieve/stash
-/// progress) rather than whole-ship status broadcasts. Same ASFX_ANNOUNCER
-/// gate and play_announcer_sound() queue underneath.
-/proc/play_announcer_sound_gated(mob/M, sound_path, volume = 50)
+/**
+ * For personal confirmations that are a direct response to something the
+ * player just did (boarding, disembarking, drydock retrieve/stash) and
+ * must be heard right at that moment -- this ignores the polite FIFO
+ * queue entirely and plays immediately on
+ * CHANNEL_ANNOUNCER, replacing whatever's currently playing there for this
+ * client. This exists because forceMove()-triggered automatic cues (e.g.
+ * the zone-security tier announcement, persistence_zone_security.dm) can
+ * otherwise win the channel a split second earlier and push a boarding/
+ * exiting confirmation into the queue for several more seconds -- long
+ * after the portal/spool-up moment it's meant to mark.
+ *
+ * Bumps announcer_seq so the now-superseded dispatch timer from whatever
+ * was previously playing/queued no-ops instead of firing later and cutting
+ * this off early -- see that var's own doc comment above.
+ */
+/proc/play_announcer_sound_priority(mob/M, sound_path, volume = 50)
 	if(!M?.client || M.ear_deaf)
 		return
 	if(!(M.client.prefs.sfx_toggles & ASFX_ANNOUNCER))
 		return
-	play_announcer_sound(M, sound_path, volume)
+	var/duration = GLOB.announcer_sound_durations["[sound_path]"] || 3 SECONDS
+	M << sound(sound_path, volume = volume, channel = CHANNEL_ANNOUNCER)
+	M.client.announcer_free_at = world.time + duration
+	M.client.announcer_seq++
+	addtimer(CALLBACK(M.client, TYPE_PROC_REF(/client, _dispatch_next_announcer_sound), M.client.announcer_seq), duration)
 
 /// Pops and plays the next queued announcer sound for this client, if any --
-/// scheduled by play_announcer_sound() to fire exactly when the previously
-/// playing line's duration elapses.
-/client/proc/_dispatch_next_announcer_sound()
+/// scheduled by play_announcer_sound()/play_announcer_sound_priority() to
+/// fire exactly when the previously playing line's duration elapses. No-op
+/// if seq no longer matches announcer_seq -- a later priority dispatch
+/// superseded this one before it got the chance to fire.
+/client/proc/_dispatch_next_announcer_sound(seq)
+	if(seq != announcer_seq)
+		return
 	if(!LAZYLEN(announcer_queue))
 		return
 	var/list/next = announcer_queue[1]
@@ -155,7 +198,8 @@
 	var/duration = GLOB.announcer_sound_durations["[next[1]]"] || 3 SECONDS
 	mob << sound(next[1], volume = next[2], channel = CHANNEL_ANNOUNCER)
 	announcer_free_at = world.time + duration
-	addtimer(CALLBACK(src, TYPE_PROC_REF(/client, _dispatch_next_announcer_sound)), duration)
+	announcer_seq++
+	addtimer(CALLBACK(src, TYPE_PROC_REF(/client, _dispatch_next_announcer_sound), announcer_seq), duration)
 
 /proc/GetNameAndAssignmentFromId(var/obj/item/card/id/I)
 	if(!I)

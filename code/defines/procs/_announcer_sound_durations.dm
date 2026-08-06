@@ -30,5 +30,7 @@ GLOBAL_LIST_INIT(announcer_sound_durations, list(
 	"sound/AI/announcements/ship_ready_to_board.ogg" = 4.5 SECONDS,
 	"sound/AI/announcements/ship_successfully_stashed.ogg" = 5.1 SECONDS,
 	"sound/AI/announcements/boarding_the_ship.ogg" = 3.9 SECONDS,
-	"sound/AI/announcements/exiting_ship.ogg" = 3.9 SECONDS
+	"sound/AI/announcements/exiting_ship.ogg" = 3.9 SECONDS,
+	"sound/AI/announcements/cloak_online.ogg" = 4.5 SECONDS,
+	"sound/AI/announcements/cloak_offline.ogg" = 4.2 SECONDS
 ))

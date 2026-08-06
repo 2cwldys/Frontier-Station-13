@@ -126,6 +126,12 @@
 	active = new_state
 	if(istype(linked))
 		linked.set_cloaked(active)
+		// Z-scoped, not the whole world -- announce_to_ship_z() (ship_shield_generator.dm)
+		// is the same proc the shield generator uses for its own on/off lines. Deliberately
+		// NOT gated on `silent`: that flag only suppresses the generic text message above
+		// (fuel-out already prints its own more specific audible_message in process()), but
+		// the requested voice line should still play on every transition, fuel-out included.
+		announce_to_ship_z(linked.map_z, active ? 'sound/AI/announcements/cloak_online.ogg' : 'sound/AI/announcements/cloak_offline.ogg', 50, TRUE)
 	if(!silent)
 		visible_message(active \
 			? SPAN_NOTICE("\The [src] hums to life -- the air around the hull shimmers, then the ship seems to vanish.") \
