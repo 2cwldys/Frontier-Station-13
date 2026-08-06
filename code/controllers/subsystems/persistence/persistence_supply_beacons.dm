@@ -127,6 +127,7 @@ GLOBAL_LIST_EMPTY(supply_beacon_trade_cooldowns)
 			B.x = text2num(q.item[2])
 			B.y = text2num(q.item[3])
 			B.notes = q.item[4] || ""
+			B.name = B.notes || "Supply Beacon #[B.beacon_id]"
 			B.seed_default_prices() // overwritten below for any commodity actually in the DB
 			var/turf/home = locate(B.x, B.y, SSatlas.current_map.overmap_z)
 			if(home)
@@ -156,6 +157,17 @@ GLOBAL_LIST_EMPTY(supply_beacon_trade_cooldowns)
 	SSsupply_beacons.beacons = loaded_beacons
 	GLOB.supply_beacon_positions = loaded_positions
 	log_subsystem_persistence_info("Supply beacons: loaded [length(loaded_beacons)] beacon(s).")
+
+	// zone_security_update_overmap_borders() (persistence_zone_security.dm)
+	// only repaints on the rare claim/release/security-change events that
+	// already call zone_security_update_overmap() -- it is NOT a continuous
+	// per-tile check, so a beacon that lands inside an already-active
+	// faction beacon's radius does NOT get its tile's tint for free just by
+	// existing. Force one repaint here so every loaded beacon's tile
+	// reflects current territory the moment the server comes up, instead of
+	// waiting for the next unrelated security event to happen to touch it.
+	if(length(loaded_beacons))
+		zone_security_update_overmap()
 
 /// Upserts every beacon's every commodity price -- called from
 /// SSsupply_beacons' own fire() (not SSpersistence.fire()), same "price
@@ -217,11 +229,20 @@ GLOBAL_LIST_EMPTY(supply_beacon_trade_cooldowns)
 	B.x = x
 	B.y = y
 	B.notes = notes || ""
+	B.name = B.notes || "Supply Beacon #[B.beacon_id]"
 	B.seed_default_prices()
 	B.forceMove(home)
 
 	SSsupply_beacons.beacons["[B.beacon_id]"] = B
 	GLOB.supply_beacon_positions["[x],[y]"] = B
+
+	// See the matching comment in supplyBeaconsInitialize() -- the zone
+	// security repaint is event-driven, not continuous, so a beacon placed
+	// inside an already-active faction beacon's radius won't pick up that
+	// tile's tint on its own. Force one now so it shows correctly the
+	// instant it's placed, not just whenever the next unrelated security
+	// event happens to repaint the map.
+	zone_security_update_overmap()
 
 	log_and_message_admins("placed a Supply Beacon (#[B.beacon_id]) at overmap ([x],[y])[notes ? ": \"[notes]\"" : ""].", user)
 	return list("beacon" = B, "error" = null)
