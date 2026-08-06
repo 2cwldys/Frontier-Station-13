@@ -145,6 +145,7 @@
 #define		BOMBHOOD_THERMAL	0.12
 #define		BOMBSUIT_MAX_TEMPERATURE	420	//heat 2 for humans, heat 1 for unathi
 /obj/item/clothing/suit/bomb_suit/process()
+	..() // Passive worn decay -- no-ops unless actually worn, see /obj/item/process().
 	if (!checkworn())//If nobody's wearing the suit, then it cools down
 		suit_temp -= 0.5
 		if (suit_temp < T20C)

@@ -101,6 +101,10 @@ ABSTRACT_TYPE(/obj/item/gun)
 
 	var/burst = 1
 	var/can_autofire = FALSE
+	/// Guns wear per trigger pull (COMSIG_GUN_FIRED -> on_gun_fired), so the
+	/// in-hand activation hook must not also charge them -- attack_self() on a
+	/// gun is a firemode toggle, which is a setting change, not use.
+	wear_on_activation = FALSE
 	/// Delay after shooting before the gun can be used again
 	var/fire_delay = 6
 	/// Delay between shots, if firing in bursts

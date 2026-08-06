@@ -7,6 +7,16 @@
 /// blocks a hit, scaled by how much was blocked (0-1). A full block costs
 /// this much; a partial block costs proportionally less.
 #define WEAR_ARMOR_DECAY_PER_BLOCK 2
+/// Wear applied to a head-slot item that has NO armor component of its own when
+/// the wearer is struck in the head -- soft caps, berets and the like, which the
+/// armor loop in get_blocked_ratio() never visits because there is no component
+/// to iterate. Armored helmets are excluded: they already wear through that loop
+/// at WEAR_ARMOR_DECAY_PER_BLOCK, and charging them here too would double it.
+#define WEAR_HEADGEAR_UNARMORED_HIT 0.5
+/// Per ITEM MOVED into or out of a storage container. Fractional on purpose --
+/// this fires once per item, so emptying a full backpack is ~20 charges, not one.
+/// 0.05 gives a fresh container roughly 2000 item movements.
+#define WEAR_STORAGE_PER_ITEM 0.05
 
 /obj/item
 	name = "item"
@@ -31,6 +41,17 @@
 	var/durability_per_use = 1
 	/// TRUE once wear_durability hits 0 -- refuses further tool/gun use until repaired.
 	var/wear_broken = FALSE
+	/// Whether activating this in-hand (attack_self) counts as use and costs
+	/// durability. Clear it on items whose activation is a MODE CHANGE rather
+	/// than use -- a gun's firemode toggle isn't wear, and guns already pay per
+	/// trigger pull through COMSIG_GUN_FIRED.
+	var/wear_on_activation = TRUE
+	/// If set, this item is a COMPONENT of a larger one and has no durability of
+	/// its own: all wear and all repairs are redirected to the parent, and its
+	/// own wear vars are kept mirrored from it. Hardsuit pieces point at their
+	/// rig, so a suit degrades and fails as one object rather than ending up with
+	/// pristine gauntlets bolted to a ruined chestplate.
+	var/obj/item/wear_shares_with = null
 	/// world.time of the next passive time-worn decay tick -- see
 	/// equipped()/dropped()/process() below. Only ticks while genuinely worn
 	/// in a clothing/back slot (not held in hand).
@@ -1319,6 +1340,15 @@ modules/mob/living/carbon/human/life.dm if you die, you will be zoomed out.
 /// slots on a degrades_with_use item. Subtypes with their own process()
 /// (e.g. weldingtool's fuel handling) must chain via ..() for this to run.
 /obj/item/process()
+	// Verify the item is genuinely WORN before charging passive wear. This proc
+	// used to assume that being registered with SSprocessing implied equipped(),
+	// which is only true for items that nothing else ever starts processing --
+	// lit cigarettes, heating bomb suits and RIGs (START_PROCESSING in its
+	// Initialize) all process while merely held or sitting on the floor. Without
+	// this check, chaining ..() from those subtypes would decay them off-body.
+	var/mob/wearer = loc
+	if(!ismob(wearer) || wearer.l_hand == src || wearer.r_hand == src)
+		return
 	if(world.time < next_wear_tick)
 		return
 	next_wear_tick = world.time + WEAR_TIME_DECAY_INTERVAL
@@ -1329,6 +1359,13 @@ modules/mob/living/carbon/human/life.dm if you die, you will be zoomed out.
 /// var block for the opt-out flag, and on_tool_acted()/on_gun_fired() below
 /// for what actually calls this.
 /obj/item/proc/degrade_durability(amount)
+	// Shared-pool components push every point onto their parent instead of
+	// tracking their own. The parent's wear_shares_with is null, so this
+	// terminates after one hop.
+	var/obj/item/wear_holder = get_wear_holder()
+	if(wear_holder != src)
+		wear_holder.degrade_durability(amount)
+		return
 	if(!degrades_with_use || wear_broken)
 		return
 	wear_durability = max(0, wear_durability - amount)
@@ -1336,6 +1373,20 @@ modules/mob/living/carbon/human/life.dm if you die, you will be zoomed out.
 		wear_broken = TRUE
 		playsound(src, 'sound/effects/snap.ogg', 30, TRUE)
 		visible_message(SPAN_WARNING("\The [src] gives out."))
+	on_wear_state_changed()
+
+/// The item that actually owns this one's durability -- itself, unless it is a
+/// component sharing a parent's pool.
+/obj/item/proc/get_wear_holder()
+	if(wear_shares_with && wear_shares_with != src && !QDELETED(wear_shares_with))
+		return wear_shares_with
+	return src
+
+/// Hook fired whenever this item's wear state changed (degraded or repaired).
+/// No-op by default; parents of a shared pool override it to push the new state
+/// down onto their components. See /obj/item/rig.
+/obj/item/proc/on_wear_state_changed()
+	return
 
 /// COMSIG_ITEM_TOOL_ACTED handler -- registered in Initialize() only for
 /// degrades_with_use items. Signal args: (source=this tool, target atom,
@@ -1359,9 +1410,12 @@ modules/mob/living/carbon/human/life.dm if you die, you will be zoomed out.
 	. = ..()
 	if(!degrades_with_use || distance > 1)
 		return
-	var/ratio = wear_durability / wear_max_durability
+	// Report the shared pool's condition for a component, so examining a
+	// hardsuit gauntlet tells you about the suit rather than the glove.
+	var/obj/item/wear_holder = get_wear_holder()
+	var/ratio = wear_holder.wear_durability / wear_holder.wear_max_durability
 	var/wear_text
-	if(wear_broken)
+	if(wear_holder.wear_broken)
 		wear_text = SPAN_DANGER("It's broken and unusable.")
 	else if(ratio <= 0.2)
 		wear_text = SPAN_DANGER("It's falling apart.")
@@ -1382,16 +1436,20 @@ modules/mob/living/carbon/human/life.dm if you die, you will be zoomed out.
 /// repair material" already used the same way elsewhere (rig_attackby.dm's
 /// EMP-repair branch).
 /obj/item/attackby(obj/item/attacking_item, mob/user, params)
+	// Repairs land on the shared pool, so patching any hardsuit piece repairs
+	// the whole suit -- the same object the wear was charged against.
+	var/obj/item/wear_holder = get_wear_holder()
 	if(degrades_with_use && istype(attacking_item, /obj/item/stack/nanopaste))
-		if(wear_durability >= wear_max_durability && !wear_broken)
+		if(wear_holder.wear_durability >= wear_holder.wear_max_durability && !wear_holder.wear_broken)
 			to_chat(user, SPAN_WARNING("\The [src] doesn't need repairing."))
 			return TRUE
 		var/obj/item/stack/nanopaste/N = attacking_item
 		if(!N.use(3))
 			to_chat(user, SPAN_WARNING("Not enough nanopaste left to repair \the [src]."))
 			return TRUE
-		wear_durability = wear_max_durability
-		wear_broken = FALSE
+		wear_holder.wear_durability = wear_holder.wear_max_durability
+		wear_holder.wear_broken = FALSE
+		wear_holder.on_wear_state_changed()
 		user.visible_message(SPAN_NOTICE("[user] restores \the [src] with a swarm of repair nanites."), \
 			SPAN_NOTICE("You fully restore \the [src] with \the [attacking_item]."))
 		return TRUE
@@ -1400,13 +1458,14 @@ modules/mob/living/carbon/human/life.dm if you die, you will be zoomed out.
 	// analog to an "adhesive quality" repair item, already consumed the same
 	// way (single-use, qdel on use) by rods.dm and the improvised pipe gun.
 	if(degrades_with_use && istype(attacking_item, /obj/item/tape_roll))
-		if(wear_broken)
+		if(wear_holder.wear_broken)
 			to_chat(user, SPAN_WARNING("\The [src] is beyond repair."))
 			return TRUE
-		if(wear_durability >= wear_max_durability)
+		if(wear_holder.wear_durability >= wear_holder.wear_max_durability)
 			to_chat(user, SPAN_WARNING("\The [src] doesn't need repairing."))
 			return TRUE
-		wear_durability = wear_max_durability
+		wear_holder.wear_durability = wear_holder.wear_max_durability
+		wear_holder.on_wear_state_changed()
 		user.visible_message(SPAN_NOTICE("[user] patches up \the [src] with [attacking_item]."), \
 			SPAN_NOTICE("You patch \the [src] back to full condition."))
 		qdel(attacking_item)

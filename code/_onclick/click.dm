@@ -141,6 +141,16 @@
 			return
 		else
 			W.attack_self(src, modifiers)
+			// Deliberate in-hand activation counts as use. Hooked here at the
+			// call site rather than inside /obj/item/attack_self(), because the
+			// overwhelming majority of device subtypes override that proc
+			// without chaining ..() -- a hook there would be silently dead on
+			// almost everything, the same trap that left on_tool_acted() inert
+			// (see the comment at items.dm's use_tool()).
+			// Items whose activation is a MODE CHANGE rather than use opt out
+			// via wear_on_activation -- guns, which already pay per shot fired.
+			if(W.wear_on_activation)
+				W.degrade_durability(W.durability_per_use)
 			/* START Aurora snowflake */
 			trigger_aiming(TARGET_CAN_CLICK)
 			if(hand)
