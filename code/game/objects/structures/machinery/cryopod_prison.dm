@@ -343,6 +343,10 @@
 	if(exit_ckey && which.real_name && persistence_character_actively_imprisoned(exit_ckey, which.real_name))
 		persistence_set_imprisoned(exit_ckey, which.real_name, FALSE)
 		to_chat(which, SPAN_GOOD("Your sentence has been cleared -- you're free to go."))
+		if(ishuman(which))
+			announce_faction_event(which, "has completed their sentence and been released from cryogenic prison storage.")
+		var/turf/release_turf = get_turf(src)
+		log_admin("PRISON: [key_name(which)]'s sentence completed -- released from cryogenic prison storage[release_turf ? " at ([release_turf.x],[release_turf.y],[release_turf.z])" : ""].")
 	update_icon()
 
 /obj/structure/machinery/cryopod/prison/eject()
