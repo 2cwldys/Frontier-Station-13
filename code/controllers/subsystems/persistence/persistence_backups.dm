@@ -28,6 +28,14 @@
 	// Fixed literal chosen only by world.system_type -- never built from admin- or
 	// player-supplied text, so there is no injection surface here.
 	var/command = (world.system_type == UNIX) ? "scripts/db_backup.sh" : "scripts/db_backup.bat"
+	// Relative -- the shelled-out process's cwd comes from DreamDaemon's own OS
+	// process cwd, which isn't guaranteed to be the repo root (see
+	// GLOB.config.server_root_path's doc comment, configuration.dm). Prefix an
+	// explicit cd when configured so this doesn't depend on how DD was launched.
+	if(GLOB.config.server_root_path)
+		command = (world.system_type == UNIX) \
+			? "cd \"[GLOB.config.server_root_path]\" && [command]" \
+			: "cd /d \"[GLOB.config.server_root_path]\" && [command]"
 	var/list/result = world.shelleo(command)
 	var/errorcode = result[1]
 	var/stdout = result[2]

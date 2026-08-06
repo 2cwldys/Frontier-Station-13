@@ -335,6 +335,15 @@ TIME_OFFSET 6
 ## Default is "python" on Windows, "/usr/bin/env python2" on UNIX.
 #PYTHON_PATH
 
+## Absolute path to this repo's root directory, e.g. C:\aurora or /home/aurora/server.
+## Used to `cd` into before running scripts/db_backup, scripts/deploy_bg, etc. via
+## world.shelleo() -- those commands are relative, and the shelled-out process's
+## working directory comes from DreamDaemon's own OS-level cwd, not necessarily
+## this repo. Leave blank if DreamDaemon is already launched with its working
+## directory set to the repo root (relative commands will just work as before).
+## ## NOTE THAT WORLD.SHELLEO() requires TRUSTED and not SAFE or ULTRASAFE. USE AT OWN RISK!
+#SERVER_ROOT_PATH
+
 ## Uncommen to allow ghosts to write in blood during Cult rounds.
 ALLOW_CULT_GHOSTWRITER
 

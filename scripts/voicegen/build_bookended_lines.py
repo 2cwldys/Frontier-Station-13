@@ -50,6 +50,12 @@ LINES = [
     "enemy_shields_at_twenty_five_percent",
     "enemy_shields_are_down",
     "enemy_ship_no_shields",
+    "retrieving_ship_please_wait",
+    "stashing_ship_please_wait",
+    "ship_ready_to_board",
+    "ship_successfully_stashed",
+    "boarding_the_ship",
+    "exiting_ship",
 ]
 
 # Pushed well past sound/AI/Voice how-to.txt's documented Audacity chain --

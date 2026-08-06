@@ -60,6 +60,14 @@
 	alpha = 0
 	layer = ABOVE_HUMAN_LAYER
 
+// vis_contents-attached to the ship's OVERMAP marker (OVERMAP_SHIP_LAYER,
+// layers.dm) instead of the generator itself -- the base type's
+// ABOVE_HUMAN_LAYER (copied from pod_shield_bubble, which really is on the
+// normal plane) rendered this ~58 layers below the ship icon it's attached
+// to, i.e. never seen.
+/obj/effect/ship_shield_bubble/overmap
+	layer = OVERMAP_SHIP_LAYER + 0.01
+
 /obj/structure/machinery/ship_shield_generator
 	name = "shield generator"
 	desc = "A reinforced generator that projects a deflector field around the ship's hull, absorbing incoming weapons fire until its capacity is exhausted."
@@ -98,9 +106,23 @@
 	/// Flips every absorb_hit() so shields_struck_1/_2 alternate instead of
 	/// playing the same one back-to-back.
 	var/next_struck_alternate = FALSE
-	/// The shimmer shown on the linked ship's overmap marker while shields
-	/// are up -- see show_bubble()/hide_bubble().
+	/// The shimmer shown on the generator itself while shields are up -- see
+	/// show_bubble()/hide_bubble().
 	var/obj/effect/ship_shield_bubble/bubble
+	/// The same shimmer, mirrored onto the linked ship's overmap marker --
+	/// see show_bubble()/hide_bubble().
+	var/obj/effect/ship_shield_bubble/overmap/overmap_bubble
+
+	/// Whether the ambient hum loop is currently considered "on" -- diffed
+	/// each _update_hum() sweep, same shape as ship.dm's own
+	/// engine_hum_active/engine_hum_listeners/next_engine_hum_check.
+	var/hum_active = FALSE
+	/// Mobs currently hearing this generator's hum loop -- reconciled every
+	/// sweep against who's actually on the linked ship's Z(s).
+	var/list/hum_listeners = list()
+	/// world.time of the next _update_hum() sweep -- throttled the same way
+	/// process()'s own regen tick doesn't need to run every single tick.
+	var/next_hum_check = 0
 
 /obj/structure/machinery/ship_shield_generator/Initialize()
 	. = ..()
@@ -137,9 +159,15 @@
 		var/obj/effect/overmap/visitable/ship/VS = linked
 		if(VS.shield_generator == src)
 			VS.shield_generator = null
-		if(bubble)
-			VS.remove_vis_contents(bubble)
+		if(overmap_bubble)
+			VS.remove_vis_contents(overmap_bubble)
+	if(bubble)
+		remove_vis_contents(bubble)
 	QDEL_NULL(bubble)
+	QDEL_NULL(overmap_bubble)
+	for(var/mob/M in hum_listeners)
+		M << sound(null, channel = CHANNEL_SHIP_SHIELD_HUM)
+	hum_listeners = list()
 	DropFuel()
 	return ..()
 
@@ -168,6 +196,7 @@
 		sheets -= amount
 
 /obj/structure/machinery/ship_shield_generator/process()
+	_update_hum()
 	if(active && anchored && istype(linked) && HasFuel())
 		UseFuel()
 		if(shield_strength < max_shield_strength)
@@ -288,22 +317,60 @@
 	else
 		show_bubble()
 
-/// Fades the shield bubble in on the linked ship's own overmap marker.
+/// Fades the shield bubble in on the generator itself, and mirrors the same
+/// fade onto the linked ship's overmap marker.
 /obj/structure/machinery/ship_shield_generator/proc/show_bubble()
-	if(!istype(linked))
-		return
 	if(!bubble)
-		bubble = new(linked)
-		linked.add_vis_contents(bubble)
+		bubble = new(src)
+		add_vis_contents(bubble)
 	animate(bubble, alpha = 255, time = 1 SECOND)
+	if(istype(linked))
+		if(!overmap_bubble)
+			overmap_bubble = new /obj/effect/ship_shield_bubble/overmap(linked)
+			linked.add_vis_contents(overmap_bubble)
+		animate(overmap_bubble, alpha = 255, time = 1 SECOND)
 
 /// Fades the bubble back out rather than cutting it instantly -- left
 /// sitting in vis_contents at alpha 0 between toggles instead of removed/
 /// re-added each time, same as pod_shield_bubble's own hide_shield_bubble().
 /obj/structure/machinery/ship_shield_generator/proc/hide_bubble()
-	if(!bubble)
+	if(bubble)
+		animate(bubble, alpha = 0, time = 1 SECOND)
+	if(overmap_bubble)
+		animate(overmap_bubble, alpha = 0, time = 1 SECOND)
+
+/// Reconciles the ambient hum loop against who's currently on the linked
+/// ship's Z(s), same shape as _update_engine_hum() (ship.dm) -- deliberately
+/// on its own CHANNEL_SHIP_SHIELD_HUM rather than sharing CHANNEL_MACHINERY,
+/// since a ship can have both its engine and its shields active at once and
+/// two loops on one channel would keep cutting each other off per listener.
+/// Gated by the same ASFX_ENGINE_HUM toggle as the engine hum -- both are
+/// "ship mechanical ambient loop" preferences from the player's perspective.
+/// Called every process() tick; self-throttles.
+/obj/structure/machinery/ship_shield_generator/proc/_update_hum()
+	if(world.time < next_hum_check)
 		return
-	animate(bubble, alpha = 0, time = 1 SECOND)
+	next_hum_check = world.time + 3 SECONDS
+
+	var/should_hum = active && istype(linked)
+
+	var/list/current_listeners = list()
+	if(should_hum)
+		for(var/mob/M in GLOB.player_list)
+			if(!M.client || M.ear_deaf || !(GET_Z(M) in linked.map_z))
+				continue
+			if(!(M.client.prefs.sfx_toggles & ASFX_ENGINE_HUM))
+				continue
+			current_listeners += M
+	hum_active = should_hum
+
+	for(var/mob/M in current_listeners)
+		if(!(M in hum_listeners))
+			M << sound('sound/machines/electrical_hum1.ogg', repeat = 1, volume = 10, channel = CHANNEL_SHIP_SHIELD_HUM)
+	for(var/mob/M in hum_listeners)
+		if(!(M in current_listeners))
+			M << sound(null, channel = CHANNEL_SHIP_SHIELD_HUM)
+	hum_listeners = current_listeners
 
 /**
  * Called from check_entry_ship() (_overmap_projectiles.dm) before an

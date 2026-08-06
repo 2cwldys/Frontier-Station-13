@@ -24,5 +24,11 @@ GLOBAL_LIST_INIT(announcer_sound_durations, list(
 	"sound/AI/announcements/enemy_shields_at_fifty_percent.ogg" = 5.1 SECONDS,
 	"sound/AI/announcements/enemy_shields_at_twenty_five_percent.ogg" = 5.4 SECONDS,
 	"sound/AI/announcements/enemy_shields_are_down.ogg" = 4.4 SECONDS,
-	"sound/AI/announcements/enemy_ship_no_shields.ogg" = 5.2 SECONDS
+	"sound/AI/announcements/enemy_ship_no_shields.ogg" = 5.2 SECONDS,
+	"sound/AI/announcements/retrieving_ship_please_wait.ogg" = 5.6 SECONDS,
+	"sound/AI/announcements/stashing_ship_please_wait.ogg" = 5.4 SECONDS,
+	"sound/AI/announcements/ship_ready_to_board.ogg" = 4.5 SECONDS,
+	"sound/AI/announcements/ship_successfully_stashed.ogg" = 5.1 SECONDS,
+	"sound/AI/announcements/boarding_the_ship.ogg" = 3.9 SECONDS,
+	"sound/AI/announcements/exiting_ship.ogg" = 3.9 SECONDS
 ))

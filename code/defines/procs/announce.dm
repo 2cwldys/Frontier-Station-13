@@ -133,6 +133,17 @@
 	else
 		LAZYADD(M.client.announcer_queue, list(list(sound_path, volume)))
 
+/// Single-mob counterpart to announce_to_ship_z() (ship_shield_generator.dm)
+/// -- for personal confirmation lines (boarding, drydock retrieve/stash
+/// progress) rather than whole-ship status broadcasts. Same ASFX_ANNOUNCER
+/// gate and play_announcer_sound() queue underneath.
+/proc/play_announcer_sound_gated(mob/M, sound_path, volume = 50)
+	if(!M?.client || M.ear_deaf)
+		return
+	if(!(M.client.prefs.sfx_toggles & ASFX_ANNOUNCER))
+		return
+	play_announcer_sound(M, sound_path, volume)
+
 /// Pops and plays the next queued announcer sound for this client, if any --
 /// scheduled by play_announcer_sound() to fire exactly when the previously
 /// playing line's duration elapses.

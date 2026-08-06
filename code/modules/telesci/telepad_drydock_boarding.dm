@@ -549,6 +549,7 @@
 
 	_drydock_deliver_with_portal(L, final_destination)
 	to_chat(L, SPAN_GOOD("You board the ship."))
+	play_announcer_sound_gated(L, 'sound/AI/announcements/boarding_the_ship.ogg')
 	log_drydock("_drydock_board_deliver: [key_name(L)] boarded shuttle_id=[target.shuttle_id].")
 	return TRUE
 
@@ -946,6 +947,7 @@
 			// destination-only spark.
 			_drydock_deliver_with_portal(L, destination)
 			to_chat(L, SPAN_GOOD("You disembark the ship."))
+			play_announcer_sound_gated(L, 'sound/AI/announcements/exiting_ship.ogg')
 			log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id] at its docked beacon.")
 			return TRUE
 
@@ -987,6 +989,7 @@
 
 	_drydock_deliver_with_portal(L, destination)
 	to_chat(L, SPAN_GOOD("You disembark the ship."))
+	play_announcer_sound_gated(L, 'sound/AI/announcements/exiting_ship.ogg')
 	log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id][is_hub_target ? " via the Hub telepad" : " choosing a landing spot"].")
 	return TRUE
 

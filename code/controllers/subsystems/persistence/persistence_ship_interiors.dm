@@ -209,6 +209,7 @@ GLOBAL_LIST_EMPTY(reusable_z_pool)
 		var/client/C = GLOB.directory[DS.owner_ckey]
 		if(C?.mob)
 			to_chat(C.mob, SPAN_GOOD("Your ship '[DS.display_name()]' has finished initializing and is ready to board."))
+			play_announcer_sound_gated(C.mob, 'sound/AI/announcements/ship_ready_to_board.ogg')
 
 /**
  * Keeps each deployed ship's ledger overmap_x/y current with its live
