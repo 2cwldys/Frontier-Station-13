@@ -52,6 +52,8 @@ SUBSYSTEM_DEF(ticker)
 
 	var/list/default_lobby_tracks = list(
 		'sound/music/lobby/mainmenu.ogg',
+		'sound/music/lobby/radix_lluvia_leveld_colours.ogg',
+		'sound/music/lobby/astrogenesis.ogg',
 	)
 
 	var/lobby_ready = FALSE
