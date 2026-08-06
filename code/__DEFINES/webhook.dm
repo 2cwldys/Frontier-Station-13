@@ -6,3 +6,4 @@
 #define WEBHOOK_ALERT_NO_ADMINS "alert_noadmins"
 #define WEBHOOK_ROUNDEND "roundend"
 #define WEBHOOK_ROUNDSTART "roundstart"
+#define WEBHOOK_ADMIN_LOG "admin_log"

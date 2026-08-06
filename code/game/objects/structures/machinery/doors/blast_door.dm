@@ -79,6 +79,22 @@
 	return
 
 /**
+ * Worldstate restore only writes density back and calls update_icon() (the
+ * generic apply, persistence_worldstate.dm) -- layer and opacity are also
+ * supposed to track density (see force_open()/force_close() below) but
+ * Initialize() only sets layer once, from whatever density the object
+ * spawned with at map-load, before worldstate restore ever runs. Without
+ * this, a restored door can have the correct density (still blocks/allows
+ * movement) and correct icon_state, but the wrong layer/opacity left over
+ * from its original map-placed state -- reading as open when it's actually
+ * closed, or vice versa.
+ */
+/obj/structure/machinery/door/blast/worldstate_apply_content(list/content)
+	..()
+	layer = density ? closed_layer : open_layer
+	set_opacity(density)
+
+/**
  * Opens the door. No checks are done inside this proc.
  */
 /obj/structure/machinery/door/blast/proc/force_open()

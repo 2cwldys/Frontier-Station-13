@@ -193,8 +193,33 @@
 		has_hidden_jumpsuit = TRUE
 		chest.flags_inv &= ~HIDEJUMPSUIT
 
+	sync_component_wear()
+
 	set_vision(!offline)
 	update_icon(1)
+
+/**
+ * A hardsuit is one object to the player, so it wears as one. The four pieces
+ * have no durability of their own: they redirect all wear and repairs onto the
+ * rig via wear_shares_with, and mirror its state back down so the plain
+ * `wear_broken` checks scattered through the codebase (the equip gate in
+ * items.dm, tool/attack gates) see the suit's condition rather than a piece's
+ * untouched defaults.
+ *
+ * Without this you get pristine gauntlets bolted to a ruined chestplate, and a
+ * suit that is half-usable -- which is exactly backwards for something the
+ * player thinks of as a single piece of equipment.
+ */
+/obj/item/rig/proc/sync_component_wear()
+	for(var/obj/item/piece in list(helmet, chest, gloves, boots))
+		piece.wear_shares_with = src
+		piece.degrades_with_use = degrades_with_use
+		piece.wear_max_durability = wear_max_durability
+		piece.wear_durability = wear_durability
+		piece.wear_broken = wear_broken
+
+/obj/item/rig/on_wear_state_changed()
+	sync_component_wear()
 
 /// Sets the icon adaptation and species supported tags equal to parent, can be overriden for custom functionality
 /obj/item/rig/proc/set_piece_adaptation(var/obj/item/clothing/piece)
@@ -452,6 +477,15 @@
 	update_icon(1)
 
 /obj/item/rig/process()
+	// Chain for passive worn decay. Safe despite the rig START_PROCESSING-ing
+	// from Initialize() rather than equipped(): /obj/item/process() checks the
+	// item is genuinely worn before charging anything, so a rig sitting on the
+	// floor or held in hand still won't decay.
+	..()
+	// Re-mirror wear onto the components. Cheap, and it catches pieces that were
+	// swapped out after Initialize -- the persistence restore rebuilds all four
+	// from the database, which would otherwise leave them unlinked.
+	sync_component_wear()
 	// If we've lost any parts, grab them back.
 	var/mob/living/M
 	for(var/obj/item/piece in list(gloves,boots,helmet,chest))

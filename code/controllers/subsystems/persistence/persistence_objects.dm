@@ -396,6 +396,28 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
 	content["items"] = items
 	return content
 
+// Supply beacon crates carry trade identity on top of the base closet state --
+// stack size plus which beacon they were bought from. Without this a saved
+// crate came back as a 1-unit, origin-less crate, which both lost value and
+// silently cleared the can't-sell-at-origin restriction.
+/obj/structure/closet/crate/supply_beacon/persistent_objects_get_content()
+	. = ..()
+	.["amount"] = amount
+	.["origin_beacon_id"] = origin_beacon_id
+	.["origin_beacon_label"] = origin_beacon_label
+
+/obj/structure/closet/crate/supply_beacon/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["amount"]))
+		amount = max(1, text2num("[content["amount"]]") || 1)
+	if(!isnull(content["origin_beacon_id"]))
+		origin_beacon_id = content["origin_beacon_id"]
+	if(!isnull(content["origin_beacon_label"]))
+		origin_beacon_label = content["origin_beacon_label"]
+	refresh_label()
+
 /obj/structure/closet/persistent_objects_apply_content(list/content, x, y, z)
 	..()  // base: forceMove to saved position
 	if(!content)

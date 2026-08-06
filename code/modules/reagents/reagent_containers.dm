@@ -156,6 +156,7 @@
 
 	var/trans = target.reagents.trans_to_obj(src, target.amount_per_transfer_from_this)
 	to_chat(user, SPAN_NOTICE("You fill [src] with [trans] units of the contents of [target]."))
+	degrade_durability(durability_per_use)
 	return 1
 
 /obj/item/reagent_containers/proc/standard_splash_obj(var/mob/user, var/target)
@@ -170,6 +171,7 @@
 							SPAN_WARNING("You splash the solution onto \the [target]."))
 
 	reagents.splash(target, reagents.total_volume)
+	degrade_durability(durability_per_use)
 	return
 
 // This goes into afterattack
@@ -199,6 +201,7 @@
 							SPAN_WARNING("You splash the solution onto \the [target]."))
 
 	reagents.splash(target, min(120,reagents.total_volume) ) //Splash Limit
+	degrade_durability(durability_per_use)
 
 	if (istype(target, /mob/living/silicon/robot))
 		var/mob/living/silicon/robot/R = target
@@ -250,6 +253,7 @@
 		reagents.trans_to_mob(user, min(10,amount_per_transfer_from_this), CHEM_INGEST) //A sane limiter. So you don't go drinking 300u all at once.
 		SEND_SIGNAL(src, COMSIG_CONTAINER_DRANK, user)
 		feed_sound(user)
+		degrade_durability(durability_per_use)
 		return TRUE
 	else
 		if(istype(target, /mob/living/carbon/human))
@@ -282,6 +286,7 @@
 
 		reagents.trans_to_mob(target, amount_per_transfer_from_this, CHEM_INGEST)
 		feed_sound(user)
+		degrade_durability(durability_per_use)
 		return 1
 
 /obj/item/reagent_containers/mouse_drop_dragged(atom/over, mob/user, src_location, over_location, params)
@@ -352,6 +357,7 @@
 	var/trans = reagents.trans_to(target, amount_per_transfer_from_this)
 	to_chat(user, SPAN_NOTICE("You transfer [trans] units of the solution to [target]."))
 	on_pour(target)
+	degrade_durability(durability_per_use)
 	return 1
 
 /obj/item/reagent_containers/proc/on_pour(atom/target)

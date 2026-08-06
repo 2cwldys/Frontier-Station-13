@@ -26,6 +26,21 @@
 			var/obj/item/worn_item = armor_datum.parent
 			worn_item.degrade_durability(WEAR_ARMOR_DECAY_PER_BLOCK * this_blocked)
 	. = min(1, .)
+	wear_unarmored_headgear(def_zone)
+
+/**
+ * Wears down headgear that took a hit to the head but has no armor component of
+ * its own -- soft caps, berets, and anything else the loop above never visits.
+ *
+ * Armored helmets are deliberately NOT handled here: they already carry a
+ * /datum/component/armor, so get_blocked_ratio()'s loop above already wears them
+ * at the full WEAR_ARMOR_DECAY_PER_BLOCK rate. Charging them a second time here
+ * would silently double their wear rate. One item, one charge.
+ *
+ * No-op on the base mob -- only humans have a head slot. See the human override.
+ */
+/mob/living/proc/wear_unarmored_headgear(def_zone)
+	return
 
 /mob/living/proc/get_armors_by_zone(def_zone, damage_type, damage_flags)
 	. = list()

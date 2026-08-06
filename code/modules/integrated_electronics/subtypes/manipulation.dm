@@ -28,19 +28,24 @@
 	QDEL_NULL(installed_gun)
 	. = ..()
 
+/obj/item/integrated_circuit/manipulation/weapon_firing/try_reload(obj/item/loading, mob/user)
+	if(!istype(loading, /obj/item/gun))
+		return FALSE
+	var/obj/item/gun/gun = loading
+	if(installed_gun)
+		to_chat(user, SPAN_WARNING("There's already a weapon installed."))
+		return TRUE // Handled -- refused, but don't fall through to a scanner.
+	user.drop_from_inventory(gun,src)
+	installed_gun = gun
+	size += gun.w_class
+	to_chat(user, SPAN_NOTICE("You slide \the [gun] into the firing mechanism."))
+	playsound(src.loc, SFX_CROWBAR, 50, 1)
+	return TRUE
+
 /obj/item/integrated_circuit/manipulation/weapon_firing/attackby(obj/item/attacking_item, mob/user)
-	if(istype(attacking_item, /obj/item/gun))
-		var/obj/item/gun/gun = attacking_item
-		if(installed_gun)
-			to_chat(user, SPAN_WARNING("There's already a weapon installed."))
-			return
-		user.drop_from_inventory(gun,src)
-		installed_gun = gun
-		size += gun.w_class
-		to_chat(user, SPAN_NOTICE("You slide \the [gun] into the firing mechanism."))
-		playsound(src.loc, SFX_CROWBAR, 50, 1)
-	else
-		..()
+	if(try_reload(attacking_item, user))
+		return
+	..()
 
 /obj/item/integrated_circuit/manipulation/weapon_firing/attack_self(var/mob/user)
 	if(installed_gun)
@@ -138,17 +143,24 @@
 	detach_grenade()
 	. = ..()
 
+/obj/item/integrated_circuit/manipulation/grenade/try_reload(obj/item/loading, mob/user)
+	var/obj/item/grenade/G = loading
+	if(!istype(G))
+		return FALSE
+	if(attached_grenade)
+		to_chat(user, SPAN_WARNING("There is already a grenade attached!"))
+		return TRUE // Handled -- refused, but don't fall through to a scanner.
+	if(!user.unEquip(G, force=1))
+		return TRUE
+	user.visible_message(SPAN_WARNING("\The [user] attaches \a [G] to \the [src]!"), SPAN_NOTICE("You attach \the [G] to \the [src]."))
+	attach_grenade(G)
+	G.forceMove(src)
+	return TRUE
+
 /obj/item/integrated_circuit/manipulation/grenade/attackby(obj/item/attacking_item, mob/user)
-	var/obj/item/grenade/G = attacking_item
-	if(istype(G))
-		if(attached_grenade)
-			to_chat(user, SPAN_WARNING("There is already a grenade attached!"))
-		else if(user.unEquip(G, force=1))
-			user.visible_message(SPAN_WARNING("\The [user] attaches \a [G] to \the [src]!"), SPAN_NOTICE("You attach \the [G] to \the [src]."))
-			attach_grenade(G)
-			G.forceMove(src)
-	else
-		..()
+	if(try_reload(attacking_item, user))
+		return
+	..()
 
 /obj/item/integrated_circuit/manipulation/grenade/attack_self(var/mob/user)
 	if(attached_grenade)
@@ -413,18 +425,26 @@
 	LAZYNULL(crystals)
 	return ..()
 
-/obj/item/integrated_circuit/manipulation/portal_opener/attackby(obj/item/attacking_item, mob/user, params)
-	if(istype(attacking_item, /obj/item/bluespace_crystal))
-		if(LAZYLEN(crystals) >= max_crystals)
-			to_chat(user, SPAN_WARNING("There are not enough crystal slots."))
-			return
+/obj/item/integrated_circuit/manipulation/portal_opener/try_reload(obj/item/loading, mob/user)
+	if(!istype(loading, /obj/item/bluespace_crystal))
+		return FALSE
+	if(LAZYLEN(crystals) >= max_crystals)
+		to_chat(user, SPAN_WARNING("There are not enough crystal slots."))
+		return TRUE // Handled -- refused, but don't fall through to a scanner.
 
-		user.visible_message("[user] inserts [attacking_item] into \the [src]'s crystal slot.", SPAN_NOTICE("You insert [attacking_item] into \the [src]'s crystal slot."))
-		user.drop_item(src)
-		LAZYADD(crystals, attacking_item)
-		attacking_item.forceMove(null)
-	else
-		..()
+	user.visible_message("[user] inserts [loading] into \the [src]'s crystal slot.", SPAN_NOTICE("You insert [loading] into \the [src]'s crystal slot."))
+	// drop_from_inventory(loading) rather than the old drop_item(src): drop_item()
+	// drops the mob's ACTIVE HAND, which merely happened to be the clicked item on
+	// the direct-click path and isn't guaranteed when routed from the assembly.
+	user.drop_from_inventory(loading, src)
+	LAZYADD(crystals, loading)
+	loading.forceMove(null)
+	return TRUE
+
+/obj/item/integrated_circuit/manipulation/portal_opener/attackby(obj/item/attacking_item, mob/user, params)
+	if(try_reload(attacking_item, user))
+		return
+	..()
 
 /obj/item/integrated_circuit/manipulation/portal_opener/on_data_written()
 	power_draw_per_use = round(between(100, 100*(get_pin_data(IC_INPUT, 2)), 5000), 50) // potentially big power draw for a maximum jump range

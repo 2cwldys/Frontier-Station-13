@@ -242,6 +242,22 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 			center.zone_shield_overlay = shield
 			GLOB.zone_security_bordered_turfs |= center
 
+		// Same shield decal on any Supply Beacon caught inside this beacon's
+		// claimed radius -- previously only the sector marker's own tile got
+		// one, so a supply beacon sitting in claimed territory had its
+		// surrounding tiles tinted by the fill loop above but no glow on its
+		// own icon, reading as unclaimed at a glance.
+		for(var/obj/effect/overmap/supply_beacon/SB in range(B.security_radius, sector))
+			var/turf/unsimulated/map/beacon_turf = get_turf(SB)
+			if(!istype(beacon_turf) || beacon_turf.zone_shield_overlay)
+				continue
+			var/image/sb_shield = image('icons/hud/security_shield.png', loc = beacon_turf)
+			sb_shield.color = (B.guaranteed_security_tier == ZONE_HIGHSEC) ? "#54c556" : "#e8bb4a"
+			sb_shield.alpha = 200
+			beacon_turf.overlays += sb_shield
+			beacon_turf.zone_shield_overlay = sb_shield
+			GLOB.zone_security_bordered_turfs |= beacon_turf
+
 	// Second pass over every turf no beacon tinted above: tiles holding a
 	// sector marker whose Z is highsec/medsec WITHOUT a beacon (admin-set
 	// via the zone verb) still get their tier's color, and everything else

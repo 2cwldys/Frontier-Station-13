@@ -58,6 +58,9 @@
 
 	if(W == A)
 		W.attack_self(src)
+		// Same activation wear as the human click path -- see click.dm.
+		if(W.wear_on_activation)
+			W.degrade_durability(W.durability_per_use)
 		return
 
 	// cyborgs are prohibited from using storage items so we can I think safely remove (A.loc in contents)

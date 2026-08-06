@@ -1205,6 +1205,14 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	_release_z_claim()
 	QDEL_NULL(beacon_looping_sound)
 	update_icon()
+	// Symmetric counterpart to _apply_network()'s own repaint on a
+	// successful claim -- _release_security_grants() above already reverts
+	// the real Z tier(s) this beacon granted, but nothing repainted the
+	// overmap border/shield visuals to match. Without this, every tile this
+	// beacon used to color (including any Supply Beacon sitting in its old
+	// radius) keeps showing its stale claimed-territory tint until some
+	// unrelated beacon elsewhere happens to trigger a full repaint.
+	zone_security_update_overmap()
 	var/who = user ? key_name(user) : "Automatic"
 	message_admins("[who] powered down a faction beacon ([faction_uid ? get_faction_name(faction_uid) : "unconfigured"]) at ([x],[y],[z])[reason ? " -- [reason]" : ""]. (<a href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[x];Y=[y];Z=[z]'>JMP</a>)")
 

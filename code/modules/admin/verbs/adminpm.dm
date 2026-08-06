@@ -150,7 +150,7 @@
 	if(C.prefs && C.prefs.toggles & SOUND_ADMINHELP)
 		sound_to(C, 'sound/effects/adminhelp.ogg')
 
-	log_admin("PM: [key_name(src)]->[key_name(C)]: [msg]")
+	log_admin("PM: [key_name(src)]->[key_name(C)]: [msg] (Ticket #[ticket.id])")
 
 	ticket.append_message(src.ckey, C.ckey, msg)
 

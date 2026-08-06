@@ -31,7 +31,11 @@ the HUD updates properly! */
 	for(var/mob/living/carbon/human/patient in P.Mob.in_view(P.Turf))
 		if(patient.is_invisible_to(M))
 			continue
-		if(patient in P.Mob.hidden_mobs)
+		// fov_hides_target() (vision_cone.dm) is a LIVE rear-arc test -- the
+		// cached hidden_mobs list is only rebuilt when the viewer themselves
+		// turns or moves, so someone walking behind a stationary viewer was
+		// never in it and their HUD icon kept showing through the cone.
+		if((patient in P.Mob.hidden_mobs) || fov_hides_target(P.Mob, patient))
 			P.Client.images -= patient.hud_list[HEALTH_HUD]
 			P.Client.images -= patient.hud_list[STATUS_HUD]
 			P.Client.images -= patient.hud_list[TRIAGE_HUD]
@@ -58,7 +62,9 @@ the HUD updates properly! */
 	for(var/mob/living/carbon/human/perp in P.Mob.in_view(P.Turf))
 		if(perp.is_invisible_to(M))
 			continue
-		if(perp in P.Mob.hidden_mobs)
+		// See process_med_hud() above for why the live cone test is needed
+		// alongside the cached hidden_mobs list.
+		if((perp in P.Mob.hidden_mobs) || fov_hides_target(P.Mob, perp))
 			P.Client.images -= perp.hud_list[ID_HUD]
 			P.Client.images -= perp.hud_list[WANTED_HUD]
 			P.Client.images -= perp.hud_list[IMPTRACK_HUD]
