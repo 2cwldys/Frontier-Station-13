@@ -362,6 +362,24 @@ a creative player the means to solve many problems.  Circuits are held inside an
 /obj/item/integrated_circuit/proc/attackby_react(var/atom/movable/A,mob/user)
 	return
 
+/**
+ * Reload this circuit's consumable (crystals, a gun, a grenade...) from an item the
+ * user clicked with. Return TRUE only if the item was actually consumed.
+ *
+ * Exists so a circuit can be reloaded WHILE INSTALLED. Previously the only route was
+ * the circuit's own attackby(), which needs the circuit to be the clicked atom -- and
+ * the only way to achieve that is the "remove" href above, which calls disconnect_all()
+ * and destroys every pin link on the way out. Reloading a portal circuit therefore cost
+ * you the entire wiring harness.
+ *
+ * Dispatched from /obj/item/electronic_assembly/attackby() (core/assemblies.dm).
+ * Deliberately separate from attackby_react() above: that hook is dispatched from three
+ * other sites with different semantics, and obj_scanner's implementation swallows any
+ * atom on help intent.
+ */
+/obj/item/integrated_circuit/proc/try_reload(obj/item/loading, mob/user)
+	return FALSE
+
 /obj/item/integrated_circuit/proc/on_anchored()
 	return
 
