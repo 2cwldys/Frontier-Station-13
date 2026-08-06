@@ -293,6 +293,12 @@
 		if("set_all_guards_passive")
 			_set_guard_beacons_hostility("passive", user)
 			. = TRUE
+		if("set_all_guards_enabled")
+			_set_guard_beacons_enabled(TRUE, user)
+			. = TRUE
+		if("set_all_guards_disabled")
+			_set_guard_beacons_enabled(FALSE, user)
+			. = TRUE
 		if("set_turrets_enabled")
 			_set_faction_turrets_enabled(TRUE, user)
 			. = TRUE
@@ -436,6 +442,38 @@
 		to_chat(user, SPAN_NOTICE("[affected] guard beacon[affected > 1 ? "s" : ""] on this level set to [mode == "passive" ? "passive" : "hostile"]."))
 	else
 		to_chat(user, SPAN_NOTICE("No guard beacons belonging to your faction were found on this level."))
+
+/// Bulk Activate/Deactivate for every guard_beacon.dm on the user's current Z
+/// level tagged to their own faction -- same shape as
+/// _set_guard_beacons_hostility() and _set_faction_turrets_enabled() below.
+/// Activating skips (and reports) any beacon that isn't anchored, isn't
+/// faction-ready, or has no preset configured yet -- the same prerequisites
+/// toggle_active() enforces for a single beacon -- rather than silently
+/// forcing them on in an invalid state. Deactivating has no such
+/// prerequisites, matching _set_active()'s own tolerant shape.
+/obj/item/commander_beacon/proc/_set_guard_beacons_enabled(new_value, mob/user)
+	var/uid = _owner_faction_uid(user)
+	if(!uid)
+		to_chat(user, SPAN_WARNING("You must be a member of a faction to do that."))
+		return
+	var/affected = 0
+	var/skipped = 0
+	for(var/obj/structure/machinery/guard_beacon/G in world)
+		if(G.z != user.z)
+			continue
+		if(normalize_faction_uid(G.persistent_network) != uid)
+			continue
+		if(G.active == new_value)
+			continue
+		if(new_value && !(G.anchored && G._faction_ready() && G.preset_id))
+			skipped++
+			continue
+		G._set_active(new_value)
+		affected++
+	if(affected)
+		to_chat(user, SPAN_NOTICE("[affected] guard beacon[affected > 1 ? "s" : ""] on this level [new_value ? "activated" : "deactivated"].[skipped ? " [skipped] not ready (unanchored/untagged/unconfigured)." : ""]"))
+	else
+		to_chat(user, SPAN_NOTICE("No guard beacons belonging to your faction needed to be [new_value ? "activated" : "deactivated"] on this level.[skipped ? " [skipped] not ready (unanchored/untagged/unconfigured)." : ""]"))
 
 /// Bulk enable/disable for every faction-tagged portable turret on the
 /// user's current Z level -- same shape as _set_guard_beacons_hostility()
