@@ -234,7 +234,14 @@
 	SEND_SOUND(src, sound(null, repeat = 0, wait = 0, volume = prefs.lobby_music_vol, channel = CHANNEL_LOBBYMUSIC))
 
 	if(prefs.lobby_music_vol)
-		for(var/lobby_music in SSticker.login_music)
+		// Shuffled per client, so which track you land on first is random.
+		// These queue back-to-back on one channel via wait = TRUE, and clicking
+		// Play stops the channel outright (new_player.dm) -- so in fixed list
+		// order every player heard SSticker.login_music's first entry and
+		// nothing else, unless they idled in the lobby through the whole track.
+		// shuffle() (__HELPERS/lists.dm) returns a shuffled COPY, so the shared
+		// SSticker.login_music list is left untouched for everyone else.
+		for(var/lobby_music in shuffle(SSticker.login_music))
 			SEND_SOUND(src, sound(lobby_music, repeat = 0, wait = TRUE, volume = prefs.lobby_music_vol, channel = CHANNEL_LOBBYMUSIC)) // MAD JAMS
 
 /proc/get_rand_frequency()
