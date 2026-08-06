@@ -533,6 +533,15 @@
 		marker.invisibility = 0
 		marker.alpha = 255
 		marker.mouse_opacity = MOUSE_OPACITY_ICON
+		// The appearance copy above can't see the shield generator's
+		// overmap_bubble -- it's vis_contents-attached to O, not part of its
+		// .appearance (see get_shield_bubble_overlay()). Stamp a fresh copy of
+		// its current look onto this marker every refresh instead.
+		if(istype(O, /obj/effect/overmap/visitable/ship))
+			var/obj/effect/overmap/visitable/ship/S = O
+			var/bubble_overlay = S.get_shield_bubble_overlay()
+			if(bubble_overlay)
+				marker.AddOverlays(bubble_overlay)
 		user.client.images += marker
 		sensor_images += marker
 

@@ -13,12 +13,16 @@
 	var/list/names_to_guns = list()
 	var/list/names_to_entries = list()
 	/// The locked target process() last checked -- lets a genuinely new lock
-	/// (or losing the lock) reset last_announced_target_tier cleanly instead
-	/// of carrying over stale tier state from whatever was locked before.
+	/// (or losing the lock) reset last_watched_target_strength cleanly
+	/// instead of carrying over stale state from whatever was locked before.
 	var/obj/effect/overmap/last_watched_target
-	/// Last enemy shield tier actually announced for the current lock -- see
-	/// get_shield_tier() (ship_shield_generator.dm) for the tier buckets.
-	var/last_announced_target_tier
+	/// Target's shield_strength as of the last poll -- compared against the
+	/// current value the same way _check_tier_transition()
+	/// (ship_shield_generator.dm) compares the OWN ship's, so a threshold
+	/// crossed between two 3-second polls still gets announced even if it
+	/// happened between checks. null right after a new lock (no prior
+	/// reading to compare against yet).
+	var/last_watched_target_strength
 	/// Self-throttle for process(), same shape as ship.dm's own
 	/// next_engine_hum_check -- this doesn't need to check every tick.
 	var/next_shield_check = 0
@@ -62,14 +66,19 @@
 	else
 		STOP_PROCESSING(SSprocessing, src)
 
-/// Continuously watches whatever this console currently has locked and
-/// announces the target's shield tier (get_shield_tier(),
-/// ship_shield_generator.dm) as it changes, Z-wide on the OBSERVING ship
-/// (this console's own ship, not the target's) -- per your explicit call
-/// that the enemy readout should keep updating live, not just once at
-/// lock-on. Self-throttled the same way ship.dm's own engine hum check is;
-/// check_processing() above already keeps this from running at all with no
-/// lock held.
+/**
+ * Continuously watches whatever this console currently has locked and
+ * announces every 25%/50%/max/down threshold the target's shields actually
+ * cross between polls, Z-wide on the OBSERVING ship (this console's own
+ * ship, not the target's) -- per your explicit call that the enemy readout
+ * should keep updating live, not just once at lock-on. Same crossing-based
+ * comparison as _check_tier_transition() (ship_shield_generator.dm): a big
+ * change between two 3-second polls can skip straight past a checkpoint
+ * without the target's CURRENT value ever landing near it, and that
+ * crossing still gets announced. Self-throttled the same way ship.dm's own
+ * engine hum check is; check_processing() above already keeps this from
+ * running at all with no lock held.
+ */
 /obj/structure/machinery/computer/ship/targeting/process()
 	if(world.time < next_shield_check)
 		return
@@ -81,32 +90,50 @@
 
 	if(linked.targeting != last_watched_target)
 		last_watched_target = linked.targeting
-		last_announced_target_tier = null
+		last_watched_target_strength = null
 
 	var/obj/structure/machinery/ship_shield_generator/target_gen
 	if(istype(linked.targeting, /obj/effect/overmap/visitable/ship))
 		var/obj/effect/overmap/visitable/ship/target_ship = linked.targeting
 		target_gen = target_ship.shield_generator
 
-	var/new_tier = get_shield_tier(target_gen)
-	if(new_tier == last_announced_target_tier)
+	if(!target_gen || !target_gen.shields_up())
+		// No active shields to track -- announce once on the transition
+		// into this state (sentinel -1), not every 3s while it holds.
+		if(last_watched_target_strength != -1)
+			last_watched_target_strength = -1
+			announce_to_ship_z(linked.map_z, 'sound/AI/announcements/enemy_ship_no_shields.ogg', 50, TRUE)
 		return
-	last_announced_target_tier = new_tier
 
-	var/sound_path
-	switch(new_tier)
-		if(SHIELD_TIER_NONE)
-			sound_path = 'sound/AI/announcements/enemy_ship_no_shields.ogg'
-		if(SHIELD_TIER_DOWN)
-			sound_path = 'sound/AI/announcements/enemy_shields_are_down.ogg'
-		if(SHIELD_TIER_TWENTY_FIVE)
-			sound_path = 'sound/AI/announcements/enemy_shields_at_twenty_five_percent.ogg'
-		if(SHIELD_TIER_FIFTY)
-			sound_path = 'sound/AI/announcements/enemy_shields_at_fifty_percent.ogg'
-		if(SHIELD_TIER_MAX)
-			sound_path = 'sound/AI/announcements/enemy_shields_at_max.ogg'
-	if(sound_path && istype(linked))
-		announce_to_ship_z(linked.map_z, sound_path, 50, TRUE, SHIELD_TIER_ANNOUNCE_KEY_ENEMY)
+	var/old_strength = last_watched_target_strength
+	var/new_strength = target_gen.shield_strength
+	last_watched_target_strength = new_strength
+
+	// No prior reading to compare against (fresh lock, or shields just came
+	// back from a "no shields" state) -- set the baseline silently, same as
+	// the own-ship generator not re-disclosing a retained charge on
+	// reactivation. The next real change will announce normally.
+	if(isnull(old_strength) || old_strength == -1 || old_strength == new_strength)
+		return
+
+	var/lo = min(old_strength, new_strength)
+	var/hi = max(old_strength, new_strength)
+	var/declining = (new_strength < old_strength)
+	var/max_strength = target_gen.max_shield_strength
+
+	var/list/checkpoints = list(
+		list(max_strength, 'sound/AI/announcements/enemy_shields_at_max.ogg'),
+		list(max_strength * 0.5, 'sound/AI/announcements/enemy_shields_at_fifty_percent.ogg'),
+		list(max_strength * 0.25, 'sound/AI/announcements/enemy_shields_at_twenty_five_percent.ogg'),
+		list(0, 'sound/AI/announcements/enemy_shields_are_down.ogg'),
+	)
+	if(!declining)
+		checkpoints = reverselist(checkpoints)
+
+	for(var/list/checkpoint in checkpoints)
+		var/point = checkpoint[1]
+		if(point >= lo && point <= hi)
+			announce_to_ship_z(linked.map_z, checkpoint[2], 50, TRUE)
 
 /obj/structure/machinery/computer/ship/targeting/ui_interact(mob/user, datum/tgui/ui)
 	ui = SStgui.try_update_ui(user, src, ui)

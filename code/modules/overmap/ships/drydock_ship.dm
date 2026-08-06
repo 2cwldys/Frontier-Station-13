@@ -36,20 +36,19 @@
  * Docking creates a real, physical problem this class alone needs to solve:
  * on_landing()/on_takeoff() (landable.dm) only ever move the overmap MARKER
  * -- the ship's actual interior turfs never leave its own dedicated Z, so a
- * "docked" ship still has zero walkable connection to wherever it landed.
- * ship_side_link/target_side_link are a paired /obj/effect/portal/dock_link
- * (portals.dm) opened the instant landing happens and closed the instant it
- * ends, bridging the ship's own console turf to the landmark's turf --
- * deliberately public/unrestricted, unlike the ownership-gated boarding
- * telepad (telepad_drydock_boarding.dm). Scoped to this subtype only, not
- * the shared landable.dm base, so every other landable ship's existing
- * boarding convention is completely untouched.
+ * "docked" ship still has zero walkable connection to wherever it landed
+ * unless someone builds one. That connection used to open automatically (a
+ * paired /obj/effect/portal/dock_link, portals.dm) the instant landing
+ * happened -- an invisible-until-you-walk-into-it gangway with no player
+ * action or awareness involved, which is exactly what made it possible to
+ * blindly step through one. Docking connections are now player-built
+ * instead: an umbilical pad (telepad_umbilical.dm) on each end, tethered by
+ * a shared access code. _sweep_stray_umbilicals() below just cleans up any
+ * dock_link portal left over from before that change (or any other stray).
  */
 /obj/effect/overmap/visitable/ship/landable/drydock_ship
 	use_mapped_z_levels = TRUE
 	invisible_until_ghostrole_spawn = FALSE
-	var/obj/effect/portal/dock_link/ship_side_link
-	var/obj/effect/portal/dock_link/target_side_link
 
 /// Sanctioned removal (drydockStash()/drydockScuttle(), both via
 /// _drydockMarkerTeardown(), persistence_shuttles.dm) always flips the
@@ -89,41 +88,20 @@
 	if(found_deployed_row)
 		var/datum/shuttle/shuttle_datum = SSshuttle.shuttles[shuttle]
 		SSpersistence.shipZTeardown(GET_Z(src), shuttle_datum?.name)
-	_close_dock_link()
 	. = ..()
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/on_landing(obj/effect/shuttle_landmark/from, obj/effect/shuttle_landmark/into)
 	. = ..()
-	_open_dock_link(into)
+	_sweep_stray_umbilicals()
 
-/obj/effect/overmap/visitable/ship/landable/drydock_ship/on_takeoff(obj/effect/shuttle_landmark/from, obj/effect/shuttle_landmark/into)
-	_close_dock_link()
-	. = ..()
-
-/// The ship-side end of the dock link always anchors at the shuttle's own
-/// navigation console turf -- the one piece of map content every ship
-/// template is already guaranteed to have (mirrors
-/// _drydock_console_turf(), telepad_drydock_boarding.dm).
-/obj/effect/overmap/visitable/ship/landable/drydock_ship/proc/_dock_link_ship_turf()
-	var/datum/shuttle/shuttle_datum = SSshuttle.shuttles[shuttle]
-	if(!istype(shuttle_datum))
-		return null
-	for(var/obj/structure/machinery/computer/shuttle_control/console in shuttle_datum.shuttle_computers)
-		return get_turf(console)
-	return null
-
-/obj/effect/overmap/visitable/ship/landable/drydock_ship/proc/_open_dock_link(obj/effect/shuttle_landmark/into)
-	_close_dock_link()
-	var/turf/ship_turf = _dock_link_ship_turf()
-	var/turf/target_turf = get_turf(into)
-	if(!ship_turf || !target_turf || ship_turf == target_turf)
-		return
-	ship_side_link = new /obj/effect/portal/dock_link(ship_turf, target_turf, src)
-	target_side_link = new /obj/effect/portal/dock_link(target_turf, ship_turf, src)
-
-/obj/effect/overmap/visitable/ship/landable/drydock_ship/proc/_close_dock_link()
-	QDEL_NULL(ship_side_link)
-	QDEL_NULL(target_side_link)
+/// Cleans up any dock_link portal left on this ship's Z-level -- a leftover
+/// from before docking connections became player-built (telepad_umbilical.dm),
+/// or any other stray. Umbilical pads are unaffected: their own dock_link
+/// pairs self-heal via _reconcile_link() if one half is swept.
+/obj/effect/overmap/visitable/ship/landable/drydock_ship/proc/_sweep_stray_umbilicals()
+	for(var/obj/effect/portal/dock_link/L in world)
+		if(GET_Z(L) in map_z)
+			qdel(L)
 
 /datum/shuttle/autodock/overmap/drydock_ship
 	defer_initialisation = TRUE

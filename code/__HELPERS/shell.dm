@@ -43,6 +43,27 @@
 #undef SHELLEO_ERR
 #undef SHELLEO_OUT
 
+/// Prefixes `command` with a `cd`/`cd /d` into GLOB.config.server_root_path
+/// when set (no-op otherwise) -- shared by persistence_backups.dm and
+/// deploy.dm so this only needs fixing in one place.
+///
+/// On Windows, the whole result is wrapped in one MORE redundant outer pair
+/// of quotes. world.shelleo() already runs the string through `cmd /c
+/// "..."` itself; when the string it's given contains its own separate
+/// quoted substring (the `cd /d "..."` part, needed because
+/// server_root_path can contain spaces), cmd.exe's argument parser loses
+/// track of where the real command starts -- symptom: it runs some
+/// unrelated fragment of the line instead of actually cd-ing in first. The
+/// extra wrap is the documented Microsoft workaround for a `cmd /c` string
+/// containing more than one quoted section. Not needed on UNIX -- /bin/sh
+/// -c has no such quirk.
+/proc/prefix_server_root_cd(command)
+	if(!GLOB.config.server_root_path)
+		return command
+	if(world.system_type == UNIX)
+		return "cd \"[GLOB.config.server_root_path]\" && [command]"
+	return "\"cd /d \"[GLOB.config.server_root_path]\" && [command]\""
+
 /proc/shell_url_scrub(url)
 	var/static/regex/bad_chars_regex = regex("\[^#%&./:=?\\w]*", "g")
 	var/scrubbed_url = ""

@@ -138,6 +138,22 @@
 /obj/effect/overmap/visitable/ship/proc/is_still()
 	return !MOVING(speed[1]) && !MOVING(speed[2])
 
+/// Snapshot accessor for remote/sensor overlay call sites -- personal_travel.dm's
+/// _refresh_sensor_view(), sector_view.dm's refresh_sector_view(), and _contacts.dm's
+/// update_marker_icon() all build their own transient marker /image by copying only
+/// O.appearance, since the real ship atom is requires_contact/INVISIBILITY_OVERMAP and
+/// never directly rendered to anyone. .appearance can't capture the generator's
+/// overmap_bubble (it's vis_contents-attached to us, a live atom relationship, not an
+/// encodable appearance value -- see ship_shield_generator.dm's
+/// show_bubble()/hide_bubble()), so those call sites instead pull its current appearance
+/// through here and stamp it onto their own marker each refresh cycle via
+/// marker.AddOverlays(...). Returns null only when there's no generator or the bubble has
+/// never been created/was torn down (Destroy()) -- when shields are down, overmap_bubble
+/// still exists but faded to alpha 0 (hide_bubble()), so the stamped overlay is correctly
+/// invisible rather than needing a separate visibility check here.
+/obj/effect/overmap/visitable/ship/proc/get_shield_bubble_overlay()
+	return shield_generator?.overmap_bubble
+
 /obj/effect/overmap/visitable/ship/get_scan_data(mob/user)
 	. = ..()
 	if (static_vessel) // full data already acquired from parent proc

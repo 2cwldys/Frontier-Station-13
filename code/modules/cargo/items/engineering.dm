@@ -39,6 +39,19 @@
 	container_type = "crate"
 	groupable = TRUE
 
+/singleton/cargo_item/umbilical_pad
+	category = "engineering"
+	name = "umbilical pad"
+	supplier = "Hub"
+	description = "A tuned telepad that opens a standing, walk-through bluespace conduit to any other umbilical pad sharing its access code -- ideal for a permanent docked-ship-to-mooring connection. Wrench to secure after placement, then click it to set an access code -- no faction or officer access needed."
+	price = 1500
+	items = list(
+		/obj/structure/machinery/telepad_cargo/umbilical
+	)
+	access = 0
+	container_type = "crate"
+	groupable = TRUE
+
 /singleton/cargo_item/glasssheets
 	category = "engineering"
 	name = "glass sheets"

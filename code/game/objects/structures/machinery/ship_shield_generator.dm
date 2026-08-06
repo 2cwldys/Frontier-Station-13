@@ -26,19 +26,32 @@
 /// below so the two can never disagree about where a boundary falls.
 #define SHIELD_TIER_NONE "none" // no generator, or present but inactive -- ENEMY_SHIP_NO_SHIELDS when read externally
 #define SHIELD_TIER_DOWN "down" // active, but fully depleted
-#define SHIELD_TIER_TWENTY_FIVE "twenty_five" // active, <=25% of max
-#define SHIELD_TIER_FIFTY "fifty" // active, <=50% of max
-#define SHIELD_TIER_NORMAL "normal" // active, >50% but not yet full -- no line, see file header
+#define SHIELD_TIER_TWENTY_FIVE "twenty_five" // active, actually near 25% of max
+#define SHIELD_TIER_FIFTY "fifty" // active, actually near 50% of max
+#define SHIELD_TIER_NORMAL "normal" // active, but not close to any callout below -- no line, see file header
 #define SHIELD_TIER_MAX "max" // active, at 100% of max
 
-/// Announcer queue supersede keys (see play_announcer_sound(), announce.dm)
-/// for the own-ship and enemy-ship tier readouts -- kept separate so an
-/// enemy tier update can never purge a still-pending OWN tier line and vice
-/// versa.
-#define SHIELD_TIER_ANNOUNCE_KEY_OWN "shield_tier_own"
+/// How close (in percent of max) shield_strength has to be to 25/50 for
+/// get_shield_tier() to actually call it out by that name -- e.g. 12.5 means
+/// the 25% line only covers 12.5%-37.5% of the real value. Anything outside
+/// every band below falls back to SHIELD_TIER_NORMAL (silent) rather than
+/// naming a percentage nowhere close to the truth -- e.g. a big single hit
+/// that drops 90% straight to 5% has no honest "X percent" line to say, so
+/// it says nothing until shields either fully recover or fully collapse.
+#define SHIELD_TIER_BAND_WIDTH 2
+
+/// Announcer queue supersede key (see play_announcer_sound(), announce.dm)
+/// for the enemy-ship tier readout (_targeting_console.dm's continuous
+/// poll) -- that one's still a "current state" snapshot, unlike the own-
+/// ship line's crossing-based announcements below, which need no supersede
+/// key since every crossing they announce is a genuine distinct event.
 #define SHIELD_TIER_ANNOUNCE_KEY_ENEMY "shield_tier_enemy"
 
-/// See the SHIELD_TIER_* defines above for what each bucket means.
+/// See the SHIELD_TIER_* defines above for what each bucket means. Reads
+/// off the ACTUAL current percentage (gen.shield_strength /
+/// gen.max_shield_strength), not just a fraction of max_shield_strength in
+/// isolation -- this is what makes it correct regardless of whether
+/// max_shield_strength is 100, 300, or anything else.
 /proc/get_shield_tier(obj/structure/machinery/ship_shield_generator/gen)
 	if(!gen || !gen.active)
 		return SHIELD_TIER_NONE
@@ -46,10 +59,11 @@
 		return SHIELD_TIER_DOWN
 	if(gen.shield_strength >= gen.max_shield_strength)
 		return SHIELD_TIER_MAX
-	if(gen.shield_strength <= gen.max_shield_strength * 0.25)
-		return SHIELD_TIER_TWENTY_FIVE
-	if(gen.shield_strength <= gen.max_shield_strength * 0.5)
+	var/percent = (gen.shield_strength / gen.max_shield_strength) * 100
+	if(abs(percent - 50) <= SHIELD_TIER_BAND_WIDTH)
 		return SHIELD_TIER_FIFTY
+	if(abs(percent - 25) <= SHIELD_TIER_BAND_WIDTH)
+		return SHIELD_TIER_TWENTY_FIVE
 	return SHIELD_TIER_NORMAL
 
 /// Damage-per-simulated-rock when an asteroid wave is absorbed instead of
@@ -137,11 +151,12 @@
 	var/sheet_path = /obj/item/stack/material/phoron
 	var/sheet_name = "phoron crystals"
 
-	/// Last tier _check_tier_transition() actually announced -- compared
-	/// against get_shield_tier() on every regen/damage event so a line only
-	/// plays on a genuine crossing, never every tick it happens to still be
-	/// true.
-	var/last_shield_tier = SHIELD_TIER_NONE
+	/// shield_strength as of the last _check_tier_transition() call --
+	/// compared against the CURRENT value so a percentage threshold
+	/// (25%/50%/0%/max) is caught even when a single change (a big hit, or
+	/// several regen ticks at once) jumps clean past it without the current
+	/// value ever landing near it.
+	var/prev_shield_strength = 0
 	/// Flips every absorb_hit() so shields_struck_1/_2 alternate instead of
 	/// playing the same one back-to-back.
 	var/next_struck_alternate = FALSE
@@ -297,12 +312,12 @@
 			_announce_to_ship('sound/effects/ship_weapons/shields_powered_off_vfx.ogg', 50, FALSE)
 	update_icon()
 	if(active)
-		// Immediately discloses the current tier on power-on -- if shields
-		// retained a charge from before (or somehow start full), this can
-		// legitimately fire shields_maximum right after shields_online.
+		// Restores bubble visibility for whatever charge was already there --
+		// see _check_tier_transition()'s own doc comment for why this alone
+		// (with no strength actually changing) doesn't also re-announce a
+		// percentage line.
 		_check_tier_transition()
 	else
-		last_shield_tier = SHIELD_TIER_NONE
 		hide_bubble()
 
 /obj/structure/machinery/ship_shield_generator/update_icon()
@@ -342,39 +357,54 @@
 		return
 	announce_to_ship_z(linked.map_z, sound_path, volume, use_announcer_queue, supersede_key)
 
-/// Checked after every regen tick (process()) and every absorbed hit
-/// (absorb_hit()) -- announces a voice line, and shows/hides the shield
-/// bubble, only on an actual tier crossing (see get_shield_tier()'s own
-/// doc comment for why the up/down announcements are asymmetric).
-/// Passes SHIELD_TIER_ANNOUNCE_KEY_OWN so a rapid multi-hit barrage that
-/// crosses several tiers within one voice line's duration only ever leaves
-/// the LATEST tier queued -- without this, a fast combat sequence could
-/// queue "fifty percent" then "twenty-five percent" back to back, and the
-/// second would only play several seconds late, well after the real value
-/// had moved on again.
+/**
+ * Checked after every regen tick (process()) and every absorbed hit
+ * (absorb_hit()/absorb_meteor_wave()) -- shows/hides the shield bubble for
+ * the current charge, then announces a percentage line for every 25%/50%/
+ * max/down THRESHOLD actually crossed between the last check and now.
+ *
+ * Compares raw points (prev_shield_strength vs shield_strength), not a
+ * "current tier" snapshot -- a single big hit or a multi-tick regen jump
+ * can cross straight past 25% or 50% without shield_strength ever landing
+ * near it, and a threshold that got skipped over still genuinely happened,
+ * so it still gets announced. Checkpoints are announced in the order they
+ * were actually passed through (high-to-low while declining, low-to-high
+ * while recovering) -- e.g. a hit that drops 90% straight to 10% announces
+ * "fifty percent" then "twenty-five percent", in that order, not just
+ * whichever one the final value happens to be closest to.
+ */
 /obj/structure/machinery/ship_shield_generator/proc/_check_tier_transition()
-	var/new_tier = get_shield_tier(src)
-	if(new_tier == last_shield_tier)
-		return
-	last_shield_tier = new_tier
+	var/old_strength = prev_shield_strength
+	var/new_strength = shield_strength
+	prev_shield_strength = new_strength
 
-	var/sound_path
-	switch(new_tier)
-		if(SHIELD_TIER_MAX)
-			sound_path = 'sound/AI/announcements/shields_maximum.ogg'
-		if(SHIELD_TIER_FIFTY)
-			sound_path = 'sound/AI/announcements/shields_fifty_percent.ogg'
-		if(SHIELD_TIER_TWENTY_FIVE)
-			sound_path = 'sound/AI/announcements/shields_twenty_five_percent.ogg'
-		if(SHIELD_TIER_DOWN)
-			sound_path = 'sound/AI/announcements/shields_are_down.ogg'
-	if(sound_path)
-		_announce_to_ship(sound_path, 50, TRUE, SHIELD_TIER_ANNOUNCE_KEY_OWN)
-
-	if(new_tier == SHIELD_TIER_DOWN || new_tier == SHIELD_TIER_NONE)
+	if(new_strength <= 0)
 		hide_bubble()
 	else
 		show_bubble()
+
+	if(old_strength == new_strength)
+		return
+
+	var/lo = min(old_strength, new_strength)
+	var/hi = max(old_strength, new_strength)
+	var/declining = (new_strength < old_strength)
+
+	// High-to-low order -- reversed below when recovering, so each
+	// checkpoint is announced in the order it was actually passed through.
+	var/list/checkpoints = list(
+		list(max_shield_strength, 'sound/AI/announcements/shields_maximum.ogg'),
+		list(max_shield_strength * 0.5, 'sound/AI/announcements/shields_fifty_percent.ogg'),
+		list(max_shield_strength * 0.25, 'sound/AI/announcements/shields_twenty_five_percent.ogg'),
+		list(0, 'sound/AI/announcements/shields_are_down.ogg'),
+	)
+	if(!declining)
+		checkpoints = reverselist(checkpoints)
+
+	for(var/list/checkpoint in checkpoints)
+		var/point = checkpoint[1]
+		if(point >= lo && point <= hi)
+			_announce_to_ship(checkpoint[2], 50, TRUE)
 
 /// Fades the shield bubble in on the generator itself, and mirrors the same
 /// fade onto the linked ship's overmap marker.
