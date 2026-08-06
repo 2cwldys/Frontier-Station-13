@@ -1239,6 +1239,22 @@
 			for(var/obj/item/ammo_magazine/AM in pouch.hold.contents)
 				if(_magazine_fits(G, AM))
 					return AM
+	// Storage suits (plate carriers, webbing vests -- /obj/item/clothing/suit/
+	// storage and friends) keep their contents in an /obj/item/storage/internal
+	// living in the garment's own contents (`pockets`, armor.dm), which is
+	// neither one of the fixed slots above nor an accessory -- so neither loop
+	// above ever reached it. That's why a soldier reloaded from its belt but
+	// discarded its gun while carrying spare mags in a plate carrier. Same
+	// locate() pattern serializePersistentItem() already uses for these suits.
+	for(var/obj/item/clothing/worn_suit in list(wear_suit, w_uniform))
+		if(!worn_suit)
+			continue
+		var/obj/item/storage/internal/IS = locate() in worn_suit
+		if(!IS)
+			continue
+		for(var/obj/item/ammo_magazine/AM in IS.contents)
+			if(_magazine_fits(G, AM))
+				return AM
 	return null
 
 /mob/living/carbon/human/npc/hostile/proc/MoveToTarget()
