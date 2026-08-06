@@ -66,14 +66,19 @@ SUBSYSTEM_DEF(discord)
  */
 /datum/controller/subsystem/discord/proc/initialize_webhooks()
 	PRIVATE_PROC(TRUE)
-	if(!SSdbcore.Connect())
-		log_subsystem_discord("initialize_webhooks - Unable to connect to db - Loading from File")
-		var/file = file2text("config/webhooks.json")
-		if (file)
-			var/jsonData = json_decode(file)
-			if(!jsonData)
-				log_subsystem_discord("initialize_webhooks - Invalid JSON in config/webhooks.json")
-				return 1
+	var/loaded_from_file = 0
+	var/loaded_from_db = 0
+
+	// File and DB are both standing sources, not fallback-of-last-resort --
+	// on any real deployment with SQL enabled, the old either/or logic never
+	// reached this branch at all, so a correctly-configured
+	// config/webhooks.json silently never fired.
+	var/file = file2text("config/webhooks.json")
+	if(file)
+		var/jsonData = json_decode(file)
+		if(!jsonData)
+			log_subsystem_discord("initialize_webhooks - Invalid JSON in config/webhooks.json")
+		else
 			for(var/hook in jsonData)
 				if(!hook["url"] || !hook["tags"])
 					continue
@@ -81,26 +86,30 @@ SUBSYSTEM_DEF(discord)
 				webhooks += W
 				if(hook["mention"])
 					W.mention = hook["mention"]
-			return 0
-		else
-			log_subsystem_discord("initialize_webhooks - config/webhooks.json does not exist")
-			return 2
+				loaded_from_file++
 	else
+		log_subsystem_discord("initialize_webhooks - config/webhooks.json does not exist")
+
+	if(SSdbcore.Connect())
 		var/datum/db_query/discord_webhook_query = SSdbcore.NewQuery("SELECT url, tags, mention FROM ss13_webhooks")
 		if(!discord_webhook_query.Execute())
 			log_subsystem_discord("initialize_webhooks - Error while executing webhook query: [discord_webhook_query.last_error]")
 			qdel(discord_webhook_query)
-			return 3
-		while (discord_webhook_query.NextRow())
-			var/url = discord_webhook_query.item[1]
-			var/list/tags = splittext(discord_webhook_query.item[2], ";")
-			var/mention = discord_webhook_query.item[3]
-			var/datum/webhook/W = new(url, tags)
-			webhooks += W
-			if(mention)
-				W.mention = mention
-		log_subsystem_discord("initialize_webhooks - Loaded [webhooks.len] webhooks")
-		qdel(discord_webhook_query)
+		else
+			while (discord_webhook_query.NextRow())
+				var/url = discord_webhook_query.item[1]
+				var/list/tags = splittext(discord_webhook_query.item[2], ";")
+				var/mention = discord_webhook_query.item[3]
+				var/datum/webhook/W = new(url, tags)
+				webhooks += W
+				if(mention)
+					W.mention = mention
+				loaded_from_db++
+			qdel(discord_webhook_query)
+	else
+		log_subsystem_discord("initialize_webhooks - Unable to connect to db -- DB-configured webhooks skipped, file-based ones still loaded")
+
+	log_subsystem_discord("initialize_webhooks - Loaded [loaded_from_file] webhook(s) from file, [loaded_from_db] from db")
 	return 0
 
 /**
