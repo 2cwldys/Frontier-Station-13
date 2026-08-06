@@ -173,7 +173,11 @@
 
 		// Effects that require contact are only added to the contacts if they have been identified.
 		// Allows for coord tracking out of range of the player's view.
-		for(var/obj/effect/overmap/visitable/identified_contact in contact_datums)
+		// Base /obj/effect/overmap, not /visitable -- a non-visitable marker
+		// like a Supply Beacon (deliberately not /visitable, see its own file
+		// header) can still be a valid, identified sensor contact; it was
+		// previously excluded here by declared loop-variable type alone.
+		for(var/obj/effect/overmap/identified_contact in contact_datums)
 			potential_contacts |= identified_contact
 
 		for(var/obj/effect/overmap/contact in potential_contacts)

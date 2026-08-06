@@ -11,5 +11,18 @@ GLOBAL_LIST_INIT(announcer_sound_durations, list(
 	"sound/AI/announcements/raiding_allowed.ogg" = 4.4 SECONDS,
 	"sound/AI/announcements/raiding_prohibited.ogg" = 4.5 SECONDS,
 	"sound/AI/announcements/engines_powered_on.ogg" = 4.1 SECONDS,
-	"sound/AI/announcements/engines_powered_off.ogg" = 4.2 SECONDS
+	"sound/AI/announcements/engines_powered_off.ogg" = 4.2 SECONDS,
+	"sound/AI/announcements/shields_online.ogg" = 4.0 SECONDS,
+	"sound/AI/announcements/shields_maximum.ogg" = 4.4 SECONDS,
+	"sound/AI/announcements/shields_fifty_percent.ogg" = 4.7 SECONDS,
+	"sound/AI/announcements/shields_twenty_five_percent.ogg" = 5.0 SECONDS,
+	"sound/AI/announcements/shields_are_down.ogg" = 4.0 SECONDS,
+	"sound/AI/announcements/shields_are_offline.ogg" = 4.2 SECONDS,
+	"sound/AI/announcements/target_lock_acquired.ogg" = 4.2 SECONDS,
+	"sound/AI/announcements/firing_weapons.ogg" = 3.9 SECONDS,
+	"sound/AI/announcements/enemy_shields_at_max.ogg" = 4.7 SECONDS,
+	"sound/AI/announcements/enemy_shields_at_fifty_percent.ogg" = 5.1 SECONDS,
+	"sound/AI/announcements/enemy_shields_at_twenty_five_percent.ogg" = 5.4 SECONDS,
+	"sound/AI/announcements/enemy_shields_are_down.ogg" = 4.4 SECONDS,
+	"sound/AI/announcements/enemy_ship_no_shields.ogg" = 5.2 SECONDS
 ))

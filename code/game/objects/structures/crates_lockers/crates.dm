@@ -887,6 +887,35 @@
 /obj/structure/closet/crate/supply_beacon/proc/refresh_label()
 	name = "[initial(name)] (x[amount])"
 
+/// Reverse of merge_stacks_on_turf() -- peels a chosen quantity off this
+/// stack into a new crate of the same type, on the same turf. Copies
+/// commodity_key/origin_beacon_id/origin_beacon_label onto the new crate so
+/// it carries the exact same "can't sell back to origin" restriction as the
+/// stack it came from -- otherwise splitting would be a free way to launder
+/// around that rule.
+/obj/structure/closet/crate/supply_beacon/verb/split_stack()
+	set name = "Split Stack"
+	set category = "Object"
+	set src in view(1)
+
+	if(amount <= 1)
+		to_chat(usr, SPAN_WARNING("\The [src] can't be split any further."))
+		return
+
+	var/split_amount = tgui_input_number(usr, "Split off how many units? (1-[amount - 1])", "Split Stack", 1, amount - 1, 1)
+	if(isnull(split_amount) || split_amount <= 0 || split_amount >= amount)
+		return
+
+	var/obj/structure/closet/crate/supply_beacon/new_stack = new type(get_turf(src))
+	new_stack.commodity_key = commodity_key
+	new_stack.origin_beacon_id = origin_beacon_id
+	new_stack.origin_beacon_label = origin_beacon_label
+	new_stack.amount = split_amount
+	new_stack.refresh_label()
+
+	amount -= split_amount
+	refresh_label()
+
 /obj/structure/closet/crate/supply_beacon/zenithium
 	name = "sealed zenithium crate"
 	desc = "A tamper-proof crate marked ZENITHIUM. The seal can't be broken by any means -- it's meant to be traded, not opened."

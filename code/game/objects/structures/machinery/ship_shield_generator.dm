@@ -1,0 +1,407 @@
+/*
+ * Ship Shield Generator
+ * A cargo-purchasable machine that, once wrenched to a ship's hull, powered,
+ * and activated, absorbs incoming ship weapon fire up to its shield_strength
+ * pool instead of letting it hit the target Z-level at all -- see
+ * check_entry_ship() (_overmap_projectiles.dm) for the actual interception,
+ * and on_hit() (_ship_ammunition.dm) for a defense-in-depth recheck in case
+ * shields drop mid-flight.
+ *
+ * Modeled directly on ship_cloaking_device.dm -- same hook-up-to-ship
+ * pattern, same phoron-sheet hopper fuel model. The one deliberate
+ * difference from that fuel model: fuel here is a PURE on/off gate. It only
+ * decides whether the generator can be active and can regen/absorb at all --
+ * it never scales shield_strength/regen_rate. Running dry takes the
+ * generator offline (stops blocking AND stops regenerating) until refueled;
+ * it does not make shields weaker while still "on."
+ *
+ * Only activatable aboard an actual ship (drydock-owned or otherwise) --
+ * refuses on a station, same as a cloak wouldn't make sense there either.
+ */
+
+/// Coarse shield-capacity buckets, shared between this generator's own
+/// tier-transition announcer (see _check_tier_transition()) and the
+/// targeting console's continuous enemy-shield readout
+/// (_targeting_console.dm) -- both read tiers through get_shield_tier()
+/// below so the two can never disagree about where a boundary falls.
+#define SHIELD_TIER_NONE "none" // no generator, or present but inactive -- ENEMY_SHIP_NO_SHIELDS when read externally
+#define SHIELD_TIER_DOWN "down" // active, but fully depleted
+#define SHIELD_TIER_TWENTY_FIVE "twenty_five" // active, <=25% of max
+#define SHIELD_TIER_FIFTY "fifty" // active, <=50% of max
+#define SHIELD_TIER_NORMAL "normal" // active, >50% but not yet full -- no line, see file header
+#define SHIELD_TIER_MAX "max" // active, at 100% of max
+
+/// See the SHIELD_TIER_* defines above for what each bucket means.
+/proc/get_shield_tier(obj/structure/machinery/ship_shield_generator/gen)
+	if(!gen || !gen.active)
+		return SHIELD_TIER_NONE
+	if(gen.shield_strength <= 0)
+		return SHIELD_TIER_DOWN
+	if(gen.shield_strength >= gen.max_shield_strength)
+		return SHIELD_TIER_MAX
+	if(gen.shield_strength <= gen.max_shield_strength * 0.25)
+		return SHIELD_TIER_TWENTY_FIVE
+	if(gen.shield_strength <= gen.max_shield_strength * 0.5)
+		return SHIELD_TIER_FIFTY
+	return SHIELD_TIER_NORMAL
+
+/// Mirrors /obj/effect/pod_shield_bubble (secondary_systems.dm) exactly --
+/// same asset, same vis_contents technique (not AddOverlays(), which can't
+/// be live-animated for a fade and gets wiped by the ship marker's own
+/// update_icon() on every move -- see that file's own doc comment for the
+/// full reasoning, which applies here unchanged).
+/obj/effect/ship_shield_bubble
+	name = "shield"
+	desc = "A shimmering deflector field."
+	icon = 'icons/obj/vehicle/pod_ship.dmi'
+	icon_state = "shield"
+	anchored = TRUE
+	mouse_opacity = MOUSE_OPACITY_TRANSPARENT
+	alpha = 0
+	layer = ABOVE_HUMAN_LAYER
+
+/obj/structure/machinery/ship_shield_generator
+	name = "shield generator"
+	desc = "A reinforced generator that projects a deflector field around the ship's hull, absorbing incoming weapons fire until its capacity is exhausted."
+	icon = 'icons/obj/power.dmi'
+	icon_state = "rtg"
+	color = "#3daaff"
+	anchored = FALSE // spawns loose on purchase -- must be wrenched down before it can activate
+	density = TRUE
+	maxhealth = OBJECT_HEALTH_HIGH
+	idle_power_usage = 0
+	active_power_usage = 0
+
+	var/active = FALSE
+	var/shield_strength = 0
+	var/max_shield_strength = 300
+	/// Points regenerated per process() tick while active and fueled --
+	/// entirely independent of how much fuel is left, see file header.
+	var/regen_rate = 2
+
+	/// Same hopper shape as ship_cloaking_device.dm -- see that file's own
+	/// doc comment for why these numbers are deliberately stingy (shields
+	/// aren't meant to be a free permanent state).
+	var/time_per_sheet = 60
+	var/max_sheets = 30
+	var/sheets = 0
+	var/sheet_left = 0
+	var/power_output = 1
+	var/sheet_path = /obj/item/stack/material/phoron
+	var/sheet_name = "phoron crystals"
+
+	/// Last tier _check_tier_transition() actually announced -- compared
+	/// against get_shield_tier() on every regen/damage event so a line only
+	/// plays on a genuine crossing, never every tick it happens to still be
+	/// true.
+	var/last_shield_tier = SHIELD_TIER_NONE
+	/// Flips every absorb_hit() so shields_struck_1/_2 alternate instead of
+	/// playing the same one back-to-back.
+	var/next_struck_alternate = FALSE
+	/// The shimmer shown on the linked ship's overmap marker while shields
+	/// are up -- see show_bubble()/hide_bubble().
+	var/obj/effect/ship_shield_bubble/bubble
+
+/obj/structure/machinery/ship_shield_generator/Initialize()
+	. = ..()
+	return INITIALIZE_HINT_LATELOAD
+
+// Same reasoning/timing as ship_cloaking_device.dm's own LateInitialize()/
+// _hook_up_to_ship() -- see its doc comment.
+/obj/structure/machinery/ship_shield_generator/LateInitialize()
+	. = ..()
+	_hook_up_to_ship()
+
+/// As well as linking this machine to its ship (attempt_hook_up(), the
+/// generic /obj/structure/machinery proc), also registers back onto the
+/// ship's own overmap marker (shield_generator var, ship.dm) so incoming-
+/// fire code can find this generator from the TARGET side (check_entry_ship(),
+/// on_hit()) without walking every machine aboard the ship.
+/obj/structure/machinery/ship_shield_generator/proc/_hook_up_to_ship()
+	if(linked)
+		return TRUE
+	if(!SSatlas.current_map.use_overmap)
+		return FALSE
+	var/my_sector = GLOB.map_sectors["[GET_Z(src)]"]
+	if(!istype(my_sector, /obj/effect/overmap/visitable))
+		return FALSE
+	if(!attempt_hook_up(my_sector))
+		return FALSE
+	if(istype(linked, /obj/effect/overmap/visitable/ship))
+		var/obj/effect/overmap/visitable/ship/VS = linked
+		VS.shield_generator = src
+	return TRUE
+
+/obj/structure/machinery/ship_shield_generator/Destroy()
+	if(istype(linked, /obj/effect/overmap/visitable/ship))
+		var/obj/effect/overmap/visitable/ship/VS = linked
+		if(VS.shield_generator == src)
+			VS.shield_generator = null
+		if(bubble)
+			VS.remove_vis_contents(bubble)
+	QDEL_NULL(bubble)
+	DropFuel()
+	return ..()
+
+/obj/structure/machinery/ship_shield_generator/proc/HasFuel()
+	var/needed_sheets = power_output / time_per_sheet
+	if(sheets >= needed_sheets - sheet_left)
+		return TRUE
+	return FALSE
+
+/obj/structure/machinery/ship_shield_generator/proc/UseFuel()
+	var/needed_sheets = power_output / time_per_sheet
+	if(needed_sheets > sheet_left)
+		sheets--
+		sheet_left = (1 + sheet_left) - needed_sheets
+	else
+		sheet_left -= needed_sheets
+
+// Removes whatever's left in the hopper as a fresh stack -- mirrors
+// ship_cloaking_device.dm's own DropFuel(), called on Destroy() so
+// scrapping the generator doesn't silently delete stored phoron.
+/obj/structure/machinery/ship_shield_generator/proc/DropFuel()
+	if(sheets)
+		var/obj/item/stack/material/S = new sheet_path(loc)
+		var/amount = min(sheets, S.max_amount)
+		S.amount = amount
+		sheets -= amount
+
+/obj/structure/machinery/ship_shield_generator/process()
+	if(active && anchored && istype(linked) && HasFuel())
+		UseFuel()
+		if(shield_strength < max_shield_strength)
+			shield_strength = min(max_shield_strength, shield_strength + regen_rate)
+			_check_tier_transition()
+	else if(active)
+		// Ran out of phoron, got unanchored, or lost its ship link -- force off.
+		_set_active(FALSE, silent = (!HasFuel()))
+		if(!HasFuel())
+			audible_message(SPAN_WARNING("\The [src] sputters and powers down -- out of phoron."))
+
+/obj/structure/machinery/ship_shield_generator/proc/toggle_shield(mob/user)
+	if(!active)
+		if(!anchored)
+			to_chat(user, SPAN_WARNING("\The [src] must be anchored before it can be activated."))
+			return
+		if(!_hook_up_to_ship())
+			to_chat(user, SPAN_WARNING("\The [src] cannot locate this ship on the overmap."))
+			return
+		// Explicitly ship-only -- a station sector is /visitable but not
+		// /visitable/ship, so this refuses cleanly there without needing a
+		// separate drydock-registry/shuttle-area lookup at all.
+		if(!istype(linked, /obj/effect/overmap/visitable/ship))
+			to_chat(user, SPAN_WARNING("\The [src] can only be activated aboard a drydock ship or shuttle, not a station."))
+			return
+		if(!HasFuel())
+			to_chat(user, SPAN_WARNING("\The [src] has no phoron left to burn."))
+			return
+	_set_active(!active)
+
+/obj/structure/machinery/ship_shield_generator/proc/_set_active(new_state, silent = FALSE)
+	if(active == new_state)
+		return
+	active = new_state
+	if(!silent)
+		visible_message(active \
+			? SPAN_NOTICE("\The [src] hums to life -- a faint shimmer spreads across the hull.") \
+			: SPAN_NOTICE("\The [src] powers down."))
+		// Suppressed alongside the text above on the routine "ran out of
+		// fuel" auto-shutoff -- that path already has its own, more specific
+		// "sputters and powers down" line (process()), so SHIELDS_ARE_OFFLINE
+		// would just be redundant noise on top of it.
+		if(active)
+			_announce_to_ship('sound/AI/announcements/shields_online.ogg', 50, TRUE)
+			_announce_to_ship('sound/effects/ship_weapons/shields_powered_on_vfx.ogg', 50, FALSE)
+		else
+			_announce_to_ship('sound/AI/announcements/shields_are_offline.ogg', 50, TRUE)
+			_announce_to_ship('sound/effects/ship_weapons/shields_powered_off_vfx.ogg', 50, FALSE)
+	update_icon()
+	if(active)
+		// Immediately discloses the current tier on power-on -- if shields
+		// retained a charge from before (or somehow start full), this can
+		// legitimately fire shields_maximum right after shields_online.
+		_check_tier_transition()
+	else
+		last_shield_tier = SHIELD_TIER_NONE
+		hide_bubble()
+
+/obj/structure/machinery/ship_shield_generator/update_icon()
+	set_light(active ? 2 : 0, 1, l_color = color)
+
+/// Z-wide broadcast to every mob on the given ship's Z-level(s) -- Z-wide,
+/// not console-range-limited like the engine announcer
+/// (_announce_engine_power(), ship.dm), per explicit design: shield/combat
+/// status is whole-ship information, not console-local ambiance. Shared by
+/// the shield generator (its own status/tier lines), target()/detarget()
+/// (lock-on confirmation), and the targeting console (fire confirmation,
+/// enemy shield readout) -- one broadcast shape, several call sites.
+/// use_announcer_queue routes voice lines through play_announcer_sound()
+/// (the existing per-client announcer_queue/announcer_free_at system,
+/// ASFX_ANNOUNCER-gated, so two lines never overlap for the same
+/// listener); plain VFX/struck effects just play directly, gated only on
+/// ear_deaf.
+/proc/announce_to_ship_z(list/map_z, sound_path, volume, use_announcer_queue)
+	if(!length(map_z))
+		return
+	for(var/mob/M in GLOB.player_list)
+		if(!M.client || M.ear_deaf || !(GET_Z(M) in map_z))
+			continue
+		if(use_announcer_queue)
+			if(M.client.prefs.sfx_toggles & ASFX_ANNOUNCER)
+				play_announcer_sound(M, sound_path, volume)
+		else
+			M << sound(sound_path, volume = volume)
+
+/// Thin per-instance wrapper around announce_to_ship_z() for this
+/// generator's own linked ship -- see that proc's doc comment.
+/obj/structure/machinery/ship_shield_generator/proc/_announce_to_ship(sound_path, volume, use_announcer_queue)
+	if(!istype(linked))
+		return
+	announce_to_ship_z(linked.map_z, sound_path, volume, use_announcer_queue)
+
+/// Checked after every regen tick (process()) and every absorbed hit
+/// (absorb_hit()) -- announces a voice line, and shows/hides the shield
+/// bubble, only on an actual tier crossing (see get_shield_tier()'s own
+/// doc comment for why the up/down announcements are asymmetric).
+/obj/structure/machinery/ship_shield_generator/proc/_check_tier_transition()
+	var/new_tier = get_shield_tier(src)
+	if(new_tier == last_shield_tier)
+		return
+	last_shield_tier = new_tier
+
+	var/sound_path
+	switch(new_tier)
+		if(SHIELD_TIER_MAX)
+			sound_path = 'sound/AI/announcements/shields_maximum.ogg'
+		if(SHIELD_TIER_FIFTY)
+			sound_path = 'sound/AI/announcements/shields_fifty_percent.ogg'
+		if(SHIELD_TIER_TWENTY_FIVE)
+			sound_path = 'sound/AI/announcements/shields_twenty_five_percent.ogg'
+		if(SHIELD_TIER_DOWN)
+			sound_path = 'sound/AI/announcements/shields_are_down.ogg'
+	if(sound_path)
+		_announce_to_ship(sound_path, 50, TRUE)
+
+	if(new_tier == SHIELD_TIER_DOWN || new_tier == SHIELD_TIER_NONE)
+		hide_bubble()
+	else
+		show_bubble()
+
+/// Fades the shield bubble in on the linked ship's own overmap marker.
+/obj/structure/machinery/ship_shield_generator/proc/show_bubble()
+	if(!istype(linked))
+		return
+	if(!bubble)
+		bubble = new(linked)
+		linked.add_vis_contents(bubble)
+	animate(bubble, alpha = 255, time = 1 SECOND)
+
+/// Fades the bubble back out rather than cutting it instantly -- left
+/// sitting in vis_contents at alpha 0 between toggles instead of removed/
+/// re-added each time, same as pod_shield_bubble's own hide_shield_bubble().
+/obj/structure/machinery/ship_shield_generator/proc/hide_bubble()
+	if(!bubble)
+		return
+	animate(bubble, alpha = 0, time = 1 SECOND)
+
+/**
+ * Called from check_entry_ship() (_overmap_projectiles.dm) before an
+ * incoming shot is allowed to actually reach this ship's Z-level, and again
+ * (defense-in-depth) from /obj/projectile/ship_ammo/on_hit()
+ * (_ship_ammunition.dm) in case shields dropped mid-flight. Returns TRUE if
+ * the hit was absorbed (caller must qdel the projectile and never let it
+ * deal real damage) or FALSE if it should proceed normally.
+ */
+/obj/structure/machinery/ship_shield_generator/proc/absorb_hit(obj/projectile/ship_ammo/incoming)
+	if(!active || !HasFuel() || shield_strength <= 0)
+		return FALSE
+
+	// Weighted composite of the shot's devastation/heavy/light explosion
+	// radii (explosion_strength, _ship_ammunition.dm -- stored there for
+	// exactly this) into a single "shield damage" number. Tuned as a first
+	// pass; rebalance via these weights or max_shield_strength/regen_rate
+	// without touching anything else.
+	var/list/strength = incoming?.explosion_strength
+	var/damage = 0
+	if(islist(strength) && length(strength) >= 3)
+		damage = (strength[1] * 15) + (strength[2] * 8) + (strength[3] * 4)
+	shield_strength = max(0, shield_strength - damage)
+
+	var/turf/hit_turf = get_turf(src)
+	if(hit_turf)
+		playsound(hit_turf, 'sound/effects/shieldbash.ogg', 70, TRUE)
+	for(var/z_level in GetConnectedZlevels(GET_Z(src)))
+		for(var/mob/living/carbon/human/H in GLOB.human_mob_list)
+			if(H.z == z_level)
+				shake_camera(H, 6, 3)
+
+	// Alternates so repeated hits don't sound identical back-to-back --
+	// layered on top of the impact sound/shake above, not a replacement.
+	var/struck_sound = next_struck_alternate ? 'sound/effects/ship_weapons/shields_struck_2.ogg' : 'sound/effects/ship_weapons/shields_struck_1.ogg'
+	next_struck_alternate = !next_struck_alternate
+	_announce_to_ship(struck_sound, 60, FALSE)
+
+	_check_tier_transition()
+	return TRUE
+
+/obj/structure/machinery/ship_shield_generator/attackby(obj/item/attacking_item, mob/user, params)
+	if(istype(attacking_item, sheet_path))
+		var/obj/item/stack/addstack = attacking_item
+		var/amount = min((max_sheets - sheets), addstack.amount)
+		if(amount < 1)
+			to_chat(user, SPAN_NOTICE("\The [src] is full!"))
+			return
+		to_chat(user, SPAN_NOTICE("You feed [amount] [sheet_name] into \the [src]."))
+		sheets += amount
+		addstack.use(amount)
+		return
+	if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		if(anchored && active)
+			to_chat(user, SPAN_WARNING("Power down \the [src] before unwrenching it."))
+			return TRUE
+		attacking_item.play_tool_sound(get_turf(src), 50)
+		anchored = !anchored
+		user.visible_message(SPAN_NOTICE("[user] [anchored ? "wrenches" : "unwrenches"] \the [src] [anchored ? "to" : "from"] the floor."), \
+			SPAN_NOTICE("You [anchored ? "wrench \the [src] to" : "unwrench \the [src] from"] the floor."))
+		return TRUE
+	return ..()
+
+/obj/structure/machinery/ship_shield_generator/attack_hand(mob/user)
+	if(..())
+		return
+	ui_interact(user)
+
+/obj/structure/machinery/ship_shield_generator/ui_interact(mob/user, datum/tgui/ui)
+	ui = SStgui.try_update_ui(user, src, ui)
+	if(!ui)
+		// "ShipShieldGenerator", not "ShieldGenerator" -- that name is
+		// already taken by the unrelated station-side forcefield generator
+		// (code/modules/shieldgen/, ShieldGenerator.tsx).
+		ui = new(user, src, "ShipShieldGenerator", "Shield Generator", 380, 340)
+		ui.open()
+
+/obj/structure/machinery/ship_shield_generator/ui_data(mob/user)
+	var/list/data = list()
+	data["active"] = active
+	data["anchored"] = anchored
+	data["linked"] = istype(linked)
+	data["shield_strength"] = shield_strength
+	data["max_shield_strength"] = max_shield_strength
+	data["sheets"] = sheets
+	data["max_sheets"] = max_sheets
+	data["sheet_name"] = sheet_name
+	var/needed_sheets = power_output / time_per_sheet // fraction of a sheet burned per process() tick
+	data["seconds_per_sheet"] = time_per_sheet
+	data["seconds_remaining"] = (needed_sheets > 0) ? round((sheets + sheet_left) / needed_sheets) : null
+	return data
+
+/obj/structure/machinery/ship_shield_generator/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
+	. = ..()
+	if(.)
+		return
+	var/mob/user = usr
+	switch(action)
+		if("toggle")
+			toggle_shield(user)
+			. = TRUE

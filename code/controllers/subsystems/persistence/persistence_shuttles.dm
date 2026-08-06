@@ -776,6 +776,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			S.refresh_name()
 			invalidated++
 
+	log_and_message_admins("repossessed drydock ship #[shuttle_id] ('[DS.display_name()]') for the Hub ([invalidated] live schematic(s) invalidated).", user)
 	log_drydock("drydockRepossess: [acting] repossessed shuttle_id=[shuttle_id] for the Hub ([invalidated] live schematic(s) invalidated).")
 	return TRUE
 
@@ -813,6 +814,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	DS.prev_owner_char_name = null
 	DS.prev_faction_uid = null
 
+	log_and_message_admins("returned drydock ship #[shuttle_id] ('[DS.display_name()]') to its original owner.", user)
 	log_drydock("drydockReturnToOwner: [acting] returned shuttle_id=[shuttle_id] to its original owner.")
 	return TRUE
 
@@ -1386,6 +1388,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		schematic.refresh_name()
 		user.put_in_hands(schematic)
 		to_chat(user, SPAN_GOOD("Purchased '[template.name]' -- schematic in hand."))
+	log_and_message_admins("bought drydock ship '[template.name]' (#[new_id])[faction_uid ? " for faction [get_faction_name(faction_uid)]" : ""].", user)
 	log_drydock("drydockBuy: [acting] bought '[template_id]' (owner=[owner_ckey ? "[owner_ckey] (\"[owner_char_name]\")" : "none"], faction=[faction_uid || "none"], shuttle_id=[new_id]).")
 	return TRUE
 
@@ -1456,7 +1459,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		log_drydock_error("drydockRetrieve: uncaught exception retrieving shuttle_id=[shuttle_id] (acting=[user ? key_name(user) : "SYSTEM"]): [e]")
 		if(user)
 			to_chat(user, SPAN_WARNING("Something went wrong retrieving that ship -- an admin has been notified."))
-		message_admins("drydockRetrieve: uncaught exception retrieving shuttle_id=[shuttle_id]: [e]")
+		log_and_message_admins("drydockRetrieve: uncaught exception retrieving shuttle_id=[shuttle_id]: [e]", user)
 	GLOB.drydock_op_active = FALSE
 	GLOB.drydock_op_active_shuttle_id = null
 	_drydockProcessNextQueued()
@@ -1745,7 +1748,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			var/datum/shuttle/sub = SSshuttle.shuttles[sub_tag]
 			if(!istype(sub) || !length(sub.shuttle_area))
 				log_drydock_warning("drydockRetrieve: sub-ship '[sub_tag]' missing or invalid for shuttle_id=[shuttle_id] template='[DS.template_id]' -- may need manual recovery.")
-				message_admins("[SPAN_WARNING("Drydock sub-ship missing:")] '[sub_tag]' not found aboard [DS.display_name()] (#[shuttle_id]) after retrieve. [ADMIN_JMP(marker)]")
+				log_and_message_admins("[SPAN_WARNING("Drydock sub-ship missing:")] '[sub_tag]' not found aboard [DS.display_name()] (#[shuttle_id]) after retrieve.", user, marker)
 
 	// DS.stashed already flipped FALSE above, before the apply pipeline ran.
 	DS.z         = new_z
@@ -1766,7 +1769,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 	if(user)
 		to_chat(user, SPAN_GOOD("Ship retrieved -- fly it in via its nav console. You'll be notified when it's ready to board."))
-		message_admins("[key_name(user)] retrieved drydock ship '[DS.display_name()]' (#[shuttle_id]) at ([marker.x],[marker.y],[new_z]). [ADMIN_JMP(marker)]")
+		log_and_message_admins("retrieved drydock ship '[DS.display_name()]' (#[shuttle_id]) at ([marker.x],[marker.y],[new_z]).", user, marker)
 	_drydockFlagIfStolen(DS, user)
 	log_drydock("drydockRetrieve: shuttle_id=[shuttle_id] deployed at z=[DS.z], overmap ([DS.overmap_x],[DS.overmap_y]) (acting=[acting]).")
 	return TRUE
@@ -1959,7 +1962,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		log_drydock_error("drydockStash: uncaught exception stashing shuttle_id=[shuttle_id] (acting=[user ? key_name(user) : "SYSTEM"]): [e]")
 		if(user)
 			to_chat(user, SPAN_WARNING("Something went wrong stashing that ship -- an admin has been notified."))
-		message_admins("drydockStash: uncaught exception stashing shuttle_id=[shuttle_id]: [e]")
+		log_and_message_admins("drydockStash: uncaught exception stashing shuttle_id=[shuttle_id]: [e]", user)
 	GLOB.drydock_op_active = FALSE
 	GLOB.drydock_op_active_shuttle_id = null
 	_drydockProcessNextQueued()
@@ -2122,13 +2125,13 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		qdel(uq)
 
 	// Grabbed before teardown -- there's no marker left to JMP to afterward.
-	var/stash_jmp = istype(check_marker) ? ADMIN_JMP(check_marker) : ""
+	var/turf/stash_location = istype(check_marker) ? get_turf(check_marker) : null
 
 	SSpersistence._drydockMarkerTeardown(stash_z)
 
 	if(user)
 		to_chat(user, SPAN_GOOD("Ship stashed."))
-		message_admins("[key_name(user)] stashed drydock ship '[DS.display_name()]' (#[shuttle_id]). [stash_jmp]")
+		log_and_message_admins("stashed drydock ship '[DS.display_name()]' (#[shuttle_id]).", user, stash_location)
 	// force=TRUE is a system/officer-authority override (shutdown sweep,
 	// admin Force Stash, First Responder seizure) -- never the acting user
 	// exercising their own claim, so it should never itself flag theft.
@@ -2244,7 +2247,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 	if(user)
 		to_chat(user, SPAN_GOOD("Ship removed."))
-	message_admins("[acting] permanently removed drydock ship '[ship_display_name]' (#[shuttle_id]) from storage (no fee).[user ? " [ADMIN_JMP(user)]" : ""]")
+	log_and_message_admins("permanently removed drydock ship '[ship_display_name]' (#[shuttle_id]) from storage (no fee).", user)
 	log_drydock("drydockSell: [acting] permanently deleted shuttle_id=[shuttle_id] from the drydock DB.")
 	return TRUE
 
@@ -2338,12 +2341,12 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		SSpersistence._drydockMarkerTeardown(deployed_z)
 
 	if(fee_paid)
-		message_admins("[key_name(user)] SCUTTLED their ship '[ship_display_name]' (#[shuttle_id]) for [fee_paid]cr. [ADMIN_JMP(jmp_target)]")
+		log_and_message_admins("SCUTTLED their ship '[ship_display_name]' (#[shuttle_id]) for [fee_paid]cr.", user, get_turf(jmp_target))
 		if(user)
 			to_chat(user, SPAN_GOOD("Ship scuttled -- gone for good."))
 		log_drydock("drydockScuttle: [acting] permanently scuttled shuttle_id=[shuttle_id] ('[DS.template_id]') for [fee_paid]cr, was_deployed=[was_deployed].")
 	else
-		message_admins("[key_name(user)] SCUTTLED '[ship_display_name]' (#[shuttle_id]) under Hub officer authority (no fee). [ADMIN_JMP(jmp_target)]")
+		log_and_message_admins("SCUTTLED '[ship_display_name]' (#[shuttle_id]) under Hub officer authority (no fee).", user, get_turf(jmp_target))
 		log_drydock("drydockScuttle: [acting] permanently scuttled shuttle_id=[shuttle_id] ('[DS.template_id]') under Hub authority, was_deployed=[was_deployed].")
 	return TRUE
 

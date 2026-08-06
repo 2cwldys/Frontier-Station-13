@@ -18,6 +18,11 @@ type ShipGun = {
   ammunition_type: string;
 };
 
+type ShieldData = {
+  shield_strength: number;
+  max_shield_strength: number;
+};
+
 export type GunneryData = {
   guns: ShipGun[];
   cannon: ShipGun;
@@ -33,6 +38,27 @@ export type GunneryData = {
   entry_point_map_image: any; // base64 icon
   entry_point_x: number;
   entry_point_y: number;
+  own_shields: ShieldData | null;
+  target_shields: ShieldData | null;
+};
+
+const ShieldListItem = (props: { label: string; shields: ShieldData | null }) => {
+  const { label, shields } = props;
+  if (!shields) {
+    return (
+      <LabeledList.Item label={label}>No shields detected.</LabeledList.Item>
+    );
+  }
+  const percent = shields.max_shield_strength
+    ? Math.round(
+        (shields.shield_strength / shields.max_shield_strength) * 100,
+      )
+    : 0;
+  return (
+    <LabeledList.Item label={label}>
+      {shields.shield_strength} / {shields.max_shield_strength} ({percent}%)
+    </LabeledList.Item>
+  );
 };
 
 type Targeting = {
@@ -63,6 +89,9 @@ export const GunneryWindow = (props) => {
     return (
       <Section title="Targeting Information">
         <Box bold>No target designated.</Box>
+        <LabeledList>
+          <ShieldListItem label="Own Shields" shields={data.own_shields} />
+        </LabeledList>
       </Section>
     );
   } else {
@@ -77,6 +106,11 @@ export const GunneryWindow = (props) => {
             <LabeledList.Item label="Distance">
               {data.targeting.distance} click(s)
             </LabeledList.Item>
+            <ShieldListItem label="Own Shields" shields={data.own_shields} />
+            <ShieldListItem
+              label="Target Shields"
+              shields={data.target_shields}
+            />
           </LabeledList>
         </Section>
         <Section title="Targeting Calibration">

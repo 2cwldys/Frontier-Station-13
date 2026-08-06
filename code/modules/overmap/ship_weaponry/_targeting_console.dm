@@ -12,6 +12,16 @@
 	var/selected_z = 0
 	var/list/names_to_guns = list()
 	var/list/names_to_entries = list()
+	/// The locked target process() last checked -- lets a genuinely new lock
+	/// (or losing the lock) reset last_announced_target_tier cleanly instead
+	/// of carrying over stale tier state from whatever was locked before.
+	var/obj/effect/overmap/last_watched_target
+	/// Last enemy shield tier actually announced for the current lock -- see
+	/// get_shield_tier() (ship_shield_generator.dm) for the tier buckets.
+	var/last_announced_target_tier
+	/// Self-throttle for process(), same shape as ship.dm's own
+	/// next_engine_hum_check -- this doesn't need to check every tick.
+	var/next_shield_check = 0
 
 /obj/structure/machinery/computer/ship/targeting/terminal
 	name = "targeting systems terminal"
@@ -42,6 +52,62 @@
 	names_to_entries.Cut()
 	return ..()
 
+/// Called from target()/detarget() (overmap_object.dm) the instant a lock
+/// is acquired or cleared -- starts/stops the continuous enemy-shield
+/// readout below instead of leaving this console ticking with nothing
+/// locked, or waiting a stray interval to notice a fresh lock.
+/obj/structure/machinery/computer/ship/targeting/proc/check_processing()
+	if(linked?.targeting)
+		START_PROCESSING(SSprocessing, src)
+	else
+		STOP_PROCESSING(SSprocessing, src)
+
+/// Continuously watches whatever this console currently has locked and
+/// announces the target's shield tier (get_shield_tier(),
+/// ship_shield_generator.dm) as it changes, Z-wide on the OBSERVING ship
+/// (this console's own ship, not the target's) -- per your explicit call
+/// that the enemy readout should keep updating live, not just once at
+/// lock-on. Self-throttled the same way ship.dm's own engine hum check is;
+/// check_processing() above already keeps this from running at all with no
+/// lock held.
+/obj/structure/machinery/computer/ship/targeting/process()
+	if(world.time < next_shield_check)
+		return
+	next_shield_check = world.time + 3 SECONDS
+
+	if(!linked?.targeting)
+		check_processing()
+		return
+
+	if(linked.targeting != last_watched_target)
+		last_watched_target = linked.targeting
+		last_announced_target_tier = null
+
+	var/obj/structure/machinery/ship_shield_generator/target_gen
+	if(istype(linked.targeting, /obj/effect/overmap/visitable/ship))
+		var/obj/effect/overmap/visitable/ship/target_ship = linked.targeting
+		target_gen = target_ship.shield_generator
+
+	var/new_tier = get_shield_tier(target_gen)
+	if(new_tier == last_announced_target_tier)
+		return
+	last_announced_target_tier = new_tier
+
+	var/sound_path
+	switch(new_tier)
+		if(SHIELD_TIER_NONE)
+			sound_path = 'sound/AI/announcements/enemy_ship_no_shields.ogg'
+		if(SHIELD_TIER_DOWN)
+			sound_path = 'sound/AI/announcements/enemy_shields_are_down.ogg'
+		if(SHIELD_TIER_TWENTY_FIVE)
+			sound_path = 'sound/AI/announcements/enemy_shields_at_twenty_five_percent.ogg'
+		if(SHIELD_TIER_FIFTY)
+			sound_path = 'sound/AI/announcements/enemy_shields_at_fifty_percent.ogg'
+		if(SHIELD_TIER_MAX)
+			sound_path = 'sound/AI/announcements/enemy_shields_at_max.ogg'
+	if(sound_path && istype(linked))
+		announce_to_ship_z(linked.map_z, sound_path, 50, TRUE)
+
 /obj/structure/machinery/computer/ship/targeting/ui_interact(mob/user, datum/tgui/ui)
 	ui = SStgui.try_update_ui(user, src, ui)
 	if(!ui)
@@ -56,6 +122,13 @@
 	if(data["mobile_platform"])
 		data["platform_direction"] = platform_direction
 		data["platform_directions"] = list("NORTH", "NORTHEAST", "EAST", "SOUTHEAST", "SOUTH", "SOUTHWEST", "WEST", "NORTHWEST")
+	// Own ship's shields -- independent of whatever's currently locked (or
+	// nothing at all), so this is resolved outside the targeting block below.
+	// linked is typed as the base /visitable (_machinery.dm) -- shield_generator
+	// only exists on the /ship subtype (ship.dm), hence the istype cast.
+	if(istype(linked, /obj/effect/overmap/visitable/ship))
+		var/obj/effect/overmap/visitable/ship/own_ship = linked
+		data["own_shields"] = get_shield_data(own_ship.shield_generator)
 	if(linked?.targeting)
 		for(var/obj/structure/machinery/ship_weapon/SW in linked.ship_weapons)
 			if(!SW.special_firing_mechanism)
@@ -65,6 +138,12 @@
 			"shiptype" = linked.targeting.shiptype,
 			"distance" = get_dist(linked, linked.targeting)
 		)
+		// Target's shields, if it's a ship with a linked generator -- lets a
+		// gunner see whether their shots are actually getting through
+		// without needing a separate sensors console readout.
+		if(istype(linked.targeting, /obj/effect/overmap/visitable/ship))
+			var/obj/effect/overmap/visitable/ship/target_ship = linked.targeting
+			data["target_shields"] = get_shield_data(target_ship.shield_generator)
 		data["show_z_list"] = FALSE
 		data["selected_z"] = selected_z
 		if(istype(linked.targeting, /obj/effect/overmap/visitable))
@@ -162,6 +241,8 @@
 						visible_message(SPAN_WARNING("The console shows a neutral message: firing sequence successful, Silicon unit registered firing: [usr]"))
 					else
 						visible_message(SPAN_WARNING("The console shows a positive message: firing sequence successful!"))
+					if(istype(linked))
+						announce_to_ship_z(linked.map_z, 'sound/AI/announcements/firing_weapons.ogg', 50, TRUE)
 
 		if("viewing")
 			if(usr)
@@ -210,6 +291,14 @@
 		"ammunition" = ammo_status,
 		"ammunition_type" = capitalize_first_letters(SA ? SA.impact_type : "None Loaded")
 	)
+
+/// Shared shape for both the console's own ship and its currently-locked
+/// target -- null if there's no generator at all, or it isn't active (an
+/// unpowered/offline generator provides no meaningful "shield %" to show).
+/obj/structure/machinery/computer/ship/targeting/proc/get_shield_data(obj/structure/machinery/ship_shield_generator/gen)
+	if(!gen || !gen.active)
+		return null
+	return list("shield_strength" = gen.shield_strength, "max_shield_strength" = gen.max_shield_strength)
 
 /obj/structure/machinery/computer/ship/targeting/proc/copy_entrypoints(var/z_level_filter = 0)
 	. = list()

@@ -110,6 +110,20 @@
 			// All other cases, move toward direction
 			else if (speed + acceleration <= speedlimit)
 				connected.accelerate(direction, accellimit)
+			// accelerate()/decelerate() only ever touch the velocity vector,
+			// never dir -- combined with set_dir_on_move = FALSE
+			// (overmap_object.dm) that left an autopiloting ship's sprite
+			// frozen at whatever direction it was last manually turned to,
+			// visibly floating sideways/backwards toward its destination
+			// instead of facing it. get_heading() (ship.dm) is the same
+			// heading-from-velocity calc combat_turn() already uses for
+			// manual piloting; only apply it when it resolves to an actual
+			// direction (0 while functionally stationary, e.g. mid-brake) so
+			// a stopped ship keeps facing wherever it last pointed instead of
+			// snapping to an invalid dir.
+			var/new_heading = connected.get_heading()
+			if(new_heading)
+				connected.dir = new_heading
 	for(var/obj/item/clothing/head/helmet/pilot/PH as anything in linked_helmets)
 		PH.set_hud_maptext("| Ship Status | [connected.x]-[connected.y] |<br>Speed: [round(connected.get_speed()*1000, 0.01)] | Acceleration: [get_acceleration()]<br>ETA to Next Grid: [get_eta()]")
 		PH.check_ship_overlay(PH.loc, connected)
@@ -189,8 +203,12 @@
 	// instead of always requiring manual x/y entry (setx/sety/add) for a
 	// target already visible on-screen. Reuses the existing "xy" action
 	// (below) -- no new ui_act needed, just this extra data.
+	// Base /obj/effect/overmap, not /visitable -- see the matching comment in
+	// sensors.dm's ui_data() for why (a non-visitable marker like a Supply
+	// Beacon was previously excluded here by declared loop-variable type
+	// alone, despite being scannable/detectable).
 	var/list/nearby_contacts = list()
-	for(var/obj/effect/overmap/visitable/nearby in view(7, connected))
+	for(var/obj/effect/overmap/nearby in view(7, connected))
 		if(nearby == connected || !nearby.scannable || !nearby.is_detectable(user))
 			continue
 		nearby_contacts += list(list("name" = nearby.name, "x" = nearby.x, "y" = nearby.y))

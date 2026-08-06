@@ -327,6 +327,19 @@
 		forceMove(ammo)
 
 /obj/projectile/ship_ammo/on_hit(atom/target, blocked, def_zone, var/is_landmark_hit = FALSE) //is_landmark_hit is TRUE when we hit a landmark on a visitable non-ship overmap object.
+	// Defense-in-depth recheck -- check_entry_ship() (_overmap_projectiles.dm)
+	// already blocks a shot before it ever reaches the target ship's Z-level
+	// if shields were up at that moment, but this shot may have been mid-
+	// flight across the target's own submap turfs when shields came up (or
+	// dropped) in between. Same "lock-time check, fire-time recheck" shape
+	// _targeting_console.dm already uses for site-bombardment protection.
+	if(target)
+		var/obj/effect/overmap/visitable/target_sector = GLOB.map_sectors["[GET_Z(target)]"]
+		if(istype(target_sector, /obj/effect/overmap/visitable/ship))
+			var/obj/effect/overmap/visitable/ship/VS = target_sector
+			if(VS.shield_generator && VS.shield_generator.absorb_hit(src))
+				qdel(src)
+				return
 	if(target && !hit_target)
 		hit_target = TRUE
 		var/target_name = target.name

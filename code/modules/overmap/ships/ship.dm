@@ -31,6 +31,14 @@
 	var/list/known_ships = list()		//List of ships known at roundstart - put types here.
 	var/base_sensor_visibility
 
+	/// This ship's shield generator machine, if one is built/wrenched down
+	/// and linked (see ship_shield_generator.dm's _hook_up_to_ship()) --
+	/// null otherwise. Lets incoming-fire code (check_entry_ship(),
+	/// _overmap_projectiles.dm; on_hit(), _ship_ammunition.dm) and the
+	/// targeting console's own shield readout find this ship's generator
+	/// directly, without walking every machine aboard.
+	var/obj/structure/machinery/ship_shield_generator/shield_generator
+
 	/// Tonnes, arbitrary number, affects acceleration provided by engines. Will help determine the speed of the ship.
 	vessel_mass = 10000
 	/// Arbitrary number, affects how likely the ship is to evade meteors.

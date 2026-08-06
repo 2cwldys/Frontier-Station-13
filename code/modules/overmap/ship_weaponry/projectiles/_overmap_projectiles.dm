@@ -165,6 +165,17 @@
 
 //Handle hitting ships. This requires translating the projectile's direction to account for the relative rotation of the ship. The projectile then spawns at the edge of the map, aimed at the target landmark.
 /obj/effect/overmap/projectile/proc/check_entry_ship(obj/projectile/ship_ammo/widowmaker, turf/target_turf, obj/effect/overmap/visitable/ship/VS)
+	// Shield check happens here, before the shot ever becomes a real
+	// projectile on the target's own submap Z-level -- see
+	// ship_shield_generator.dm's absorb_hit() for the actual strength/
+	// screenshake/sound handling. A second, defense-in-depth recheck lives
+	// in /obj/projectile/ship_ammo/on_hit() (_ship_ammunition.dm) for the
+	// rare case shields change state mid-flight.
+	if(VS.shield_generator && VS.shield_generator.absorb_hit(widowmaker))
+		qdel(widowmaker)
+		qdel(src)
+		return TRUE
+
 	var/shot_direction = src.dir
 	var/naval_heading = SSatlas.headings_to_naval["[VS.dir]"]["[shot_direction]"]
 	var/corrected_heading = SSatlas.naval_to_dir["[VS.fore_dir]"][naval_heading]

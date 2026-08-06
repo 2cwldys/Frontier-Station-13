@@ -29,6 +29,13 @@
 	requires_contact = TRUE
 	instant_contact = TRUE
 	generic_object = FALSE
+	// Both sensors.dm and helm.dm additionally gate their contact/destination
+	// lists on this -- every /visitable sector gets it for free via
+	// inheritance (sectors.dm's base /visitable type), but a non-/visitable
+	// marker like this one has to set it explicitly or it's silently
+	// filtered out of both UIs despite requires_contact/instant_contact
+	// already being correct.
+	scannable = TRUE
 
 	/// Database primary key (ss13_supply_beacons.beacon_id) -- null until
 	/// SSpersistence has actually inserted/loaded this beacon's row.

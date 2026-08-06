@@ -273,6 +273,7 @@ SUBSYSTEM_DEF(persistence)
 		return
 
 	to_world(FONT_LARGE(EXAMINE_BLOCK_RED("[SPAN_BOLD("ATTENTION")]: A forced save and reboot is coming shortly to refresh the game world and overmap. Get to a safe location.")))
+	play_announcer_voice_to_all('sound/AI/announcements/romble.ogg')
 	log_and_message_admins("issued a pending-save warning to the server", usr)
 
 /datum/admins/proc/toggle_persistence()

@@ -37,6 +37,19 @@ LINES = [
     "raiding_prohibited",
     "engines_powered_on",
     "engines_powered_off",
+    "shields_online",
+    "shields_maximum",
+    "shields_fifty_percent",
+    "shields_twenty_five_percent",
+    "shields_are_down",
+    "shields_are_offline",
+    "target_lock_acquired",
+    "firing_weapons",
+    "enemy_shields_at_max",
+    "enemy_shields_at_fifty_percent",
+    "enemy_shields_at_twenty_five_percent",
+    "enemy_shields_are_down",
+    "enemy_ship_no_shields",
 ]
 
 # Pushed well past sound/AI/Voice how-to.txt's documented Audacity chain --
