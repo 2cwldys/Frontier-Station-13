@@ -20,7 +20,13 @@
 	icon = 'icons/obj/overmap/overmap_stationary.dmi'
 	icon_state = "depot"
 	opacity = 0
-	requires_contact = FALSE
+	// requires_contact must stay TRUE for this to appear as a sensor CONTACT at
+	// all -- contact_sensors.dm's scan loop does `if(!contact.requires_contact)
+	// continue`, which skips the object out of the contact pipeline entirely
+	// rather than treating it as always-visible. Paired with instant_contact
+	// below it enters the pipeline and is immediately identified at 100%, so
+	// it shows up fully resolved the moment it's in sensor range.
+	requires_contact = TRUE
 	instant_contact = TRUE
 	generic_object = FALSE
 
