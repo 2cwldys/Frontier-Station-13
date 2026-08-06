@@ -98,6 +98,26 @@
 /mob/dead/InCone(mob/center = usr, dir = NORTH)
 	return FALSE
 
+/// TRUE when `viewer`'s active vision cone should be hiding `target`, tested
+/// LIVE against the same rear-arc rule update_vision_cone() uses, rather than
+/// reading its cached hidden_mobs list.
+///
+/// The cache is only rebuilt when the VIEWER turns or moves (set_dir()/Moved()
+/// hooks below), so anyone who walked into a stationary viewer's rear arc was
+/// never added to it. Sec/med HUD icons are /image/hud_overlay pushed into
+/// client.images with APPEARANCE_UI (hud.dm), which no screen-plane mask can
+/// occlude -- so not assigning them in the first place is the only lever, and
+/// that decision has to be made against live positions.
+/proc/fov_hides_target(mob/viewer, atom/target)
+	if(!ishuman(viewer) || !target)
+		return FALSE
+	var/mob/living/carbon/human/H = viewer
+	if(!H.fov || !H.fov.alpha)
+		return FALSE // no cone active (ghosts, computer view, cone disabled)
+	if(H.pulling == target)
+		return FALSE // matches update_vision_cone()'s own pulled-mob exemption
+	return target.InCone(H, OPPOSITE_DIR(H.dir))
+
 /proc/cone(atom/center = usr, dir = NORTH, list/atoms = oview(center))
 	for(var/turf/T in atoms)
 		for(var/mob/M in T.contents)
