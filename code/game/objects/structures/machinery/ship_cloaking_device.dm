@@ -61,9 +61,18 @@
 	if(!SSatlas.current_map.use_overmap)
 		return FALSE
 	var/my_sector = GLOB.map_sectors["[GET_Z(src)]"]
-	if(istype(my_sector, /obj/effect/overmap/visitable))
-		return attempt_hook_up(my_sector)
-	return FALSE
+	if(!istype(my_sector, /obj/effect/overmap/visitable))
+		return FALSE
+	if(!attempt_hook_up(my_sector))
+		return FALSE
+	if(active)
+		// persistent_objects_apply_content() restores the raw `active` flag
+		// alone -- linked isn't guaranteed to exist yet at that point in the
+		// restore sequence, so the real effect (making the ship actually
+		// undetectable) couldn't be reapplied there. Do it now instead, the
+		// first time linked genuinely exists.
+		linked.set_cloaked(TRUE)
+	return TRUE
 
 /obj/structure/machinery/ship_cloaking_device/Destroy()
 	if(active && istype(linked))
@@ -186,6 +195,33 @@
 	data["seconds_per_sheet"] = time_per_sheet
 	data["seconds_remaining"] = (needed_sheets > 0) ? round((sheets + sheet_left) / needed_sheets) : null
 	return data
+
+/**
+ * Persists the fuel hopper and on/off state across a ship's stash/retrieve
+ * cycle. objectsRegisterTrack() already happens for free (base
+ * /obj/structure/machinery/Initialize()) -- this was just never given any
+ * actual content to save, so every restore silently reset to the mapped
+ * defaults (0 fuel, off) regardless of what was actually loaded before
+ * stashing. cloak_lockout_until deliberately NOT persisted -- it's a
+ * world.time-relative cooldown that would be meaningless (or permanently
+ * stuck) after a real server restart.
+ */
+/obj/structure/machinery/ship_cloaking_device/persistent_objects_get_content()
+	var/list/content = ..()
+	content["active"] = active
+	content["sheets"] = sheets
+	content["sheet_left"] = sheet_left
+	return content
+
+/obj/structure/machinery/ship_cloaking_device/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	sheets = content["sheets"] || 0
+	sheet_left = content["sheet_left"] || 0
+	// The raw flag only -- see _hook_up_to_ship() for why the actual cloak
+	// effect (linked.set_cloaked()) is reapplied there instead of here.
+	active = content["active"] || FALSE
 
 /obj/structure/machinery/ship_cloaking_device/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
 	. = ..()

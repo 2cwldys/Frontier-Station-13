@@ -211,6 +211,13 @@
 	if(istype(linked, /obj/effect/overmap/visitable/ship))
 		var/obj/effect/overmap/visitable/ship/VS = linked
 		VS.shield_generator = src
+	// Re-syncs the bubble to whatever shield_strength persistence just
+	// restored, now that linked (and thus the ship marker to attach it to)
+	// actually exists -- persistent_objects_apply_content() runs before this
+	// in the restore sequence and already set prev_shield_strength to match,
+	// so this is a no-op for the voice line, but still correctly shows/hides
+	// the bubble for the restored charge.
+	_check_tier_transition()
 	return TRUE
 
 /obj/structure/machinery/ship_shield_generator/Destroy()
@@ -611,3 +618,35 @@
 		if("toggle")
 			toggle_shield(user)
 			. = TRUE
+
+/**
+ * Persists the fuel hopper, on/off state, and current charge across a
+ * ship's stash/retrieve cycle -- same gap as ship_cloaking_device.dm's own
+ * fix (see its doc comment): objectsRegisterTrack() already happens for
+ * free, but with no content override every restore silently reset to the
+ * mapped defaults. shield_recovery_at deliberately NOT persisted -- it's a
+ * world.time-relative cooldown that would be meaningless (or permanently
+ * stuck) after a real server restart.
+ */
+/obj/structure/machinery/ship_shield_generator/persistent_objects_get_content()
+	var/list/content = ..()
+	content["active"] = active
+	content["sheets"] = sheets
+	content["sheet_left"] = sheet_left
+	content["shield_strength"] = shield_strength
+	return content
+
+/obj/structure/machinery/ship_shield_generator/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	sheets = content["sheets"] || 0
+	sheet_left = content["sheet_left"] || 0
+	shield_strength = content["shield_strength"] || 0
+	// Matches shield_strength immediately -- without this, _check_tier_transition()
+	// (fired later from _hook_up_to_ship(), once linked exists) would see a
+	// fake "crossing" from 0 up to whatever was restored and misannounce it.
+	prev_shield_strength = shield_strength
+	// The raw flag only -- see _hook_up_to_ship() for why the bubble/tier
+	// re-sync happens there instead of here (linked doesn't exist yet).
+	active = content["active"] || FALSE
