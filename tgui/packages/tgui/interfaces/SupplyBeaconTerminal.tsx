@@ -239,13 +239,13 @@ export const SupplyBeaconTerminal = (props) => {
                 tile to see its prices and trade.
               </NoticeBox>
             )}
-            {selected_in_range && cooldown_remaining > 0 && (
+            {!!selected_in_range && cooldown_remaining > 0 && (
               <NoticeBox color="orange">
                 This beacon is on cooldown -- {formatCooldown(cooldown_remaining)}{' '}
                 remaining before you can trade with it again.
               </NoticeBox>
             )}
-            {selected_in_range && selectedBeacon.prices && (
+            {!!selected_in_range && selectedBeacon.prices && (
               <Table>
                 <Table.Row header>
                   <Table.Cell>Commodity</Table.Cell>

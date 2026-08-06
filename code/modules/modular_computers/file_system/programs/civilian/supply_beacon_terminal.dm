@@ -39,6 +39,41 @@
 	/// selected_export_telepad.
 	var/obj/structure/machinery/telepad_cargo/selected_telepad
 
+/**
+ * The console's own-scope cargo telepads (faction/personal/crew, same
+ * 3-way lookup Cargo Order/Cargo Exports use), filtered down to ONLY those
+ * on this console's OWN Z-level.
+ *
+ * That same-Z restriction is deliberate and load-bearing: without it, a
+ * purchase could materialize its crate on a DIFFERENT telepad the same
+ * faction/character/ship owns elsewhere in the galaxy -- e.g. one already
+ * conveniently parked at another Supply Beacon -- letting it be sold again
+ * instantly through a different console with zero actual hauling. That
+ * defeats the entire point of the trading loop (you have to physically fly
+ * the goods somewhere) and makes the 30-minute cooldown meaningless, since
+ * the "haul" step never has to happen at all.
+ */
+/datum/computer_file/program/civilian/supplybeaconterminal/proc/get_candidate_pads()
+	if(!computer)
+		return list()
+	var/net = normalize_faction_uid(computer.persistent_network)
+	var/list/candidate_pads = list()
+	if(net)
+		candidate_pads = persistence_find_cargo_telepads(net)
+	else if(computer.personal_ckey)
+		candidate_pads = persistence_find_personal_cargo_telepads(computer.personal_ckey, computer.personal_char_name)
+	else if(computer.crew_tagged)
+		var/datum/drydock_ship/crew_ship = _drydock_ship_at(GET_Z(computer))
+		if(crew_ship)
+			candidate_pads = persistence_find_crew_cargo_telepads(crew_ship.shuttle_id)
+
+	var/console_z = GET_Z(computer)
+	var/list/same_z_pads = list()
+	for(var/obj/structure/machinery/telepad_cargo/pad in candidate_pads)
+		if(GET_Z(pad) == console_z)
+			same_z_pads += pad
+	return same_z_pads
+
 /datum/computer_file/program/civilian/supplybeaconterminal/ui_data(mob/user)
 	var/list/data = initial_data()
 	var/console_z = computer ? GET_Z(computer) : 0
@@ -103,18 +138,10 @@
 	var/source_key = get_supply_beacon_source_key(computer)
 	data["cooldown_remaining"] = (selected && !QDELETED(selected) && source_key) ? supply_beacon_cooldown_remaining(source_key, selected.beacon_id) : 0
 
-	// Delivery telepad choice -- identical 3-mode pattern to Cargo Order/Exports.
+	// Delivery telepad choice -- same-Z-only (see get_candidate_pads()).
 	data["telepad_choices"] = list()
 	data["selected_telepad_ref"] = null
-	var/list/candidate_pads = list()
-	if(net)
-		candidate_pads = persistence_find_cargo_telepads(net)
-	else if(is_personal)
-		candidate_pads = persistence_find_personal_cargo_telepads(computer.personal_ckey, computer.personal_char_name)
-	else if(is_crew)
-		var/datum/drydock_ship/crew_ship_for_pads = _drydock_ship_at(console_z)
-		if(crew_ship_for_pads)
-			candidate_pads = persistence_find_crew_cargo_telepads(crew_ship_for_pads.shuttle_id)
+	var/list/candidate_pads = get_candidate_pads()
 	data["telepad_choices"] = cargo_telepad_choice_data(candidate_pads, computer)
 	if(length(data["telepad_choices"]) && selected_telepad && !QDELETED(selected_telepad) && (selected_telepad in candidate_pads))
 		data["selected_telepad_ref"] = "\ref[selected_telepad]"
@@ -141,17 +168,7 @@
 			var/target_ref = params["select_telepad"]
 			selected_telepad = null
 			if(target_ref)
-				var/net = normalize_faction_uid(computer.persistent_network)
-				var/list/candidate_pads = list()
-				if(net)
-					candidate_pads = persistence_find_cargo_telepads(net)
-				else if(computer.personal_ckey)
-					candidate_pads = persistence_find_personal_cargo_telepads(computer.personal_ckey, computer.personal_char_name)
-				else if(computer.crew_tagged)
-					var/datum/drydock_ship/crew_ship_for_select = _drydock_ship_at(GET_Z(computer))
-					if(crew_ship_for_select)
-						candidate_pads = persistence_find_crew_cargo_telepads(crew_ship_for_select.shuttle_id)
-				for(var/obj/structure/machinery/telepad_cargo/pad in candidate_pads)
+				for(var/obj/structure/machinery/telepad_cargo/pad in get_candidate_pads())
 					if("\ref[pad]" == target_ref)
 						selected_telepad = pad
 						break
@@ -201,6 +218,15 @@
 			/// so a hijacked shipment can be sold by whoever's holding it.
 			var/owner_label
 
+			// Same-Z-only (get_candidate_pads()) -- the crate MUST
+			// materialize on THIS console's own ship/station, never a
+			// different telepad the same faction/character/ship happens to
+			// own elsewhere (see that proc's own doc comment for why).
+			var/list/candidate_pads = get_candidate_pads()
+			var/obj/structure/machinery/telepad_cargo/pad = (selected_telepad in candidate_pads) ? selected_telepad : (length(candidate_pads) ? candidate_pads[1] : null)
+			if(pad)
+				telepad_turf = get_turf(pad)
+
 			if(is_personal)
 				var/obj/item/card/id/I = user.GetIdCard()
 				var/datum/money_account/acc = I?.associated_account_number ? SSeconomy.get_account(I.associated_account_number) : null
@@ -210,12 +236,8 @@
 				if(acc.money < cost)
 					status_message = "Insufficient funds -- that would cost [cost] cr."
 					return TRUE
-				if(selected_telepad && !QDELETED(selected_telepad) && selected_telepad.accepts_cargo && selected_telepad.persistent_spawn && selected_telepad.z && selected_telepad.personal_ckey == computer.personal_ckey && selected_telepad.personal_char_name == computer.personal_char_name)
-					telepad_turf = get_turf(selected_telepad)
 				if(!telepad_turf)
-					telepad_turf = persistence_find_personal_cargo_telepad(computer.personal_ckey, computer.personal_char_name)
-				if(!telepad_turf)
-					status_message = "No personally-tagged telepad found. Place and personally tag a cargo telepad nearby."
+					status_message = "No personally-tagged telepad found on this ship/station. Place and personally tag a cargo telepad here."
 					return TRUE
 				acc.adjust_money(-cost)
 				owner_label = computer.personal_char_name
@@ -231,24 +253,14 @@
 				if(acc.money < cost)
 					status_message = "Insufficient funds -- that would cost [cost] cr."
 					return TRUE
-				if(selected_telepad && !QDELETED(selected_telepad) && selected_telepad.accepts_cargo && selected_telepad.persistent_spawn && selected_telepad.z && selected_telepad.crew_tagged)
-					var/datum/drydock_ship/pad_ship = _drydock_ship_at(selected_telepad.z)
-					if(pad_ship == crew_ship)
-						telepad_turf = get_turf(selected_telepad)
 				if(!telepad_turf)
-					telepad_turf = persistence_find_crew_cargo_telepad(crew_ship.shuttle_id)
-				if(!telepad_turf)
-					status_message = "No crew-tagged telepad found for [crew_ship.display_name()]."
+					status_message = "No crew-tagged telepad found aboard [crew_ship.display_name()]."
 					return TRUE
 				acc.adjust_money(-cost)
 				owner_label = crew_ship.display_name()
 			else if(net)
-				if(selected_telepad && !QDELETED(selected_telepad) && selected_telepad.accepts_cargo && selected_telepad.persistent_spawn && selected_telepad.z && normalize_faction_uid(selected_telepad.persistent_network) == net)
-					telepad_turf = get_turf(selected_telepad)
 				if(!telepad_turf)
-					telepad_turf = persistence_find_cargo_telepad(net)
-				if(!telepad_turf)
-					status_message = "No faction telepad found for network '[net]'."
+					status_message = "No faction telepad found for network '[net]' on this ship/station."
 					return TRUE
 				if(!faction_debit(net, cost, "Supply Beacon purchase (#[B.beacon_id])"))
 					status_message = "[get_faction_name(net)]'s treasury can't cover that purchase."
@@ -310,17 +322,12 @@
 			var/is_personal = computer.personal_ckey
 			var/is_crew = computer.crew_tagged
 
-			var/list/candidate_pads = list()
-			if(net)
-				candidate_pads = persistence_find_cargo_telepads(net)
-			else if(is_personal)
-				candidate_pads = persistence_find_personal_cargo_telepads(computer.personal_ckey, computer.personal_char_name)
-			else if(is_crew)
-				var/datum/drydock_ship/crew_ship_for_pads = _drydock_ship_at(GET_Z(computer))
-				if(crew_ship_for_pads)
-					candidate_pads = persistence_find_crew_cargo_telepads(crew_ship_for_pads.shuttle_id)
+			// Same-Z-only (get_candidate_pads()) -- only ever look for crates
+			// physically sitting on THIS ship/station's own telepads, never a
+			// different one the same faction/character/ship owns elsewhere.
+			var/list/candidate_pads = get_candidate_pads()
 			if(!length(candidate_pads))
-				status_message = "No delivery-enabled telepad found in scope."
+				status_message = "No delivery-enabled telepad found on this ship/station."
 				return TRUE
 
 			// Gather every matching crate sitting on any candidate pad's turf.
