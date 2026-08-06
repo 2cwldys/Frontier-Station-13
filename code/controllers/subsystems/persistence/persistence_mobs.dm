@@ -774,6 +774,33 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 /proc/persistence_character_actively_imprisoned(ckey, char_name)
 	return !!_persistence_imprisonment_core(ckey, char_name)
 
+/// TRUE if ANY of this ckey's (non-deleted) characters is currently
+/// imprisoned per persistence_character_imprisonment_status() -- same
+/// frozen/parole-respecting semantics as the Play-button gate, so an admin
+/// paroling a character also lifts this. Used to block character-roster
+/// moves that would otherwise let a player sidestep an active sentence:
+/// deleting the imprisoned character itself (persistent_menu.dm's
+/// "delete_char"), or creating a fresh alt in another slot to play instead
+/// ("create") while the sentence keeps ticking untouched either way.
+/proc/persistence_ckey_has_imprisoned_character(ckey)
+	if(!GLOB.config.sql_enabled || !ckey)
+		return FALSE
+	if(!SSpersistence.databaseCheckConnection("persistence_ckey_has_imprisoned_character"))
+		return FALSE
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"SELECT name FROM ss13_characters WHERE ckey = :ckey AND deleted_at IS NULL",
+		list("ckey" = ckey)
+	)
+	q.Execute()
+	var/list/names = list()
+	while(q.NextRow())
+		names += q.item[1]
+	qdel(q)
+	for(var/char_name in names)
+		if(persistence_character_imprisonment_status(ckey, char_name))
+			return TRUE
+	return FALSE
+
 /**
  * Restore mob to their last saved position, or spawn at default landmark.
  */
