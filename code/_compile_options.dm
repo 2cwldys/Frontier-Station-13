@@ -73,6 +73,15 @@
 // leave undefined to require the admin verb to be run manually instead.
 //#define FORCE_COMPILE_ON_MERGE
 
+// If defined, every log_admin() entry is also mirrored to Discord via a new
+// "admin_log" webhook tag (WEBHOOK_ADMIN_LOG, __DEFINES/webhook.dm) -- add a
+// webhook to config/webhooks.json (or ss13_webhooks) with "admin_log" in its
+// tags list to actually receive them. log_admin_private()/log_admin_circuit()/
+// log_adminsay() are deliberately NOT included -- see admin.dm's own
+// ADMINPRIVATE-is-stripped-from-public-logs convention. Off by default --
+// leave undefined to keep admin logs server-local only.
+//#define EXPORT_ADMIN_LOG_TO_DISCORD
+
 // If defined, two factions can become allied via a Faction Management
 // propose/accept handshake -- either side can break it anytime. Allied
 // factions can access each other's station under the faction raiding gate,
