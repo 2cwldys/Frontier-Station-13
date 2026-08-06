@@ -58,6 +58,13 @@
 /// weights -- rebalance here without touching anything else.
 #define SHIELD_METEOR_DAMAGE_PER_ROCK 27
 
+/// How long a generator refuses to reactivate after collapsing from combat
+/// damage (shield_strength hitting 0 while it was actually up) -- see
+/// _apply_shield_damage() and toggle_shield(). Does NOT apply to a fresh
+/// unit activated for the first time at 0 charge; only to a genuine
+/// mid-fight collapse.
+#define SHIELD_RECOVERY_COOLDOWN 30 SECONDS
+
 /// Blocks pod warp (warp.dm) and Personal Travel leaps (personal_travel.dm)
 /// from targeting a ship whose shields are up, UNLESS the traveler is crew/
 /// faction of that same ship -- reuses _drydock_full_access_check()
@@ -138,6 +145,11 @@
 	/// Flips every absorb_hit() so shields_struck_1/_2 alternate instead of
 	/// playing the same one back-to-back.
 	var/next_struck_alternate = FALSE
+	/// world.time toggle_shield() refuses reactivation until, set by
+	/// _apply_shield_damage() when a hit collapses shield_strength to 0 --
+	/// 0 (the default) means no cooldown is in effect. Never set by simply
+	/// activating a fresh, uncharged generator.
+	var/shield_recovery_at = 0
 	/// The shimmer shown on the generator itself while shields are up -- see
 	/// show_bubble()/hide_bubble().
 	var/obj/effect/ship_shield_bubble/bubble
@@ -242,6 +254,9 @@
 
 /obj/structure/machinery/ship_shield_generator/proc/toggle_shield(mob/user)
 	if(!active)
+		if(world.time < shield_recovery_at)
+			to_chat(user, SPAN_WARNING("\The [src] is still recalibrating after its shields collapsed -- ready in [round((shield_recovery_at - world.time) / 10)] second\s."))
+			return
 		if(!anchored)
 			to_chat(user, SPAN_WARNING("\The [src] must be anchored before it can be activated."))
 			return
@@ -463,6 +478,18 @@
 
 	_check_tier_transition()
 
+	// A genuine mid-fight collapse, not just an already-off/never-charged
+	// generator being irrelevant here -- shields_up() already gated entry
+	// to this proc on active being TRUE, so reaching 0 here always means it
+	// just got knocked out by damage. Deactivate outright and lock out
+	// toggle_shield() for SHIELD_RECOVERY_COOLDOWN -- silent = TRUE since
+	// _check_tier_transition() just announced shields_are_down.ogg for this
+	// exact moment; a second "offline" line back to back would be noise.
+	if(shield_strength <= 0)
+		shield_recovery_at = world.time + SHIELD_RECOVERY_COOLDOWN
+		_set_active(FALSE, silent = TRUE)
+		visible_message(SPAN_WARNING("\The [src] overloads and shuts down!"))
+
 /obj/structure/machinery/ship_shield_generator/proc/absorb_hit(obj/projectile/ship_ammo/incoming)
 	if(!shields_up())
 		return FALSE
@@ -542,6 +569,7 @@
 	var/needed_sheets = power_output / time_per_sheet // fraction of a sheet burned per process() tick
 	data["seconds_per_sheet"] = time_per_sheet
 	data["seconds_remaining"] = (needed_sheets > 0) ? round((sheets + sheet_left) / needed_sheets) : null
+	data["recovery_seconds_left"] = (world.time < shield_recovery_at) ? round((shield_recovery_at - world.time) / 10) : 0
 	return data
 
 /obj/structure/machinery/ship_shield_generator/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)

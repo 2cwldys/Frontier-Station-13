@@ -14,6 +14,7 @@ type ShipShieldGeneratorData = {
   sheet_name: string;
   seconds_per_sheet: number;
   seconds_remaining: number | null;
+  recovery_seconds_left: number;
 };
 
 export const ShipShieldGenerator = (props) => {
@@ -29,14 +30,19 @@ export const ShipShieldGenerator = (props) => {
     sheet_name,
     seconds_per_sheet,
     seconds_remaining,
+    recovery_seconds_left,
   } = data;
 
   const fuelRatio = max_sheets > 0 ? sheets / max_sheets : 0;
   const fuelColor =
     fuelRatio > 0.66 ? 'good' : fuelRatio > 0.33 ? 'average' : 'bad';
 
+  const recovering = !active && recovery_seconds_left > 0;
+
   let disabledReason = '';
-  if (!anchored) {
+  if (recovering) {
+    disabledReason = `Recalibrating after a shield collapse -- ready in ${recovery_seconds_left}s.`;
+  } else if (!anchored) {
     disabledReason = 'Must be wrenched to the hull first.';
   } else if (!linked) {
     disabledReason = "Can't locate this ship on the overmap.";
@@ -58,7 +64,8 @@ export const ShipShieldGenerator = (props) => {
             fluid
             icon={active ? 'shield-alt' : 'shield'}
             content={active ? 'Deactivate' : 'Activate'}
-            disabled={!anchored || (!active && sheets === 0)}
+            disabled={recovering || !anchored || (!active && sheets === 0)}
+            tooltip={recovering ? disabledReason : undefined}
             onClick={() => act('toggle')}
           />
           {!!disabledReason && (
