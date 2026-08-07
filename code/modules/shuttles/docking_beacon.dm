@@ -58,12 +58,29 @@
 	var/obj/structure/machinery/docking_transponder/transponder = shuttle.find_docking_transponder()
 	if(istype(transponder) && turn(transponder.dir, 180) != dir)
 		return FALSE
-	if(!faction_restricted)
-		return
 	var/shuttle_faction
 	if(istype(shuttle, /datum/shuttle/autodock/overmap/drydock_ship))
 		var/datum/shuttle/autodock/overmap/drydock_ship/DS = shuttle
 		shuttle_faction = DS.faction_uid
+	else
+		// A bound sub-ship (Xanu Fighter/Boarder, etc.) never carries its own
+		// faction_uid -- resolve it through whichever mothership currently
+		// claims it instead, or this would always read as "no faction" and
+		// get blocked below from docking anywhere claimed, even its own
+		// faction's own territory. See _drydock_sub_shuttle_owner_faction()'s
+		// own doc comment (persistence_shuttles.dm).
+		shuttle_faction = _drydock_sub_shuttle_owner_faction(shuttle.name)
+	// Independent of this beacon's own opt-in faction_restricted claim below
+	// -- this checks whether the Z it sits on is itself someone else's
+	// claimed territory (a real /obj/structure/machinery/faction_beacon,
+	// GLOB.faction_beacon_by_z) with raiding currently disabled, same gate
+	// telepad/personal travel already enforce for a mob walking in
+	// (_faction_raid_blocked_for(), telepad_drydock_boarding.dm) -- a
+	// public/unrestricted docking_beacon can still sit on claimed ground.
+	if(_faction_raid_blocked_for(z, shuttle_faction))
+		return FALSE
+	if(!faction_restricted)
+		return
 	if(faction_restricted != shuttle_faction)
 		return FALSE
 
@@ -98,8 +115,12 @@
 /obj/structure/machinery/docking_beacon
 	name = "docking beacon"
 	desc = "Wrench to secure, then use a screwdriver to activate the docking port. Shuttle- and sub-ship-sized craft can navigate to any active beacon -- full-size drydock ships are too large to dock here."
-	icon = 'icons/obj/telescience.dmi'
-	icon_state = "pad-idle"
+	// Same holopad sprite docking_transponder.dm reuses, tinted green instead
+	// of the transponder's dark blackish-orange -- visually pairs the two
+	// devices as "one system, two ends" at a glance.
+	icon = 'icons/obj/holopad.dmi'
+	icon_state = "holopad0"
+	color = "#008000"
 	// Flush with the floor, same as docking_transponder.dm -- meant to be
 	// mounted right at an airlock cycler's exterior door, and must not stop
 	// that door opening or closing over it.
@@ -168,18 +189,34 @@
 		_sync_landmark_facing()
 
 /obj/structure/machinery/docking_beacon/attackby(obj/item/attacking_item, mob/user, params)
-	// Rotates the beacon's own facing (and, live, its registered landmark's --
-	// _sync_landmark_facing() below) -- what player_dock/is_valid() actually
-	// compares a docking_transponder's facing against. Only while unsecured --
-	// wrench it down to lock the facing in, same as the transponder's own
-	// multitool rotate (docking_transponder.dm).
+	// Buffer (link this specific beacon into the multitool's own existing
+	// device-buffer, multitool.dm -- the same mechanism airlock controller
+	// wiring already uses) or Rotate its facing (and, live, its registered
+	// landmark's -- _sync_landmark_facing() below) -- what
+	// player_dock/is_valid() actually compares a docking_transponder's
+	// facing against. Rotate only while unsecured -- wrench it down to lock
+	// the facing in, same as the transponder's own multitool rotate
+	// (docking_transponder.dm).
 	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
-		if(anchored)
-			to_chat(user, SPAN_WARNING("\The [src] is secured in place -- unwrench it before changing its facing."))
+		var/choice = tgui_alert(user, "Buffer this beacon into the multitool, or rotate its facing?", "Docking Beacon", list("Buffer", "Rotate"))
+		if(QDELETED(src) || QDELETED(user) || !user.Adjacent(src))
 			return TRUE
-		dir = turn(dir, -90)
-		_sync_landmark_facing()
-		to_chat(user, SPAN_NOTICE("You rotate \the [src] -- it now faces [dir2text(dir)]."))
+		if(choice == "Buffer")
+			if(!istype(attacking_item, /obj/item/multitool))
+				to_chat(user, SPAN_WARNING("\The [attacking_item] can't hold a buffer."))
+				return TRUE
+			var/obj/item/multitool/tool = attacking_item
+			tool.set_buffer(src)
+			to_chat(user, SPAN_NOTICE("You buffer \the [src] into \the [tool]."))
+			return TRUE
+		if(choice == "Rotate")
+			if(anchored)
+				to_chat(user, SPAN_WARNING("\The [src] is secured in place -- unwrench it before changing its facing."))
+				return TRUE
+			dir = turn(dir, -90)
+			_sync_landmark_facing()
+			to_chat(user, SPAN_NOTICE("You rotate \the [src] -- it now faces [dir2text(dir)]."))
+			return TRUE
 		return TRUE
 	// Faction ID swipe — claim or release beacon (same pattern as cryopods/telepads)
 	if(istype(attacking_item, /obj/item/card/id) && beacon_active)

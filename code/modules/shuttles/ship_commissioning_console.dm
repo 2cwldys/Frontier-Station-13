@@ -48,6 +48,20 @@
 	/// before actually touching anything, never trusts this alone.
 	var/envelope_clean_for_generate = FALSE
 
+	/// The three devices this console is explicitly linked to -- set only by
+	/// multitool Buffer-then-apply (see attackby() below), required before
+	/// this console will do anything at all. Replaces proximity/envelope-scan
+	/// discovery entirely, per explicit design direction: a beacon behind a
+	/// wall, or two beacons in range, should never leave any ambiguity about
+	/// which one this specific console is building for. An invalid-but-not-
+	/// destroyed link (beacon deactivated, device moved) is reported invalid
+	/// by the _valid_linked_*() checks below but is NOT cleared here --
+	/// only _on_linked_device_deleted() (a destroyed device) actually forgets
+	/// a link.
+	var/obj/structure/machinery/docking_beacon/linked_beacon
+	var/obj/structure/machinery/docking_transponder/linked_transponder
+	var/obj/structure/machinery/computer/shuttle_control/linked_shuttle_console
+
 /obj/structure/machinery/computer/ship_commissioning/Initialize()
 	. = ..()
 	if(GLOB.config.sql_enabled && GLOB.persistence_ready)
@@ -55,7 +69,47 @@
 
 /obj/structure/machinery/computer/ship_commissioning/Destroy()
 	QDEL_LIST(envelope_indicators)
+	if(linked_beacon)
+		UnregisterSignal(linked_beacon, COMSIG_QDELETING)
+	if(linked_transponder)
+		UnregisterSignal(linked_transponder, COMSIG_QDELETING)
+	if(linked_shuttle_console)
+		UnregisterSignal(linked_shuttle_console, COMSIG_QDELETING)
 	return ..()
+
+/// Common linking logic for all three slots -- swaps out whichever device is
+/// currently linked in that slot, moving the QDELETING signal registration
+/// across so a destroyed linked device always clears itself (never a
+/// dangling reference), matching the same safety multitool.dm's own
+/// buffer_object already guarantees.
+/obj/structure/machinery/computer/ship_commissioning/proc/_link_device(slot, atom/movable/new_link)
+	var/atom/movable/old_link
+	switch(slot)
+		if("beacon")
+			old_link = linked_beacon
+		if("transponder")
+			old_link = linked_transponder
+		if("console")
+			old_link = linked_shuttle_console
+	if(old_link)
+		UnregisterSignal(old_link, COMSIG_QDELETING)
+	switch(slot)
+		if("beacon")
+			linked_beacon = new_link
+		if("transponder")
+			linked_transponder = new_link
+		if("console")
+			linked_shuttle_console = new_link
+	RegisterSignal(new_link, COMSIG_QDELETING, PROC_REF(_on_linked_device_deleted))
+
+/obj/structure/machinery/computer/ship_commissioning/proc/_on_linked_device_deleted(datum/source)
+	SIGNAL_HANDLER
+	if(source == linked_beacon)
+		linked_beacon = null
+	if(source == linked_transponder)
+		linked_transponder = null
+	if(source == linked_shuttle_console)
+		linked_shuttle_console = null
 
 /// Base /obj/structure/machinery/computer's own attackby() only ever handles
 /// the screwdriver (deconstruct-if-anchored-and-broken) -- wrench-to-secure
@@ -65,6 +119,31 @@
 		attacking_item.play_tool_sound(get_turf(src), 50)
 		anchored = !anchored
 		to_chat(user, anchored ? SPAN_NOTICE("Commissioning console secured in place.") : SPAN_NOTICE("Commissioning console unsecured."))
+		return TRUE
+	// Applies whatever's currently buffered in the multitool (Buffer choice
+	// on a docking_beacon/docking_transponder, or the buildable shuttle_control
+	// console's own multitool handler) -- see linked_beacon's own doc comment
+	// above for why this replaced proximity/envelope-scan discovery entirely.
+	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
+		if(!istype(attacking_item, /obj/item/multitool))
+			to_chat(user, SPAN_WARNING("\The [attacking_item] can't hold a buffer."))
+			return TRUE
+		var/obj/item/multitool/tool = attacking_item
+		var/atom/buffered = tool.get_buffer()
+		if(!buffered)
+			to_chat(user, SPAN_WARNING("Nothing buffered in \the [tool] -- multitool a beacon, transponder, or shuttle control console first and choose Buffer, then multitool this console."))
+			return TRUE
+		if(istype(buffered, /obj/structure/machinery/docking_beacon))
+			_link_device("beacon", buffered)
+			to_chat(user, SPAN_NOTICE("Linked to docking beacon '[buffered]'."))
+		else if(istype(buffered, /obj/structure/machinery/docking_transponder))
+			_link_device("transponder", buffered)
+			to_chat(user, SPAN_NOTICE("Linked to docking transponder '[buffered]'."))
+		else if(istype(buffered, /obj/structure/machinery/computer/shuttle_control))
+			_link_device("console", buffered)
+			to_chat(user, SPAN_NOTICE("Linked to shuttle control console '[buffered]'."))
+		else
+			to_chat(user, SPAN_WARNING("\The [buffered] isn't something this console can link to."))
 		return TRUE
 	return ..(attacking_item, user, params)
 
@@ -85,9 +164,10 @@
 
 /obj/structure/machinery/computer/ship_commissioning/ui_data(mob/user)
 	var/list/data = list()
-	var/obj/structure/machinery/docking_beacon/beacon = _find_nearby_beacon()
+	var/obj/structure/machinery/docking_beacon/beacon = _valid_linked_beacon()
 	data["beacon_found"] = !!beacon
 	data["beacon_label"] = beacon ? (beacon.dock_label || "Docking Port") : null
+	data["beacon_link_broken"] = !!linked_beacon && !beacon
 	data["footprint_x"] = SUBSHIP_FOOTPRINT_X
 	data["footprint_y"] = SUBSHIP_FOOTPRINT_Y
 	data["price"] = SHIP_COMMISSION_PRICE
@@ -99,18 +179,17 @@
 	// anyone, dead or alive, is still standing in the build envelope. See
 	// _drydock_envelope_has_occupants() (persistence_shuttles.dm), the same
 	// check drydockCommission() itself enforces server-side.
-	var/list/turf/envelope = _get_envelope_turfs()
+	var/list/turf/envelope = beacon ? _get_envelope_turfs() : null
 	data["envelope_occupied"] = envelope ? _drydock_envelope_has_occupants(envelope) : FALSE
-	// Same live-polled shape for the required docking_transponder --
-	// _drydock_envelope_find_transponder()/drydockCommission() (both
-	// persistence_shuttles.dm) are the actual source of truth this mirrors.
-	var/obj/structure/machinery/docking_transponder/transponder = envelope ? _drydock_envelope_find_transponder(envelope) : null
+	// Linked transponder/console must still be physically inside the current
+	// envelope -- same safety property the old envelope-scan discovery had,
+	// just checked against a specific linked device instead of "find any."
+	var/obj/structure/machinery/docking_transponder/transponder = _valid_linked_transponder(envelope)
 	data["transponder_found"] = !!transponder
+	data["transponder_link_broken"] = !!linked_transponder && !transponder
 	data["transponder_aligned"] = (transponder && beacon) ? (turn(transponder.dir, 180) == beacon.dir) : FALSE
-	// Same shape again for the required shuttle_control console --
-	// _drydock_envelope_find_console()/drydockCommission() (both
-	// persistence_shuttles.dm) are the actual source of truth this mirrors.
-	data["console_found"] = envelope ? !!_drydock_envelope_find_console(envelope) : FALSE
+	data["console_found"] = !!_valid_linked_console(envelope)
+	data["console_link_broken"] = !!linked_shuttle_console && !_valid_linked_console(envelope)
 	// Snapshot from the last Preview -- see envelope_clean_for_generate's
 	// own doc comment for why this isn't re-checked live here.
 	data["can_generate_floor"] = data["beacon_found"] && envelope_clean_for_generate
@@ -139,22 +218,42 @@
 			SSpersistence.drydockCommission(src, user, faction_uid, new_name, dock_at_beacon)
 			. = TRUE
 
-/// Nearest active docking_beacon within BUILD_ENVELOPE_BEACON_RANGE tiles --
-/// the build envelope is anchored to ITS turf (see _get_envelope_corner()),
-/// not the console's own (the console can sit off to the side, "past the
-/// interior cycler", while the beacon marks the ship's actual future dock
-/// position).
-/obj/structure/machinery/computer/ship_commissioning/proc/_find_nearby_beacon()
-	var/obj/structure/machinery/docking_beacon/closest
-	var/closest_dist
-	for(var/obj/structure/machinery/docking_beacon/beacon in oview(BUILD_ENVELOPE_BEACON_RANGE, src))
-		if(!beacon.anchored || !beacon.beacon_active)
-			continue
-		var/dist = get_dist(src, beacon)
-		if(isnull(closest_dist) || dist < closest_dist)
-			closest = beacon
-			closest_dist = dist
-	return closest
+/// Validated linked_beacon, or null -- must still exist, be anchored and
+/// active, and (kept as a sanity bound, not a discovery mechanism -- an
+/// explicitly linked beacon halfway across the map would make every
+/// envelope computation below nonsensical) be on the same z and within
+/// BUILD_ENVELOPE_BEACON_RANGE of this console. Deactivated/out-of-range is
+/// reported invalid here but NOT cleared -- see linked_beacon's own doc
+/// comment above.
+/obj/structure/machinery/computer/ship_commissioning/proc/_valid_linked_beacon()
+	if(!linked_beacon)
+		return null
+	if(!linked_beacon.anchored || !linked_beacon.beacon_active)
+		return null
+	if(linked_beacon.z != z || get_dist(src, linked_beacon) > BUILD_ENVELOPE_BEACON_RANGE)
+		return null
+	return linked_beacon
+
+/// Validated linked_transponder, or null -- must still be physically inside
+/// the given (already-beacon-derived) envelope. Preserves the original
+/// safety property the old "find any transponder in the envelope" discovery
+/// had (the linked device must genuinely be part of the built hull), just
+/// checked against a specific identity instead of scanning for any match.
+/obj/structure/machinery/computer/ship_commissioning/proc/_valid_linked_transponder(list/turf/envelope)
+	if(!linked_transponder || !envelope)
+		return null
+	if(!(get_turf(linked_transponder) in envelope))
+		return null
+	return linked_transponder
+
+/// Same shape as _valid_linked_transponder() above, for the required
+/// shuttle_control console.
+/obj/structure/machinery/computer/ship_commissioning/proc/_valid_linked_console(list/turf/envelope)
+	if(!linked_shuttle_console || !envelope)
+		return null
+	if(!(get_turf(linked_shuttle_console) in envelope))
+		return null
+	return linked_shuttle_console
 
 /// Bottom-left corner turf of the build envelope for the given beacon (or
 /// null if it/its turf is gone) -- the shared reference point
@@ -163,12 +262,15 @@
 /// SUBSHIP_FOOTPRINT_X x SUBSHIP_FOOTPRINT_Y block from, so the preview and
 /// the actual capture can never disagree about which tiles are covered.
 ///
-/// The box sits flush against the beacon on whichever side it's currently
-/// facing, not centered on it -- rotate the beacon (multitool) to choose
-/// which of the four cardinal directions the hull gets built in. The
-/// beacon's own tile sits on the box's edge nearest it either way (already
-/// excluded from capture/wipe by object reference, see
-/// _drydockCommissionRun()), which is also the exact edge
+/// The box sits one tile clear of the beacon on whichever side it's
+/// currently facing, not centered on it and not flush against it -- rotate
+/// the beacon (multitool) to choose which of the four cardinal directions
+/// the hull gets built in. The beacon's own tile always sits just OUTSIDE
+/// the box (one tile of open floor between the beacon and the hull's
+/// nearest edge, like a real dock marker standing clear of the airlock it
+/// serves) -- excluded from capture/wipe by object reference regardless,
+/// see _drydockCommissionRun(), but no longer inside the envelope's own
+/// bounds at all. That nearest edge is also the exact one
 /// _show_envelope_preview() tints -- turn(beacon.dir, 180), the direction a
 /// docking_transponder needs to face, always lands on that same edge.
 /obj/structure/machinery/computer/ship_commissioning/proc/_get_envelope_corner(obj/structure/machinery/docking_beacon/beacon)
@@ -179,13 +281,13 @@
 	var/half_y = round((SUBSHIP_FOOTPRINT_Y - 1) / 2)
 	switch(beacon.dir)
 		if(WEST)
-			return locate(center.x - (SUBSHIP_FOOTPRINT_X - 1), center.y - half_y, center.z)
+			return locate(center.x - SUBSHIP_FOOTPRINT_X, center.y - half_y, center.z)
 		if(EAST)
-			return locate(center.x, center.y - half_y, center.z)
+			return locate(center.x + 1, center.y - half_y, center.z)
 		if(SOUTH)
-			return locate(center.x - half_x, center.y - (SUBSHIP_FOOTPRINT_Y - 1), center.z)
+			return locate(center.x - half_x, center.y - SUBSHIP_FOOTPRINT_Y, center.z)
 		if(NORTH)
-			return locate(center.x - half_x, center.y, center.z)
+			return locate(center.x - half_x, center.y + 1, center.z)
 	// Non-cardinal dir shouldn't be reachable (rotate only ever turns by
 	// 90 degrees from a cardinal start) -- fall back to centered rather
 	// than error.
@@ -193,10 +295,11 @@
 
 /// The SUBSHIP_FOOTPRINT_X x SUBSHIP_FOOTPRINT_Y block of turfs the build
 /// envelope covers, positioned per _get_envelope_corner() -- null if no
-/// beacon is currently in range. Shared by the preview and the commission
-/// validation so they always agree on exactly the same tiles.
+/// beacon is currently linked (or the link isn't valid right now). Shared by
+/// the preview and the commission validation so they always agree on
+/// exactly the same tiles.
 /obj/structure/machinery/computer/ship_commissioning/proc/_get_envelope_turfs()
-	var/obj/structure/machinery/docking_beacon/beacon = _find_nearby_beacon()
+	var/obj/structure/machinery/docking_beacon/beacon = _valid_linked_beacon()
 	var/turf/corner = _get_envelope_corner(beacon)
 	if(!corner)
 		return null
@@ -212,9 +315,11 @@
 /obj/structure/machinery/computer/ship_commissioning/proc/_show_envelope_preview(mob/user)
 	QDEL_LIST(envelope_indicators)
 	envelope_clean_for_generate = FALSE
-	var/obj/structure/machinery/docking_beacon/beacon = _find_nearby_beacon()
+	var/obj/structure/machinery/docking_beacon/beacon = _valid_linked_beacon()
 	if(!beacon)
-		to_chat(user, SPAN_WARNING("No active docking beacon in range -- place and activate one first."))
+		to_chat(user, linked_beacon \
+			? SPAN_WARNING("Linked beacon isn't valid right now -- deactivated, unanchored, or out of range. Reactivate it, or multitool a different beacon (Buffer) and link it to this console.") \
+			: SPAN_WARNING("No beacon linked -- multitool a docking beacon, choose Buffer, then multitool this console to link it."))
 		return
 	var/turf/corner = _get_envelope_corner(beacon)
 	if(!corner)
@@ -276,9 +381,11 @@
 /// conflict check fresh here rather than trusting whatever the TGUI showed
 /// from the last Preview, since the envelope could have changed since then.
 /obj/structure/machinery/computer/ship_commissioning/proc/_generate_build_floor(mob/user)
-	var/obj/structure/machinery/docking_beacon/beacon = _find_nearby_beacon()
+	var/obj/structure/machinery/docking_beacon/beacon = _valid_linked_beacon()
 	if(!beacon)
-		to_chat(user, SPAN_WARNING("No active docking beacon in range -- place and activate one first."))
+		to_chat(user, linked_beacon \
+			? SPAN_WARNING("Linked beacon isn't valid right now -- deactivated, unanchored, or out of range.") \
+			: SPAN_WARNING("No beacon linked -- multitool a docking beacon, choose Buffer, then multitool this console to link it."))
 		return
 	var/turf/corner = _get_envelope_corner(beacon)
 	if(!corner)

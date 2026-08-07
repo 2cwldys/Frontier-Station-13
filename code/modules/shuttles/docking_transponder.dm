@@ -43,11 +43,24 @@
 
 /obj/structure/machinery/docking_transponder/attackby(obj/item/attacking_item, mob/user, params)
 	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
-		if(anchored)
-			to_chat(user, SPAN_WARNING("\The [src] is secured in place -- unwrench it before changing its facing."))
+		var/choice = tgui_alert(user, "Buffer this transponder into the multitool, or rotate its facing?", "Docking Transponder", list("Buffer", "Rotate"))
+		if(QDELETED(src) || QDELETED(user) || !user.Adjacent(src))
 			return TRUE
-		dir = turn(dir, -90)
-		to_chat(user, SPAN_NOTICE("You rotate \the [src] -- it now faces [dir2text(dir)]."))
+		if(choice == "Buffer")
+			if(!istype(attacking_item, /obj/item/multitool))
+				to_chat(user, SPAN_WARNING("\The [attacking_item] can't hold a buffer."))
+				return TRUE
+			var/obj/item/multitool/tool = attacking_item
+			tool.set_buffer(src)
+			to_chat(user, SPAN_NOTICE("You buffer \the [src] into \the [tool]."))
+			return TRUE
+		if(choice == "Rotate")
+			if(anchored)
+				to_chat(user, SPAN_WARNING("\The [src] is secured in place -- unwrench it before changing its facing."))
+				return TRUE
+			dir = turn(dir, -90)
+			to_chat(user, SPAN_NOTICE("You rotate \the [src] -- it now faces [dir2text(dir)]."))
+			return TRUE
 		return TRUE
 	if(attacking_item.tool_behaviour == TOOL_WRENCH)
 		attacking_item.play_tool_sound(get_turf(src), 50)

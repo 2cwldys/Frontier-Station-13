@@ -152,6 +152,17 @@
 		anchored = !anchored
 		to_chat(user, anchored ? SPAN_NOTICE("Shuttle control console secured in place.") : SPAN_NOTICE("Shuttle control console unsecured."))
 		return TRUE
+	// No facing concept for a console -- multitool just buffers it directly
+	// (same multitool.dm buffer airlock controller wiring already uses), for
+	// linking to a ship_commissioning console (ship_commissioning_console.dm).
+	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
+		if(!istype(attacking_item, /obj/item/multitool))
+			to_chat(user, SPAN_WARNING("\The [attacking_item] can't hold a buffer."))
+			return TRUE
+		var/obj/item/multitool/tool = attacking_item
+		tool.set_buffer(src)
+		to_chat(user, SPAN_NOTICE("You buffer \the [src] into \the [tool]."))
+		return TRUE
 	return ..(attacking_item, user, params)
 
 /area/drydock_ship

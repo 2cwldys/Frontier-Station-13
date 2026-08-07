@@ -7,6 +7,7 @@ import { Window } from '../layouts';
 type ShipCommissioningData = {
   beacon_found: BooleanLike;
   beacon_label: string | null;
+  beacon_link_broken: BooleanLike;
   footprint_x: number;
   footprint_y: number;
   price: number;
@@ -14,8 +15,10 @@ type ShipCommissioningData = {
   own_faction_name: string | null;
   envelope_occupied: BooleanLike;
   transponder_found: BooleanLike;
+  transponder_link_broken: BooleanLike;
   transponder_aligned: BooleanLike;
   console_found: BooleanLike;
+  console_link_broken: BooleanLike;
   can_generate_floor: BooleanLike;
 };
 
@@ -39,31 +42,39 @@ export const ShipCommissioning = (props) => {
               extends out from it in whichever direction it's currently
               facing.
             </Box>
+          ) : data.beacon_link_broken ? (
+            <Box color="bad">
+              Linked beacon isn&apos;t valid right now -- deactivated,
+              unanchored, or out of range. Reactivate it, or multitool a
+              different beacon (Buffer), then multitool this console to
+              link it.
+            </Box>
           ) : (
             <Box color="bad">
-              No active docking beacon in range. Place and activate one
-              first.
+              No beacon linked. Multitool a docking beacon, choose Buffer,
+              then multitool this console to link it.
             </Box>
           )}
         </Section>
-        {data.beacon_found && !data.console_found && (
+        {!!data.beacon_found && !data.console_found && (
           <Section title="Shuttle Control Console Required">
             <Box color="bad">
-              No shuttle control console found in the build envelope --
-              without one, this hull could never be flown once commissioned.
+              {data.console_link_broken
+                ? "Linked shuttle control console isn't inside the build envelope -- move it, or link a different one."
+                : 'No shuttle control console linked -- without one, this hull could never be flown once commissioned. Multitool one, choose Buffer, then multitool this console to link it.'}
             </Box>
           </Section>
         )}
-        {data.beacon_found && !data.transponder_found && (
+        {!!data.beacon_found && !data.transponder_found && (
           <Section title="Docking Transponder Required">
             <Box color="bad">
-              No docking transponder found in the build envelope -- mount
-              one at your airlock and rotate it (multitool) to face away
-              from the beacon.
+              {data.transponder_link_broken
+                ? "Linked docking transponder isn't inside the build envelope -- move it, or link a different one."
+                : 'No docking transponder linked -- mount one at your airlock, multitool it, choose Buffer, then multitool this console to link it. It needs to face the beacon.'}
             </Box>
           </Section>
         )}
-        {data.beacon_found && data.transponder_found && !data.transponder_aligned && (
+        {!!data.beacon_found && !!data.transponder_found && !data.transponder_aligned && (
           <Section title="Docking Transponder Misaligned">
             <Box color="bad">
               The transponder isn&apos;t facing the beacon -- rotate either
@@ -71,7 +82,7 @@ export const ShipCommissioning = (props) => {
             </Box>
           </Section>
         )}
-        {data.envelope_occupied && (
+        {!!data.envelope_occupied && (
           <Section title="Build Envelope Occupied">
             <Box color="bad">
               Someone (or something&apos;s remains) is still inside the

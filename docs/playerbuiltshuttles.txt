@@ -64,10 +64,23 @@ sit directly underneath an airlock cycler's exterior door -- the door
 opens and closes over it normally, and visually covers its icon
 whenever it's shut. Persistence doesn't care about any of this either;
 it saves/restores by position exactly like every other tracked object,
-regardless of what door or machine happens to share its tile.
+regardless of what door or machine happens to share its tile. It uses
+the same holopad-style sprite as the docking transponder (section 3),
+tinted green instead of the transponder's dark blackish-orange, so the
+two visually read as one paired system.
 
-A multitool rotates a beacon's facing -- see section 3 for why that
-matters, and note it also moves the build envelope itself (section 5).
+Multitool a beacon and you're asked to Buffer it or Rotate it:
+
+  * Rotate turns its facing 90 degrees (only while unsecured -- wrench
+    it down to lock the facing in). See section 3 for why facing
+    matters, and note it also moves the build envelope itself
+    (section 5).
+
+  * Buffer stores a reference to THIS SPECIFIC beacon in the
+    multitool's own buffer (the same buffer every multitool already
+    has, used elsewhere for wiring things like airlock controllers) --
+    the next step, in section 4, is applying that buffer to a
+    commissioning console to link the two together.
 
 --------------------------------------------------------------------
 3. THE DOCKING TRANSPONDER -- MATCHING AN AIRLOCK'S FACING
@@ -83,10 +96,16 @@ envelope, before you commission.
 
 A transponder declares which way that airlock faces. A docking beacon
 only accepts a ship carrying one if the transponder's facing is the
-EXACT OPPOSITE of the beacon's own -- the same way two real airlocks
-meet each other (beacon facing west + transponder facing east = a
-match). Rotate either device with a multitool at any time, anchored or
-not, to change its facing.
+EXACT OPPOSITE compass direction from the beacon's own -- which in
+practice means pointing the transponder AT the beacon, not away from
+it, the same way two real airlocks meet each other face to face
+(beacon facing west + transponder facing east = a match, since west
+and east point straight at one another).
+
+Multitool a transponder for the same Buffer-or-Rotate choice the
+beacon has (section 2): Rotate changes its facing (only while
+unsecured); Buffer stores it in the multitool, ready to link to a
+commissioning console (section 4).
 
 This does NOT physically rotate your ship's hull -- nothing in this
 game, template ship or player-built, has ever had its hull rotated to
@@ -138,27 +157,51 @@ generator, weapons, life support -- was already ordinary
 cargo-orderable equipment before this system existed; nothing new was
 needed for those.)
 
-Wrench the commissioning console down anywhere within 12 tiles of an
-active docking beacon. It doesn't need to be inside the build
-envelope itself -- it's common to put it in a pressurized control room
-a short distance from the actual airlock/beacon, "past the interior
-cycler."
+Wrench the commissioning console down anywhere within 12 tiles of the
+beacon you intend to link it to. It doesn't need to be inside the
+build envelope itself -- it's common to put it in a pressurized
+control room a short distance from the actual airlock/beacon, "past
+the interior cycler."
+
+LINKING: the commissioning console does nothing at all -- Preview,
+Generate Build Floor, and Commission all refuse -- until it's been
+explicitly linked to a beacon, a transponder, and a shuttle control
+console. There's no "nearest in range" auto-detection anymore; you
+choose exactly which of each it uses, so two beacons in range (or one
+behind a wall) is never ambiguous. To link one:
+
+  1. Multitool the device (beacon, transponder, or shuttle control
+     console) and choose Buffer.
+  2. Multitool the commissioning console. It reads whatever's
+     buffered and links to it, confirming in chat which of the three
+     slots it filled.
+
+Each of the three links is independent -- link the beacon first, build
+your hull, then link the transponder and shuttle control console once
+they're actually placed. A link stays put even if the linked device
+goes temporarily invalid (beacon deactivated, device moved outside the
+envelope) -- the console just reports it as broken until it's valid
+again, rather than forgetting it and making you re-link from scratch.
+Only actually destroying a linked device clears its slot.
 
 --------------------------------------------------------------------
 5. BUILDING AND COMMISSIONING
 --------------------------------------------------------------------
 
-  1. Interact with the commissioning console -> "Preview Build
-     Envelope". It finds the nearest active beacon and highlights a
-     9x9 block of tiles for 10 seconds -- this is the absolute maximum
-     size your hull can be. The box sits flush against the beacon and
-     extends out in whatever direction the beacon is CURRENTLY facing
-     (rotate the beacon with a multitool beforehand to choose north,
-     south, east, or west). One edge of the box -- the one touching the
-     beacon -- is tinted a distinct color: that's exactly where your
-     airlock and transponder need to go. You can preview as many times
-     as you like while you work, including after rotating the beacon to
-     see the box move.
+  1. Link a beacon to the commissioning console (section 4) if you
+     haven't already, then interact with the console -> "Preview
+     Build Envelope". It highlights a 9x9 block of tiles for 10
+     seconds -- this is the absolute maximum size your hull can be.
+     The box sits one tile clear of the linked beacon and extends out
+     in whatever direction the beacon is CURRENTLY facing (rotate the
+     beacon with a multitool beforehand to choose north, south, east,
+     or west) -- the beacon itself always stays outside the box, like
+     a dock marker standing clear of the airlock it serves, never
+     inside your hull. The nearest edge of the box -- the one closest
+     to the beacon -- is tinted a distinct color: that's exactly where
+     your airlock and transponder need to go. You can preview as many
+     times as you like while you work, including after rotating the
+     beacon to see the box move.
 
      If the highlighted box is completely empty -- no walls, objects,
      or anyone standing in it -- "Generate Build Floor" lights up.
@@ -177,7 +220,11 @@ cycler."
      floor when you commission -- no gaps to space), your engine and
      life support, the shuttle control console, an APC with cabling,
      and a docking transponder mounted on the tinted edge, rotated
-     (multitool) to face back toward the beacon.
+     (multitool) to face back toward the beacon. Once they're placed,
+     link the transponder and the shuttle control console to the
+     commissioning console too (section 4) -- Preview and Generate
+     Build Floor only need the beacon linked, but Commission needs all
+     three.
 
   3. Interact with the commissioning console again. Choose where the
      ship ends up on deployment -- staying docked right at the beacon,
@@ -190,15 +237,15 @@ cycler."
      teleporting involved. Then choose
      personal or (if you're wearing a faction ID) faction funding.
      Both funding options are greyed out, with an on-screen reason,
-     if: anyone -- dead or alive, including someone connected via a
+     if: the beacon, transponder, or shuttle control console isn't
+     linked yet (or its link is currently broken -- see section 4);
+     anyone -- dead or alive, including someone connected via a
      neural lace -- is still standing anywhere in the build envelope;
-     no shuttle control console is found (a hull with no console could
-     never be flown); no APC is found (nothing aboard would have
-     power); no transponder is found; or the transponder isn't facing
-     the beacon. Fix whichever applies and the buttons re-enable live,
-     no need to reopen the UI. Otherwise you'll be asked to name the
-     ship (it must not already be in use by another ship, stashed or
-     deployed), then charged:
+     no APC is found (nothing aboard would have power); or the linked
+     transponder isn't facing the beacon. Fix whichever applies and
+     the buttons re-enable live, no need to reopen the UI. Otherwise
+     you'll be asked to name the ship (it must not already be in use
+     by another ship, stashed or deployed), then charged:
 
        - Personal: 100,000cr from your own linked bank account.
        - Faction: 100,000cr from the faction account, but ONLY if
@@ -229,9 +276,10 @@ cycler."
      own Rename Ship option afterward to set one, same as any other
      ship, and it updates immediately, no retrieve needed.
 
-A failed commission (unsealed hull, no beacon in range, envelope
-occupied, no console, no APC, no/misaligned transponder, insufficient
-funds, insufficient rank, name already taken) charges nothing and
+A failed commission (unsealed hull, beacon/transponder/console not
+linked or link broken, envelope occupied, no APC, misaligned
+transponder, insufficient funds, insufficient rank, name already
+taken) charges nothing and
 leaves your build untouched -- fix the problem and try again. Two Commission clicks fired
 back to back (impatience, or two people at two consoles) can't both
 succeed either -- the second one is queued and re-validated fresh once
@@ -252,6 +300,18 @@ it since commission or retrieve) goes back to being empty open space
 for as long as you're docked. Undocking moves everything straight back
 home. This is not new or specific to player-built ships -- it's how
 every drydock ship has always docked at a beacon under its own power.
+
+This is also why commissioning quietly repositions your ship's own
+internal reference point (its "home" marker, invisible in normal play)
+to sit exactly where the beacon was during capture, instead of leaving
+it wherever the blank shell template happened to put it. Without that,
+a docked ship would land with its geometric CENTER at the target
+beacon instead of its actual airlock, offsetting the transponder by
+several tiles from where it's supposed to be. With it, your transponder
+lands exactly one tile clear of whatever beacon you dock at next --
+matching the same spacing the build envelope itself always has with a
+beacon (section 2) -- no matter where along the tinted edge you
+actually built your airlock.
 
 Because of that, "deployed" and "sitting on its own Z" are NOT always
 the same thing anymore, and that has two consequences worth knowing:
@@ -345,38 +405,63 @@ evacuated to open space first, never destroyed alongside it.)
   code/modules/shuttles/docking_beacon.dm
                                         -- size-gated player_dock/beacon
                                            fields + UI, hangar_slot type,
-                                           facing check + multitool rotate,
-                                           _sync_landmark_facing()
+                                           facing check, holopad sprite
+                                           (green), multitool Buffer/Rotate
+                                           choice, _sync_landmark_facing()
   code/modules/shuttles/docking_transponder.dm
-                                        -- the transponder device
+                                        -- the transponder device,
+                                           multitool Buffer/Rotate choice
+  code/game/objects/items/devices/multitool.dm
+                                        -- NOT modified -- the buffer this
+                                           whole linking flow runs on
+                                           (buffer_object/set_buffer()/
+                                           get_buffer()) already existed,
+                                           reused as-is (same mechanism
+                                           airlock controller wiring uses)
   code/modules/shuttles/landmarks.dm   -- footprint check in is_valid()
   code/modules/shuttles/shuttle.dm     -- get_footprint(),
                                            find_docking_transponder()
   code/modules/shuttles/ship_commissioning_console.dm
-                                        -- the commissioning console,
-                                           including Preview and the
-                                           optional Generate Build Floor
-                                           (fills empty envelope tiles with
-                                           plating; never touches anything
-                                           already built)
+                                        -- the commissioning console:
+                                           Preview, the optional Generate
+                                           Build Floor (fills empty
+                                           envelope tiles with plating;
+                                           never touches anything already
+                                           built), and linked_beacon/
+                                           linked_transponder/
+                                           linked_shuttle_console (set via
+                                           multitool -- see
+                                           _link_device()/attackby() and
+                                           the _valid_linked_*() checks
+                                           that replaced proximity/
+                                           envelope-scan discovery
+                                           entirely)
   code/modules/overmap/ships/drydock_ship.dm
                                         -- hidden_from_catalog flag,
                                            buildable shuttle_control
-                                           console subtype
+                                           console subtype (also gets the
+                                           multitool Buffer handler)
   code/controllers/subsystems/persistence/persistence_shuttles.dm
                                         -- drydockCommission() (queue-gated
                                            wrapper) / _drydockCommissionRun()
-                                           (the actual work): console/APC/
-                                           transponder requirements, name-
-                                           uniqueness, envelope-occupancy
-                                           check, post-capture APC/area
-                                           rebind + cable powernet + atmos
-                                           pipe network rebuild, the real
-                                           attempt_move()-based dock_at_beacon
-                                           placement, the mutual-dock/
-                                           away-from-home stash lock (with
-                                           force-recall for a forced stash),
-                                           marker evacuation on teardown,
+                                           (the actual work): console/APC
+                                           requirements checked against the
+                                           console's own linked devices,
+                                           name-uniqueness, envelope-
+                                           occupancy check, post-capture
+                                           APC/area rebind + cable powernet
+                                           + atmos pipe network rebuild, the
+                                           home-landmark repositioning fix
+                                           (so a docked ship's transponder
+                                           lands one tile clear of whatever
+                                           beacon it docks at, not the
+                                           hull's own geometric center), the
+                                           real attempt_move()-based
+                                           dock_at_beacon placement, the
+                                           mutual-dock/away-from-home stash
+                                           lock (with force-recall for a
+                                           forced stash), marker evacuation
+                                           on teardown,
                                            _drydock_periodic_sweep() (also
                                            maintains the docked-turf
                                            exclusion set every 30 seconds),

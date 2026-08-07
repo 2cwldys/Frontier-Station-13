@@ -1067,6 +1067,30 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// through SSshuttle.get_landmark() and skips waypoints entirely. The same tag
 /// is reused here so both paths agree on what "home" means.
 ///
+/// A bound sub-ship (Xanu Fighter/Boarder, etc. -- /datum/shuttle/autodock/overmap/xanu_fighter
+/// and siblings, NOT /datum/shuttle/autodock/overmap/drydock_ship) never carries
+/// its own faction_uid -- it's never independently ledgered in
+/// GLOB.drydock_ships, see subshipSnapshotSave()'s own doc comment. Ownership
+/// only ever exists via whichever deployed mothership's own template lists
+/// this shuttle's CURRENT name in sub_shuttle_tags (same key
+/// _drydock_register_subship_waypoints() below already resolves through
+/// SSshuttle.shuttles[sub_tag]). Used by player_dock/is_valid()'s raiding
+/// check (docking_beacon.dm) so a sub-ship correctly inherits its parent's
+/// faction instead of always resolving to "no faction" (which would block it
+/// from docking anywhere claimed, including its own faction's territory,
+/// the moment raiding is disabled).
+/proc/_drydock_sub_shuttle_owner_faction(shuttle_name)
+	if(!shuttle_name)
+		return null
+	for(var/sid in GLOB.drydock_ships)
+		var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
+		if(!DS || DS.stashed)
+			continue
+		var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
+		if(template && (shuttle_name in template.sub_shuttle_tags))
+			return DS.faction_uid
+	return null
+
 /// Restricted rather than generic: only this sub-ship may dock in its own
 /// parent's hangar. Keyed by the shuttle's CURRENT name, because that's what
 /// get_waypoints(name) matches on -- see drydockRenameSubship(), which has to
@@ -1576,10 +1600,12 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		log_drydock_warning("drydockCommission: refused -- name '[new_name]' already taken (acting=[acting]).")
 		return FALSE
 
-	var/obj/structure/machinery/docking_beacon/beacon = console._find_nearby_beacon()
+	var/obj/structure/machinery/docking_beacon/beacon = console._valid_linked_beacon()
 	if(!beacon)
 		if(user)
-			to_chat(user, SPAN_WARNING("No active docking beacon in range -- place and activate one first."))
+			to_chat(user, console.linked_beacon \
+				? SPAN_WARNING("Linked beacon isn't valid right now -- deactivated, unanchored, or out of range.") \
+				: SPAN_WARNING("No beacon linked -- multitool a docking beacon, choose Buffer, then multitool this console to link it."))
 		return FALSE
 	// Shared with the console's own preview (_get_envelope_corner(),
 	// ship_commissioning_console.dm) so they can never disagree about which
@@ -1612,10 +1638,12 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// beacon marks the dock, the console builds/commissions, and the
 	// transponder proves the hull's own airlock is actually oriented to
 	// meet this specific beacon before it's allowed to become a real ship.
-	var/obj/structure/machinery/docking_transponder/transponder = _drydock_envelope_find_transponder(envelope)
+	var/obj/structure/machinery/docking_transponder/transponder = console._valid_linked_transponder(envelope)
 	if(!istype(transponder))
 		if(user)
-			to_chat(user, SPAN_WARNING("No docking transponder found in the build envelope -- mount one at your airlock, facing away from [beacon]."))
+			to_chat(user, console.linked_transponder \
+				? SPAN_WARNING("Linked docking transponder isn't inside the build envelope -- move it, or link a different one.") \
+				: SPAN_WARNING("No docking transponder linked -- multitool one at your airlock, choose Buffer, then multitool this console to link it. It needs to face [beacon]."))
 		log_drydock_warning("drydockCommission: refused -- no docking transponder in envelope near [console] (acting=[acting]).")
 		return FALSE
 	if(turn(transponder.dir, 180) != beacon.dir)
@@ -1631,9 +1659,11 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// SHIP_COMMISSION_PRICE and end up with a ship that has no way to ever
 	// be piloted, with no way to find that out until it's too late to fix
 	// (the build site is already wiped by the time anyone would notice).
-	if(!_drydock_envelope_find_console(envelope))
+	if(!console._valid_linked_console(envelope))
 		if(user)
-			to_chat(user, SPAN_WARNING("No shuttle control console found in the build envelope -- without one, this hull could never be flown."))
+			to_chat(user, console.linked_shuttle_console \
+				? SPAN_WARNING("Linked shuttle control console isn't inside the build envelope -- move it, or link a different one.") \
+				: SPAN_WARNING("No shuttle control console linked -- multitool one, choose Buffer, then multitool this console to link it. Without one, this hull could never be flown."))
 		log_drydock_warning("drydockCommission: refused -- no shuttle control console in envelope near [console] (acting=[acting]).")
 		return FALSE
 
@@ -1849,6 +1879,35 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		if((beacon in source_turf) || (console in source_turf))
 			continue
 		source_turf.ChangeTurf(get_base_turf_by_area(source_turf))
+
+	// Reposition the ship's own home landmark from wherever the shell
+	// template mapped it (dead center of the room, for player_built_shuttle)
+	// to the hull-relative spot the ORIGINAL beacon occupied during capture.
+	// Without this, attempt_move()'s translation (shuttle.dm) uses the
+	// landmark's own position as the ship's "reference point" -- if that's
+	// the hull's geometric center rather than near the transponder/airlock,
+	// a future real dock would land the ship's CENTER at the target beacon
+	// instead of its airlock, offsetting the actual airlock by roughly half
+	// the hull's width (and, worse, would land the transponder's own tile
+	// exactly on a target beacon if the offset ever happened to coincide,
+	// destroying it -- the beacon itself is protected from a landing squish,
+	// simulated=FALSE, docking_beacon.dm, but the transponder isn't).
+	// Reusing the exact same per-turf offset math the capture above already
+	// used (get_turf_translation()) against the beacon's own turf (never
+	// itself captured) reproduces the identical one-tile-gap relationship
+	// the build envelope already has with this beacon, so a future dock at
+	// any OTHER beacon lands the transponder exactly one tile clear of it
+	// too, matching this same convention symmetrically.
+	if(istype(shuttle_datum) && istype(marker.landmark))
+		var/turf/beacon_turf = get_turf(beacon)
+		var/list/beacon_translation = get_turf_translation(source_corner, dest_corner, list(beacon_turf))
+		var/turf/new_landmark_turf = beacon_translation[beacon_turf]
+		if(new_landmark_turf)
+			marker.landmark.forceMove(new_landmark_turf)
+		else
+			log_drydock_error("drydockCommission: couldn't compute new landmark position for shuttle_id=[new_id] -- landmark left at template default, docking may be misaligned. Admin attention needed.")
+	else
+		log_drydock_error("drydockCommission: marker.landmark not yet set for shuttle_id=[new_id] -- landmark left at template default, docking may be misaligned. Admin attention needed.")
 
 	// Hook up whichever shuttle_control console the player actually built,
 	// same as drydockAutoFurnish() does for its own auto-spawned one.
@@ -2578,29 +2637,6 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			if(L.lace_occupied)
 				return TRUE
 	return FALSE
-
-/// The first docking_transponder found anywhere in envelope, or null --
-/// used by both drydockCommission()'s own required-transponder check and
-/// the ship_commissioning console's ui_data() (greyed-out button/hint).
-/proc/_drydock_envelope_find_transponder(list/turf/envelope)
-	for(var/turf/T in envelope)
-		var/obj/structure/machinery/docking_transponder/transponder = locate() in T
-		if(transponder)
-			return transponder
-	return null
-
-/// The first shuttle_control console found anywhere in envelope, or null --
-/// used by both drydockCommission()'s own required-console check and the
-/// ship_commissioning console's ui_data() (greyed-out button/hint). Any
-/// shuttle_control subtype counts, not just the buildable one specifically
-/// (drydock_ship.dm) -- a mapped-in one dragged into a build would work
-/// exactly as well.
-/proc/_drydock_envelope_find_console(list/turf/envelope)
-	for(var/turf/T in envelope)
-		var/obj/structure/machinery/computer/shuttle_control/console = locate() in T
-		if(console)
-			return console
-	return null
 
 /// The first APC found anywhere in envelope, or null -- used by both
 /// drydockCommission()'s own required-APC check and the ship_commissioning

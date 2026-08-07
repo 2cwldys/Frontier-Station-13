@@ -334,7 +334,23 @@
 /// so a blocked player gets an immediate message instead of clicking
 /// through an eye-view pick that can never succeed -- _drydock_pick_access_mode()
 /// above is still the authoritative check, re-verified on every click.
+/// Thin wrapper around _faction_raid_blocked_for() (shuttles/docking_beacon.dm
+/// consumes that shared proc directly for a docking ship's own faction_uid,
+/// which has no mob/ID card to resolve one from) -- resolves L's own faction
+/// from their ID card, same as before this was split out.
 /proc/_drydock_raid_blocked(mob/living/L, target_z)
+	var/obj/item/card/id/ID = L.GetIdCard()
+	var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+	return _faction_raid_blocked_for(target_z, own_faction)
+
+/// Shared core of the raiding gate: TRUE if acting_faction_uid should be
+/// refused entry to target_z because faction raiding is currently disabled,
+/// the Z is claimed by an ordinary (non-Hub) powered, non-public-territory
+/// faction beacon, and acting_faction_uid isn't a member of (or allied with,
+/// under FACTION_ALLIANCES) that faction. acting_faction_uid may be null
+/// (an unaffiliated player, or a personally-owned drydock ship) -- always
+/// blocked in that case, same as before this was split out.
+/proc/_faction_raid_blocked_for(target_z, acting_faction_uid)
 	if(GLOB.faction_raiding_enabled)
 		return FALSE
 	if(zone_security_get(target_z) == ZONE_HIGHSEC)
@@ -342,12 +358,10 @@
 	var/obj/structure/machinery/faction_beacon/B = GLOB.faction_beacon_by_z["[target_z]"]
 	if(!istype(B) || !B.powered || B.public_territory || istype(B, /obj/structure/machinery/faction_beacon/hub))
 		return FALSE
-	var/obj/item/card/id/ID = L.GetIdCard()
-	var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
 #ifdef FACTION_ALLIANCES
-	return !(B.faction_uid && own_faction && (B.faction_uid == own_faction || factions_are_allied(own_faction, B.faction_uid)))
+	return !(B.faction_uid && acting_faction_uid && (B.faction_uid == acting_faction_uid || factions_are_allied(acting_faction_uid, B.faction_uid)))
 #else
-	return !(B.faction_uid && own_faction && B.faction_uid == own_faction)
+	return !(B.faction_uid && acting_faction_uid && B.faction_uid == acting_faction_uid)
 #endif //FACTION_ALLIANCES
 
 /// Plays the raiding-prohibited announcer cue to L, gated by ASFX_ANNOUNCER
