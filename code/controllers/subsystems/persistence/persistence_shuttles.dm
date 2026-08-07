@@ -71,6 +71,20 @@ GLOBAL_VAR_INIT(drydock_periodic_sweep_started, FALSE)
 	addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_drydock_periodic_sweep)), 30 SECONDS, TIMER_LOOP)
 
 /proc/_drydock_periodic_sweep()
+	// Rebuilt from scratch every cycle (not incrementally added/removed) --
+	// simplest correctness model, no stale-entry bookkeeping to get wrong.
+	// See persistence_docked_turf_scope's doc comment
+	// (persistence_ship_interiors.dm) for why this exists at all:
+	// attempt_move()/shuttle_moved() (shuttle.dm) physically relocates a
+	// docked ship's own turfs (and their area membership) onto wherever it's
+	// actually docked, so the general per-z Finalize sweeps (persistence.dm)
+	// can't tell those turfs apart from the surrounding station/host ship's
+	// own content by z alone. This registry is what lets those sweeps
+	// EXCLUDE a docked ship's turfs entirely (never write them under either
+	// scope) rather than a docked ship ever having to move just because a
+	// save is about to run -- its real, authoritative interior save always
+	// happens via shipInteriorSave() once it's genuinely home again.
+	GLOB.persistence_docked_turf_scope = list()
 	for(var/sid in GLOB.drydock_ships)
 		var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
 		if(!DS || DS.stashed || !DS.z)
@@ -79,6 +93,35 @@ GLOBAL_VAR_INIT(drydock_periodic_sweep_started, FALSE)
 			_sweep_unassigned_objects_for_faction(list("[DS.z]"), DS.faction_uid)
 		else
 			_sweep_unassigned_crew(list("[DS.z]"))
+		var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
+		if(!istype(marker) || !marker.landmark)
+			continue
+		var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
+		if(istype(shuttle_datum) && shuttle_datum.current_location != marker.landmark)
+			var/turf_scope = "ship:d:[sid]"
+			for(var/area/A in shuttle_datum.shuttle_area)
+				for(var/turf/T in A.contents)
+					GLOB.persistence_docked_turf_scope[T] = turf_scope
+		// Bound sub-craft (Xanu Fighter/Boarder, etc., sub_shuttle_tags) use
+		// the exact same real attempt_move()/shuttle_moved() movement as any
+		// other shuttle datum -- one can fly off its home slot and dock
+		// somewhere entirely unrelated (another ship's hangar, a station
+		// beacon, per Part 5) just like a full ship can, with the identical
+		// foreign-Z misattribution exposure. logging_home_tag/current_location
+		// comparison mirrors the exact check _drydockStashRun()'s own
+		// sub-ship force-recall block already uses just below.
+		var/datum/map_template/drydock_ship/sub_template = SSmapping.drydock_ship_templates[DS.template_id]
+		if(sub_template && length(sub_template.sub_shuttle_tags))
+			for(var/sub_tag in sub_template.sub_shuttle_tags)
+				var/datum/shuttle/autodock/sub = SSshuttle.shuttles[sub_tag]
+				if(!istype(sub) || !istype(sub.current_location))
+					continue
+				if(sub.current_location.landmark_tag == sub.logging_home_tag)
+					continue // already home
+				var/sub_scope = "ship:d:[sid]:sub:[sub_tag]"
+				for(var/area/A in sub.shuttle_area)
+					for(var/turf/T in A.contents)
+						GLOB.persistence_docked_turf_scope[T] = sub_scope
 
 /// Admin-tunable, DB-persisted (ss13_drydock_config) cap on how many ships
 /// can be deployed at once server-wide -- 0 = no limit. Loaded at boot by
@@ -1047,6 +1090,26 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			continue // already registered (re-deploy)
 		marker.add_landmark(home, sub.name)
 
+		// Also expose this same hangar slot publicly (Part 5) -- a
+		// size-gated proxy at the same turf, discoverable by any
+		// appropriately sized outside ship's own navigation console, valid
+		// only while sub isn't physically parked here right now
+		// (hangar_slot/is_valid(), docking_beacon.dm). The real home
+		// landmark above is untouched -- still restricted to sub's own name
+		// for its "return to hangar" waypoint.
+		var/public_tag = "[home.landmark_tag]_public"
+		if(!SSshuttle.registered_shuttle_landmarks[public_tag])
+			var/obj/effect/shuttle_landmark/player_dock/hangar_slot/slot = new(get_turf(home))
+			slot.landmark_tag = public_tag
+			slot.name = "[sub.name] Hangar Slot"
+			slot.base_area = home.base_area
+			slot.base_turf = home.base_turf
+			slot.max_footprint_x = SUBSHIP_FOOTPRINT_X
+			slot.max_footprint_y = SUBSHIP_FOOTPRINT_Y
+			slot.bound_sub_shuttle = sub
+			slot.real_home = home
+			marker.add_landmark(slot, null)
+
 /// Drops those registrations again, so a stashed ship's hangar stops being
 /// offered as a destination to anything still flying.
 /proc/_drydock_unregister_subship_waypoints(obj/effect/overmap/visitable/marker, datum/map_template/drydock_ship/template)
@@ -1059,6 +1122,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		var/obj/effect/shuttle_landmark/home = SSshuttle.get_landmark(sub.logging_home_tag)
 		if(home)
 			marker.remove_landmark(home, sub.name)
+			var/obj/effect/shuttle_landmark/player_dock/hangar_slot/slot = SSshuttle.registered_shuttle_landmarks["[home.landmark_tag]_public"]
+			if(slot)
+				marker.remove_landmark(slot, null)
+				qdel(slot)
 
 /// Renames a sub-ship mapped into this hull's own hangar (see
 /// /datum/map_template/drydock_ship/sub_shuttle_tags, drydock_ship.dm) --
@@ -1287,6 +1354,15 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			to_chat(user, SPAN_WARNING("No such ship template."))
 		log_drydock_warning("drydockBuy: refused -- unknown template_id '[template_id]' (acting=[acting]).")
 		return FALSE
+	// Server-side enforcement, not just a UI listing omission -- the shared
+	// player-commissioned shell (hidden_from_catalog, drydock_ship.dm) must
+	// never be reachable through the normal free/priced buy flow, only
+	// through drydockCommission()'s own payment/rank gating.
+	if(template.hidden_from_catalog)
+		if(user)
+			to_chat(user, SPAN_WARNING("No such ship template."))
+		log_drydock_warning("drydockBuy: refused -- template '[template_id]' is hidden_from_catalog (acting=[acting]).")
+		return FALSE
 
 	var/owner_account_number
 	if(faction_uid)
@@ -1395,6 +1471,477 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	return TRUE
 
 // ============================================================
+// COMMISSION  turn a player-built hull into a real drydock shuttle
+// ============================================================
+
+/// TRUE if any currently-known ship (deployed or stashed) already has this
+/// exact name -- trimmed, case-insensitive. Compares against each ship's
+/// own effective base name (custom_name if renamed, else its template's
+/// default), the same value display_name() itself starts from, before any
+/// faction-name/stolen suffix gets appended. Scoped to drydockCommission()
+/// only -- drydockRename()/drydockBuy() have never enforced this and
+/// aren't being changed to start now.
+/proc/_drydock_name_taken(new_name)
+	var/normalized = trim(lowertext(new_name))
+	if(!normalized)
+		return FALSE
+	for(var/sid in GLOB.drydock_ships)
+		var/datum/drydock_ship/other = GLOB.drydock_ships[sid]
+		if(!other)
+			continue
+		var/other_base = other.custom_name
+		if(!other_base)
+			var/datum/map_template/drydock_ship/t = SSmapping.drydock_ship_templates[other.template_id]
+			other_base = t ? initial(t.name) : other.template_id
+		if(trim(lowertext(other_base)) == normalized)
+			return TRUE
+	return FALSE
+
+/// Public entry point -- a thin queue-gate in front of _drydockCommissionRun()
+/// (below), identical in shape to drydockRetrieve()/drydockStash()'s own
+/// wrappers just above/below this file. Without this, two rapid Commission
+/// clicks (or two players at two different consoles) could both pass
+/// validation and both capture the same build before either one's heavy
+/// body finishes -- at minimum a double-charge, at worst two ships minted
+/// from one hull. Serializes with retrieve/stash too, not just other
+/// commissions, since they share the same GLOB.drydock_op_active gate.
+/datum/controller/subsystem/persistence/proc/drydockCommission(obj/structure/machinery/computer/ship_commissioning/console, mob/user, faction_uid, new_name, dock_at_beacon = FALSE)
+	if(GLOB.drydock_op_active || save_in_progress)
+		GLOB.drydock_op_queue += list(list("op" = "commission", "console" = console, "faction_uid" = faction_uid, "new_name" = new_name, "dock_at_beacon" = dock_at_beacon, "user" = user))
+		if(user)
+			to_chat(user, SPAN_WARNING("[save_in_progress ? "A world save is in progress" : "Too much drydock activity right now"] -- queued (position [length(GLOB.drydock_op_queue)]). You'll be notified when it starts."))
+		log_drydock("drydockCommission: [user ? key_name(user) : "SYSTEM"] queued commission (position [length(GLOB.drydock_op_queue)], [save_in_progress ? "world save" : "drydock op"] active).")
+		return FALSE
+	GLOB.drydock_op_active = TRUE
+	GLOB.drydock_op_active_shuttle_id = null
+	try
+		. = _drydockCommissionRun(console, user, faction_uid, new_name, dock_at_beacon)
+	catch(var/exception/e)
+		log_drydock_error("drydockCommission: uncaught exception (acting=[user ? key_name(user) : "SYSTEM"]): [e]")
+		if(user)
+			to_chat(user, SPAN_WARNING("Something went wrong commissioning that ship -- an admin has been notified."))
+		log_and_message_admins("drydockCommission: uncaught exception: [e]", user)
+	GLOB.drydock_op_active = FALSE
+	GLOB.drydock_op_active_shuttle_id = null
+	_drydockProcessNextQueued()
+	return .
+
+/**
+ * Turns a player-built hull into a real, independently-owned drydock
+ * shuttle -- the ship_commissioning console's own "Commission" action
+ * (ship_commissioning_console.dm) delegates everything here (via
+ * drydockCommission()'s thin queue-gate just above). Validates the build
+ * (sealed, within the standard footprint centered on a linked active
+ * docking_beacon), charges SHIP_COMMISSION_PRICE (the commissioning
+ * player's own account, or a faction's with command-rank/CEO/leader
+ * approval), captures the built envelope onto a freshly materialized
+ * player_built_shuttle Z, and mints a fresh ship_schematic. Unlike
+ * drydockBuy(), the ship exists deployed immediately -- it's already
+ * physically sitting there the moment it's captured, no separate retrieve
+ * step makes sense. The docking beacon and the commissioning console itself
+ * are never captured, moved, or wiped -- only the surrounding hull is,
+ * explicitly excluded turf-by-turf on both the move and the wipe passes.
+ * The captured APC/cabling/atmos machinery are explicitly re-initialized
+ * post-capture (area/powernet/pipe-network rebuild) since forceMove() alone
+ * doesn't trigger any of that the way a template's own initial map load does.
+ *
+ * dock_at_beacon: player's choice, not forced either way. FALSE (default)
+ * places the ship out in nearby open space via shipPlaceOvermapMarker(),
+ * same as any template retrieve. TRUE instead genuinely docks it at the
+ * beacon via a real shuttle_datum.attempt_move() call (shuttle.dm) once the
+ * hull is captured and the first interior save has run -- attempt_move()'s
+ * own shuttle_moved() physically relocates the ship's real turfs (and their
+ * area membership) onto the beacon's actual location, exactly like any ship
+ * flying itself there under its own power; current_location/status and the
+ * marker's overmap nesting all follow as ordinary side effects of that real
+ * move, not manual bookkeeping. Either way it's a completely ordinary
+ * drydock ship from that point on -- stash still requires being near a
+ * secured faction beacon exactly like any other ship
+ * (_drydock_secured_beacon_nearby()/faction beacon proximity,
+ * _drydockStashRun() below), regardless of which placement was chosen here,
+ * and stashing while genuinely docked (dock_at_beacon or otherwise) is
+ * refused/force-recalled by _drydockStashRun() -- see its own doc comment.
+ */
+/datum/controller/subsystem/persistence/proc/_drydockCommissionRun(obj/structure/machinery/computer/ship_commissioning/console, mob/user, faction_uid, new_name, dock_at_beacon = FALSE)
+	var/acting = user ? key_name(user) : "SYSTEM"
+	if(!istype(console) || !console.anchored)
+		return FALSE
+	if(!new_name)
+		if(user)
+			to_chat(user, SPAN_WARNING("Name this shuttle before commissioning it."))
+		return FALSE
+	if(_drydock_name_taken(new_name))
+		if(user)
+			to_chat(user, SPAN_WARNING("A ship named '[new_name]' already exists -- pick a different name."))
+		log_drydock_warning("drydockCommission: refused -- name '[new_name]' already taken (acting=[acting]).")
+		return FALSE
+
+	var/obj/structure/machinery/docking_beacon/beacon = console._find_nearby_beacon()
+	if(!beacon)
+		if(user)
+			to_chat(user, SPAN_WARNING("No active docking beacon in range -- place and activate one first."))
+		return FALSE
+	// Shared with the console's own preview (_get_envelope_corner(),
+	// ship_commissioning_console.dm) so they can never disagree about which
+	// tiles are covered -- the box sits flush against whichever side of the
+	// beacon it's currently facing, not centered on it.
+	var/turf/source_corner = console._get_envelope_corner(beacon)
+	if(!source_corner)
+		if(user)
+			to_chat(user, SPAN_WARNING("The build envelope runs off the edge of the map."))
+		return FALSE
+	var/list/turf/envelope = block(source_corner, locate(source_corner.x + SUBSHIP_FOOTPRINT_X - 1, source_corner.y + SUBSHIP_FOOTPRINT_Y - 1, source_corner.z))
+
+	for(var/turf/T in envelope)
+		if(isspaceturf(T) || isopenspace(T))
+			if(user)
+				to_chat(user, SPAN_WARNING("The build envelope isn't fully sealed -- check for gaps to space."))
+			log_drydock_warning("drydockCommission: refused -- unsealed envelope near [console] (acting=[acting]).")
+			return FALSE
+
+	if(_drydock_envelope_has_occupants(envelope))
+		if(user)
+			to_chat(user, SPAN_WARNING("Someone (or something's remains) is still inside the build envelope -- clear it before commissioning."))
+		log_drydock_warning("drydockCommission: refused -- occupant present in envelope near [console] (acting=[acting]).")
+		return FALSE
+
+	// A docking_transponder, facing the exact opposite of this beacon, is
+	// required to commission at all -- not just an opt-in nicety for OTHER
+	// beacons later (player_dock/is_valid(), docking_beacon.dm). This is
+	// what ties all three devices together into one coherent flow: the
+	// beacon marks the dock, the console builds/commissions, and the
+	// transponder proves the hull's own airlock is actually oriented to
+	// meet this specific beacon before it's allowed to become a real ship.
+	var/obj/structure/machinery/docking_transponder/transponder = _drydock_envelope_find_transponder(envelope)
+	if(!istype(transponder))
+		if(user)
+			to_chat(user, SPAN_WARNING("No docking transponder found in the build envelope -- mount one at your airlock, facing away from [beacon]."))
+		log_drydock_warning("drydockCommission: refused -- no docking transponder in envelope near [console] (acting=[acting]).")
+		return FALSE
+	if(turn(transponder.dir, 180) != beacon.dir)
+		if(user)
+			to_chat(user, SPAN_WARNING("The docking transponder isn't facing [beacon] -- rotate it (multitool) to face the opposite direction."))
+		log_drydock_warning("drydockCommission: refused -- transponder facing mismatch near [console] (acting=[acting]).")
+		return FALSE
+
+	// A shuttle_control console is the actual minimum drydockAutoFurnish()
+	// itself already treats as "the ship can be flown" (persistence_shuttles.dm,
+	// see that proc's own doc comment) -- required here too, for the same
+	// reason the transponder is: without this check a player could pay
+	// SHIP_COMMISSION_PRICE and end up with a ship that has no way to ever
+	// be piloted, with no way to find that out until it's too late to fix
+	// (the build site is already wiped by the time anyone would notice).
+	if(!_drydock_envelope_find_console(envelope))
+		if(user)
+			to_chat(user, SPAN_WARNING("No shuttle control console found in the build envelope -- without one, this hull could never be flown."))
+		log_drydock_warning("drydockCommission: refused -- no shuttle control console in envelope near [console] (acting=[acting]).")
+		return FALSE
+
+	// Same reasoning as the console check just above -- the ship's own area
+	// (mapped in as part of player_built_shuttle's shell, and preserved as-is
+	// by ChangeTurf() during capture below, which only ever swaps turf type,
+	// never area membership) has no power distribution at all without an
+	// APC. No APC means the engine, life support, lights, and every console
+	// aboard -- including the one just confirmed present -- would deploy
+	// dark.
+	if(!_drydock_envelope_find_apc(envelope))
+		if(user)
+			to_chat(user, SPAN_WARNING("No APC found in the build envelope -- without one, nothing aboard would have power."))
+		log_drydock_warning("drydockCommission: refused -- no APC in envelope near [console] (acting=[acting]).")
+		return FALSE
+
+	// Payment -- mirrors drydockBuy()'s own personal/faction split exactly,
+	// just at a flat SHIP_COMMISSION_PRICE instead of a template's price.
+	// Command rank (2), not the officer-only (1) bar most faction shackle
+	// actions use -- this permanently spends a much larger sum.
+	var/owner_ckey
+	var/owner_char_name
+	var/owner_account_number
+	if(faction_uid)
+		var/op_rank = get_effective_faction_rank(user, faction_uid)
+		if(op_rank < 2 && is_faction_ceo(faction_uid, user.ckey, user.real_name))
+			op_rank = 2
+		if(op_rank < 2 && is_faction_designated_leader(faction_uid, user.ckey, user.real_name))
+			op_rank = 2
+		if(op_rank < 2)
+			if(user)
+				to_chat(user, SPAN_WARNING("You need command rank in [get_faction_name(faction_uid)] to commission a ship for the faction."))
+			log_drydock_warning("drydockCommission: refused -- [acting] lacks command rank in [faction_uid].")
+			return FALSE
+		if(!faction_debit(faction_uid, SHIP_COMMISSION_PRICE, "Drydock: commissioned a player-built shuttle"))
+			if(user)
+				to_chat(user, SPAN_WARNING("Faction account has insufficient funds."))
+			return FALSE
+	else
+		var/obj/item/card/id/ID = user?.GetIdCard()
+		if(!ID || !ID.associated_account_number)
+			if(user)
+				to_chat(user, SPAN_WARNING("No linked bank account."))
+			return FALSE
+		owner_ckey = user.ckey
+		owner_char_name = user.real_name
+		owner_account_number = ID.associated_account_number
+		var/datum/money_account/acc = SSeconomy.get_account(owner_account_number)
+		if(!acc || acc.money < SHIP_COMMISSION_PRICE)
+			if(user)
+				to_chat(user, SPAN_WARNING("Insufficient funds."))
+			return FALSE
+		// One deployed personal ship at a time, same constraint retrieve
+		// enforces (_drydock_owner_other_deployed_ship()) -- checked here too
+		// since commissioning materializes deployed immediately, with no
+		// separate retrieve step to catch it later.
+		for(var/sid in GLOB.drydock_ships)
+			var/datum/drydock_ship/other = GLOB.drydock_ships[sid]
+			if(other && !other.stashed && other.owner_ckey == owner_ckey && other.owner_char_name == owner_char_name)
+				to_chat(user, SPAN_WARNING("You already have [other.display_name()] deployed -- stash or scuttle it before commissioning another."))
+				return FALSE
+		acc.adjust_money(-SHIP_COMMISSION_PRICE)
+
+	if(!databaseCheckConnection("drydockCommission"))
+		if(user)
+			to_chat(user, SPAN_WARNING("Database connection failed -- commission not completed. Contact an admin if funds were deducted."))
+		log_drydock_error("drydockCommission: database connection failed (acting=[acting]) -- funds may already be deducted, needs admin attention.")
+		return FALSE
+
+	var/template_id = "player_built_shuttle"
+	var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[template_id]
+	if(!template)
+		log_drydock_error("drydockCommission: '[template_id]' template missing entirely.")
+		return FALSE
+
+	// shuttle_id is no longer AUTO_INCREMENT (V099__drydock_shuttle_id_reuse.sql)
+	// -- retry once against a fresh gap-scan on a duplicate-key collision,
+	// same as drydockBuy().
+	var/new_id
+	var/attempts_left = 2
+	while(attempts_left > 0)
+		attempts_left--
+		new_id = _drydockNextFreeShuttleId()
+		var/datum/db_query/q = SSdbcore.NewQuery(
+			"INSERT INTO ss13_drydock_ships (shuttle_id, template_id, owner_ckey, owner_char_name, owner_account_number, faction_uid, stashed, purchased_at, title_ckey, title_char_name, title_faction_uid) VALUES (:id, :tid, :ckey, :char_name, :account, :faction, 1, NOW(), :t_ckey, :t_char, :t_faction)",
+			list("id" = new_id, "tid" = template_id, "ckey" = owner_ckey, "char_name" = owner_char_name, "account" = owner_account_number, "faction" = faction_uid, "t_ckey" = owner_ckey, "t_char" = owner_char_name, "t_faction" = faction_uid)
+		)
+		q.Execute()
+		var/succeeded = databaseCheckQueryResult(q, "drydockCommission insert")
+		qdel(q)
+		if(succeeded)
+			break
+		if(attempts_left <= 0)
+			if(user)
+				to_chat(user, SPAN_WARNING("Database error -- commission not completed. Contact an admin if funds were deducted."))
+			log_drydock_error("drydockCommission: DB insert failed (acting=[acting]) after retry (last tried shuttle_id=[new_id]).")
+			return FALSE
+		log_drydock_warning("drydockCommission: insert collided on shuttle_id=[new_id] (acting=[acting]), retrying with a fresh slot.")
+
+	var/purchased_at
+	var/datum/db_query/pq = SSdbcore.NewQuery("SELECT purchased_at FROM ss13_drydock_ships WHERE shuttle_id = :id", list("id" = new_id))
+	pq.Execute()
+	if(databaseCheckQueryResult(pq, "drydockCommission purchased_at read-back") && pq.NextRow())
+		purchased_at = pq.item[1]
+	qdel(pq)
+
+	var/datum/drydock_ship/DS = new()
+	DS.shuttle_id  = new_id
+	DS.template_id = template_id
+	DS.owner_ckey  = owner_ckey
+	DS.owner_char_name = owner_char_name
+	DS.owner_account_number = owner_account_number
+	DS.faction_uid = faction_uid
+	DS.stashed     = FALSE // materializes immediately below -- already physically exists, no separate retrieve step makes sense
+	DS.purchased_at = purchased_at
+	DS.title_ckey = owner_ckey
+	DS.title_char_name = owner_char_name
+	DS.title_faction_uid = faction_uid
+	DS.custom_name = new_name
+	GLOB.drydock_ships["[new_id]"] = DS
+
+	// Materialize -- mirrors _drydockRetrieveRun()'s own Z-provisioning
+	// exactly, just sourced from the live capture below instead of a saved
+	// interior.
+	var/scope = "ship:d:[new_id]"
+	var/pool_z = SSpersistence.acquireReusableZ()
+	var/new_z
+	var/bounds
+	SSair.can_fire = FALSE
+	if(pool_z)
+		bounds = template.load_into_z(pool_z, TRUE)
+		new_z = pool_z
+	else
+		var/z_before = world.maxz
+		bounds = template.load_new_z(FALSE, TRUE)
+		new_z = z_before + 1
+	SSair.can_fire = TRUE
+	if(!bounds)
+		GLOB.drydock_ships -= "[new_id]"
+		if(pool_z)
+			SSpersistence.poolReusableZ(pool_z)
+		if(user)
+			to_chat(user, SPAN_WARNING("Failed to materialize shuttle."))
+		log_drydock_error("drydockCommission: template load failed for '[template_id]', shuttle_id=[new_id][pool_z ? " (pooled z=[pool_z])" : ""].")
+		return FALSE
+
+	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[new_z]"]
+	if(!istype(marker))
+		GLOB.drydock_ships -= "[new_id]"
+		log_drydock_error("drydockCommission: no overmap marker found at loaded z=[new_z] for shuttle_id=[new_id].")
+		return FALSE
+
+	var/obj/effect/overmap/visitable/target_sector = GLOB.map_sectors["[GET_Z(console)]"]
+	if(!dock_at_beacon)
+		shipPlaceOvermapMarker(marker, target_sector, DRYDOCK_SHIP_PLACEMENT_RADIUS)
+	// dock_at_beacon's actual docking happens much further below, after the
+	// build envelope is captured onto this Z and the first interior save has
+	// run -- attempt_move() (shuttle.dm) needs shuttle_area to hold the ship's
+	// real, just-captured hull before it has anything meaningful to relocate,
+	// and the first save should capture the ship whole on its own home Z
+	// before it physically leaves that Z. See the dock_at_beacon block near
+	// the end of this proc, right after shipInteriorSave().
+
+	var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
+	if(istype(shuttle_datum))
+		// Every player-built shuttle shares this one template/shuttle name --
+		// same per-instance uniqueness rename _drydockRetrieveRun() does, or
+		// a second commission/retrieve collides hard (/datum/shuttle/New()).
+		var/old_shuttle_name = shuttle_datum.name
+		var/new_shuttle_name = "[old_shuttle_name] #[new_id]"
+		if(old_shuttle_name != new_shuttle_name && SSshuttle.shuttles[old_shuttle_name] == shuttle_datum)
+			SSshuttle.shuttles -= old_shuttle_name
+			shuttle_datum.name = new_shuttle_name
+			SSshuttle.shuttles[new_shuttle_name] = shuttle_datum
+			marker.shuttle = new_shuttle_name
+
+	marker.name = DS.display_name()
+
+	GLOB.persistence_ship_z["[new_z]"] = scope
+	GLOB.zone_security_by_z["[new_z]"] = DS.faction_uid ? ZONE_MEDSEC : ZONE_NULLSEC
+	zone_security_update_overmap()
+
+	// The actual capture -- move the player's built envelope onto the fresh
+	// Z, then wipe the build site clean. The beacon and this console are
+	// never touched, by specific object reference (not type), on either pass.
+	var/turf/dest_corner = locate(bounds[MAP_MINX], bounds[MAP_MINY], new_z)
+	var/list/translation = get_turf_translation(source_corner, dest_corner, envelope)
+	var/obj/structure/machinery/computer/shuttle_control/captured_console
+	var/obj/structure/machinery/power/apc/captured_apc
+	var/list/obj/structure/cable/captured_cables = list()
+	var/list/obj/structure/machinery/atmospherics/captured_atmos_machines = list()
+	for(var/turf/source_turf in translation)
+		var/turf/dest_turf = translation[source_turf]
+		if(!dest_turf)
+			continue
+		if((beacon in source_turf) || (console in source_turf))
+			continue
+		dest_turf.ChangeTurf(source_turf.type)
+		for(var/atom/movable/M in source_turf)
+			if(ismob(M) || istype(M, /obj/effect) || M == beacon || M == console)
+				continue
+			M.forceMove(dest_turf)
+			if(istype(M, /obj/structure/machinery/computer/shuttle_control) && !captured_console)
+				captured_console = M
+			else if(istype(M, /obj/structure/machinery/power/apc) && !captured_apc)
+				captured_apc = M
+			else if(istype(M, /obj/structure/cable))
+				captured_cables += M
+			else if(istype(M, /obj/structure/machinery/atmospherics))
+				captured_atmos_machines += M
+
+	for(var/turf/source_turf in envelope)
+		if((beacon in source_turf) || (console in source_turf))
+			continue
+		source_turf.ChangeTurf(get_base_turf_by_area(source_turf))
+
+	// Hook up whichever shuttle_control console the player actually built,
+	// same as drydockAutoFurnish() does for its own auto-spawned one.
+	if(istype(captured_console) && istype(shuttle_datum))
+		SSshuttle.lonely_shuttle_computers -= captured_console
+		captured_console.shuttle_tag = marker.shuttle
+		shuttle_datum.shuttle_computers += captured_console
+
+	// Re-bind the captured APC to its new surroundings -- APC/Initialize()
+	// (apc.dm) only ever sets area/area.apc/its own "[area] APC" name ONCE,
+	// at creation, and forceMove() above never re-runs that. Left alone, a
+	// captured APC would keep silently pointing at whatever station-side
+	// area it was originally built in. Name the ship's own area after it
+	// while we're here, so the APC's own name (derived from its area's
+	// display name) reads as the ship, not a leftover station room name.
+	var/area/ship_area = get_area(dest_corner)
+	if(istype(ship_area))
+		ship_area.name = new_name
+	if(istype(captured_apc) && istype(ship_area))
+		captured_apc.area = ship_area
+		ship_area.apc = captured_apc
+		captured_apc.name = "[get_area_display_name(ship_area)] APC"
+		captured_apc.update_icon()
+		captured_apc.connect_to_network()
+
+	// Same reasoning as the APC above, for whatever cabling the player laid
+	// down -- init_atoms() (map_template.dm) runs this for a template's own
+	// initial load, but capture here never went through that pass at all.
+	if(length(captured_cables))
+		SSmachinery.setup_powernets_for_cables(captured_cables)
+
+	// Same again for atmos machinery (vents, scrubbers, pipes) -- atmos_init()
+	// + build_network() is what actually forms pipe networks
+	// (setup_atmos_machinery(), machinery.dm), also normally only run once
+	// by a template's own initial map load. Quiet -- this isn't a real
+	// admin-notice-worthy "initializing atmos machinery" event, just a
+	// routine part of every commission.
+	if(length(captured_atmos_machines))
+		SSmachinery.setup_atmos_machinery(captured_atmos_machines, TRUE)
+
+	DS.ready = TRUE
+
+	if(DS.faction_uid)
+		_sweep_unassigned_objects_for_faction(list("[new_z]"), DS.faction_uid)
+	else
+		_sweep_unassigned_crew(list("[new_z]"))
+	_drydock_start_periodic_sweep()
+
+	// First save -- captures the just-built interior in place immediately,
+	// same shape as any other ship's periodic/stash save, so a crash right
+	// after commissioning still has something to recover from. Deliberately
+	// before the dock_at_beacon move just below -- this baseline should
+	// reflect the ship whole on its own home Z, not mid-relocation.
+	shipInteriorSave(new_z, scope)
+
+	// dock_at_beacon -- a REAL move, not the marker-only shortcut this used
+	// to be. attempt_move() (shuttle.dm) -> shuttle_moved() physically
+	// translates the ship's just-captured hull (shuttle_area, now real)
+	// onto the beacon's actual turfs and reassigns their area to match --
+	// the ship is genuinely, physically docked there afterward, not just
+	// flagged as such. current_location/status and the marker's own overmap
+	// nesting are all set as normal side effects of that real move
+	// (shuttle_moved() itself, then the reactive on_shuttle_jump() ->
+	// on_landing() chain, landable.dm) -- no manual bookkeeping needed here.
+	if(dock_at_beacon)
+		var/obj/effect/shuttle_landmark/beacon_landmark = SSshuttle.registered_shuttle_landmarks[beacon.landmark_tag]
+		if(istype(beacon_landmark) && istype(shuttle_datum) && shuttle_datum.attempt_move(beacon_landmark))
+			log_drydock("drydockCommission: shuttle_id=[new_id] docked directly at beacon '[beacon.landmark_tag]' via attempt_move().")
+		else
+			// Either the beacon's own landmark vanished out from under us
+			// mid-commission (deactivated/deconstructed), or attempt_move()
+			// itself refused (collision, footprint, facing mismatch --
+			// shouldn't happen given the checks earlier in this proc, but
+			// attempt_move() never half-applies on refusal, so falling back
+			// is always safe) -- either way, fall back to the normal nearby
+			// placement rather than leaving the ship undiscoverable.
+			log_drydock_warning("drydockCommission: dock_at_beacon requested but real docking failed for shuttle_id=[new_id] -- falling back to nearby placement.")
+			shipPlaceOvermapMarker(marker, target_sector, DRYDOCK_SHIP_PLACEMENT_RADIUS)
+			if(user)
+				to_chat(user, SPAN_WARNING("Commissioned, but the ship couldn't actually dock at the beacon -- it's nearby in open space instead. Fly it in manually."))
+
+	if(user)
+		var/obj/item/ship_schematic/schematic = new(get_turf(user))
+		schematic.shuttle_id = new_id
+		schematic.bound_purchased_at = purchased_at
+		schematic.refresh_name()
+		user.put_in_hands(schematic)
+		to_chat(user, SPAN_GOOD("[DS.display_name()] commissioned -- schematic in hand."))
+	log_and_message_admins("commissioned a player-built shuttle '[new_name]' (#[new_id])[faction_uid ? " for faction [get_faction_name(faction_uid)]" : ""].", user)
+	log_drydock("drydockCommission: [acting] commissioned shuttle_id=[new_id] ('[new_name]').")
+	return TRUE
+
+// ============================================================
 // QUEUE  shared serialization for drydockRetrieve()/drydockStash()
 // ============================================================
 
@@ -1418,6 +1965,8 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		to_chat(user, SPAN_GOOD("Your [req["op"]] is now processing..."))
 	if(req["op"] == "retrieve")
 		drydockRetrieve(req["shuttle_id"], req["anchor"], req["from_turf"], user)
+	else if(req["op"] == "commission")
+		drydockCommission(req["console"], user, req["faction_uid"], req["new_name"], req["dock_at_beacon"])
 	else
 		drydockStash(req["shuttle_id"], user)
 
@@ -2012,6 +2561,59 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 							return TRUE
 	return FALSE
 
+/// TRUE if any mob (dead OR alive) or occupied neural lace is anywhere
+/// within envelope -- gates the ship_commissioning console's Commission
+/// action, both the TGUI's own greyed-out button (ui_data(), Ship
+/// Commissioning) and drydockCommission()'s server-side enforcement below.
+/// Deliberately broader than _drydock_ship_has_living_occupants() above
+/// (which only cares about LIVING occupants of an already-owned ship's own
+/// Z, since a dead body left aboard a stashed ship is harmless) --
+/// commissioning wipes the build site's turfs out from under whoever's
+/// standing there, dead or alive, so anyone at all has to step clear first.
+/proc/_drydock_envelope_has_occupants(list/turf/envelope)
+	for(var/turf/T in envelope)
+		if(locate(/mob/living) in T)
+			return TRUE
+		for(var/obj/item/organ/internal/neural_lace/L in T)
+			if(L.lace_occupied)
+				return TRUE
+	return FALSE
+
+/// The first docking_transponder found anywhere in envelope, or null --
+/// used by both drydockCommission()'s own required-transponder check and
+/// the ship_commissioning console's ui_data() (greyed-out button/hint).
+/proc/_drydock_envelope_find_transponder(list/turf/envelope)
+	for(var/turf/T in envelope)
+		var/obj/structure/machinery/docking_transponder/transponder = locate() in T
+		if(transponder)
+			return transponder
+	return null
+
+/// The first shuttle_control console found anywhere in envelope, or null --
+/// used by both drydockCommission()'s own required-console check and the
+/// ship_commissioning console's ui_data() (greyed-out button/hint). Any
+/// shuttle_control subtype counts, not just the buildable one specifically
+/// (drydock_ship.dm) -- a mapped-in one dragged into a build would work
+/// exactly as well.
+/proc/_drydock_envelope_find_console(list/turf/envelope)
+	for(var/turf/T in envelope)
+		var/obj/structure/machinery/computer/shuttle_control/console = locate() in T
+		if(console)
+			return console
+	return null
+
+/// The first APC found anywhere in envelope, or null -- used by both
+/// drydockCommission()'s own required-APC check and the ship_commissioning
+/// console's ui_data() (greyed-out button/hint). Kept a hard requirement,
+/// not auto-furnished, same as the console and transponder -- players build
+/// their own.
+/proc/_drydock_envelope_find_apc(list/turf/envelope)
+	for(var/turf/T in envelope)
+		var/obj/structure/machinery/power/apc/apc = locate() in T
+		if(apc)
+			return apc
+	return null
+
 /datum/controller/subsystem/persistence/proc/_drydockStashRun(shuttle_id, mob/user, force = FALSE)
 	var/acting = user ? key_name(user) : "SYSTEM[force ? "(force)" : ""]"
 	log_drydock("drydockStash: [acting] attempting to stash shuttle_id=[shuttle_id].")
@@ -2031,6 +2633,8 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		log_drydock_warning("drydockStash: refused -- [acting] lacks permission for shuttle_id=[shuttle_id] (owner=[DS.owner_ckey || "none"], faction=[DS.faction_uid || "none"]).")
 		return FALSE
 	var/obj/effect/overmap/visitable/ship/landable/check_marker = GLOB.map_sectors["[DS.z]"]
+	var/datum/shuttle/autodock/overmap/drydock_ship/stashing_shuttle_datum = istype(check_marker) ? SSshuttle.shuttles[check_marker.shuttle] : null
+	var/obj/effect/shuttle_landmark/home_landmark = istype(check_marker) ? check_marker.landmark : null
 	if(!force)
 		// A personal ship may stash near ANY faction's beacon (not
 		// necessarily one it owns), provided that beacon's own sector is
@@ -2047,6 +2651,47 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 				to_chat(user, SPAN_WARNING("You (or your ship) were recently in combat -- wait before stashing."))
 			log_drydock_warning("drydockStash: refused -- combat lockout active for shuttle_id=[shuttle_id] (acting=[acting]).")
 			return FALSE
+		// "Docked with another independently-owned ship" from the OTHER
+		// direction -- someone else's marker is nested inside MY contents.
+		// on_landing() (landable.dm) forceMove()s a docking ship's marker
+		// directly into its target's own contents (visiting_shuttle slots,
+		// and Part 5's public hangar_slot landmarks, docking_beacon.dm), so
+		// I may not stash while that's the case. This doesn't move any of MY
+		// own turfs anywhere (unlike the away-from-home check just below,
+		// which is about my OWN real position) -- _drydockMarkerTeardown()
+		// still evacuates rather than destroys a nested guest as a last-resort
+		// fallback for forced/admin teardowns, but a normal stash should never
+		// need that fallback in the first place -- refuse and explain instead.
+		if(istype(check_marker))
+			for(var/obj/effect/overmap/visitable/ship/landable/guest in check_marker.contents)
+				if(user)
+					to_chat(user, SPAN_WARNING("[guest.shuttle] is currently docked with you -- it must undock before you can stash."))
+				log_drydock_warning("drydockStash: refused -- shuttle_id=[shuttle_id] has guest ship '[guest.shuttle]' docked with it (acting=[acting]).")
+				return FALSE
+	// Absolute -- currently away from my OWN home landmark (docked at a
+	// beacon, an open hangar slot, or nested inside another ship's own
+	// visiting slot -- current_location is the single source of truth for
+	// all three, set by real flight (shuttle_moved(), shuttle.dm) or by
+	// drydockCommission()'s own dock_at_beacon placement) means my real hull
+	// is genuinely NOT sitting on DS.z right now. shipInteriorSave() below
+	// captures DS.z verbatim, and _drydockMarkerTeardown() tears it down --
+	// stashing from anywhere but home would silently save nothing and leave
+	// a live, fully-functional ship stranded at the dock while the ledger
+	// falsely claims it's stashed. A normal stash refuses and asks the
+	// player to undock manually; a forced stash (shutdown sweep, admin Force
+	// Stash) can't wait on that, so it recalls the ship home itself first --
+	// mirroring the sub-ship recall-or-abort pattern just below.
+	if(istype(stashing_shuttle_datum) && home_landmark && stashing_shuttle_datum.current_location != home_landmark)
+		if(!force)
+			if(user)
+				to_chat(user, SPAN_WARNING("This ship is currently docked -- undock before stashing."))
+			log_drydock_warning("drydockStash: refused -- shuttle_id=[shuttle_id] is away from home (at '[stashing_shuttle_datum.current_location]') (acting=[acting]).")
+			return FALSE
+		log_drydock("drydockStash: shuttle_id=[shuttle_id] is away from home -- force-recalling before stash (acting=[acting]).")
+		if(!stashing_shuttle_datum.attempt_move(home_landmark))
+			log_drydock_error("drydockStash: force-recall home failed (attempt_move refused) for shuttle_id=[shuttle_id] -- aborting stash cleanly, needs admin attention.")
+			return FALSE
+		log_drydock("drydockStash: shuttle_id=[shuttle_id] force-recalled home successfully.")
 	// A hangar sub-ship (drydock_ship.dm's sub_shuttle_tags) always travels
 	// with its parent -- no independent stash/retrieve of its own -- so it's
 	// recalled home unconditionally (not just for a forced stash) rather
@@ -2163,6 +2808,27 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	var/datum/shuttle/shuttle_datum = istype(marker) ? SSshuttle.shuttles[marker.shuttle] : null
 	var/shuttle_name = shuttle_datum?.name
 	if(istype(marker))
+		// Evacuate anything currently docked WITH this ship before it's
+		// qdeleted -- on_landing() (landable.dm) forceMove()s a docking
+		// ship's marker directly into the TARGET marker's own contents (the
+		// same mechanism the built-in FORE/PORT/AFT/STARBOARD visiting_shuttle
+		// slots use, and now also Part 5's public hangar_slot landmarks,
+		// docking_beacon.dm). qdel() below does not relocate contents first,
+		// so anything still nested here -- independently owned or not --
+		// would otherwise be destroyed or orphaned alongside this marker.
+		// Kicked back to open space exactly like a normal undock
+		// (on_takeoff()'s own forceMove(get_turf(loc))+unhalt()), not
+		// destroyed -- this ship isn't the guest's to lose just because its
+		// host stashed out from under it.
+		for(var/obj/effect/overmap/visitable/ship/landable/guest in marker.contents)
+			var/turf/safe_turf = get_turf(marker)
+			if(safe_turf)
+				guest.forceMove(safe_turf)
+				guest.unhalt()
+				guest.status = SHIP_STATUS_OVERMAP
+				log_drydock_warning("_drydockMarkerTeardown: evacuated docked guest ship '[guest.shuttle]' from '[marker.shuttle]' before teardown.")
+			else
+				log_drydock_error("_drydockMarkerTeardown: could not find a safe turf to evacuate guest ship '[guest.shuttle]' from '[marker.shuttle]' -- left in place, needs admin attention.")
 		for(var/zlevel in marker.map_z)
 			GLOB.map_sectors["[zlevel]"] = null
 		qdel(marker)

@@ -69,6 +69,13 @@
 	var/turf/T = get_turf(track)
 	if(!T)
 		return
+	// A ship's own tracked objects, while it's genuinely docked away from its
+	// own home z, are excluded rather than written under either scope here --
+	// see persistence_docked_turf_scope's doc comment (persistence_ship_interiors.dm)
+	// for why redirecting to the ship's own scope instead would silently
+	// accumulate stale, wrongly-positioned rows.
+	if(persistence_turf_docked_elsewhere(T))
+		return
 
 	var/datum/db_query/insert_query = SSdbcore.NewQuery(
 		"INSERT INTO ss13_persistent_objects (author_ckey, type, created_at, expires_at, content, x, y, z, map_path) \
@@ -101,6 +108,11 @@
 
 	var/turf/T = get_turf(track)
 	if(!T)
+		return
+	// See objectsDatabaseAddEntry()'s matching check just above -- same
+	// reasoning, excluded rather than redirected while genuinely docked away
+	// from home.
+	if(persistence_turf_docked_elsewhere(T))
 		return
 
 	var/datum/db_query/update_query = SSdbcore.NewQuery(

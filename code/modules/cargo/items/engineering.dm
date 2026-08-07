@@ -1045,3 +1045,39 @@
 	container_type = "crate"
 	groupable = TRUE
 	spawn_amount = 1
+
+/singleton/cargo_item/ship_commissioning_console_crate
+	category = "engineering"
+	name = "Ship Commissioning Console Crate"
+	supplier = "Hub"
+	description = "A ready-to-place commissioning console for turning a self-built hull into a real, independently-owned shuttle. Wrench it down near an active docking beacon -- the console previews the buildable envelope and files the commission once the hull inside it is complete. Reusable for as many hulls as you build there."
+	price = 5000
+	items = list(/obj/structure/machinery/computer/ship_commissioning)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/shuttle_control_console_crate
+	category = "engineering"
+	name = "Shuttle Control Console Crate"
+	supplier = "Hub"
+	description = "A ready-to-place shuttle control console -- the minimum a self-built hull needs to actually fly once commissioned. Wrench it down inside your build envelope before commissioning."
+	price = 3000
+	items = list(/obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/docking_transponder_crate
+	category = "engineering"
+	name = "Docking Transponder Crate"
+	supplier = "Hub"
+	description = "A ready-to-place docking transponder. Mount it at a shuttle's own airlock/exit tile and rotate it to declare which way that airlock faces -- a docking beacon facing the opposite direction will recognize it as a compatible dock. Purely optional: a shuttle with no transponder docks anywhere it always could."
+	price = 800
+	items = list(/obj/structure/machinery/docking_transponder)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1

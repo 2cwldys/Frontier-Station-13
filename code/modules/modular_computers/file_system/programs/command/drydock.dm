@@ -73,6 +73,8 @@
 	data["templates"] = list()
 	for(var/tid in SSmapping.drydock_ship_templates)
 		var/datum/map_template/drydock_ship/T = SSmapping.drydock_ship_templates[tid]
+		if(T.hidden_from_catalog)
+			continue
 		data["templates"] += list(list(
 			"template_id" = tid, "display_name" = T.name,
 			"price" = T.price

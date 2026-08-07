@@ -131,3 +131,32 @@
 	name = T_BOARD("Ajax Targeting Systems Console")
 	origin_tech = list(TECH_ENGINEERING = 3)
 	build_path = /obj/structure/machinery/computer/ship/targeting
+
+/obj/item/circuitboard/ship/shuttle_control
+	name = T_BOARD("Shuttle Control Console")
+	origin_tech = list(TECH_ENGINEERING = 3)
+	build_path = /obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable
+
+/// component_types-populated (like umbilical_pad, research.dm), not a
+/// mapped-only frame board like its ship/* siblings above -- see
+/// ship_commissioning_console.dm.
+/obj/item/circuitboard/ship_commissioning
+	name = T_BOARD("Ship Commissioning Console")
+	build_path = /obj/structure/machinery/computer/ship_commissioning
+	board_type = BOARD_MACHINE
+	origin_tech = list(TECH_ENGINEERING = 4, TECH_DATA = 3)
+	req_components = list(
+							"/obj/item/stock_parts/capacitor" = 1,
+							"/obj/item/stock_parts/console_screen" = 1,
+							"/obj/item/stack/cable_coil" = 2)
+
+/// component_types-populated, same shape as ship_commissioning above -- see
+/// docking_transponder.dm.
+/obj/item/circuitboard/docking_transponder
+	name = T_BOARD("Docking Transponder")
+	build_path = /obj/structure/machinery/docking_transponder
+	board_type = BOARD_MACHINE
+	origin_tech = list(TECH_ENGINEERING = 2, TECH_DATA = 2)
+	req_components = list(
+							"/obj/item/stock_parts/console_screen" = 1,
+							"/obj/item/stack/cable_coil" = 1)

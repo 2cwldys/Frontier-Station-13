@@ -31,6 +31,15 @@
 	/// the rename UI, the stash-time docked guard, and missing-sub-ship
 	/// detection (persistence_shuttles.dm).
 	var/list/sub_shuttle_tags
+	/// TRUE for the shared blank-canvas shell every player-commissioned
+	/// shuttle deploys onto (ship_commissioning_console.dm) -- every
+	/// subtypesof()-discovered /datum/map_template/drydock_ship auto-registers
+	/// into SSmapping.drydock_ship_templates (mapping.dm) and would otherwise
+	/// show up as a normal purchasable hull in the Drydock program's own
+	/// listing (drydock.dm) alongside real ships, which it isn't: it has no
+	/// price and no pre-authored interior of its own, only whatever a player
+	/// actually built and commissioned. Filtered out there by this flag.
+	var/hidden_from_catalog = FALSE
 
 /**
  * Docking creates a real, physical problem this class alone needs to solve:
@@ -115,6 +124,35 @@
 
 /obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship
 	name = "shuttle control console"
+
+/// Cargo-orderable variant a player can build into their own commissioned
+/// hull (ship_commissioning_console.dm/Part 3) -- unlike the mapped-in base
+/// type above (always pre-anchored, spawned pre-anchored by
+/// drydockAutoFurnish() too), this one starts loose like every other kit
+/// machine and needs a wrench first. shuttle_tag is left unset here --
+/// drydockCommission() (persistence_shuttles.dm) assigns it once the built
+/// hull is captured onto its new dedicated Z, the same way
+/// drydockAutoFurnish() already does for its own auto-spawned console.
+/obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable
+	anchored = FALSE
+	circuit = /obj/item/circuitboard/ship/shuttle_control
+
+/obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable/Initialize()
+	. = ..()
+	// Survives normally as a station-side object for however long it sits
+	// there before being built into a hull and captured (drydockCommission(),
+	// persistence_shuttles.dm) -- same registration every other player-placed
+	// kit machine does in its own Initialize() (docking_beacon.dm, etc.).
+	if(GLOB.config.sql_enabled && GLOB.persistence_ready)
+		SSpersistence.objectsRegisterTrack(src)
+
+/obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable/attackby(obj/item/attacking_item, mob/user, params)
+	if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		attacking_item.play_tool_sound(get_turf(src), 50)
+		anchored = !anchored
+		to_chat(user, anchored ? SPAN_NOTICE("Shuttle control console secured in place.") : SPAN_NOTICE("Shuttle control console unsecured."))
+		return TRUE
+	return ..(attacking_item, user, params)
 
 /area/drydock_ship
 	name = "Drydock Ship"
