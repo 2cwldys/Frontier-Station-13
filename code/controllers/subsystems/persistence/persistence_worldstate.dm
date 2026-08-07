@@ -503,7 +503,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		modcomp_restore_programs(json_decode(content["programs"]))
 
 /obj/structure/machinery/door/airlock
-	worldstate_vars = list("name", "welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access", "id_tag", "frequency", "crew_tagged", "emagged")
+	worldstate_vars = list("name", "welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access", "id_tag", "frequency", "crew_tagged", "emagged", "persistent_network")
 
 /obj/structure/machinery/door/airlock/worldstate_get_content()
 	var/list/content = ..()
@@ -526,7 +526,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		set_frequency(frequency)
 
 /obj/structure/machinery/door/blast
-	worldstate_vars = list("density")
+	worldstate_vars = list("density", "persistent_network")
 
 /obj/structure/machinery/power/smes
 	worldstate_vars = list("charge", "input_attempt", "input_level", "output_attempt", "output_level")
