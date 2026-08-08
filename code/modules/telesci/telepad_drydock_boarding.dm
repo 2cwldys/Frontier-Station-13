@@ -334,7 +334,23 @@
 /// so a blocked player gets an immediate message instead of clicking
 /// through an eye-view pick that can never succeed -- _drydock_pick_access_mode()
 /// above is still the authoritative check, re-verified on every click.
+/// Thin wrapper around _faction_raid_blocked_for() (shuttles/docking_beacon.dm
+/// consumes that shared proc directly for a docking ship's own faction_uid,
+/// which has no mob/ID card to resolve one from) -- resolves L's own faction
+/// from their ID card, same as before this was split out.
 /proc/_drydock_raid_blocked(mob/living/L, target_z)
+	var/obj/item/card/id/ID = L.GetIdCard()
+	var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+	return _faction_raid_blocked_for(target_z, own_faction)
+
+/// Shared core of the raiding gate: TRUE if acting_faction_uid should be
+/// refused entry to target_z because faction raiding is currently disabled,
+/// the Z is claimed by an ordinary (non-Hub) powered, non-public-territory
+/// faction beacon, and acting_faction_uid isn't a member of (or allied with,
+/// under FACTION_ALLIANCES) that faction. acting_faction_uid may be null
+/// (an unaffiliated player, or a personally-owned drydock ship) -- always
+/// blocked in that case, same as before this was split out.
+/proc/_faction_raid_blocked_for(target_z, acting_faction_uid)
 	if(GLOB.faction_raiding_enabled)
 		return FALSE
 	if(zone_security_get(target_z) == ZONE_HIGHSEC)
@@ -342,12 +358,10 @@
 	var/obj/structure/machinery/faction_beacon/B = GLOB.faction_beacon_by_z["[target_z]"]
 	if(!istype(B) || !B.powered || B.public_territory || istype(B, /obj/structure/machinery/faction_beacon/hub))
 		return FALSE
-	var/obj/item/card/id/ID = L.GetIdCard()
-	var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
 #ifdef FACTION_ALLIANCES
-	return !(B.faction_uid && own_faction && (B.faction_uid == own_faction || factions_are_allied(own_faction, B.faction_uid)))
+	return !(B.faction_uid && acting_faction_uid && (B.faction_uid == acting_faction_uid || factions_are_allied(acting_faction_uid, B.faction_uid)))
 #else
-	return !(B.faction_uid && own_faction && B.faction_uid == own_faction)
+	return !(B.faction_uid && acting_faction_uid && B.faction_uid == acting_faction_uid)
 #endif //FACTION_ALLIANCES
 
 /// Plays the raiding-prohibited announcer cue to L, gated by ASFX_ANNOUNCER
@@ -394,6 +408,12 @@
 
 	var/list/candidates = list()
 	var/found_not_ready = FALSE
+	// Every ship L genuinely owns/has crew access to, but got excluded from
+	// candidates anyway, with the SPECIFIC reason why -- shown directly to
+	// the player, not just logged, so "no ships nearby" (misleading when a
+	// ship the player owns actually exists) becomes an exact, actionable
+	// fact instead of a mystery.
+	var/list/exclusion_reasons = list()
 	for(var/sid in GLOB.drydock_ships)
 		var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
 		if(!DS || DS.stashed)
@@ -403,6 +423,8 @@
 				continue
 		else if(!_drydock_full_access_check(L, DS.z))
 			continue
+		// Everything below this point is a ship L genuinely has access to --
+		// worth naming exactly why it's excluded, not just silently skipped.
 		// Still mid-load (deferred atmos settle, persistence_ship_interiors.dm)
 		// -- not offered as a candidate at all yet, distinct from "no ships."
 		if(!DS.ready)
@@ -412,14 +434,31 @@
 		// still has to actually be nearby (same or an adjacent sector, or up
 		// to DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX if it got hazard-overflow-
 		// placed -- shipPlaceOvermapMarker(), persistence_shuttles.dm).
-		var/obj/effect/overmap/visitable/ship_sector = GLOB.map_sectors["[DS.z]"]
-		if(!istype(mob_sector) || !istype(ship_sector) || get_dist(mob_sector, ship_sector) > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
+		// _drydock_ship_sector(), not a bare GLOB.map_sectors["[DS.z]"] lookup
+		// -- DS's own marker may currently be nested (docked, on_landing(),
+		// landable.dm), which would give get_dist() a meaningless result.
+		var/obj/effect/overmap/visitable/ship_sector = _drydock_ship_sector(DS)
+		if(!istype(mob_sector))
+			exclusion_reasons += "[DS.display_name()]: your own position has no resolvable overmap sector (z=[GET_Z(L)])."
+			continue
+		if(!istype(ship_sector))
+			exclusion_reasons += "[DS.display_name()]: the ship's own position has no resolvable overmap sector (ship z=[DS.z])."
+			continue
+		var/board_dist = get_dist(mob_sector, ship_sector)
+		if(board_dist > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
+			exclusion_reasons += "[DS.display_name()]: too far -- you're at [mob_sector] ([mob_sector.x],[mob_sector.y]), it's at [ship_sector] ([ship_sector.x],[ship_sector.y]), distance [board_dist] > max [DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX]."
 			continue
 		candidates += DS
 
 	if(!length(candidates))
 		if(found_not_ready)
 			to_chat(L, SPAN_WARNING("Your ship is still initializing -- try again in a moment."))
+		else if(length(exclusion_reasons))
+			// A ship L has access to genuinely exists -- name exactly why
+			// each one was excluded instead of the generic "none nearby."
+			to_chat(L, SPAN_WARNING("Found [length(exclusion_reasons)] accessible ship(s), but none close enough to board:"))
+			for(var/reason in exclusion_reasons)
+				to_chat(L, SPAN_WARNING("- [reason]"))
 		else
 			to_chat(L, SPAN_WARNING(pad_network ? "[get_faction_name(pad_network)] has no drydock ships currently deployed nearby." : "You have no drydock ships currently deployed nearby."))
 		return null
@@ -497,6 +536,13 @@
 			if(!destination)
 				return FALSE
 
+	// Right here, not after the delivery below -- this is the moment
+	// boarding is actually committed and, for the picker path, exactly when
+	// the eye-view camera lets go and control returns to L's own body. The
+	// 15-second spool-up and portal still follow same as before; only the
+	// confirmation cue moved to mark "boarding started" instead of
+	// "boarding finished."
+	play_announcer_sound_priority(L, 'sound/AI/announcements/boarding_the_ship.ogg')
 	cooldown[L.ckey] = world.time
 	L.visible_message(SPAN_NOTICE("[L] begins boarding a ship."), SPAN_NOTICE("You begin boarding the ship..."))
 	// Sparks at both the boarder's own tile and the ship-side landing spot --
@@ -524,7 +570,7 @@
 	if(QDELETED(L) || L.stat == DEAD || L.buckled_to)
 		return FALSE
 	var/obj/effect/overmap/visitable/recheck_mob_sector = _drydock_boarder_sector(L)
-	var/obj/effect/overmap/visitable/recheck_ship_sector = GLOB.map_sectors["[target.z]"]
+	var/obj/effect/overmap/visitable/recheck_ship_sector = _drydock_ship_sector(target)
 	if(!istype(recheck_mob_sector) || !istype(recheck_ship_sector) || get_dist(recheck_mob_sector, recheck_ship_sector) > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
 		to_chat(L, SPAN_WARNING("You're no longer close enough to board."))
 		return FALSE
@@ -642,7 +688,11 @@
 	var/datum/drydock_ship/target_ship = _drydock_board_resolve_ship(inviter, null)
 	if(!target_ship)
 		return FALSE
-	var/obj/effect/overmap/visitable/ship_sector = GLOB.map_sectors["[target_ship.z]"]
+	// _drydock_ship_sector(), not a bare GLOB.map_sectors["[target_ship.z]"]
+	// lookup -- see _drydock_board_resolve_ship()'s own identical fix above.
+	// Derived once here and reused unchanged below (lines checking
+	// candidate/target proximity) rather than re-deriving each time.
+	var/obj/effect/overmap/visitable/ship_sector = _drydock_ship_sector(target_ship)
 
 	// "Nearby" is sector-adjacency to the ship, same rule self-boarding uses
 	// (_drydock_board_resolve_ship) -- not physical same-Z proximity to the
@@ -745,6 +795,20 @@
 	for(var/obj/structure/machinery/computer/shuttle_control/console in world)
 		if(GET_Z(console) == z)
 			return get_turf(console)
+	return null
+
+/// Same idea as _drydock_console_turf() above, but keyed by shuttle_tag
+/// instead of z -- a sub-ship (sub_shuttle_tags, drydock_ship.dm) is its own
+/// /datum/shuttle mapped into the SAME hull's Z as its parent, so a plain
+/// z-based lookup can't tell the two consoles apart. Used by
+/// ship_schematic.dm's "Enter Sub-Ship" to land on the sub-ship's own
+/// console specifically, not the main hull's.
+/proc/_drydock_subship_console_turf(shuttle_tag)
+	var/datum/shuttle/sub = SSshuttle.shuttles[shuttle_tag]
+	if(!istype(sub))
+		return null
+	for(var/obj/structure/machinery/computer/shuttle_control/console in sub.shuttle_computers)
+		return get_turf(console)
 	return null
 
 /// Finds the deployed, non-stashed drydock ship whose interior L is
@@ -919,11 +983,25 @@
 		// goes through the same spool-up/combat-recheck/portal tail below --
 		// only the eye-view CLICKING step is skipped, not the safety window.
 		use_picker = FALSE
+		// Match the SPECIFIC away site the player actually picked (target_z)
+		// -- with more than one highsec/hub-tier site in existence, a plain
+		// "first one found in world" grab (the original shape here) ignores
+		// the player's own selection entirely and can send them to a
+		// completely different site's hub pad instead of the one they
+		// picked. Falls back to any hub pad at all only if this specific
+		// site genuinely doesn't have one of its own.
 		for(var/obj/structure/machinery/telepad_cargo/travel/hub/H in world)
 			if(QDELETED(H))
 				continue
-			destination = get_turf(H)
-			break
+			if(GET_Z(H) == target_z)
+				destination = get_turf(H)
+				break
+		if(!destination)
+			for(var/obj/structure/machinery/telepad_cargo/travel/hub/H in world)
+				if(QDELETED(H))
+					continue
+				destination = get_turf(H)
+				break
 		if(!destination)
 			to_chat(L, SPAN_WARNING("No Hub travel pad could be found."))
 			return FALSE
@@ -946,6 +1024,7 @@
 			// destination-only spark.
 			_drydock_deliver_with_portal(L, destination)
 			to_chat(L, SPAN_GOOD("You disembark the ship."))
+			play_announcer_sound_priority(L, 'sound/AI/announcements/exiting_ship.ogg')
 			log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id] at its docked beacon.")
 			return TRUE
 
@@ -953,6 +1032,12 @@
 		destination = _drydock_pick_destination_turf(L, target_z, anchor_turf)
 		if(!destination)
 			return FALSE
+
+	// Right here, not after the delivery below -- see the matching comment
+	// in _drydock_board_deliver(). For the picker path this is exactly when
+	// the eye-view camera releases back to L; for the hub route there's no
+	// eye view step, but the destination is equally committed at this point.
+	play_announcer_sound_priority(L, 'sound/AI/announcements/exiting_ship.ogg')
 
 	// Sparks at both the disembarking player's own tile and the landing
 	// spot -- warns anyone already there that someone's about to portal in.

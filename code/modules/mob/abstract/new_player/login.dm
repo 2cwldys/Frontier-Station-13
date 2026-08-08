@@ -22,6 +22,9 @@
 	var/commit_url = SSgithub.get_commit_url()
 	if(commit_url)
 		to_chat(src, MATRIX_NOTICE("Running commit <a href='[commit_url]'>[copytext(GLOB.revdata.revision, 1, 8)]</a>"))
+	var/merged_pr_line = SSgithub.get_latest_merged_pr_line()
+	if(merged_pr_line)
+		to_chat(src, MATRIX_NOTICE(merged_pr_line))
 #endif
 
 	// Open the Character Select UI first so it isn't competing with the lobby

@@ -187,6 +187,22 @@
 	on_landing(from, into)
 
 /obj/effect/overmap/visitable/ship/landable/proc/on_landing(obj/effect/shuttle_landmark/from, obj/effect/shuttle_landmark/into)
+	// Neither shields nor a cloak can be sustained at an away site -- silently
+	// switch both off rather than playing their usual offline sound/announcer,
+	// which would otherwise be heard by everyone else already on that site's
+	// own z. Covers pinned/persistent away sites too, since those are
+	// stamped with the same ZTRAIT_AWAY trait (is_away_level(),
+	// level_traits.dm). No back-reference var exists from the ship to its own
+	// cloak (unlike shield_generator, below) -- same SSmachinery.machinery
+	// scan _ship_gun.dm's own fire() already uses to force-uncloak a firing
+	// ship.
+	if(is_away_level(into.z))
+		if(shield_generator && shield_generator.active)
+			shield_generator._set_active(FALSE, silent = TRUE)
+		for(var/obj/structure/machinery/ship_cloaking_device/CD in SSmachinery.machinery)
+			if(CD.linked != src || !CD.active)
+				continue
+			CD._set_active(FALSE, silent = TRUE)
 	var/obj/effect/overmap/visitable/target = GLOB.map_sectors["[into.z]"]
 	var/datum/shuttle/shuttle_datum = SSshuttle.shuttles[shuttle]
 	if(into.landmark_tag == shuttle_datum.motherdock) // If our motherdock is a landable ship, it won't be found properly here so we need to find it manually.

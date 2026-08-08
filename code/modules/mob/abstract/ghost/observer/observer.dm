@@ -255,6 +255,19 @@ This is the proc mobs get to turn into a ghost. Forked from ghostize due to comp
 	mind.current.key = key
 	mind.current.teleop = null
 	mind.current.client.init_verbs()
+	// handle_actions() (living_defense.dm, called every life() tick) keeps
+	// the actions list itself correct the whole time the body sits
+	// unpossessed -- it never checks client. update_action_buttons() is what
+	// actually pushes each action's button onto client.screen, and it bails
+	// immediately if client is null, which it was for the entire time this
+	// body was aghosted out of. Nothing above re-linking key here ever
+	// redraws them, so every item action button (visor toggles, flashlights,
+	// the commander's beacon, etc.) stayed missing until something else
+	// happened to trigger a redraw (inventory.dm's own equip/unequip calls) --
+	// same fix, just called explicitly on reentry instead of waiting for that.
+	if(isliving(mind.current))
+		var/mob/living/L = mind.current
+		L.update_action_buttons()
 	if(!admin_ghosted)
 		announce_ghost_joinleave(mind, 0, "They now occupy their body again.")
 	return 1

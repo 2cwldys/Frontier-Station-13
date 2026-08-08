@@ -268,6 +268,9 @@
 	if(persistence_area_excluded(I))
 		FI_TRACE("DROPPED: area excluded")
 		return null
+	if(persistence_turf_docked_elsewhere(I.loc))
+		FI_TRACE("DROPPED: sitting on a ship currently docked away from home")
+		return null
 	if(I.persistent_objects_track_id != 0)
 		FI_TRACE("DROPPED: already a tracked object (id=[I.persistent_objects_track_id])")
 		return null

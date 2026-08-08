@@ -26,6 +26,12 @@ GLOBAL_VAR_INIT(faction_creation_enabled, TRUE)
 /// leap and drydock boarding/disembark.
 GLOBAL_VAR_INIT(faction_raiding_enabled, TRUE)
 
+/// Current text shown by every printed hub law book (/obj/item/book/hub_laws)
+/// -- always the LIVE value, not frozen at print time. Admin-edited
+/// (modify_hub_laws(), persistence_factions.dm), persists across restarts
+/// via ss13_hub_law_text. Empty string until an admin sets it.
+GLOBAL_VAR_INIT(hub_law_text, "")
+
 /// Z levels whose numbers appear in this list are SKIPPED by turf/object/worldstate persistence.
 /// Populated from ss13_zlevel_persistence WHERE enabled = 0 at startup.
 /// Empty by default = all Z levels persist.
@@ -113,6 +119,13 @@ SUBSYSTEM_DEF(persistence)
 	/// current pause, never the admin's own "Toggle Autosave Pause" verb --
 	/// so auto-resume can never override a pause the admin explicitly chose.
 	var/autosave_auto_paused = FALSE
+	/// Set by fire()'s drydock-defer branch so update_nextfire() (below) can
+	/// honor a short retry instead of SS_POST_FIRE_TIMING's normal 30-minute
+	/// recompute, which otherwise unconditionally overwrites whatever fire()
+	/// itself assigns to next_fire the instant it returns (master/subsystem.dm)
+	/// -- a plain `next_fire =` assignment inside fire() can never survive on
+	/// its own for a SS_POST_FIRE_TIMING subsystem.
+	var/deferred_retry_at = 0
 
 /**
  * Subsystem info stub message generation.
@@ -120,6 +133,15 @@ SUBSYSTEM_DEF(persistence)
 /datum/controller/subsystem/persistence/stat_entry(msg)
 	msg = ("Register: [length(GLOB.persistence_object_track_register)] | Prevent saving: [SSpersistence.prevent_saving ? "TRUE" : "FALSE"] | Saving: [SSpersistence.save_in_progress ? "YES" : "NO"] | Autosave: [SSpersistence.autosave_paused ? "PAUSED" : "active"]")
 	return msg
+
+/// Honors a short drydock-deferral retry (deferred_retry_at) when fire() set
+/// one; otherwise defers to the normal SS_POST_FIRE_TIMING recompute.
+/datum/controller/subsystem/persistence/update_nextfire(reset_time = FALSE)
+	if(!reset_time && deferred_retry_at)
+		next_fire = deferred_retry_at
+		deferred_retry_at = 0
+		return
+	..()
 
 /**
  * Periodic save  fires every 30 minutes and saves all persistence data.
@@ -138,7 +160,8 @@ SUBSYSTEM_DEF(persistence)
 	// queued op starts the moment the active one ends). next_fire drives the
 	// HUD "NEXT SAVE" countdown, so the deferral is visible to everyone.
 	if(GLOB.drydock_op_active || length(GLOB.drydock_op_queue))
-		next_fire = world.time + (1 MINUTE)
+		deferred_retry_at = world.time + (1 MINUTE)
+		next_fire = deferred_retry_at // keeps the HUD "NEXT SAVE" countdown honest in the interim
 		log_subsystem_persistence_info("Persistence: Periodic save deferred -- ship stash/retrieve in progress.")
 		return
 
@@ -273,6 +296,7 @@ SUBSYSTEM_DEF(persistence)
 		return
 
 	to_world(FONT_LARGE(EXAMINE_BLOCK_RED("[SPAN_BOLD("ATTENTION")]: A forced save and reboot is coming shortly to refresh the game world and overmap. Get to a safe location.")))
+	play_announcer_voice_to_all('sound/AI/announcements/romble.ogg')
 	log_and_message_admins("issued a pending-save warning to the server", usr)
 
 /datum/admins/proc/toggle_persistence()
@@ -405,10 +429,12 @@ SUBSYSTEM_DEF(persistence)
  * (automatic, on every real reboot -- not the periodic autosave, which
  * never touches this).
  */
-/datum/controller/subsystem/persistence/proc/vaultAllLaces()
+/datum/controller/subsystem/persistence/proc/vaultAllLaces(list/z_filter = null)
 	var/vaulted = 0
 	var/skipped_alive = 0
 	for(var/obj/item/organ/internal/neural_lace/L in world)
+		if(z_filter && !(GET_Z(L) in z_filter))
+			continue
 		if(istype(L.loc, /obj/structure/machinery/lace_storage))
 			continue // already vaulted, nothing to do
 
@@ -417,6 +443,17 @@ SUBSYSTEM_DEF(persistence)
 			continue
 
 		L._auto_transfer_to_storage()
+		// A lace still installed on a dead body only gets as far as surgical
+		// extraction on the call above -- _auto_transfer_to_storage() ejects
+		// it via removed() and returns, scheduling a fresh 4-hour timer
+		// rather than continuing on to the vault itself (see that proc's own
+		// "removed() will call this again indirectly" comment: that's the
+		// NEW timer, not an immediate re-invocation). Finish the job now
+		// instead of leaving a freshly-extracted, still-unvaulted lace_mob
+		// exactly as exposed to the imminent restart as before this sweep
+		// existed.
+		if(L.lace_occupied && !istype(L.loc, /obj/structure/machinery/lace_storage))
+			L._auto_transfer_to_storage()
 		vaulted++
 
 	log_subsystem_persistence_info("Lace vault sweep: [vaulted] vaulted, [skipped_alive] skipped (alive owner).")
@@ -445,6 +482,16 @@ SUBSYSTEM_DEF(persistence)
 		return
 
 	log_subsystem_persistence_info("forceSaveAll: Starting full persistence save.")
+
+	// Recall every away-from-home deployed ship (and its sub-ships) before
+	// anything else runs -- see drydockRecallAllDeployed()'s own doc comment
+	// (persistence_shuttles.dm) for why this closes the "duplicated at an
+	// away-site z across a restart" risk without actually stashing anyone's
+	// ship. Deliberately first, before any Finalize sweep below.
+	try
+		drydockRecallAllDeployed()
+	catch(var/exception/recall_e)
+		log_subsystem_persistence_panic("Unhandled exception during drydock recall sweep: [recall_e]")
 
 	try
 		economyFinalize()
@@ -771,6 +818,12 @@ SUBSYSTEM_DEF(persistence)
 		factionRaidingToggleInitialize()
 	catch(var/exception/faction_raiding_toggle_e)
 		log_subsystem_persistence_panic("Unhandled exception during faction raiding toggle initialization: [faction_raiding_toggle_e]")
+
+	log_subsystem_persistence_info("Starting hub law text initialization...")
+	try
+		hubLawTextInitialize()
+	catch(var/exception/hub_law_text_e)
+		log_subsystem_persistence_panic("Unhandled exception during hub law text initialization: [hub_law_text_e]")
 
 	log_subsystem_persistence_info("Starting stock market initialization...")
 	try

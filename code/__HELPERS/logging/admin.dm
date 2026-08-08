@@ -6,7 +6,14 @@
 	if (GLOB.config.logsettings["log_admin"])
 		WRITE_LOG(GLOB.config.logfiles["world_game_log"], "ADMIN: [text]")
 #ifdef EXPORT_ADMIN_LOG_TO_DISCORD
-	SSdiscord.post_webhook_event(WEBHOOK_ADMIN_LOG, list("message" = SSdiscord.discord_escape(text)))
+	// GLOB.admin_log/the world log file/the in-game log viewer all want the
+	// original HTML (JMP links, SPAN_* color tags) intact -- only strip it
+	// for the Discord copy, which can't render any of that and would
+	// otherwise show the raw <a href='...'>JMP</a> markup as literal text.
+	// strip_html_properly() (text.dm) removes just the tag markup and keeps
+	// the inner text (e.g. "JMP"), unlike strip_html_full()/STRIP_HTML_FULL
+	// which re-encodes the result back into HTML entities afterward.
+	SSdiscord.post_webhook_event(WEBHOOK_ADMIN_LOG, list("message" = SSdiscord.discord_escape(strip_html_properly(text))))
 #endif
 
 /// Logging for admin actions on or with circuits

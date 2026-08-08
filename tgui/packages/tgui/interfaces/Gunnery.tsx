@@ -18,6 +18,29 @@ type ShipGun = {
   ammunition_type: string;
 };
 
+type ShieldData = {
+  shield_strength: number;
+  max_shield_strength: number;
+};
+
+type ShieldControlData = {
+  exists: BooleanLike;
+  active: BooleanLike;
+  anchored: BooleanLike;
+  has_fuel: BooleanLike;
+  at_away_site: BooleanLike;
+  recovery_seconds_left: number;
+};
+
+type CloakControlData = {
+  exists: BooleanLike;
+  active: BooleanLike;
+  anchored: BooleanLike;
+  has_fuel: BooleanLike;
+  at_away_site: BooleanLike;
+  lockout_seconds_left: number;
+};
+
 export type GunneryData = {
   guns: ShipGun[];
   cannon: ShipGun;
@@ -33,6 +56,101 @@ export type GunneryData = {
   entry_point_map_image: any; // base64 icon
   entry_point_x: number;
   entry_point_y: number;
+  own_shields: ShieldData | null;
+  target_shields: ShieldData | null;
+  own_shield_control: ShieldControlData;
+  own_cloak_control: CloakControlData;
+};
+
+const ShieldListItem = (props: { label: string; shields: ShieldData | null }) => {
+  const { label, shields } = props;
+  if (!shields) {
+    return (
+      <LabeledList.Item label={label}>No shields detected.</LabeledList.Item>
+    );
+  }
+  const percent = shields.max_shield_strength
+    ? Math.round(
+        (shields.shield_strength / shields.max_shield_strength) * 100,
+      )
+    : 0;
+  return (
+    <LabeledList.Item label={label}>
+      {shields.shield_strength} / {shields.max_shield_strength} ({percent}%)
+    </LabeledList.Item>
+  );
+};
+
+const ShieldControlItem = (props: { control: ShieldControlData }) => {
+  const { act } = useBackend<GunneryData>();
+  const { control } = props;
+  if (!control?.exists) {
+    return null;
+  }
+  const recovering = !control.active && control.recovery_seconds_left > 0;
+  const disabled =
+    recovering ||
+    !control.anchored ||
+    (!control.active && !control.has_fuel) ||
+    (!control.active && !!control.at_away_site);
+  let reason = '';
+  if (recovering) {
+    reason = `Recalibrating after a shield collapse -- ready in ${control.recovery_seconds_left}s.`;
+  } else if (!control.anchored) {
+    reason = 'Shield generator is not anchored.';
+  } else if (!control.active && !control.has_fuel) {
+    reason = 'Shield generator has no fuel loaded.';
+  } else if (!control.active && control.at_away_site) {
+    reason = "Shields can't be raised at an away site.";
+  }
+  return (
+    <LabeledList.Item label="Shield Control">
+      <Button
+        icon={control.active ? 'shield-alt' : 'shield'}
+        content={control.active ? 'Deactivate' : 'Activate'}
+        color={control.active ? 'good' : undefined}
+        disabled={disabled}
+        tooltip={reason || undefined}
+        onClick={() => act('toggle_shields')}
+      />
+    </LabeledList.Item>
+  );
+};
+
+const CloakControlItem = (props: { control: CloakControlData }) => {
+  const { act } = useBackend<GunneryData>();
+  const { control } = props;
+  if (!control?.exists) {
+    return null;
+  }
+  const locked = !control.active && control.lockout_seconds_left > 0;
+  const disabled =
+    locked ||
+    !control.anchored ||
+    (!control.active && !control.has_fuel) ||
+    (!control.active && !!control.at_away_site);
+  let reason = '';
+  if (locked) {
+    reason = `Recalibrating after firing -- ready in ${control.lockout_seconds_left}s.`;
+  } else if (!control.anchored) {
+    reason = 'Cloaking device is not anchored.';
+  } else if (!control.active && !control.has_fuel) {
+    reason = 'Cloaking device has no fuel loaded.';
+  } else if (!control.active && control.at_away_site) {
+    reason = "Can't cloak the ship at an away site.";
+  }
+  return (
+    <LabeledList.Item label="Cloak Control">
+      <Button
+        icon={control.active ? 'eye-slash' : 'eye'}
+        content={control.active ? 'Deactivate' : 'Activate'}
+        color={control.active ? 'good' : undefined}
+        disabled={disabled}
+        tooltip={reason || undefined}
+        onClick={() => act('toggle_cloak')}
+      />
+    </LabeledList.Item>
+  );
 };
 
 type Targeting = {
@@ -63,6 +181,11 @@ export const GunneryWindow = (props) => {
     return (
       <Section title="Targeting Information">
         <Box bold>No target designated.</Box>
+        <LabeledList>
+          <ShieldListItem label="Own Shields" shields={data.own_shields} />
+          <ShieldControlItem control={data.own_shield_control} />
+          <CloakControlItem control={data.own_cloak_control} />
+        </LabeledList>
       </Section>
     );
   } else {
@@ -77,6 +200,13 @@ export const GunneryWindow = (props) => {
             <LabeledList.Item label="Distance">
               {data.targeting.distance} click(s)
             </LabeledList.Item>
+            <ShieldListItem label="Own Shields" shields={data.own_shields} />
+            <ShieldControlItem control={data.own_shield_control} />
+            <CloakControlItem control={data.own_cloak_control} />
+            <ShieldListItem
+              label="Target Shields"
+              shields={data.target_shields}
+            />
           </LabeledList>
         </Section>
         <Section title="Targeting Calibration">

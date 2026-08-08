@@ -203,10 +203,24 @@
 /datum/event/proc/lastProcessAt()
 	return max(startWhen, max(announceWhen, endWhen))
 
+/// Whether an active ship shield currently nullifies this hazard entirely --
+/// default TRUE for every overmap hazard event. meteor_wave overrides this
+/// to FALSE (an asteroid wave costs shield charge instead of being blocked
+/// outright -- see its own send_wave()); meteor_wave/dust overrides it back
+/// to TRUE despite subclassing meteor_wave, since dust stays fully
+/// nullified like every other non-asteroid hazard. Only ever consulted when
+/// source_hazard/affected_ship are both set (i.e. this event was spawned by
+/// an overmap hazard turf, not a normal station-side event).
+/datum/event/proc/blocked_by_ship_shields()
+	return affected_ship?.shield_generator?.shields_up()
+
 ///Do not override this proc, instead use the appropiate procs
 ///This proc will handle the calls to the appropiate procs
 /datum/event/process()
 	SHOULD_NOT_OVERRIDE(TRUE)
+
+	if(source_hazard && affected_ship && blocked_by_ship_shields())
+		return
 
 	if(activeFor > startWhen && activeFor < endWhen)
 		tick()

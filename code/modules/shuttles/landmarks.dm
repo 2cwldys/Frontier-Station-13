@@ -90,16 +90,50 @@
 /obj/effect/shuttle_landmark/proc/sector_set(var/obj/effect/overmap/visitable/O, shuttle_name)
 	shuttle_restricted = shuttle_name
 
-/obj/effect/shuttle_landmark/proc/is_valid(var/datum/shuttle/shuttle)
+/// reason_out, when passed, gets a human-readable string appended for
+/// whichever check actually caused a FALSE return -- optional, every
+/// existing caller that doesn't care is unaffected (defaults to null).
+/// Turns "doesn't work" into a concrete, actionable fact instead of a guess.
+/obj/effect/shuttle_landmark/proc/is_valid(var/datum/shuttle/shuttle, list/reason_out)
 	if(shuttle.current_location == src)
+		if(reason_out)
+			reason_out += "already at this destination"
 		return FALSE
 	for(var/area/A in shuttle.shuttle_area)
 		var/list/translation = get_turf_translation(get_turf(shuttle.current_location), get_turf(src), A.contents)
 		if(check_collision(list_values(translation)))
+			if(reason_out)
+				// check_collision() (this file) treats a null translated turf
+				// as a collision too ("collides with edge of map") -- a
+				// for(var/turf/T in ...) loop silently skips those nulls, so
+				// naming this separately is the only way to distinguish "the
+				// hull doesn't fit on this map at all" from "something is
+				// actually in the way." This is what "off grid"/shows red on
+				// the landing preview means in practice.
+				var/list/off_map_count = 0
+				var/list/blocking = list()
+				for(var/target_turf in list_values(translation))
+					if(!target_turf)
+						off_map_count++
+						continue
+					var/turf/T = target_turf
+					if(T.density)
+						blocking += "[T.type] at ([T.x],[T.y],[T.z])"
+					for(var/atom/movable/M in T)
+						if(M.density && M.anchored)
+							blocking += "[M] at ([T.x],[T.y],[T.z])"
+				var/list/reasons = list()
+				if(off_map_count)
+					reasons += "[off_map_count] tile\s of the hull would land outside this z-level's map bounds entirely (destination too close to the map edge for the hull to fit)"
+				if(length(blocking))
+					reasons += "blocked by: [english_list(blocking)]"
+				reason_out += "hull footprint doesn't fit at the destination -- [length(reasons) ? jointext(reasons, "; ") : "unlogged reason"]"
 			return FALSE
 	var/conn = GetConnectedZlevels(z)
 	for(var/w in (z - shuttle.multiz) to z)
 		if(!(w in conn))
+			if(reason_out)
+				reason_out += "destination z-level [w] isn't connected/reachable from z=[z]"
 			return FALSE
 	return TRUE
 
@@ -146,6 +180,11 @@
 			GLOB.global_announcer.autosay(message, "Docking Oversight", announce_channel)
 	GLOB.shuttle_moved_event.unregister(shuttle, src)
 
+/// A dense, anchored movable on a target turf refuses the landing/dock the
+/// same way a dense turf already does -- a docking ship no longer squishes
+/// (silently qdel()s) an object in the way, it's simply not offered/allowed
+/// as a valid destination in the first place. Applies everywhere this proc
+/// gates a landing or dock, for every ship in the game.
 /proc/check_collision(list/target_turfs)
 	for(var/target_turf in target_turfs)
 		var/turf/target = target_turf
@@ -162,6 +201,10 @@
 
 		if(target.density)
 			return TRUE //dense turf
+
+		for(var/atom/movable/blocker in target)
+			if(blocker.density && blocker.anchored)
+				return TRUE //dense, anchored object in the way -- refuse rather than squish it on landing
 
 	return FALSE
 

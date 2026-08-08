@@ -15,3 +15,41 @@
 #define SENSOR_COEFFICENT 1000
 
 #define waypoint_sector(waypoint) GLOB.map_sectors["[waypoint.z]"]
+
+/// Standard small-craft build/dock envelope (tiles) -- the max footprint a
+/// commissioned player-built sub-ship can be built within (ship_commissioning
+/// console), and the size a docking landmark can restrict itself to via
+/// max_footprint_x/max_footprint_y (shuttle_landmark/player_dock,
+/// docking_beacon.dm) so oversized ships never see it as a valid destination.
+/// One shared standard, not per-slot arbitrary sizes, so any compliant
+/// sub-ship can dock at any compliant slot -- a station cycler beacon or an
+/// open hangar berth aboard another ship alike.
+/// Matches Persistent-Bay's own max sub-ship size (9x9).
+#define SUBSHIP_FOOTPRINT_X 9
+#define SUBSHIP_FOOTPRINT_Y 9
+
+/// Sanity bounds for a commissioning console's own configurable build
+/// envelope size (build_envelope_x/y, ship_commissioning_console.dm) --
+/// MIN keeps the envelope big enough to be buildable at all (console +
+/// beacon + a minimum viable hull), MAX keeps a player-chosen size from
+/// becoming a performance/gameplay problem.
+#define PLAYER_BUILD_ENVELOPE_MIN 9
+#define PLAYER_BUILD_ENVELOPE_MAX 20
+
+/// Credits charged by drydockCommission() (persistence_shuttles.dm) to turn
+/// a player-built hull into a real, independently-owned shuttle -- flat fee
+/// regardless of what was actually built, same spirit as drydockScuttle()'s
+/// flat fee.
+/// Cheaper than template drydock ships, however the parts increase costs considerably.
+#define SHIP_COMMISSION_PRICE 100000
+
+/// Max tiles a ship_commissioning console will look for a linked, active
+/// docking_beacon before refusing to preview/commission -- a same-Z, real-
+/// space proximity check (unrelated to any overmap-scale range).
+#define BUILD_ENVELOPE_BEACON_RANGE 12
+
+/// Minimum /obj/structure/shuttle/engine/propulsion instances
+/// drydockCommission() requires anywhere in the build envelope -- no
+/// particular placement required, just physically present somewhere in the
+/// hull. See propulsion_engine_crate (engineering.dm).
+#define SHIP_COMMISSION_MIN_PROPULSION 4

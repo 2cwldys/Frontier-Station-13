@@ -31,6 +31,14 @@
 	var/list/known_ships = list()		//List of ships known at roundstart - put types here.
 	var/base_sensor_visibility
 
+	/// This ship's shield generator machine, if one is built/wrenched down
+	/// and linked (see ship_shield_generator.dm's _hook_up_to_ship()) --
+	/// null otherwise. Lets incoming-fire code (check_entry_ship(),
+	/// _overmap_projectiles.dm; on_hit(), _ship_ammunition.dm) and the
+	/// targeting console's own shield readout find this ship's generator
+	/// directly, without walking every machine aboard.
+	var/obj/structure/machinery/ship_shield_generator/shield_generator
+
 	/// Tonnes, arbitrary number, affects acceleration provided by engines. Will help determine the speed of the ship.
 	vessel_mass = 10000
 	/// Arbitrary number, affects how likely the ship is to evade meteors.
@@ -129,6 +137,22 @@
 
 /obj/effect/overmap/visitable/ship/proc/is_still()
 	return !MOVING(speed[1]) && !MOVING(speed[2])
+
+/// Snapshot accessor for remote/sensor overlay call sites -- personal_travel.dm's
+/// _refresh_sensor_view(), sector_view.dm's refresh_sector_view(), and _contacts.dm's
+/// update_marker_icon() all build their own transient marker /image by copying only
+/// O.appearance, since the real ship atom is requires_contact/INVISIBILITY_OVERMAP and
+/// never directly rendered to anyone. .appearance can't capture the generator's
+/// overmap_bubble (it's vis_contents-attached to us, a live atom relationship, not an
+/// encodable appearance value -- see ship_shield_generator.dm's
+/// show_bubble()/hide_bubble()), so those call sites instead pull its current appearance
+/// through here and stamp it onto their own marker each refresh cycle via
+/// marker.AddOverlays(...). Returns null only when there's no generator or the bubble has
+/// never been created/was torn down (Destroy()) -- when shields are down, overmap_bubble
+/// still exists but faded to alpha 0 (hide_bubble()), so the stamped overlay is correctly
+/// invisible rather than needing a separate visibility check here.
+/obj/effect/overmap/visitable/ship/proc/get_shield_bubble_overlay()
+	return shield_generator?.overmap_bubble
 
 /obj/effect/overmap/visitable/ship/get_scan_data(mob/user)
 	. = ..()

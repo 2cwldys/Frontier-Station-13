@@ -152,27 +152,57 @@
 		return TRUE
 	return ..()
 
+/// Unlinks src from controller if it's currently linked anywhere -- primary
+/// or extra slot, either side. Returns TRUE if it was linked (and has now
+/// been unlinked), FALSE if it wasn't linked at all.
+/obj/structure/machinery/door/airlock/proc/_unlink_from_controller(obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller, mob/user)
+	if(controller.tag_exterior_door == id_tag)
+		controller.tag_exterior_door = null
+		to_chat(user, SPAN_NOTICE("You unlink \the [src] from \the [controller] (was its primary exterior door)."))
+		return TRUE
+	if(controller.tag_interior_door == id_tag)
+		controller.tag_interior_door = null
+		to_chat(user, SPAN_NOTICE("You unlink \the [src] from \the [controller] (was its primary interior door)."))
+		return TRUE
+	if(id_tag in controller.tag_exterior_doors)
+		controller.tag_exterior_doors -= id_tag
+		to_chat(user, SPAN_NOTICE("You unlink \the [src] from \the [controller] (was an exterior door)."))
+		return TRUE
+	if(id_tag in controller.tag_interior_doors)
+		controller.tag_interior_doors -= id_tag
+		to_chat(user, SPAN_NOTICE("You unlink \the [src] from \the [controller] (was an interior door)."))
+		return TRUE
+	return FALSE
+
 /obj/structure/machinery/door/airlock/proc/_link_to_controller(obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller, mob/user)
 	_ensure_id_tag()
 	controller._ensure_id_tag()
-	if(controller.tag_exterior_door == id_tag || controller.tag_interior_door == id_tag)
-		var/slot = (controller.tag_exterior_door == id_tag) ? "exterior" : "interior"
-		if(controller.tag_exterior_door == id_tag)
-			controller.tag_exterior_door = null
-		if(controller.tag_interior_door == id_tag)
-			controller.tag_interior_door = null
-		to_chat(user, SPAN_NOTICE("You unlink \the [src] from \the [controller] (was its [slot] door)."))
+	if(_unlink_from_controller(controller, user))
+		return
+
+	// A chamber can have more than one door on a side (see
+	// get_exterior_door_tags()/get_interior_door_tags(), airlock_controllers.dm)
+	// -- ask which side this one joins instead of auto-picking whichever
+	// singular slot happens to be empty, and append instead of refusing once
+	// the primary slot is already filled.
+	var/choice = tgui_alert(user, "Link \the [src] to \the [controller] as which door?", "Airlock Cycler", list("Exterior", "Interior"))
+	if(QDELETED(src) || QDELETED(user) || QDELETED(controller) || !user.Adjacent(src))
+		return
+	if(!choice)
 		return
 	var/slot
-	if(!controller.tag_exterior_door)
-		controller.tag_exterior_door = id_tag
+	if(choice == "Exterior")
 		slot = "exterior"
-	else if(!controller.tag_interior_door)
-		controller.tag_interior_door = id_tag
-		slot = "interior"
+		if(!controller.tag_exterior_door)
+			controller.tag_exterior_door = id_tag
+		else
+			LAZYDISTINCTADD(controller.tag_exterior_doors, id_tag)
 	else
-		to_chat(user, SPAN_WARNING("\The [controller] already has both an exterior and interior door assigned -- unlink one first."))
-		return
+		slot = "interior"
+		if(!controller.tag_interior_door)
+			controller.tag_interior_door = id_tag
+		else
+			LAZYDISTINCTADD(controller.tag_interior_doors, id_tag)
 	set_frequency(controller.frequency)
 	// Mapped cyclers lock() both doors as part of their marker-driven setup
 	// (map_effects/marker/airlock_.dm) -- the multitool link flow never did,
@@ -184,7 +214,7 @@
 	// assumption instead of reality, and close_doors() silently never
 	// corrects it. Lock for real here so cache and reality start in sync.
 	lock()
-	to_chat(user, SPAN_NOTICE("You link \the [src] to \the [controller] as its [slot] door and tune it to the controller's frequency."))
+	to_chat(user, SPAN_NOTICE("You link \the [src] to \the [controller] as an [slot] door and tune it to the controller's frequency."))
 
 /obj/structure/machinery/airlock_sensor
 	name = "airlock sensor"

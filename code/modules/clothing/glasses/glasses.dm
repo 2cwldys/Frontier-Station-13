@@ -290,6 +290,11 @@ BLIND     // can't see anything
 	var/flip_up = "up out of your face."
 	var/up = 0
 	normal_layer = GLASSES_LAYER_ALT
+	// See persistent_toggle_vars' own doc comment (obj/item base vars,
+	// items.dm) -- toggle() (below) mutates exactly this set together.
+	// base_icon_state isn't included -- Initialize() always re-derives it
+	// from the pristine default icon_state before any restore data lands.
+	persistent_toggle_vars = list("up", "icon_state", "item_state", "flags_inv", "body_parts_covered")
 
 /obj/item/clothing/glasses/safety/goggles/Initialize(mapload, material_key)
 	. = ..()

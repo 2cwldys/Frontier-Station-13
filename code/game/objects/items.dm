@@ -34,6 +34,14 @@
 	/// FALSE on a specific item to exempt it (e.g. an event/admin weapon).
 	var/degrades_with_use = TRUE
 	var/wear_durability = 100
+
+	/// Var names (strings) whose CURRENT values should be snapshotted verbatim
+	/// on save and restored verbatim on load -- for small clusters of vars a
+	/// visor/mask-style toggle mutates together with no shared base class or
+	/// var name to hook generically (see serializePersistentItem()/
+	/// deserializePersistentItem(), persistence_mobs.dm). Null for the vast
+	/// majority of items that don't need this.
+	var/list/persistent_toggle_vars
 	var/wear_max_durability = 100
 	/// How much durability a single successful use costs. Tune per item --
 	/// junk/improvised gear should burn through this much faster than

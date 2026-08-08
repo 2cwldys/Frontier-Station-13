@@ -1,0 +1,491 @@
+====================================================================
+ PLAYER-BUILT SHUTTLES -- SYSTEM OVERVIEW AND FULL PROCESS DISCLOSURE
+====================================================================
+
+This document explains the player-built shuttle system end to end: what
+it is, how it extends the existing Drydock ship system (see
+docs/drydock_ships_system.txt -- read that first if you haven't; this
+document assumes you already know how a normal drydock ship works), and
+exactly what a player does to build, commission, and dock one. It
+assumes no prior context beyond that.
+
+--------------------------------------------------------------------
+1. WHAT THIS SYSTEM IS, IN ONE PARAGRAPH
+--------------------------------------------------------------------
+
+Every drydock ship used to have to start life as a hand-authored .dmm
+map file. This system adds a second path: a player physically builds a
+small hull out of ordinary construction and cargo-ordered parts, then
+"commissions" it at a dedicated console for a flat fee. Commissioning
+captures whatever was built and turns it into a completely normal,
+independently-owned drydock ship -- its own database ledger row, its
+own dedicated Z-level, its own schematic, stash/retrieve/rename/crew,
+all identical to a ship bought from the catalog. The only things that
+are different are where the hull came from (a player built it, not a
+mapper) and how big it's allowed to be (capped at 9x9 tiles, so it
+reliably fits through a station-side dock or another ship's hangar).
+
+This system also adds two general-purpose docking concepts usable by
+any ship, not just player-built ones: a docking beacon (or a sub-ship's
+hangar berth) is always restricted to small craft only, so a full-size
+warship can never claim a slot meant for something shuttle-sized; and
+an optional facing check (section 3) so a beacon can require an
+approaching ship's own airlock to actually be oriented to meet it.
+
+--------------------------------------------------------------------
+2. SETTING UP A DOCK -- THE DOCKING BEACON
+--------------------------------------------------------------------
+
+A "docking beacon" (existing machine, cargo-ordered, wrench to secure
+then screwdriver to activate) marks a spot any ship's own navigation
+console can find and fly to -- this predates player-built shuttles
+entirely and works exactly the same way it always has for a template
+ship.
+
+What's new: every docking beacon is now unconditionally capped to 9x9
+tiles or smaller (SUBSHIP_FOOTPRINT_X/Y) -- a ship any bigger than that
+will simply never see it offered as a destination on its own console;
+the beacon is invisible to it, not just refused on arrival. There is no
+toggle for this -- a docking beacon is a shuttle/sub-ship dock, full
+stop. (A full-size drydock ship was never able to physically benefit
+from docking at one anyway -- every ship, of any size, already has its
+own permanently separate Z-level regardless of where its marker is
+parked.) This is the piece that lets a beacon placed right at a
+player-built airlock cycler's exterior door only ever be claimed by
+something the cycler was actually sized for.
+
+Placement matters: put the beacon exactly where you want a ship's hull
+to end up sitting once docked -- landing is still guaranteed never to
+destroy or overwrite anything already there (this was already true of
+every docking beacon; nothing new here).
+
+The beacon is flush with the floor and never blocks movement, so it can
+sit directly underneath an airlock cycler's exterior door -- the door
+opens and closes over it normally, and visually covers its icon
+whenever it's shut. Persistence doesn't care about any of this either;
+it saves/restores by position exactly like every other tracked object,
+regardless of what door or machine happens to share its tile. It uses
+the same holopad-style sprite as the docking transponder (section 3),
+tinted green instead of the transponder's dark blackish-orange, so the
+two visually read as one paired system.
+
+Multitool a beacon and you're asked to Buffer it or Rotate it:
+
+  * Rotate turns its facing 90 degrees (only while unsecured -- wrench
+    it down to lock the facing in). See section 3 for why facing
+    matters, and note it also moves the build envelope itself
+    (section 5).
+
+  * Buffer stores a reference to THIS SPECIFIC beacon in the
+    multitool's own buffer (the same buffer every multitool already
+    has, used elsewhere for wiring things like airlock controllers) --
+    the next step, in section 4, is applying that buffer to a
+    commissioning console to link the two together.
+
+--------------------------------------------------------------------
+3. THE DOCKING TRANSPONDER -- MATCHING AN AIRLOCK'S FACING
+--------------------------------------------------------------------
+
+A "docking transponder" (new, cargo-ordered, looks like a holopad with
+a dark blackish-orange tint) is a flush floor fixture, same as the
+beacon above -- it doesn't block movement and can be mounted directly
+underneath an airlock without stopping the door from opening or
+closing (and is hidden from view whenever that door is shut). Mount
+one at your shuttle's own airlock/exit tile, inside the build
+envelope, before you commission.
+
+A transponder declares which way that airlock faces. A docking beacon
+only accepts a ship carrying one if the transponder's facing is the
+EXACT OPPOSITE compass direction from the beacon's own -- which in
+practice means pointing the transponder AT the beacon, not away from
+it, the same way two real airlocks meet each other face to face
+(beacon facing west + transponder facing east = a match, since west
+and east point straight at one another).
+
+Multitool a transponder for the same Buffer-or-Rotate choice the
+beacon has (section 2): Rotate changes its facing (only while
+unsecured); Buffer stores it in the multitool, ready to link to a
+commissioning console (section 4).
+
+This does NOT physically rotate your ship's hull -- nothing in this
+game, template ship or player-built, has ever had its hull rotated to
+match a landing target, and this system doesn't change that. It's a
+compatibility gate layered on top of the existing size/turf-safety
+checks: a beacon your transponder doesn't match simply isn't offered
+as a destination, the same way an oversized ship never sees a beacon
+at all.
+
+Because docking is a real, physical move (section 6), this gate isn't
+just cosmetic -- it's what guarantees your airlock actually lines up
+walkably with the beacon's own airlock/cycler once you're really
+sitting there, the same way two real docking ports have to face each
+other to connect.
+
+The transponder is REQUIRED to commission a ship in the first place
+(section 4) -- it isn't just a nicety for docking elsewhere later. This
+is what ties the whole system together: the beacon marks the dock, the
+console builds and commissions, and the transponder proves your hull's
+own airlock is actually oriented to meet that specific beacon before
+it's allowed to become a real ship. Once commissioned, the same
+transponder travels with the ship and is checked again by every OTHER
+size-restricted beacon it later tries to dock at.
+
+--------------------------------------------------------------------
+4. SETTING UP A SHIPYARD -- THE COMMISSIONING CONSOLE
+--------------------------------------------------------------------
+
+Cargo-order three things (engineering category):
+
+  * "Ship Commissioning Console Crate" -- one ready-to-place console.
+    This is the one you actually interact with to preview and
+    commission. It is NEVER consumed by a successful commission --
+    it's a permanent shipyard fixture, reusable for as many hulls as
+    anyone ever builds at that spot.
+
+  * "Shuttle Control Console Crate" -- one ready-to-place shuttle
+    control console. This needs to end up INSIDE the hull you build --
+    without one, the finished ship has no console and can't be flown.
+
+  * "Docking Transponder Crate" -- see section 3. Also needs to end up
+    inside the hull, at your airlock.
+
+You'll also need an APC (ordinary construction, not a new crate --
+frame, board, power cell, exactly like building one anywhere else) and
+at least one power cable run to it. Without one, nothing aboard has
+power. (Everything else a ship might want -- an engine, a shield
+generator, weapons, life support -- was already ordinary
+cargo-orderable equipment before this system existed; nothing new was
+needed for those.)
+
+Wrench the commissioning console down anywhere within 12 tiles of the
+beacon you intend to link it to. It doesn't need to be inside the
+build envelope itself -- it's common to put it in a pressurized
+control room a short distance from the actual airlock/beacon, "past
+the interior cycler."
+
+LINKING: the commissioning console does nothing at all -- Preview,
+Generate Build Floor, and Commission all refuse -- until it's been
+explicitly linked to a beacon, a transponder, and a shuttle control
+console. There's no "nearest in range" auto-detection anymore; you
+choose exactly which of each it uses, so two beacons in range (or one
+behind a wall) is never ambiguous. To link one:
+
+  1. Multitool the device (beacon, transponder, or shuttle control
+     console) and choose Buffer.
+  2. Multitool the commissioning console. It reads whatever's
+     buffered and links to it, confirming in chat which of the three
+     slots it filled.
+
+Each of the three links is independent -- link the beacon first, build
+your hull, then link the transponder and shuttle control console once
+they're actually placed. A link stays put even if the linked device
+goes temporarily invalid (beacon deactivated, device moved outside the
+envelope) -- the console just reports it as broken until it's valid
+again, rather than forgetting it and making you re-link from scratch.
+Only actually destroying a linked device clears its slot.
+
+--------------------------------------------------------------------
+5. BUILDING AND COMMISSIONING
+--------------------------------------------------------------------
+
+  1. Link a beacon to the commissioning console (section 4) if you
+     haven't already, then interact with the console -> "Preview
+     Build Envelope". It highlights a 9x9 block of tiles for 10
+     seconds -- this is the absolute maximum size your hull can be.
+     The box sits one tile clear of the linked beacon and extends out
+     in whatever direction the beacon is CURRENTLY facing (rotate the
+     beacon with a multitool beforehand to choose north, south, east,
+     or west) -- the beacon itself always stays outside the box, like
+     a dock marker standing clear of the airlock it serves, never
+     inside your hull. The nearest edge of the box -- the one closest
+     to the beacon -- is tinted a distinct color: that's exactly where
+     your airlock and transponder need to go. You can preview as many
+     times as you like while you work, including after rotating the
+     beacon to see the box move.
+
+     If the highlighted box is completely empty -- no walls, objects,
+     or anyone standing in it -- "Generate Build Floor" lights up.
+     Click it to fill every open-space tile in the box with plain
+     unfinished subfloor (plating) in one go, so you don't have to lay
+     81 individual floor tiles by hand before you can start walling it
+     in. It never touches anything already there -- an already-floored
+     tile is left exactly as it is -- and it re-checks the box itself
+     the moment you click, so it can't ever overwrite something someone
+     placed a second before you pressed it. This step is entirely
+     optional -- you can just build your own floor from scratch instead
+     if you'd rather.
+
+  2. Build your hull inside that highlighted box: walls, floor, an
+     airtight seal (every tile in the box must be real, pressurized
+     floor when you commission -- no gaps to space), your engine and
+     life support, the shuttle control console, an APC with cabling,
+     and a docking transponder mounted on the tinted edge, rotated
+     (multitool) to face back toward the beacon. Once they're placed,
+     link the transponder and the shuttle control console to the
+     commissioning console too (section 4) -- Preview and Generate
+     Build Floor only need the beacon linked, but Commission needs all
+     three.
+
+  3. Interact with the commissioning console again. Choose where the
+     ship ends up on deployment -- staying docked right at the beacon,
+     or launching into nearby open space instead -- neither is forced,
+     it's a checkbox right above the Commission buttons. "Staying
+     docked" is a real, physical placement, not a label: your hull
+     genuinely materializes on the station's own level, right at the
+     beacon, exactly as if you'd flown it there and landed yourself --
+     walk between the station and the ship through a real airlock, no
+     teleporting involved. Then choose
+     personal or (if you're wearing a faction ID) faction funding.
+     Both funding options are greyed out, with an on-screen reason,
+     if: the beacon, transponder, or shuttle control console isn't
+     linked yet (or its link is currently broken -- see section 4);
+     anyone -- dead or alive, including someone connected via a
+     neural lace -- is still standing anywhere in the build envelope;
+     no APC is found (nothing aboard would have power); or the linked
+     transponder isn't facing the beacon. Fix whichever applies and
+     the buttons re-enable live, no need to reopen the UI. Otherwise
+     you'll be asked to name the ship (it must not already be in use
+     by another ship, stashed or deployed), then charged:
+
+       - Personal: 100,000cr from your own linked bank account.
+       - Faction: 100,000cr from the faction account, but ONLY if
+         you hold COMMAND rank in that faction (rank 2 -- one step
+         above ordinary officer), or are the faction's CEO or
+         designated leader. An ordinary officer cannot authorize this
+         on the faction's behalf.
+
+  4. On success, everything inside the envelope (except the beacon
+     and the commissioning console themselves, which never move) is
+     lifted onto a brand new, dedicated Z-level -- the ship's own
+     private interior, exactly like any other drydock ship's. The
+     build site itself is wiped back to plain station floor, so
+     nothing is left behind. Your APC and any cabling/atmos pipes you
+     laid down are explicitly re-initialized on arrival (power grid
+     and pipe networks rebuilt, not just moved and left dark) -- your
+     engine, life support, lights, and consoles come up live, not just
+     physically present. The ship's own interior area is named after
+     the ship, and the APC's name (which always mirrors its area's
+     name) follows automatically. You're handed a ship schematic, and
+     the ship is already deployed -- either docked right at the beacon
+     or out in nearby open space, whichever you chose in step 3 -- no
+     separate "retrieve" step either way. From this point on it behaves in every
+     respect like a ship bought from the Drydock catalog: same icon,
+     same stash/retrieve/crew/scuttle tooling, same persistence. The
+     only thing commissioning itself doesn't set is a class
+     designation (it starts as a generic "SHU") -- use the schematic's
+     own Rename Ship option afterward to set one, same as any other
+     ship, and it updates immediately, no retrieve needed.
+
+A failed commission (unsealed hull, beacon/transponder/console not
+linked or link broken, envelope occupied, no APC, misaligned
+transponder, insufficient funds, insufficient rank, name already
+taken) charges nothing and
+leaves your build untouched -- fix the problem and try again. Two Commission clicks fired
+back to back (impatience, or two people at two consoles) can't both
+succeed either -- the second one is queued and re-validated fresh once
+the first finishes, the same serialization Retrieve/Stash already use,
+so a build can never be captured into two ships at once.
+
+--------------------------------------------------------------------
+6. WHY THIS IS SAFE -- PERSISTENCE, IN PLAIN TERMS
+--------------------------------------------------------------------
+
+First, the thing that makes this whole section necessary: docking is
+real. When your ship docks -- whether by choosing "stay docked" at
+commission time, or just flying up and landing at any beacon later
+under its own power -- the game physically relocates your ship's own
+rooms, walls, machines, and wiring onto the real tiles at that beacon.
+Your ship's own private Z-level (the one it's always had, reserved for
+it since commission or retrieve) goes back to being empty open space
+for as long as you're docked. Undocking moves everything straight back
+home. This is not new or specific to player-built ships -- it's how
+every drydock ship has always docked at a beacon under its own power.
+
+This is also why commissioning quietly repositions your ship's own
+internal reference point (its "home" marker, invisible in normal play)
+to sit exactly where the beacon was during capture, instead of leaving
+it wherever the blank shell template happened to put it. Without that,
+a docked ship would land with its geometric CENTER at the target
+beacon instead of its actual airlock, offsetting the transponder by
+several tiles from where it's supposed to be. With it, your transponder
+lands exactly one tile clear of whatever beacon you dock at next --
+matching the same spacing the build envelope itself always has with a
+beacon (section 2) -- no matter where along the tinted edge you
+actually built your airlock.
+
+Because of that, "deployed" and "sitting on its own Z" are NOT always
+the same thing anymore, and that has two consequences worth knowing:
+
+  * Its interior saves through the normal periodic sweep exactly as
+    before -- WHILE IT'S HOME. While it's genuinely docked somewhere
+    else, changes you make aboard (dropping items, rebuilding a room)
+    are NOT picked up by that periodic sweep -- the game deliberately
+    skips saving a docked ship's content mid-dock rather than risk
+    saving it under the wrong place. Nothing gets corrupted or
+    misattributed to the station either way; it's simply not being
+    continuously backed up while parked. The next time it's genuinely
+    stashed, that stash captures the true, current state in full, same
+    as it always has.
+
+  * You cannot STASH a ship while it's physically docked. If you try,
+    you're told to undock first -- fly it back into open space (or
+    just off the beacon) and stash from there. This is on top of the
+    existing rule that a personal ship still needs to be near ANY
+    secured (med-sec or better) faction beacon, and a faction ship
+    still needs to be near its OWN faction's beacon, to stash at all
+    -- a docking beacon (section 2) is a different object from a
+    faction beacon and doesn't satisfy that by itself.
+
+  * A clean server shutdown auto-stashes every deployed ship,
+    including commissioned ones -- and if one happens to be genuinely
+    docked at the moment of shutdown, it's automatically flown home
+    first, invisibly, before being stashed. You will never find a
+    "ghost" ship stuck at a dock after a restart.
+
+  * An ungraceful crash leaves the ledger row deployed; the very next
+    boot detects that and force-corrects it to stashed, using the last
+    genuine save as the recovered interior. If the ship had been
+    parked at a dock for a while before the crash, that recovered
+    interior reflects the last time it was actually home, not
+    necessarily whatever it looked like the instant before the crash
+    -- the trade-off for guaranteeing nothing ever gets corrupted or
+    duplicated. You just retrieve it again with your schematic either
+    way -- there is no "dry, stuck-forever" ship left sitting at a
+    dock.
+
+Because the build site itself is wiped the moment a ship is
+commissioned, there is also nothing left on the STATION side that
+could ever be captured twice at commission time -- and the same
+exclusion above (skip saving a docked ship's tiles under either scope)
+is what keeps that true for the rest of the ship's life too, no matter
+how long it stays parked somewhere.
+
+--------------------------------------------------------------------
+7. DOCKING SOMEWHERE OTHER THAN WHERE YOU BUILT IT
+--------------------------------------------------------------------
+
+A commissioned shuttle is a normal ship with a normal console, so it
+can fly anywhere any other ship can -- including two places worth
+calling out specifically:
+
+  * ANY size- (and, if it has one, facing-) compatible docking beacon
+    (sections 2-3) -- built by anyone, anywhere, not just the one it
+    was commissioned at.
+
+  * AN OPEN HANGAR SLOT aboard another ship. Some larger hulls (Xanu
+    Frigate's fighter/boarder bays, etc.) carry their own permanently
+    bound small craft. Whenever that bound craft isn't physically
+    sitting in its bay right now -- destroyed, out flying, or never
+    spawned that round -- the same berth opens up as a normal,
+    size-gated destination any outside ship's console can find and
+    claim. The moment the bound craft comes home again, the slot
+    closes back up automatically. No map was edited to make this
+    work; it's a live occupancy check every time a ship's console asks
+    "where can I dock." (The facing check does not apply to hangar
+    slots -- flying into an internal bay isn't an airlock-to-airlock
+    concept the same way.)
+
+Docking "with" another ship this way (either direction) puts a hard
+lock on stashing until you undock: a ship cannot stash while another
+ship is docked inside it, and a ship cannot stash while it's docked
+inside someone else's. Neither ship is ever destroyed by this --
+you're simply told to undock first and try again. (Scuttle is
+deliberately exempt from this lock, since it exists specifically as
+the no-questions-asked rescue option for a ship that's stuck or
+unreachable -- but even then, anything still docked inside gets safely
+evacuated to open space first, never destroyed alongside it.)
+
+--------------------------------------------------------------------
+8. WHERE THE CODE LIVES
+--------------------------------------------------------------------
+
+  code/__DEFINES/overmap.dm            -- SUBSHIP_FOOTPRINT_X/Y (9x9),
+                                           SHIP_COMMISSION_PRICE (100k),
+                                           BUILD_ENVELOPE_BEACON_RANGE
+  code/modules/shuttles/docking_beacon.dm
+                                        -- size-gated player_dock/beacon
+                                           fields + UI, hangar_slot type,
+                                           facing check, holopad sprite
+                                           (green), multitool Buffer/Rotate
+                                           choice, _sync_landmark_facing()
+  code/modules/shuttles/docking_transponder.dm
+                                        -- the transponder device,
+                                           multitool Buffer/Rotate choice
+  code/game/objects/items/devices/multitool.dm
+                                        -- NOT modified -- the buffer this
+                                           whole linking flow runs on
+                                           (buffer_object/set_buffer()/
+                                           get_buffer()) already existed,
+                                           reused as-is (same mechanism
+                                           airlock controller wiring uses)
+  code/modules/shuttles/landmarks.dm   -- footprint check in is_valid()
+  code/modules/shuttles/shuttle.dm     -- get_footprint(),
+                                           find_docking_transponder()
+  code/modules/shuttles/ship_commissioning_console.dm
+                                        -- the commissioning console:
+                                           Preview, the optional Generate
+                                           Build Floor (fills empty
+                                           envelope tiles with plating;
+                                           never touches anything already
+                                           built), and linked_beacon/
+                                           linked_transponder/
+                                           linked_shuttle_console (set via
+                                           multitool -- see
+                                           _link_device()/attackby() and
+                                           the _valid_linked_*() checks
+                                           that replaced proximity/
+                                           envelope-scan discovery
+                                           entirely)
+  code/modules/overmap/ships/drydock_ship.dm
+                                        -- hidden_from_catalog flag,
+                                           buildable shuttle_control
+                                           console subtype (also gets the
+                                           multitool Buffer handler)
+  code/controllers/subsystems/persistence/persistence_shuttles.dm
+                                        -- drydockCommission() (queue-gated
+                                           wrapper) / _drydockCommissionRun()
+                                           (the actual work): console/APC
+                                           requirements checked against the
+                                           console's own linked devices,
+                                           name-uniqueness, envelope-
+                                           occupancy check, post-capture
+                                           APC/area rebind + cable powernet
+                                           + atmos pipe network rebuild, the
+                                           home-landmark repositioning fix
+                                           (so a docked ship's transponder
+                                           lands one tile clear of whatever
+                                           beacon it docks at, not the
+                                           hull's own geometric center), the
+                                           real attempt_move()-based
+                                           dock_at_beacon placement, the
+                                           mutual-dock/away-from-home stash
+                                           lock (with force-recall for a
+                                           forced stash), marker evacuation
+                                           on teardown,
+                                           _drydock_periodic_sweep() (also
+                                           maintains the docked-turf
+                                           exclusion set every 30 seconds),
+                                           and the Part 5 public hangar-slot
+                                           registration inside
+                                           _drydock_register_subship_waypoints()
+  code/controllers/subsystems/persistence/persistence_ship_interiors.dm
+                                        -- persistence_turf_docked_elsewhere(),
+                                           GLOB.persistence_docked_turf_scope
+                                           (the docked-turf exclusion set)
+  code/controllers/subsystems/persistence/persistence_turfs.dm,
+  persistence_objects_sql.dm, persistence_floor_items.dm,
+  persistence_bots.dm, persistence_atmos.dm, persistence_areas.dm
+                                        -- each excludes a currently-docked
+                                           ship's own tiles from the general
+                                           periodic/shutdown save sweep
+  code/game/objects/items/weapons/circuitboards/computer/computer.dm
+                                        -- circuitboards for all three new
+                                           machines
+  code/modules/cargo/items/engineering.dm
+                                        -- the three cargo crates
+  tgui/packages/tgui/interfaces/ShipCommissioning.tsx
+                                        -- the commissioning console UI
+  maps/drydock_ships/player_built_shuttle/
+                                        -- the shared blank-canvas shell
+                                           every commissioned ship
+                                           deploys onto

@@ -14,8 +14,12 @@
  * * multiline -  Bool that determines if the input box is much larger. Good for large messages, laws, etc.
  * * encode - Toggling this determines if input is filtered via html_encode. Setting this to FALSE gives raw input.
  * * timeout - The timeout of the textbox, after which the modal will close and qdel itself. Set to zero for no timeout.
+ * * width/height - Optional fixed window size override, in pixels. Leave null (default) for the
+ * usual dynamic sizing based on message/input length -- set both for a caller editing something
+ * much larger than a typical prompt (e.g. modify_hub_laws(), persistence_factions.dm) that the
+ * normal dynamic formula would otherwise leave cramped.
  */
-/proc/tgui_input_text(mob/user, message = "", title = "Text Input", default, max_length = MAX_MESSAGE_LEN, multiline = FALSE, encode = TRUE, timeout = 0, ui_state = GLOB.always_state)
+/proc/tgui_input_text(mob/user, message = "", title = "Text Input", default, max_length = MAX_MESSAGE_LEN, multiline = FALSE, encode = TRUE, timeout = 0, ui_state = GLOB.always_state, width = null, height = null)
 	if (!user)
 		user = usr
 	if (!istype(user))
@@ -39,7 +43,7 @@
 				return input(user, message, title, default) as message|null
 			else
 				return input(user, message, title, default) as text|null
-	var/datum/tgui_input_text/text_input = new(user, message, title, default, max_length, multiline, encode, timeout, ui_state)
+	var/datum/tgui_input_text/text_input = new(user, message, title, default, max_length, multiline, encode, timeout, ui_state, width, height)
 	text_input.ui_interact(user)
 	text_input.wait()
 	if (text_input)
@@ -75,8 +79,12 @@
 	var/title
 	/// The TGUI UI state that will be returned in ui_state(). Default: always_state
 	var/datum/ui_state/state
+	/// Optional fixed window size override, in pixels -- null means "use the frontend's usual
+	/// dynamic sizing." See tgui_input_text()'s own doc comment for why this exists.
+	var/width
+	var/height
 
-/datum/tgui_input_text/New(mob/user, message, title, default, max_length, multiline, encode, timeout, ui_state)
+/datum/tgui_input_text/New(mob/user, message, title, default, max_length, multiline, encode, timeout, ui_state, width, height)
 	src.default = default
 	src.encode = encode
 	src.max_length = max_length
@@ -84,6 +92,8 @@
 	src.multiline = multiline
 	src.title = title
 	src.state = ui_state
+	src.width = width
+	src.height = height
 	if (timeout)
 		src.timeout = timeout
 		start_time = world.time
@@ -127,6 +137,8 @@
 	data["multiline"] = multiline
 	data["placeholder"] = default // Default is a reserved keyword
 	data["title"] = title
+	data["width"] = width
+	data["height"] = height
 	return data
 
 /datum/tgui_input_text/ui_data(mob/user)

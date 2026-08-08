@@ -32,6 +32,9 @@ export type IDData = {
   can_dispense_faction_id: BooleanLike;
   can_leave_faction: BooleanLike;
   clocked_in: BooleanLike;
+
+  can_print_hub_laws: BooleanLike;
+  hub_law_cooldown_text: string | null;
 };
 
 type Access = {
@@ -109,6 +112,24 @@ export const IDCardModification = (props) => {
                 />
               </LabeledList.Item>
             )}
+          </LabeledList>
+        </Section>
+        <Section title="Hub Laws">
+          <LabeledList>
+            <LabeledList.Item label="Hub Law Book">
+              <Button
+                icon="book"
+                content="Print Hub Law Book"
+                color="blue"
+                disabled={!data.can_print_hub_laws}
+                tooltip={
+                  data.can_print_hub_laws
+                    ? 'Print a copy of the current Hub law book.'
+                    : `Available again in ${data.hub_law_cooldown_text}.`
+                }
+                onClick={() => act('print_hub_laws')}
+              />
+            </LabeledList.Item>
           </LabeledList>
         </Section>
       </NtosWindow.Content>

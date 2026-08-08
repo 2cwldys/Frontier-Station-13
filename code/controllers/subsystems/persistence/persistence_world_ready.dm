@@ -71,7 +71,7 @@ SUBSYSTEM_DEF(persistence_world_ready)
 	if(!world.visibility)
 		return
 	world.visibility = FALSE
-	sleep(4 SECONDS)
+	sleep(10 SECONDS)
 	world.visibility = TRUE
 	log_world("Hub: republished visibility after full initialization.")
 #endif

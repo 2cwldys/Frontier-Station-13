@@ -49,7 +49,7 @@
 // hardcoded by uid, without actually making it Hub.
 #define FACTION_CARGO_CATEGORY_ALL "*all*"
 
-// If defined, world.visibility is toggled off then back on ~4 seconds after
+// If defined, world.visibility is toggled off then back on ~10 seconds after
 // the persistence world-ready gate finishes (persistence_world_ready.dm) --
 // works around BYOND's hub-announce apparently needing an explicit runtime
 // change to world.visibility rather than firing off its already-TRUE default

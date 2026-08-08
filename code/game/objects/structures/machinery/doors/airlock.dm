@@ -50,6 +50,12 @@
 	var/ai_disabled_id_scanner = FALSE
 	/// Boolean. Whether or not the AI is currently hacking the door.
 	var/ai_hacking = FALSE
+	/// Faction tagger compatible var -- "" (untagged) or a real faction_uid.
+	/// Lets a faction's Commander's Beacon find and remotely operate this
+	/// door (commander_beacon.dm's "remote_door_control") -- untagged doors,
+	/// and any door managed by an airlock cycler controller regardless of
+	/// tag, never show up there. Persisted via worldstate_vars below.
+	var/persistent_network = ""
 	/// Boolean. Whether or not the AI can bolt the door.
 	var/ai_bolting = TRUE
 	/// Integer. How long it takes AIs to drop bolts (in seconds).
@@ -2104,6 +2110,18 @@ About the new airlock wires panel:
 		send_status()
 
 	..()
+
+// ------- Faction tagger compatibility -------
+
+/obj/structure/machinery/door/airlock/faction_tagger_compatible()
+	return TRUE
+
+/obj/structure/machinery/door/airlock/faction_tagger_get_uid()
+	return persistent_network
+
+/obj/structure/machinery/door/airlock/faction_tagger_set(new_uid, mob/user)
+	persistent_network = new_uid || ""
+	return TRUE
 
 /obj/structure/machinery/door/airlock/proc/lock(var/forced=0)
 	if(!isnull(src.ai_action_timer)) // reset AI action timer no matter if it finished

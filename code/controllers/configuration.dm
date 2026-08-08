@@ -352,6 +352,15 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 	var/use_discord_pins = 0
 	var/python_path = "python" //Path to the python executable.  Defaults to "python" on windows and "/usr/bin/env python2" on unix
 
+	/// Absolute path to the repo root, used to `cd` into before running any
+	/// scripts/... command via world.shelleo() (persistence_backups.dm,
+	/// deploy.dm) -- those build a RELATIVE command, and the child process's
+	/// working directory is inherited from DreamDaemon's own OS-level cwd,
+	/// which isn't guaranteed to be the repo root (unlike BYOND's own file
+	/// API, which always resolves relative to the .dmb regardless of OS
+	/// cwd). Leave blank to keep the old relative-only behavior.
+	var/server_root_path
+
 	// Event settings
 	var/expected_round_length = 3 * 60 * 60 * 10 // 3 hours
 	// If the first delay has a custom start time
@@ -879,6 +888,10 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 					if(value)
 						GLOB.config.python_path = value
 
+				if("server_root_path")
+					if(value)
+						GLOB.config.server_root_path = value
+
 				if("allow_cult_ghostwriter")
 					GLOB.config.cult_ghostwriter = 1
 
@@ -887,6 +900,9 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 
 				if("character_slots")
 					GLOB.config.character_slots = text2num(value)
+
+				if("admin_character_slots")
+					GLOB.config.admin_character_slots = text2num(value)
 
 				if("loadout_slots")
 					GLOB.config.loadout_slots = text2num(value)

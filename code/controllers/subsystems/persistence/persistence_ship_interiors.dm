@@ -55,6 +55,42 @@ GLOBAL_LIST_EMPTY(reusable_z_pool)
 		return ship_scope
 	return "[SSatlas.current_map.path]"
 
+/// Set of turfs currently belonging to a deployed ship's real hull while it's
+/// physically docked somewhere other than its own home Z
+/// (docking_beacon.dm/shuttle.dm's attempt_move()/shuttle_moved() genuinely
+/// relocates a docked ship's turfs and area membership onto the destination's
+/// real location).
+/// persistence_scope_for_z(z) alone can't tell those specific turfs apart
+/// from the rest of whatever Z they're currently sitting on (a single z can't
+/// map to two scopes at once).
+///
+/// Deliberately an EXCLUSION set, not a scope redirect: a docked ship's rows
+/// would otherwise get written at its current (docked) x/y/z, keyed under its
+/// own ship scope via an ON DUPLICATE KEY UPDATE upsert (_turfsFlush() etc.,
+/// persistence_turfs.dm) -- but remapShipRows() (below) only ever rewrites
+/// the z column for a whole scope at retrieve time, never x/y, so those
+/// docked-position rows would never get cleaned up by a later save taken at
+/// the ship's actual home coordinates (a completely different key). They'd
+/// sit under the ship's own scope forever and get blindly reapplied at the
+/// wrong spot on every future retrieve -- not a duplicated ship, but
+/// corrupted leftover content mixed into the real interior. Excluding these
+/// turfs from the general sweep entirely avoids that: while docked, interior
+/// changes simply aren't captured by the periodic autosave (only by the next
+/// real shipInteriorSave(), which only ever runs once the ship is genuinely
+/// back home -- see _drydockStashRun()) -- a real but safe limitation, not a
+/// silent corruption path.
+///
+/// Kept live by _drydock_periodic_sweep() (persistence_shuttles.dm), which
+/// rebuilds it from scratch every cycle for every deployed ship currently
+/// away from its own home landmark.
+GLOBAL_LIST_EMPTY(persistence_docked_turf_scope)
+
+/// TRUE if this turf currently belongs to a ship that's physically docked
+/// away from its own home Z right now -- see persistence_docked_turf_scope
+/// above for why this must exclude, not redirect.
+/proc/persistence_turf_docked_elsewhere(turf/T)
+	return T && GLOB.persistence_docked_turf_scope[T]
+
 /// TRUE if any deployed drydock ship is already using this template.
 /// Shuttle datum names are per-template, and /datum/shuttle/New() hard-
 /// CRASHes on a duplicate name (shuttle.dm) -- so only one instance of a
@@ -203,12 +239,24 @@ GLOBAL_LIST_EMPTY(reusable_z_pool)
 	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
 	if(!DS || DS.stashed || DS.z != z)
 		return
+	// refresh_fuel_ports_list() (overmap_shuttle.dm) only ever runs once, at
+	// the shuttle datum's own New() -- which fires at template-load time,
+	// before objectsApplyZ() (above) has restored this ship's own saved fuel
+	// ports onto the z. Without this, any drydock ship's fuel_ports stays
+	// permanently empty on every single retrieve, not just the first
+	// commission -- same gap, same fix, run here for every ship type.
+	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[z]"]
+	var/datum/shuttle/autodock/overmap/shuttle_datum = istype(marker) ? SSshuttle.shuttles[marker.shuttle] : null
+	if(istype(shuttle_datum))
+		shuttle_datum.refresh_fuel_ports_list()
+
 	DS.ready = TRUE
 	log_drydock("_shipInteriorApplyFinish: shuttle_id=[shuttle_id] finished background settle, ready to board.")
 	if(DS.owner_ckey)
 		var/client/C = GLOB.directory[DS.owner_ckey]
 		if(C?.mob)
 			to_chat(C.mob, SPAN_GOOD("Your ship '[DS.display_name()]' has finished initializing and is ready to board."))
+			play_announcer_sound_priority(C.mob, 'sound/AI/announcements/ship_ready_to_board.ogg')
 
 /**
  * Keeps each deployed ship's ledger overmap_x/y current with its live

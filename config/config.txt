@@ -335,14 +335,29 @@ TIME_OFFSET 6
 ## Default is "python" on Windows, "/usr/bin/env python2" on UNIX.
 #PYTHON_PATH
 
+## Absolute path to this repo's root directory, e.g. C:\aurora or /home/aurora/server.
+## Used to `cd` into before running scripts/db_backup, scripts/deploy_bg, etc. via
+## world.shelleo() -- those commands are relative, and the shelled-out process's
+## working directory comes from DreamDaemon's own OS-level cwd, not necessarily
+## this repo. Leave blank if DreamDaemon is already launched with its working
+## directory set to the repo root (relative commands will just work as before).
+## ## NOTE THAT WORLD.SHELLEO() requires TRUSTED and not SAFE or ULTRASAFE. USE AT OWN RISK!
+#SERVER_ROOT_PATH
+
 ## Uncommen to allow ghosts to write in blood during Cult rounds.
 ALLOW_CULT_GHOSTWRITER
 
 ## Sets the minimum number of cultists needed for ghosts to write in blood.
 REQ_CULT_GHOSTWRITER 6
 
-## Sets the number of available character slots
-CHARACTER_SLOTS 10
+## Sets the number of available character slots every player gets by default.
+## Drives persistence_get_character_slots() (persistence_cryo.dm) directly --
+## an admin's own default is this PLUS ADMIN_CHARACTER_SLOTS below, not a
+## separate total. A per-ckey override set via the "Set Character Slots"
+## admin verb still wins over both when one exists.
+CHARACTER_SLOTS 1
+## Additional character slots admins get on top of CHARACTER_SLOTS above.
+ADMIN_CHARACTER_SLOTS 2
 ## Sets the number of available loadout slots
 LOADOUT_SLOTS 3
 

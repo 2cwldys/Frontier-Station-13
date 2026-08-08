@@ -54,6 +54,8 @@ SUBSYSTEM_DEF(ticker)
 		'sound/music/lobby/mainmenu.ogg',
 		'sound/music/lobby/radix_lluvia_leveld_colours.ogg',
 		'sound/music/lobby/astrogenesis.ogg',
+		'sound/music/lobby/stellardrone_comet_halley.ogg',
+		'sound/music/lobby/zircon_ladder_to_the_sky.ogg',
 	)
 
 	var/lobby_ready = FALSE

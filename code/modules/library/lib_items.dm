@@ -200,6 +200,13 @@
 	icon = 'icons/obj/library.dmi'
 	contained_sprite = TRUE
 	icon_state = "book"
+	// contained_sprite's in-hand compositor (update_inv_l_hand()/_r_hand(),
+	// update_icons.dm) builds the looked-up state as "[item_state][_lh/_rh]"
+	// -- with item_state left unset (null), that resolved to just "_lh"/"_rh"
+	// with no base name, which doesn't exist in library.dmi (it has "book_lh"/
+	// "book_rh"), so it rendered as broken garbage in-hand instead of the
+	// book icon that was already there all along.
+	item_state = "book"
 	throw_speed = 1
 	throw_range = 5
 	w_class = WEIGHT_CLASS_NORMAL		 //upped to three because books are, y'know, pretty big. (and you could hide them inside eachother recursively forever)

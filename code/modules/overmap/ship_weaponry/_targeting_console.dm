@@ -12,6 +12,20 @@
 	var/selected_z = 0
 	var/list/names_to_guns = list()
 	var/list/names_to_entries = list()
+	/// The locked target process() last checked -- lets a genuinely new lock
+	/// (or losing the lock) reset last_watched_target_strength cleanly
+	/// instead of carrying over stale state from whatever was locked before.
+	var/obj/effect/overmap/last_watched_target
+	/// Target's shield_strength as of the last poll -- compared against the
+	/// current value the same way _check_tier_transition()
+	/// (ship_shield_generator.dm) compares the OWN ship's, so a threshold
+	/// crossed between two 3-second polls still gets announced even if it
+	/// happened between checks. null right after a new lock (no prior
+	/// reading to compare against yet).
+	var/last_watched_target_strength
+	/// Self-throttle for process(), same shape as ship.dm's own
+	/// next_engine_hum_check -- this doesn't need to check every tick.
+	var/next_shield_check = 0
 
 /obj/structure/machinery/computer/ship/targeting/terminal
 	name = "targeting systems terminal"
@@ -42,6 +56,86 @@
 	names_to_entries.Cut()
 	return ..()
 
+/// Called from target()/detarget() (overmap_object.dm) the instant a lock
+/// is acquired or cleared -- starts/stops the continuous enemy-shield
+/// readout below instead of leaving this console ticking with nothing
+/// locked, or waiting a stray interval to notice a fresh lock.
+/obj/structure/machinery/computer/ship/targeting/proc/check_processing()
+	if(linked?.targeting)
+		START_PROCESSING(SSprocessing, src)
+	else
+		STOP_PROCESSING(SSprocessing, src)
+
+/**
+ * Continuously watches whatever this console currently has locked and
+ * announces every 25%/50%/max/down threshold the target's shields actually
+ * cross between polls, Z-wide on the OBSERVING ship (this console's own
+ * ship, not the target's) -- per your explicit call that the enemy readout
+ * should keep updating live, not just once at lock-on. Same crossing-based
+ * comparison as _check_tier_transition() (ship_shield_generator.dm): a big
+ * change between two 3-second polls can skip straight past a checkpoint
+ * without the target's CURRENT value ever landing near it, and that
+ * crossing still gets announced. Self-throttled the same way ship.dm's own
+ * engine hum check is; check_processing() above already keeps this from
+ * running at all with no lock held.
+ */
+/obj/structure/machinery/computer/ship/targeting/process()
+	if(world.time < next_shield_check)
+		return
+	next_shield_check = world.time + 3 SECONDS
+
+	if(!linked?.targeting)
+		check_processing()
+		return
+
+	if(linked.targeting != last_watched_target)
+		last_watched_target = linked.targeting
+		last_watched_target_strength = null
+
+	var/obj/structure/machinery/ship_shield_generator/target_gen
+	if(istype(linked.targeting, /obj/effect/overmap/visitable/ship))
+		var/obj/effect/overmap/visitable/ship/target_ship = linked.targeting
+		target_gen = target_ship.shield_generator
+
+	if(!target_gen || !target_gen.shields_up())
+		// No active shields to track -- announce once on the transition
+		// into this state (sentinel -1), not every 3s while it holds.
+		if(last_watched_target_strength != -1)
+			last_watched_target_strength = -1
+			announce_to_ship_z(linked.map_z, 'sound/AI/announcements/enemy_ship_no_shields.ogg', 50, TRUE)
+		return
+
+	var/old_strength = last_watched_target_strength
+	var/new_strength = target_gen.shield_strength
+	last_watched_target_strength = new_strength
+
+	// No prior reading to compare against (fresh lock, or shields just came
+	// back from a "no shields" state) -- set the baseline silently, same as
+	// the own-ship generator not re-disclosing a retained charge on
+	// reactivation. The next real change will announce normally.
+	if(isnull(old_strength) || old_strength == -1 || old_strength == new_strength)
+		return
+
+	var/declining = (new_strength < old_strength)
+	var/max_strength = target_gen.max_shield_strength
+
+	var/list/checkpoints = list(
+		list(max_strength, 'sound/AI/announcements/enemy_shields_at_max.ogg'),
+		list(max_strength * 0.5, 'sound/AI/announcements/enemy_shields_at_fifty_percent.ogg'),
+		list(max_strength * 0.25, 'sound/AI/announcements/enemy_shields_at_twenty_five_percent.ogg'),
+		list(0, 'sound/AI/announcements/enemy_shields_are_down.ogg'),
+	)
+	if(!declining)
+		checkpoints = reverselist(checkpoints)
+
+	for(var/list/checkpoint in checkpoints)
+		var/point = checkpoint[1]
+		// Crossed-INTO test, same as the own-ship generator's own tier check
+		// (_check_tier_transition(), ship_shield_generator.dm) -- see its
+		// comment for why both ends can't be inclusive.
+		if(declining ? (point >= new_strength && point < old_strength) : (point > old_strength && point <= new_strength))
+			announce_to_ship_z(linked.map_z, checkpoint[2], 50, TRUE)
+
 /obj/structure/machinery/computer/ship/targeting/ui_interact(mob/user, datum/tgui/ui)
 	ui = SStgui.try_update_ui(user, src, ui)
 	if(!ui)
@@ -56,6 +150,15 @@
 	if(data["mobile_platform"])
 		data["platform_direction"] = platform_direction
 		data["platform_directions"] = list("NORTH", "NORTHEAST", "EAST", "SOUTHEAST", "SOUTH", "SOUTHWEST", "WEST", "NORTHWEST")
+	// Own ship's shields -- independent of whatever's currently locked (or
+	// nothing at all), so this is resolved outside the targeting block below.
+	// linked is typed as the base /visitable (_machinery.dm) -- shield_generator
+	// only exists on the /ship subtype (ship.dm), hence the istype cast.
+	if(istype(linked, /obj/effect/overmap/visitable/ship))
+		var/obj/effect/overmap/visitable/ship/own_ship = linked
+		data["own_shields"] = get_shield_data(own_ship.shield_generator)
+		data["own_shield_control"] = get_shield_control_data(own_ship.shield_generator)
+		data["own_cloak_control"] = get_cloak_control_data(_find_own_cloak(own_ship))
 	if(linked?.targeting)
 		for(var/obj/structure/machinery/ship_weapon/SW in linked.ship_weapons)
 			if(!SW.special_firing_mechanism)
@@ -65,6 +168,12 @@
 			"shiptype" = linked.targeting.shiptype,
 			"distance" = get_dist(linked, linked.targeting)
 		)
+		// Target's shields, if it's a ship with a linked generator -- lets a
+		// gunner see whether their shots are actually getting through
+		// without needing a separate sensors console readout.
+		if(istype(linked.targeting, /obj/effect/overmap/visitable/ship))
+			var/obj/effect/overmap/visitable/ship/target_ship = linked.targeting
+			data["target_shields"] = get_shield_data(target_ship.shield_generator)
 		data["show_z_list"] = FALSE
 		data["selected_z"] = selected_z
 		if(istype(linked.targeting, /obj/effect/overmap/visitable))
@@ -162,6 +271,8 @@
 						visible_message(SPAN_WARNING("The console shows a neutral message: firing sequence successful, Silicon unit registered firing: [usr]"))
 					else
 						visible_message(SPAN_WARNING("The console shows a positive message: firing sequence successful!"))
+					if(istype(linked))
+						announce_to_ship_z(linked.map_z, 'sound/AI/announcements/firing_weapons.ogg', 50, TRUE)
 
 		if("viewing")
 			if(usr)
@@ -199,6 +310,21 @@
 			platform_direction = text2num(params["dir"])
 			. = TRUE
 
+		if("toggle_shields")
+			if(istype(linked, /obj/effect/overmap/visitable/ship))
+				var/obj/effect/overmap/visitable/ship/own_ship = linked
+				if(istype(own_ship.shield_generator))
+					own_ship.shield_generator.toggle_shield(usr)
+			. = TRUE
+
+		if("toggle_cloak")
+			if(istype(linked, /obj/effect/overmap/visitable/ship))
+				var/obj/effect/overmap/visitable/ship/own_ship = linked
+				var/obj/structure/machinery/ship_cloaking_device/CD = _find_own_cloak(own_ship)
+				if(CD)
+					CD.toggle_cloak(usr)
+			. = TRUE
+
 /obj/structure/machinery/computer/ship/targeting/proc/get_gun_data(var/obj/structure/machinery/ship_weapon/SW)
 	var/ammo_status = length(SW.ammunition) ? "Loaded, [length(SW.ammunition)] shots" : "Unloaded"
 	var/obj/item/ship_ammunition/SA
@@ -209,6 +335,53 @@
 		"caliber" = SW.caliber,
 		"ammunition" = ammo_status,
 		"ammunition_type" = capitalize_first_letters(SA ? SA.impact_type : "None Loaded")
+	)
+
+/// Shared shape for both the console's own ship and its currently-locked
+/// target -- null if there's no generator at all, or it isn't active (an
+/// unpowered/offline generator provides no meaningful "shield %" to show).
+/obj/structure/machinery/computer/ship/targeting/proc/get_shield_data(obj/structure/machinery/ship_shield_generator/gen)
+	if(!gen || !gen.active)
+		return null
+	return list("shield_strength" = gen.shield_strength, "max_shield_strength" = gen.max_shield_strength)
+
+/// Own-ship shield toggle control data -- the same fields
+/// ShipShieldGenerator.tsx already computes its own disabled/reason logic
+/// from (ShipShieldGenerator.dm's ui_data()), so the console's own toggle
+/// button can never disagree with the generator's own console about when
+/// it's actually available.
+/obj/structure/machinery/computer/ship/targeting/proc/get_shield_control_data(obj/structure/machinery/ship_shield_generator/gen)
+	if(!istype(gen))
+		return list("exists" = FALSE)
+	return list(
+		"exists" = TRUE,
+		"active" = gen.active,
+		"anchored" = gen.anchored,
+		"has_fuel" = (gen.sheets > 0),
+		"at_away_site" = gen._currently_at_away_site(),
+		"recovery_seconds_left" = (world.time < gen.shield_recovery_at) ? round((gen.shield_recovery_at - world.time) / 10) : 0,
+	)
+
+/// No back-reference var exists from the ship to its own cloaking device
+/// (unlike shield_generator on ship.dm) -- mirrors the exact same
+/// SSmachinery.machinery scan _ship_gun.dm's own fire() already uses to
+/// force-uncloak a firing ship.
+/obj/structure/machinery/computer/ship/targeting/proc/_find_own_cloak(obj/effect/overmap/visitable/ship/own_ship)
+	for(var/obj/structure/machinery/ship_cloaking_device/CD in SSmachinery.machinery)
+		if(CD.linked == own_ship)
+			return CD
+	return null
+
+/obj/structure/machinery/computer/ship/targeting/proc/get_cloak_control_data(obj/structure/machinery/ship_cloaking_device/CD)
+	if(!istype(CD))
+		return list("exists" = FALSE)
+	return list(
+		"exists" = TRUE,
+		"active" = CD.active,
+		"anchored" = CD.anchored,
+		"has_fuel" = (CD.sheets > 0),
+		"at_away_site" = CD._currently_at_away_site(),
+		"lockout_seconds_left" = (world.time < CD.cloak_lockout_until) ? round((CD.cloak_lockout_until - world.time) / 10) : 0,
 	)
 
 /obj/structure/machinery/computer/ship/targeting/proc/copy_entrypoints(var/z_level_filter = 0)

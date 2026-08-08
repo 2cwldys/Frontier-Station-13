@@ -155,6 +155,10 @@
 	siemens_coefficient = 0.35
 	flags_inv = HIDEEARS
 	action_button_name = "Toggle Visor"
+	// See persistent_toggle_vars' own doc comment (obj/item base vars,
+	// items.dm) -- do_flip() (below) mutates exactly this set together.
+	// Inherited as-is by riot/lancer (Ceres Lance), which shares do_flip().
+	persistent_toggle_vars = list("icon_state", "item_state", "body_parts_covered")
 
 /obj/item/clothing/head/helmet/riot/mechanics_hints(mob/user, distance, is_adjacent)
 	. = ..()
@@ -278,6 +282,9 @@
 	body_parts_covered = HEAD|FACE|EYES //face shield
 	flags_inv = HIDEEARS
 	action_button_name = "Toggle Visor"
+	// See persistent_toggle_vars' own doc comment (obj/item base vars,
+	// items.dm) -- attack_self() (below) mutates exactly this set together.
+	persistent_toggle_vars = list("icon_state", "body_parts_covered")
 
 /obj/item/clothing/head/helmet/swat/peacekeeper/attack_self(mob/user as mob)
 	if (use_check_and_message(user))

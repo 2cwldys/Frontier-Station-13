@@ -39,6 +39,19 @@
 	container_type = "crate"
 	groupable = TRUE
 
+/singleton/cargo_item/umbilical_pad
+	category = "engineering"
+	name = "umbilical pad"
+	supplier = "Hub"
+	description = "A tuned telepad that opens a standing, walk-through bluespace conduit to any other umbilical pad sharing its access code -- ideal for a permanent docked-ship-to-mooring connection. Wrench to secure after placement, then click it to set an access code -- no faction or officer access needed."
+	price = 1500
+	items = list(
+		/obj/structure/machinery/telepad_cargo/umbilical
+	)
+	access = 0
+	container_type = "crate"
+	groupable = TRUE
+
 /singleton/cargo_item/glasssheets
 	category = "engineering"
 	name = "glass sheets"
@@ -1028,6 +1041,174 @@
 		/obj/item/airlock_cycler_electronics/airlock_sensor,
 		/obj/item/stack/cable_coil
 	)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/ship_commissioning_console_crate
+	category = "engineering"
+	name = "Ship Commissioning Console Crate"
+	supplier = "Hub"
+	description = "A ready-to-place commissioning console for turning a self-built hull into a real, independently-owned shuttle. Wrench it down near an active docking beacon -- the console previews the buildable envelope and files the commission once the hull inside it is complete. Reusable for as many hulls as you build there."
+	price = 5000
+	items = list(/obj/structure/machinery/computer/ship_commissioning)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/shuttle_control_console_crate
+	category = "engineering"
+	name = "Shuttle Control Console Crate"
+	supplier = "Hub"
+	description = "A ready-to-place shuttle control console -- the minimum a self-built hull needs to actually fly once commissioned. Wrench it down inside your build envelope before commissioning."
+	price = 3000
+	items = list(/obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/docking_transponder_crate
+	category = "engineering"
+	name = "Docking Transponder Crate"
+	supplier = "Hub"
+	description = "A ready-to-place docking transponder. Mount it at a shuttle's own airlock/exit tile and rotate it to declare which way that airlock faces -- a docking beacon facing the opposite direction will recognize it as a compatible dock. Purely optional: a shuttle with no transponder docks anywhere it always could."
+	price = 800
+	items = list(/obj/structure/machinery/docking_transponder)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/propulsion_engine_crate
+	category = "engineering"
+	name = "Propulsion Engine Crate"
+	supplier = "Hub"
+	description = "A ready-to-place propulsion engine unit for a self-built hull. Wrench it down anywhere inside your build envelope -- a commissioned hull needs at least four of these somewhere inside it."
+	price = 10000
+	items = list(/obj/structure/shuttle/engine/propulsion/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/helm_console_crate
+	category = "engineering"
+	name = "Helm Console Crate"
+	supplier = "Hub"
+	description = "A ready-to-place helm console -- required to actually pilot a self-built hull on the overmap once commissioned. The shuttle control console alone only ever offers point-to-point docking, not real flight. Wrench it down inside your build envelope before commissioning."
+	price = 15000
+	items = list(/obj/structure/machinery/computer/ship/helm/terminal/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/navigation_console_crate
+	category = "engineering"
+	name = "Navigation Console Crate"
+	supplier = "Hub"
+	description = "A ready-to-place navigation console -- a display-only companion to the helm console, showing live position, speed, and heading. Entirely optional, not required to commission a hull."
+	price = 15000
+	items = list(/obj/structure/machinery/computer/ship/navigation/terminal/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/fuel_port_crate
+	category = "engineering"
+	name = "Fuel Port Crate"
+	supplier = "Hub"
+	description = "A ready-to-place fuel port, pre-loaded with a starter tank of phoron. Attach it to a wall inside your hull, then wrench and weld it in place -- a commissioned hull needs at least one of these to actually launch under its own power."
+	price = 2000
+	items = list(/obj/item/fuel_port, /obj/item/tank/phoron/shuttle)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/shuttle_phoron_tank_crate
+	category = "engineering"
+	name = "Shuttle Phoron Tank Crate"
+	supplier = "Hub"
+	description = "A replacement phoron tank, sized for a shuttle's own fuel port. Order more of these to refuel or top off your hull once its starter tank runs low -- no need to buy another whole fuel port just for the fuel."
+	price = 500
+	items = list(/obj/item/tank/phoron/shuttle)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/engine_control_crate
+	category = "engineering"
+	name = "Engine Control Terminal Crate"
+	supplier = "Hub"
+	description = "A ready-to-place engine control terminal -- required to actually turn a commissioned hull's engines on. Fuel, a helm console, and propulsion engines alone aren't enough without this. Wrench it down inside your build envelope before commissioning."
+	price = 15000
+	items = list(/obj/structure/machinery/computer/ship/engines/terminal/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/ship_nozzle_engine_crate
+	category = "engineering"
+	name = "Ship Nozzle Engine Crate"
+	supplier = "Hub"
+	description = "A ready-to-place rocket nozzle engine -- the real thing that actually burns fuel gas for thrust, required alongside the decorative propulsion units for a commissioned hull to move under its own power. Wrench it down and pipe it into a fuel-gas network before commissioning."
+	price = 15000
+	items = list(/obj/structure/machinery/atmospherics/unary/engine/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/ion_engine_crate
+	category = "engineering"
+	name = "Ion Engine Crate"
+	supplier = "Hub"
+	description = "A ready-to-place ion propulsion device -- a self-contained alternative to the rocket nozzle engine, converting stored electrical charge directly into thrust with no piped fuel gas or fuel port needed. Wrench it down and wire it to power. Either this or a piped nozzle engine satisfies a commissioned hull's engine requirement -- not both."
+	price = 20000
+	items = list(/obj/structure/machinery/ion_engine/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/fusion_reactor_crate
+	category = "engineering"
+	name = "Fusion Reactor Crate"
+	supplier = "Hub"
+	description = "A ready-to-place miniature fusion reactor -- rated for 500 kW max safe output, runs on tritium sheets and needs a coolant top-up to run efficiently. Gives a self-built hull local electrical power without needing a full station-style grid. Not required to commission a hull, purely optional infrastructure. Handle with care -- overloading or emagging it can cause a serious explosion."
+	price = 50000
+	items = list(/obj/structure/machinery/power/portgen/basic/fusion/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/sensors_terminal_crate
+	category = "engineering"
+	name = "Sensors Terminal Crate"
+	supplier = "Hub"
+	description = "A ready-to-place sensors terminal -- required to see anything outside a commissioned hull and to set its sensor array's range. Wrench it down anywhere inside the hull; needs a Ship Sensor Array Crate too."
+	price = 15000
+	items = list(/obj/structure/machinery/computer/ship/sensors/terminal/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/ship_sensor_array_crate
+	category = "engineering"
+	name = "Ship Sensor Array Crate"
+	supplier = "Hub"
+	description = "A ready-to-place sensor array -- the actual hardware a sensors terminal reads from and commands. Wrench it down anywhere inside the hull; needs a Sensors Terminal Crate too."
+	price = 15000
+	items = list(/obj/structure/machinery/shipsensors/weak/buildable)
 	access = ACCESS_ENGINE
 	container_type = "crate"
 	groupable = TRUE

@@ -327,3 +327,39 @@
 	shuttle_area -= area_to_remove
 	if(!length(shuttle_area))
 		qdel(src)
+
+/// This shuttle's own hull footprint in tiles (width, height), spanning
+/// every turf across every area in shuttle_area -- used by size-gated
+/// docking landmarks (shuttle_landmark/player_dock's max_footprint_x/y,
+/// docking_beacon.dm) to reject an oversized ship before it's ever offered
+/// as a destination. Returns list(0, 0) for a shuttle with no area turfs at
+/// all (shouldn't normally happen, but a 0x0 footprint fails every size
+/// check safely rather than passing one it shouldn't).
+/datum/shuttle/proc/get_footprint()
+	var/min_x; var/max_x
+	var/min_y; var/max_y
+	for(var/area/A in shuttle_area)
+		for(var/turf/T in get_area_turfs(A))
+			if(isnull(min_x) || T.x < min_x)
+				min_x = T.x
+			if(isnull(max_x) || T.x > max_x)
+				max_x = T.x
+			if(isnull(min_y) || T.y < min_y)
+				min_y = T.y
+			if(isnull(max_y) || T.y > max_y)
+				max_y = T.y
+	if(isnull(min_x))
+		return list(0, 0)
+	return list(max_x - min_x + 1, max_y - min_y + 1)
+
+/// The first docking_transponder found anywhere across this shuttle's own
+/// shuttle_area, or null if it doesn't carry one -- used by
+/// player_dock/is_valid() (docking_beacon.dm) for the opt-in facing check.
+/// Same area/turf iteration shape as get_footprint() just above.
+/datum/shuttle/proc/find_docking_transponder()
+	for(var/area/A in shuttle_area)
+		for(var/turf/T in get_area_turfs(A))
+			var/obj/structure/machinery/docking_transponder/transponder = locate() in T
+			if(transponder)
+				return transponder
+	return null

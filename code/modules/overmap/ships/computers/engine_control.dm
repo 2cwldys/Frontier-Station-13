@@ -28,6 +28,24 @@
 	can_pass_under = FALSE
 	light_power_on = 1
 
+/// Cargo-orderable variant a player can build into their own commissioned
+/// hull (ship_commissioning_console.dm) -- unlike the mapped-in base type
+/// above (always pre-anchored), this one starts loose like every other kit
+/// part and needs a wrench first. Required at commission time
+/// (_drydockCommissionRun(), persistence_shuttles.dm) -- without one,
+/// engines_state has no way to ever become true, so a fuelled, helmed,
+/// propulsion-equipped hull still can't move at all.
+/obj/structure/machinery/computer/ship/engines/terminal/buildable
+	anchored = FALSE
+
+/obj/structure/machinery/computer/ship/engines/terminal/buildable/attackby(obj/item/attacking_item, mob/user, params)
+	if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		attacking_item.play_tool_sound(get_turf(src), 50)
+		anchored = !anchored
+		to_chat(user, anchored ? SPAN_NOTICE("Engine control terminal secured in place.") : SPAN_NOTICE("Engine control terminal unsecured."))
+		return TRUE
+	return ..(attacking_item, user, params)
+
 /obj/structure/machinery/computer/ship/engines/ui_interact(mob/user, datum/tgui/ui)
 	// `connected` is only ever set at Initialize() or a manual "sync" click and
 	// goes stale across stash/unstash/retrieval/redelivery -- resync fresh

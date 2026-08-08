@@ -344,6 +344,9 @@
 			if(cleared_count)
 				to_chat(user, SPAN_NOTICE("[cleared_count] soldier[cleared_count > 1 ? "s" : ""] stand down from combat."))
 			. = TRUE
+		if("remote_door_control")
+			_remote_door_control(user)
+			. = TRUE
 
 /obj/item/commander_beacon/proc/activate(mob/living/user)
 	if(spawning_enabled)
@@ -521,6 +524,81 @@
 		to_chat(user, SPAN_NOTICE("[affected] faction turret[affected > 1 ? "s" : ""] on this level set to [new_value ? "lethal" : "stun"]."))
 	else
 		to_chat(user, SPAN_NOTICE("No mode-switchable turrets belonging to your faction were found on this level."))
+
+/// TRUE if D's id_tag is referenced as either end of an airlock cycler
+/// controller anywhere in the world -- these doors are excluded from remote
+/// door control entirely (confirmed with the user): yanking a cycler-managed
+/// door open/closed out of sequence bypasses the pressurization interlock
+/// the cycler exists to enforce, exterior end or interior end alike.
+/obj/item/commander_beacon/proc/_door_is_cycler_managed(obj/structure/machinery/door/airlock/D)
+	if(!D.id_tag)
+		return FALSE
+	for(var/obj/structure/machinery/embedded_controller/radio/airlock/C in world)
+		if(C.tag_exterior_door == D.id_tag || C.tag_interior_door == D.id_tag)
+			return TRUE
+	return FALSE
+
+/// "Remote Door Control" -- lets a faction commander open/close (and for
+/// airlocks, bolt/unbolt) any blast door, shutter, or airlock on their
+/// current Z tagged to their own faction, without walking to it. Two native
+/// list popups (door, then action) rather than an embedded TGUI list/section,
+/// per explicit design -- keeps the main beacon panel exactly as it was.
+/// visible_message() on the door itself is the deliberate tell that it was
+/// operated remotely, not silently.
+/obj/item/commander_beacon/proc/_remote_door_control(mob/living/user)
+	var/uid = _owner_faction_uid(user)
+	if(!uid)
+		to_chat(user, SPAN_WARNING("You must be a member of a faction to do that."))
+		return
+
+	var/list/door_options = list()
+	for(var/obj/structure/machinery/door/blast/BD in world)
+		if(BD.z != user.z)
+			continue
+		if(normalize_faction_uid(BD.persistent_network) != uid)
+			continue
+		door_options["[BD.name] @ ([BD.x],[BD.y])"] = BD
+	for(var/obj/structure/machinery/door/airlock/AL in world)
+		if(AL.z != user.z)
+			continue
+		if(normalize_faction_uid(AL.persistent_network) != uid)
+			continue
+		if(_door_is_cycler_managed(AL))
+			continue
+		door_options["[AL.name] @ ([AL.x],[AL.y])"] = AL
+
+	if(!length(door_options))
+		to_chat(user, SPAN_NOTICE("No doors belonging to your faction were found on this level."))
+		return
+
+	var/pick = tgui_input_list(user, "Select a door to control:", "Remote Door Control", door_options)
+	if(!pick)
+		return
+	var/obj/structure/machinery/door/D = door_options[pick]
+	if(QDELETED(D))
+		to_chat(user, SPAN_WARNING("That door is no longer there."))
+		return
+
+	var/is_airlock = istype(D, /obj/structure/machinery/door/airlock)
+	var/list/action_options = is_airlock ? list("Open", "Close", "Bolt", "Unbolt") : list("Open", "Close")
+	var/action = tgui_input_list(user, "Action for [D.name]:", "Remote Door Control", action_options)
+	if(!action)
+		return
+
+	switch(action)
+		if("Open")
+			D.open()
+		if("Close")
+			D.close()
+		if("Bolt")
+			var/obj/structure/machinery/door/airlock/AL = D
+			AL.lock()
+		if("Unbolt")
+			var/obj/structure/machinery/door/airlock/AL = D
+			AL.unlock()
+
+	D.visible_message(SPAN_NOTICE("[user] controls \the [D] from afar."))
+	to_chat(user, SPAN_NOTICE("You remotely [lowertext(action)] \the [D]."))
 
 /// Second half of "Command Soldier" -- arms a COMSIG_MOB_CLICKON
 /// registration on user (see click.dm's ClickOn()), called right after

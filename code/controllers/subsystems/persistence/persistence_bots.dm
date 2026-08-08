@@ -151,6 +151,8 @@
 	PRIVATE_PROC(TRUE)
 	if(!isturf(B.loc) || !B.z || persistence_z_excluded(B.z))
 		return null
+	if(persistence_turf_docked_elsewhere(B.loc))
+		return null
 	var/scope_escaped = replacetext(persistence_scope_for_z(B.z), "'", "''")
 	var/name_escaped = replacetext("[B.name]", "'", "''")
 	var/extra_sql = "NULL"

@@ -72,6 +72,10 @@ GLOBAL_DATUM_INIT(revdata, /datum/getrev, new())
 	else
 		lines += "Revision unknown"
 
+	var/merged_pr_line = SSgithub.get_latest_merged_pr_line()
+	if(merged_pr_line)
+		lines += merged_pr_line
+
 	if(GLOB.revdata.test_merges.len)
 		lines += GLOB.revdata.testmerge_overview()
 

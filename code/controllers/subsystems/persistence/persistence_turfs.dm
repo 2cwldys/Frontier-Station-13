@@ -188,6 +188,8 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 		return
 	if(persistence_area_excluded(T))
 		return
+	if(persistence_turf_docked_elsewhere(T))
+		return
 	var/scope_escaped = replacetext(persistence_scope_for_z(T.z), "'", "''")
 
 	if(istype(T, /turf/simulated/floor))

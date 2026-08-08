@@ -789,6 +789,56 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 /// entering any claimed (non-Hub) faction's own Z-level(s) -- see
 /// _drydock_pick_access_mode()/_drydock_pick_turf_valid()
 /// (telepad_drydock_boarding.dm) for the actual enforcement.
+/// Loads the current hub law text from ss13_hub_law_text at boot. Mirrors
+/// factionRaidingToggleInitialize() above.
+/datum/controller/subsystem/persistence/proc/hubLawTextInitialize()
+	if(!databaseCheckConnection("hubLawTextInitialize"))
+		return
+	try
+		var/datum/db_query/q = SSdbcore.NewQuery("SELECT law_text FROM ss13_hub_law_text WHERE id = 1", list())
+		q.Execute()
+		if(databaseCheckQueryResult(q, "hubLawTextInitialize") && q.NextRow())
+			GLOB.hub_law_text = q.item[1]
+		qdel(q)
+	catch(var/exception/hub_law_e)
+		log_subsystem_persistence_error("Factions: failed to load hub law text: [hub_law_e]")
+
+/datum/controller/subsystem/persistence/proc/setHubLawText(text)
+	GLOB.hub_law_text = text
+	if(!databaseCheckConnection("setHubLawText"))
+		return
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"INSERT INTO ss13_hub_law_text (id, law_text) VALUES (1, :law_text) ON DUPLICATE KEY UPDATE law_text = VALUES(law_text)",
+		list("law_text" = text)
+	)
+	q.Execute()
+	databaseCheckQueryResult(q, "setHubLawText")
+	qdel(q)
+
+/// Admin-editable content for every printed hub law book -- see
+/// GLOB.hub_law_text's own doc comment (persistence.dm).
+/datum/admins/proc/modify_hub_laws()
+	set name = "Modify Hub Laws"
+	set category = "Persistence"
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	// law_text (ss13_hub_law_text) is MEDIUMTEXT -- room for ~16MB, nowhere
+	// close to a real limiting factor here. 4096 was an arbitrary, needlessly
+	// tight cap for an admin-only lore/rules document; 20000 is still a real
+	// bound (this does get rendered whole in every printed book's browse()
+	// window) without being cramped for actual use.
+	// Explicit width/height -- the default dynamic sizing (TextInputModal.tsx)
+	// is tuned for short prompts, not a document that can now run to 20000
+	// characters.
+	var/new_text = tgui_input_text(usr, "Hub law book text:", "Modify Hub Laws", GLOB.hub_law_text, multiline = TRUE, max_length = 20000, width = 700, height = 600)
+	if(isnull(new_text))
+		return
+
+	SSpersistence.setHubLawText(new_text)
+	log_and_message_admins("modified the hub law book text.", usr)
+
 /datum/admins/proc/toggle_faction_raiding()
 	set name = "Toggle Faction Raiding"
 	set category = "Persistence"

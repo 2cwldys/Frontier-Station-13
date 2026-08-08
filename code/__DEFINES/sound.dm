@@ -18,6 +18,10 @@
 /// zone security, raiding toggle, engine power) -- see play_announcer_sound()
 /// (announce.dm), which queues on this channel so lines can't overlap.
 #define CHANNEL_ANNOUNCER 1009
+/// The shield generator's ambient hum loop (ship_shield_generator.dm) --
+/// separate from CHANNEL_MACHINERY so it doesn't cut off the ship's own
+/// engine hum loop when both are active on the same ship at once.
+#define CHANNEL_SHIP_SHIELD_HUM 1008
 
 /// Default range of a sound.
 #define SOUND_RANGE 17
@@ -35,7 +39,7 @@
 //THIS SHOULD ALWAYS BE THE LOWEST ONE!
 //KEEP IT UPDATED
 
-#define CHANNEL_HIGHEST_AVAILABLE 1008
+#define CHANNEL_HIGHEST_AVAILABLE 1007
 
 #define MAX_INSTRUMENT_CHANNELS (128 * 6)
 

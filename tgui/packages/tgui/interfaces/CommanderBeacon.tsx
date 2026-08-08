@@ -107,6 +107,13 @@ export const CommanderBeacon = (props) => {
             disabled={soldier_count === 0}
             onClick={() => act('fetch')}
           />
+          <Button
+            fluid
+            mt={1}
+            icon="door-open"
+            content="Remote Door Control"
+            onClick={() => act('remote_door_control')}
+          />
         </Section>
         {soldier_count > 0 && (
           <Section title="Command Soldier">

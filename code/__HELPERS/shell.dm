@@ -43,6 +43,41 @@
 #undef SHELLEO_ERR
 #undef SHELLEO_OUT
 
+/// Prefixes `command` with a `cd`/`cd /d` into GLOB.config.server_root_path
+/// when set (no-op otherwise) -- shared by persistence_backups.dm and
+/// deploy.dm so this only needs fixing in one place.
+///
+/// On Windows, the returned command still has to survive being wrapped in
+/// ANOTHER `cmd /c "..."` by world.shelleo() itself. A `cd /d "..."` (needed
+/// because server_root_path can contain spaces) is its own quoted substring
+/// inside that outer pair -- cmd.exe's documented workaround for a `/c`
+/// argument containing more than one quoted section requires the *whole*
+/// argument to both start AND end with a quote, which held right up until
+/// shelleo() started appending output redirection (`> ... 2> ...`) after
+/// the closing quote this proc produced, silently breaking the precondition
+/// and sending cmd.exe back to its normal (here, wrong) parsing of the
+/// nested quotes -- symptom: "The filename, directory name, or volume label
+/// syntax is incorrect." Rather than re-deriving the quote arithmetic,
+/// sidestep it: write the cd + real command to a small temp .bat file
+/// (always a space-free relative path, so it never itself needs quoting)
+/// and hand shelleo() a plain, quote-free command to run instead -- with at
+/// most shelleo()'s own single outer quote pair in play, there's nothing
+/// left to mismanage. Not needed on UNIX -- /bin/sh -c has no such quirk.
+/proc/prefix_server_root_cd(command)
+	if(!GLOB.config.server_root_path)
+		return command
+	if(world.system_type == UNIX)
+		return "cd \"[GLOB.config.server_root_path]\" && [command]"
+	var/static/bat_id = 0
+	// Backslash, not forward slash -- del misparses an embedded "/" as the
+	// start of a switch (/P, /F, /S, /Q, ...) rather than a path separator,
+	// which is what "Parameter format not correct" actually was. The .bat
+	// file's own invocation (the first half of the compound command below)
+	// never had this problem -- only del's argument parsing does.
+	var/bat_file = "data\\shelleo_cd_[++bat_id].bat"
+	rustg_file_write("cd /d \"[GLOB.config.server_root_path]\"\n[command]\n", bat_file)
+	return "[bat_file] & del [bat_file]"
+
 /proc/shell_url_scrub(url)
 	var/static/regex/bad_chars_regex = regex("\[^#%&./:=?\\w]*", "g")
 	var/scrubbed_url = ""
