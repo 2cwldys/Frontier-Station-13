@@ -244,6 +244,9 @@ GLOBAL_LIST_EMPTY(drydock_linkable_devices_by_tag)
 	data["transponder_aligned"] = (transponder && beacon) ? (turn(transponder.dir, 180) == beacon.dir) : FALSE
 	data["console_found"] = !!_valid_linked_console(envelope)
 	data["console_link_broken"] = !!linked_shuttle_console && !_valid_linked_console(envelope)
+	data["propulsion_required"] = SHIP_COMMISSION_MIN_PROPULSION
+	data["propulsion_count"] = envelope ? _drydock_envelope_count_propulsion(envelope) : 0
+	data["propulsion_found"] = data["propulsion_count"] >= SHIP_COMMISSION_MIN_PROPULSION
 	// Snapshot from the last Preview -- see envelope_clean_for_generate's
 	// own doc comment for why this isn't re-checked live here.
 	data["can_generate_floor"] = data["beacon_found"] && envelope_clean_for_generate

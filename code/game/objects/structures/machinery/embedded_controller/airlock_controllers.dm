@@ -5,6 +5,14 @@
 	radio_filter = RADIO_AIRLOCK
 	var/tag_exterior_door
 	var/tag_interior_door
+	/// Additional exterior/interior door tags beyond the primary singular
+	/// slot above -- mirrors tag_airpumps' own extra-tag pattern below. A
+	/// chamber wide enough to need more than one door on a side gets one
+	/// entry here per extra door; every open/close/lock/unlock command goes
+	/// to all of them together (see get_exterior_door_tags()/
+	/// get_interior_door_tags()).
+	var/list/tag_exterior_doors
+	var/list/tag_interior_doors
 	/// Primary chamber vent pump tag. Kept as a plain string for mapped-in
 	/// cyclers, which set it directly in their .dmm.
 	var/tag_airpump
@@ -275,6 +283,25 @@
 	if(tag_airpump)
 		. += tag_airpump
 	for(var/extra_tag in tag_airpumps)
+		if(extra_tag && !(extra_tag in .))
+			. += extra_tag
+
+/// Every linked exterior door tag (primary plus any extras) -- see
+/// get_airpump_tags()'s own doc comment above, same shape.
+/obj/structure/machinery/embedded_controller/radio/airlock/proc/get_exterior_door_tags()
+	. = list()
+	if(tag_exterior_door)
+		. += tag_exterior_door
+	for(var/extra_tag in tag_exterior_doors)
+		if(extra_tag && !(extra_tag in .))
+			. += extra_tag
+
+/// Every linked interior door tag (primary plus any extras).
+/obj/structure/machinery/embedded_controller/radio/airlock/proc/get_interior_door_tags()
+	. = list()
+	if(tag_interior_door)
+		. += tag_interior_door
+	for(var/extra_tag in tag_interior_doors)
 		if(extra_tag && !(extra_tag in .))
 			. += extra_tag
 

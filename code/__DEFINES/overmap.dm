@@ -38,3 +38,9 @@
 /// docking_beacon before refusing to preview/commission -- a same-Z, real-
 /// space proximity check (unrelated to any overmap-scale range).
 #define BUILD_ENVELOPE_BEACON_RANGE 12
+
+/// Minimum /obj/structure/shuttle/engine/propulsion instances
+/// drydockCommission() requires anywhere in the build envelope -- no
+/// particular placement required, just physically present somewhere in the
+/// hull. See propulsion_engine_crate (engineering.dm).
+#define SHIP_COMMISSION_MIN_PROPULSION 4

@@ -1081,3 +1081,15 @@
 	container_type = "crate"
 	groupable = TRUE
 	spawn_amount = 1
+
+/singleton/cargo_item/propulsion_engine_crate
+	category = "engineering"
+	name = "Propulsion Engine Crate"
+	supplier = "Hub"
+	description = "A ready-to-place propulsion engine unit for a self-built hull. Wrench it down anywhere inside your build envelope -- a commissioned hull needs at least four of these somewhere inside it."
+	price = 10000
+	items = list(/obj/structure/shuttle/engine/propulsion/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1

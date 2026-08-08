@@ -8,6 +8,11 @@ export type MultitoolData = {
   selected_io: SelectedIo;
   buffer_name: string;
   airlock_checklist: AirlockChecklistItem[];
+  chamber_pressure: number;
+  has_exterior_sensor: BooleanLike;
+  external_pressure: number;
+  has_interior_sensor: BooleanLike;
+  internal_pressure: number;
 };
 
 type SelectedIo = {
@@ -71,6 +76,19 @@ export const AirlockChecklist = (props) => {
             </Box>
           </LabeledList.Item>
         ))}
+        <LabeledList.Item label="Chamber Pressure">
+          {data.chamber_pressure} kPa
+        </LabeledList.Item>
+        {!!data.has_exterior_sensor && (
+          <LabeledList.Item label="Exterior Pressure">
+            {data.external_pressure} kPa
+          </LabeledList.Item>
+        )}
+        {!!data.has_interior_sensor && (
+          <LabeledList.Item label="Interior Pressure">
+            {data.internal_pressure} kPa
+          </LabeledList.Item>
+        )}
       </LabeledList>
     </Section>
   );

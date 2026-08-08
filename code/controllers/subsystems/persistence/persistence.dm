@@ -26,6 +26,12 @@ GLOBAL_VAR_INIT(faction_creation_enabled, TRUE)
 /// leap and drydock boarding/disembark.
 GLOBAL_VAR_INIT(faction_raiding_enabled, TRUE)
 
+/// Current text shown by every printed hub law book (/obj/item/book/hub_laws)
+/// -- always the LIVE value, not frozen at print time. Admin-edited
+/// (modify_hub_laws(), persistence_factions.dm), persists across restarts
+/// via ss13_hub_law_text. Empty string until an admin sets it.
+GLOBAL_VAR_INIT(hub_law_text, "")
+
 /// Z levels whose numbers appear in this list are SKIPPED by turf/object/worldstate persistence.
 /// Populated from ss13_zlevel_persistence WHERE enabled = 0 at startup.
 /// Empty by default = all Z levels persist.
@@ -789,6 +795,12 @@ SUBSYSTEM_DEF(persistence)
 		factionRaidingToggleInitialize()
 	catch(var/exception/faction_raiding_toggle_e)
 		log_subsystem_persistence_panic("Unhandled exception during faction raiding toggle initialization: [faction_raiding_toggle_e]")
+
+	log_subsystem_persistence_info("Starting hub law text initialization...")
+	try
+		hubLawTextInitialize()
+	catch(var/exception/hub_law_text_e)
+		log_subsystem_persistence_panic("Unhandled exception during hub law text initialization: [hub_law_text_e]")
 
 	log_subsystem_persistence_info("Starting stock market initialization...")
 	try

@@ -19,6 +19,9 @@ type ShipCommissioningData = {
   transponder_aligned: BooleanLike;
   console_found: BooleanLike;
   console_link_broken: BooleanLike;
+  propulsion_required: number;
+  propulsion_count: number;
+  propulsion_found: BooleanLike;
   can_generate_floor: BooleanLike;
 };
 
@@ -30,7 +33,8 @@ export const ShipCommissioning = (props) => {
     !!data.envelope_occupied ||
     !data.transponder_found ||
     !data.transponder_aligned ||
-    !data.console_found;
+    !data.console_found ||
+    !data.propulsion_found;
 
   return (
     <Window width={420} height={460}>
@@ -79,6 +83,16 @@ export const ShipCommissioning = (props) => {
             <Box color="bad">
               The transponder isn&apos;t facing the beacon -- rotate either
               one (multitool) until they face each other.
+            </Box>
+          </Section>
+        )}
+        {!!data.beacon_found && !data.propulsion_found && (
+          <Section title="Propulsion Engines Required">
+            <Box color="bad">
+              Only {data.propulsion_count} of {data.propulsion_required}{' '}
+              required propulsion engines found in the build envelope --
+              cargo-order more (Propulsion Engine Crate) and wrench them
+              down anywhere inside the hull.
             </Box>
           </Section>
         )}

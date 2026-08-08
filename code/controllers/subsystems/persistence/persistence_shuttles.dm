@@ -1713,6 +1713,17 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		log_drydock_warning("drydockCommission: refused -- no APC in envelope near [console] (acting=[acting]).")
 		return FALSE
 
+	// Counted, not just presence-only like the checks above -- a real hull
+	// needs real thrust, and one engine anywhere in the envelope was never
+	// meant to be enough. No particular placement required, just physically
+	// present somewhere inside the built hull.
+	var/propulsion_count = _drydock_envelope_count_propulsion(envelope)
+	if(propulsion_count < SHIP_COMMISSION_MIN_PROPULSION)
+		if(user)
+			to_chat(user, SPAN_WARNING("Not enough propulsion engines in the build envelope -- need at least [SHIP_COMMISSION_MIN_PROPULSION], found [propulsion_count]."))
+		log_drydock_warning("drydockCommission: refused -- only [propulsion_count]/[SHIP_COMMISSION_MIN_PROPULSION] propulsion engines in envelope near [console] (acting=[acting]).")
+		return FALSE
+
 	// Payment -- mirrors drydockBuy()'s own personal/faction split exactly,
 	// just at a flat SHIP_COMMISSION_PRICE instead of a template's price.
 	// Command rank (2), not the officer-only (1) bar most faction shackle
@@ -2682,6 +2693,18 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		if(apc)
 			return apc
 	return null
+
+/// Every /obj/structure/shuttle/engine/propulsion (including the buildable
+/// crate-orderable subtype) anywhere in envelope -- used by both
+/// drydockCommission()'s own minimum-propulsion check and the ship_commissioning
+/// console's ui_data() (greyed-out button/hint). No particular placement
+/// required, just a count.
+/proc/_drydock_envelope_count_propulsion(list/turf/envelope)
+	var/count = 0
+	for(var/turf/T in envelope)
+		for(var/obj/structure/shuttle/engine/propulsion/P in T)
+			count++
+	return count
 
 /datum/controller/subsystem/persistence/proc/_drydockStashRun(shuttle_id, mob/user, force = FALSE)
 	var/acting = user ? key_name(user) : "SYSTEM[force ? "(force)" : ""]"

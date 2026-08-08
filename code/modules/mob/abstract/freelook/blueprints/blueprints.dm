@@ -1,10 +1,16 @@
 #define MAX_AREA_SIZE 300
+/// Range (tiles) a blueprint eye scans around itself for in-progress
+/// construction to overlay -- see _refresh_construction_overlays().
+#define BLUEPRINT_CONSTRUCTION_SCAN_RANGE 9
 
 /mob/abstract/eye/blueprints
 	/// Associative list of turfs -> boolean validity that the player has selected for new area creation.
 	var/list/selected_turfs = list()
 	///The overlayed images of the user's selection.
 	var/list/selection_images = list()
+	///Overlays for nearby in-progress construction (girders, window frames)
+	///-- see _refresh_construction_overlays().
+	var/list/construction_images = list()
 	///The last turf selected.
 	var/turf/last_selected_turf
 	///The image overlayed on the last selected turf
@@ -495,11 +501,39 @@
 
 /mob/abstract/eye/blueprints/setLoc(T)
 	. = ..()
+	_refresh_construction_overlays()
 	var/style = "font-family: 'Fixedsys'; -dm-text-outline: 1 black; font-size: 11px;"
 	var/area/A = get_area(src)
 	if(!A)
 		return
 	area_name_effect.maptext = "<span style=\"[style]\">[area_prefix], [A.name]</span>"
+
+/// additional_sight_flags() below is SEE_TURFS|BLIND -- a FINISHED wall or
+/// window turf renders fine (it's a turf), but a wall/window still under
+/// construction is just a girder/window_frame OBJECT sitting on open floor,
+/// and BLIND hides every object regardless of SEE_TURFS. Client-bound
+/// images (the same technique highlight_area()/update_images() already use
+/// above to get selection/highlight markers past that same BLIND flag)
+/// bypass it entirely -- overlay the object's own live sprite wherever one
+/// is found nearby, so in-progress construction becomes visible on the
+/// blueprints the same way a finished wall already is.
+/mob/abstract/eye/blueprints/proc/_refresh_construction_overlays()
+	if(!owner?.client)
+		return
+	owner.client.images -= construction_images
+	QDEL_LIST(construction_images)
+	construction_images = list()
+	for(var/obj/structure/girder/G in range(BLUEPRINT_CONSTRUCTION_SCAN_RANGE, src))
+		var/image/I = image(G.icon, G, G.icon_state)
+		I.plane = HUD_PLANE
+		I.appearance_flags = NO_CLIENT_COLOR
+		construction_images += I
+	for(var/obj/structure/window_frame/F in range(BLUEPRINT_CONSTRUCTION_SCAN_RANGE, src))
+		var/image/I = image(F.icon, F, F.icon_state)
+		I.plane = HUD_PLANE
+		I.appearance_flags = NO_CLIENT_COLOR
+		construction_images += I
+	owner.client.images += construction_images
 
 /mob/abstract/eye/blueprints/additional_sight_flags()
 	return SEE_TURFS|BLIND
@@ -570,3 +604,4 @@
 	return A
 
 #undef MAX_AREA_SIZE
+#undef BLUEPRINT_CONSTRUCTION_SCAN_RANGE

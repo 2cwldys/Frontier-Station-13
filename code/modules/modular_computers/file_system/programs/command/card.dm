@@ -28,6 +28,12 @@
 GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 #define FACTION_CLOCK_TOGGLE_COOLDOWN (5 MINUTES)
 
+/// world.time of each ckey's last hub law book print, keyed by ckey -- not
+/// persisted (resets each server session, same as faction_clock_toggle_cooldown
+/// above).
+GLOBAL_LIST_EMPTY(hub_law_book_print_cooldown)
+#define HUB_LAW_BOOK_PRINT_COOLDOWN (10 HOURS)
+
 /datum/computer_file/program/card_mod/ui_data(mob/user)
 	var/list/data = initial_data()
 
@@ -89,6 +95,11 @@ GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 		data["can_dispense_faction_id"] = FALSE
 		data["can_leave_faction"] = FALSE
 		data["clocked_in"] = FALSE
+
+	var/hub_cooldown_last = user.ckey ? GLOB.hub_law_book_print_cooldown[user.ckey] : 0
+	var/hub_cooldown_remaining = hub_cooldown_last ? (HUB_LAW_BOOK_PRINT_COOLDOWN - (world.time - hub_cooldown_last)) : 0
+	data["can_print_hub_laws"] = hub_cooldown_remaining <= 0
+	data["hub_law_cooldown_text"] = hub_cooldown_remaining > 0 ? DisplayTimeText(hub_cooldown_remaining) : null
 
 	return data
 
@@ -605,6 +616,21 @@ GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 			log_game("[key_name(user)] clocked [new_clock_state ? "in" : "out"] with faction '[clock_net]' via ID Card Modification.")
 			. = TRUE
 
+		// ── Print hub law book (self-service, 1 per 10 hours) ─────────────
+		if("print_hub_laws")
+			if(!computer || !user.ckey)
+				return
+			var/hub_cooldown_last = GLOB.hub_law_book_print_cooldown[user.ckey]
+			if(hub_cooldown_last && (world.time - hub_cooldown_last < HUB_LAW_BOOK_PRINT_COOLDOWN))
+				to_chat(user, SPAN_WARNING("You can't print another hub law book yet -- try again in [DisplayTimeText(HUB_LAW_BOOK_PRINT_COOLDOWN - (world.time - hub_cooldown_last))]."))
+				return
+			GLOB.hub_law_book_print_cooldown[user.ckey] = world.time
+			var/obj/item/book/hub_laws/new_book = new(get_turf(computer))
+			user.put_in_hands(new_book)
+			to_chat(user, SPAN_GOOD("You print a hub law book."))
+			log_game("[key_name(user)] printed a hub law book via [computer].")
+			. = TRUE
+
 		// ── Faction job assign ────────────────────────────────────────────
 		if("faction_assign")
 			if(!computer || !can_run(user, 1, ACCESS_CHANGE_IDS) || !id_card || !computer.persistent_network)
@@ -789,3 +815,28 @@ GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 	set src in view(2)
 
 	do_print_replacement(usr)
+
+/*
+ * Hub Law Book -- printed via the ID Card Modification program's own Hub
+ * Laws category (print_hub_laws above), 1 per ckey every
+ * HUB_LAW_BOOK_PRINT_COOLDOWN. Read-only (unique = TRUE blocks the base
+ * /obj/item/book's own pen-edit action) and always shows the CURRENT
+ * GLOB.hub_law_text (persistence.dm), not whatever it was at print time --
+ * every copy in circulation reflects the same live, admin-edited text.
+ */
+/obj/item/book/hub_laws
+	name = "hub law book"
+	desc = "A slim, blue-bound book listing the laws and regulations of the Hub."
+	color = "#2255aa"
+	unique = TRUE
+	title = "Hub Laws"
+	author = "The Hub Authority"
+
+/obj/item/book/hub_laws/attack_self(mob/user)
+	if(!GLOB.hub_law_text)
+		to_chat(user, "This book is completely blank!")
+		return
+	user << browse(HTML_SKELETON("<TT><I>Penned by [author].</I></TT> <BR>" + "[GLOB.hub_law_text]"), "window=book")
+	user.visible_message("[user] opens a book titled \"[title]\" and begins reading intently.")
+	playsound(loc, 'sound/items/bureaucracy/bookopen.ogg', 50, TRUE)
+	onclose(user, "book")

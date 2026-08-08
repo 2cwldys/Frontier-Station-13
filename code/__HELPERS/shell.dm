@@ -47,22 +47,31 @@
 /// when set (no-op otherwise) -- shared by persistence_backups.dm and
 /// deploy.dm so this only needs fixing in one place.
 ///
-/// On Windows, the whole result is wrapped in one MORE redundant outer pair
-/// of quotes. world.shelleo() already runs the string through `cmd /c
-/// "..."` itself; when the string it's given contains its own separate
-/// quoted substring (the `cd /d "..."` part, needed because
-/// server_root_path can contain spaces), cmd.exe's argument parser loses
-/// track of where the real command starts -- symptom: it runs some
-/// unrelated fragment of the line instead of actually cd-ing in first. The
-/// extra wrap is the documented Microsoft workaround for a `cmd /c` string
-/// containing more than one quoted section. Not needed on UNIX -- /bin/sh
-/// -c has no such quirk.
+/// On Windows, the returned command still has to survive being wrapped in
+/// ANOTHER `cmd /c "..."` by world.shelleo() itself. A `cd /d "..."` (needed
+/// because server_root_path can contain spaces) is its own quoted substring
+/// inside that outer pair -- cmd.exe's documented workaround for a `/c`
+/// argument containing more than one quoted section requires the *whole*
+/// argument to both start AND end with a quote, which held right up until
+/// shelleo() started appending output redirection (`> ... 2> ...`) after
+/// the closing quote this proc produced, silently breaking the precondition
+/// and sending cmd.exe back to its normal (here, wrong) parsing of the
+/// nested quotes -- symptom: "The filename, directory name, or volume label
+/// syntax is incorrect." Rather than re-deriving the quote arithmetic,
+/// sidestep it: write the cd + real command to a small temp .bat file
+/// (always a space-free relative path, so it never itself needs quoting)
+/// and hand shelleo() a plain, quote-free command to run instead -- with at
+/// most shelleo()'s own single outer quote pair in play, there's nothing
+/// left to mismanage. Not needed on UNIX -- /bin/sh -c has no such quirk.
 /proc/prefix_server_root_cd(command)
 	if(!GLOB.config.server_root_path)
 		return command
 	if(world.system_type == UNIX)
 		return "cd \"[GLOB.config.server_root_path]\" && [command]"
-	return "\"cd /d \"[GLOB.config.server_root_path]\" && [command]\""
+	var/static/bat_id = 0
+	var/bat_file = "data/shelleo_cd_[++bat_id].bat"
+	rustg_file_write("cd /d \"[GLOB.config.server_root_path]\"\n[command]\n", bat_file)
+	return "[bat_file] & del [bat_file]"
 
 /proc/shell_url_scrub(url)
 	var/static/regex/bad_chars_regex = regex("\[^#%&./:=?\\w]*", "g")

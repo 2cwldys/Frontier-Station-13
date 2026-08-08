@@ -140,6 +140,11 @@
 			list("label" = "Exterior Sensor", "linked" = !!controller.tag_exterior_sensor),
 			list("label" = "Interior Sensor", "linked" = !!controller.tag_interior_sensor),
 		)
+		data["chamber_pressure"] = round(controller.program.memory["chamber_sensor_pressure"])
+		data["has_exterior_sensor"] = controller.has_exterior_sensor
+		data["external_pressure"] = round(controller.program.memory["external_sensor_pressure"])
+		data["has_interior_sensor"] = controller.has_interior_sensor
+		data["internal_pressure"] = round(controller.program.memory["internal_sensor_pressure"])
 	return data
 
 /obj/item/multitool/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
