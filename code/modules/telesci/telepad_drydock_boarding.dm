@@ -408,6 +408,12 @@
 
 	var/list/candidates = list()
 	var/found_not_ready = FALSE
+	// Every ship L genuinely owns/has crew access to, but got excluded from
+	// candidates anyway, with the SPECIFIC reason why -- shown directly to
+	// the player, not just logged, so "no ships nearby" (misleading when a
+	// ship the player owns actually exists) becomes an exact, actionable
+	// fact instead of a mystery.
+	var/list/exclusion_reasons = list()
 	for(var/sid in GLOB.drydock_ships)
 		var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
 		if(!DS || DS.stashed)
@@ -417,6 +423,8 @@
 				continue
 		else if(!_drydock_full_access_check(L, DS.z))
 			continue
+		// Everything below this point is a ship L genuinely has access to --
+		// worth naming exactly why it's excluded, not just silently skipped.
 		// Still mid-load (deferred atmos settle, persistence_ship_interiors.dm)
 		// -- not offered as a candidate at all yet, distinct from "no ships."
 		if(!DS.ready)
@@ -430,13 +438,27 @@
 		// -- DS's own marker may currently be nested (docked, on_landing(),
 		// landable.dm), which would give get_dist() a meaningless result.
 		var/obj/effect/overmap/visitable/ship_sector = _drydock_ship_sector(DS)
-		if(!istype(mob_sector) || !istype(ship_sector) || get_dist(mob_sector, ship_sector) > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
+		if(!istype(mob_sector))
+			exclusion_reasons += "[DS.display_name()]: your own position has no resolvable overmap sector (z=[GET_Z(L)])."
+			continue
+		if(!istype(ship_sector))
+			exclusion_reasons += "[DS.display_name()]: the ship's own position has no resolvable overmap sector (ship z=[DS.z])."
+			continue
+		var/board_dist = get_dist(mob_sector, ship_sector)
+		if(board_dist > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
+			exclusion_reasons += "[DS.display_name()]: too far -- you're at [mob_sector] ([mob_sector.x],[mob_sector.y]), it's at [ship_sector] ([ship_sector.x],[ship_sector.y]), distance [board_dist] > max [DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX]."
 			continue
 		candidates += DS
 
 	if(!length(candidates))
 		if(found_not_ready)
 			to_chat(L, SPAN_WARNING("Your ship is still initializing -- try again in a moment."))
+		else if(length(exclusion_reasons))
+			// A ship L has access to genuinely exists -- name exactly why
+			// each one was excluded instead of the generic "none nearby."
+			to_chat(L, SPAN_WARNING("Found [length(exclusion_reasons)] accessible ship(s), but none close enough to board:"))
+			for(var/reason in exclusion_reasons)
+				to_chat(L, SPAN_WARNING("- [reason]"))
 		else
 			to_chat(L, SPAN_WARNING(pad_network ? "[get_faction_name(pad_network)] has no drydock ships currently deployed nearby." : "You have no drydock ships currently deployed nearby."))
 		return null

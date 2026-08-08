@@ -1093,3 +1093,63 @@
 	container_type = "crate"
 	groupable = TRUE
 	spawn_amount = 1
+
+/singleton/cargo_item/helm_console_crate
+	category = "engineering"
+	name = "Helm Console Crate"
+	supplier = "Hub"
+	description = "A ready-to-place helm console -- required to actually pilot a self-built hull on the overmap once commissioned. The shuttle control console alone only ever offers point-to-point docking, not real flight. Wrench it down inside your build envelope before commissioning."
+	price = 15000
+	items = list(/obj/structure/machinery/computer/ship/helm/terminal/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/navigation_console_crate
+	category = "engineering"
+	name = "Navigation Console Crate"
+	supplier = "Hub"
+	description = "A ready-to-place navigation console -- a display-only companion to the helm console, showing live position, speed, and heading. Entirely optional, not required to commission a hull."
+	price = 15000
+	items = list(/obj/structure/machinery/computer/ship/navigation/terminal/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/fuel_port_crate
+	category = "engineering"
+	name = "Fuel Port Crate"
+	supplier = "Hub"
+	description = "A ready-to-place fuel port, pre-loaded with a starter tank of phoron. Attach it to a wall inside your hull, then wrench and weld it in place -- a commissioned hull needs at least one of these to actually launch under its own power."
+	price = 2000
+	items = list(/obj/item/fuel_port, /obj/item/tank/phoron/shuttle)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/shuttle_phoron_tank_crate
+	category = "engineering"
+	name = "Shuttle Phoron Tank Crate"
+	supplier = "Hub"
+	description = "A replacement phoron tank, sized for a shuttle's own fuel port. Order more of these to refuel or top off your hull once its starter tank runs low -- no need to buy another whole fuel port just for the fuel."
+	price = 500
+	items = list(/obj/item/tank/phoron/shuttle)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/engine_control_crate
+	category = "engineering"
+	name = "Engine Control Terminal Crate"
+	supplier = "Hub"
+	description = "A ready-to-place engine control terminal -- required to actually turn a commissioned hull's engines on. Fuel, a helm console, and propulsion engines alone aren't enough without this. Wrench it down inside your build envelope before commissioning."
+	price = 15000
+	items = list(/obj/structure/machinery/computer/ship/engines/terminal/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1

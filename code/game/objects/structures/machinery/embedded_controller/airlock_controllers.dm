@@ -157,10 +157,62 @@
 			_link_to_airpump(pump, user)
 			MT.set_buffer(null)
 			return TRUE
+		// Empty multitool on the controller itself -- ambiguous between "I
+		// want to buffer this controller to go link something to it" and "I
+		// want to wipe this controller's links and start over," so ask
+		// instead of always assuming the former.
+		var/choice = tgui_alert(user, "What would you like to do with \the [src]?", "Airlock Cycler", list("Buffer", "Reset Links"))
+		if(QDELETED(src) || QDELETED(user) || QDELETED(MT) || !user.Adjacent(src))
+			return TRUE
+		if(!choice)
+			return TRUE
+		if(choice == "Reset Links")
+			_reset_links(user)
+			return TRUE
 		MT.set_buffer(src)
 		to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
 		return TRUE
 	return ..()
+
+/// Wipes every door/sensor/pump/button link this controller has in one
+/// action -- the multitool-on-empty-buffer popup's "Reset Links" choice
+/// (attackby() above). Doors and pumps are entirely controller-side (no
+/// back-reference stored on the device itself), so clearing these fields
+/// alone fully unlinks them. Sensors and buttons carry their own back-
+/// reference (master_tag) to this controller for their manual cycle signal
+/// -- clearing only the controller's own fields would leave those stale
+/// (still believing they're linked here), so sweep and clear both
+/// directions at once. World-scoped scan, same shape as
+/// _sweep_stray_umbilicals() (drydock_ship.dm) -- a rare, deliberate player
+/// action, not a hot path.
+/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/proc/_reset_links(mob/user)
+	var/count = length(get_exterior_door_tags()) + length(get_interior_door_tags()) + length(get_airpump_tags())
+	tag_exterior_door = null
+	tag_exterior_doors = null
+	tag_interior_door = null
+	tag_interior_doors = null
+	tag_airpump = null
+	tag_airpumps = null
+	// Only bother scanning for sensors if this controller actually has one
+	// linked -- _link_to_controller() (airlock_control.dm) always sets a
+	// sensor's master_tag together with one of these three fields in the
+	// same operation, so if all three are already unset, no sensor can have
+	// master_tag pointing here either.
+	if(tag_chamber_sensor || tag_exterior_sensor || tag_interior_sensor)
+		for(var/obj/structure/machinery/airlock_sensor/S in world)
+			if(S.master_tag == id_tag)
+				S.master_tag = null
+				count++
+		tag_chamber_sensor = null
+		tag_exterior_sensor = null
+		tag_interior_sensor = null
+	// Buttons have no controller-side counterpart field at all to check
+	// first -- always scan.
+	for(var/obj/structure/machinery/access_button/B in world)
+		if(B.master_tag == id_tag)
+			B.master_tag = null
+			count++
+	to_chat(user, SPAN_NOTICE("You reset \the [src], clearing [count] link\s. Doors, sensors, pumps, and buttons are all unlinked -- relink them individually if needed."))
 
 /obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/proc/_handle_construction(obj/item/attacking_item, mob/user)
 	switch(buildstage)

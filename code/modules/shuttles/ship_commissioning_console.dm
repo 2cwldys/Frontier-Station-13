@@ -247,6 +247,9 @@ GLOBAL_LIST_EMPTY(drydock_linkable_devices_by_tag)
 	data["propulsion_required"] = SHIP_COMMISSION_MIN_PROPULSION
 	data["propulsion_count"] = envelope ? _drydock_envelope_count_propulsion(envelope) : 0
 	data["propulsion_found"] = data["propulsion_count"] >= SHIP_COMMISSION_MIN_PROPULSION
+	data["helm_found"] = envelope ? !!_drydock_envelope_find_helm(envelope) : FALSE
+	data["fuel_port_found"] = envelope ? !!_drydock_envelope_find_fuel_port(envelope) : FALSE
+	data["engine_control_found"] = envelope ? !!_drydock_envelope_find_engine_control(envelope) : FALSE
 	// Snapshot from the last Preview -- see envelope_clean_for_generate's
 	// own doc comment for why this isn't re-checked live here.
 	data["can_generate_floor"] = data["beacon_found"] && envelope_clean_for_generate

@@ -41,15 +41,20 @@
 /// faction gate lives here instead of restricted_waypoints (which is
 /// keyed by a single exact shuttle name, not a faction) so it applies to
 /// every ship of the right faction uniformly.
-/obj/effect/shuttle_landmark/player_dock/is_valid(datum/shuttle/shuttle)
-	. = ..()
+/// reason_out -- see the base is_valid()'s own doc comment (landmarks.dm).
+/obj/effect/shuttle_landmark/player_dock/is_valid(datum/shuttle/shuttle, list/reason_out)
+	. = ..(shuttle, reason_out)
 	if(!.)
 		return FALSE
 	if(max_footprint_x || max_footprint_y)
 		var/list/footprint = shuttle.get_footprint()
 		if(max_footprint_x && footprint[1] > max_footprint_x)
+			if(reason_out)
+				reason_out += "hull footprint [footprint[1]]x[footprint[2]] exceeds this beacon's max width [max_footprint_x]"
 			return FALSE
 		if(max_footprint_y && footprint[2] > max_footprint_y)
+			if(reason_out)
+				reason_out += "hull footprint [footprint[1]]x[footprint[2]] exceeds this beacon's max height [max_footprint_y]"
 			return FALSE
 	// Entirely opt-in -- a ship carrying no docking_transponder at all skips
 	// this check completely and docks here exactly like it always could.
@@ -57,6 +62,8 @@
 	// this beacon, same as two real airlocks meeting (docking_transponder.dm).
 	var/obj/structure/machinery/docking_transponder/transponder = shuttle.find_docking_transponder()
 	if(istype(transponder) && turn(transponder.dir, 180) != dir)
+		if(reason_out)
+			reason_out += "docking transponder faces [dir2text(transponder.dir)] (needs [dir2text(turn(dir, 180))] to meet this beacon's [dir2text(dir)] facing)"
 		return FALSE
 	var/shuttle_faction
 	if(istype(shuttle, /datum/shuttle/autodock/overmap/drydock_ship))
@@ -78,15 +85,19 @@
 	// (_faction_raid_blocked_for(), telepad_drydock_boarding.dm) -- a
 	// public/unrestricted docking_beacon can still sit on claimed ground.
 	if(_faction_raid_blocked_for(z, shuttle_faction))
+		if(reason_out)
+			reason_out += "this z is claimed territory and faction raiding is currently disabled"
 		return FALSE
 	if(!faction_restricted)
 		return
 	if(faction_restricted != shuttle_faction)
+		if(reason_out)
+			reason_out += "beacon is restricted to [get_faction_name(faction_restricted)], this shuttle belongs to [shuttle_faction ? get_faction_name(shuttle_faction) : "no faction"]"
 		return FALSE
 
 /// A public, size-gated proxy standing in for a sub-ship's own mapped home
 /// landmark (Xanu Fighter's "xanufrigate_hangar", etc.) -- see
-/// _drydock_register_subship_waypoints() (persistence_shuttles.dm/Part 5).
+/// _drydock_register_subship_waypoints() (persistence_shuttles.dm).
 /// The real home landmark stays exactly as it is (whatever type it was
 /// mapped as, still restricted to its own bound sub-ship's name for the
 /// "return to hangar" waypoint) -- this sits at the same turf and is
@@ -345,10 +356,9 @@
 	// Unconditional -- a docking beacon is reserved for shuttle/sub-ship
 	// sized craft only (SUBSHIP_FOOTPRINT_X/Y, overmap.dm), not a general-
 	// purpose dock for full-size drydock ships. Docking is real physical
-	// relocation (attempt_move()/shuttle_moved(), shuttle.dm -- see Part 8,
-	// even-when-they-are-federated-hopcroft.md), not an abstract marker
-	// visit, so a full-size hull's real turfs simply can't fit materializing
-	// at a small cycler pad.
+	// relocation (attempt_move()/shuttle_moved(), shuttle.dm), not an
+	// abstract marker visit, so a full-size hull's real turfs simply can't
+	// fit materializing at a small cycler pad.
 	L.max_footprint_x    = SUBSHIP_FOOTPRINT_X
 	L.max_footprint_y    = SUBSHIP_FOOTPRINT_Y
 	landmark_registered = TRUE

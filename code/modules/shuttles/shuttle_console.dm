@@ -144,8 +144,13 @@
 	if(cannot_depart)
 		to_chat(user, SPAN_WARNING(cannot_depart))
 		return FALSE
-	if(!shuttle.next_location.is_valid(shuttle))
-		to_chat(user, SPAN_WARNING("Destination zone is invalid or obstructed."))
+	// reason_out -- see is_valid()'s own doc comment (landmarks.dm). Same
+	// treatment as the commission dock_at_beacon failure message -- this is
+	// the actual "move" button players use to fly to a picked destination,
+	// so a generic "invalid or obstructed" here was just as unhelpful.
+	var/list/move_refusal_reason = list()
+	if(!shuttle.next_location.is_valid(shuttle, move_refusal_reason))
+		to_chat(user, SPAN_WARNING("Destination zone is invalid or obstructed: [length(move_refusal_reason) ? jointext(move_refusal_reason, "; ") : "unlogged reason"]."))
 		return FALSE
 	if(GET_Z(shuttle.next_location) in SSodyssey.scenario_zlevels)
 		if(SSodyssey.site_landing_restricted)

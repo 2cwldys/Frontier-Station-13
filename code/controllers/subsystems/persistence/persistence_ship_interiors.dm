@@ -59,7 +59,7 @@ GLOBAL_LIST_EMPTY(reusable_z_pool)
 /// physically docked somewhere other than its own home Z
 /// (docking_beacon.dm/shuttle.dm's attempt_move()/shuttle_moved() genuinely
 /// relocates a docked ship's turfs and area membership onto the destination's
-/// real location -- see Part 8, even-when-they-are-federated-hopcroft.md).
+/// real location).
 /// persistence_scope_for_z(z) alone can't tell those specific turfs apart
 /// from the rest of whatever Z they're currently sitting on (a single z can't
 /// map to two scopes at once).

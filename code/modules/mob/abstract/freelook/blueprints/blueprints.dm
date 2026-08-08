@@ -116,7 +116,7 @@
 /// there's no way to do better than world.area for that case without a
 /// recorded prior area.
 /mob/abstract/eye/blueprints/proc/get_blueprint_background_area(area/A)
-	var/area/background_area = world.area
+	var/area/background_area = locate(world.area)
 	var/obj/effect/overmap/visitable/sector/sector = GLOB.map_sectors["[A.z]"]
 	var/obj/effect/overmap/visitable/sector/exoplanet/exoplanet = sector
 	if(istype(exoplanet))
@@ -523,15 +523,20 @@
 	owner.client.images -= construction_images
 	QDEL_LIST(construction_images)
 	construction_images = list()
+	// Deliberately no NO_CLIENT_COLOR here (unlike highlight_area()'s own
+	// selection markers just above, which SHOULD pop) -- these are meant to
+	// read as an ordinary wall/window would, tinted by the same
+	// add_client_color(/datum/client_color/monochrome) (apply_visual())
+	// every other turf on screen already picks up, not standing out against
+	// it. client.images bypassing BLIND (the reason these render at all) is
+	// unrelated to and unaffected by client color -- still fully visible.
 	for(var/obj/structure/girder/G in range(BLUEPRINT_CONSTRUCTION_SCAN_RANGE, src))
-		var/image/I = image(G.icon, G, G.icon_state)
+		var/image/I = image(G.icon, get_turf(G), G.icon_state)
 		I.plane = HUD_PLANE
-		I.appearance_flags = NO_CLIENT_COLOR
 		construction_images += I
 	for(var/obj/structure/window_frame/F in range(BLUEPRINT_CONSTRUCTION_SCAN_RANGE, src))
-		var/image/I = image(F.icon, F, F.icon_state)
+		var/image/I = image(F.icon, get_turf(F), F.icon_state)
 		I.plane = HUD_PLANE
-		I.appearance_flags = NO_CLIENT_COLOR
 		construction_images += I
 	owner.client.images += construction_images
 
@@ -583,7 +588,7 @@
 		return
 	to_chat(owner, SPAN_NOTICE("You scrub [A.name] off the blueprints."))
 	log_and_message_admins("deleted area [A.name] from [our_shuttle.name] via shuttle blueprints.")
-	var/background_area = world.area
+	var/background_area = locate(world.area)
 	var/obj/effect/overmap/visitable/sector/sector = GLOB.map_sectors["[A.z]"]
 	var/obj/effect/overmap/visitable/sector/exoplanet/exoplanet = sector
 	if(istype(exoplanet))

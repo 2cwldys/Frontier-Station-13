@@ -467,6 +467,11 @@
  * * mob/living/L - Affected mob.
  */
 /area/proc/play_ambience(var/mob/living/L)
+	// The ambient playlist takes priority -- don't play an area ambience
+	// stinger at all while it's already running for this client, rather
+	// than layering the two.
+	if(L.client.ambient_playlist_running)
+		return
 	if((world.time >= L.client.ambience_last_played_time + 3 MINUTES) && prob(30))
 		var/picked_ambience = pick(ambience)
 		L << sound(picked_ambience, volume = VOLUME_AMBIENCE, channel = CHANNEL_AMBIENCE)

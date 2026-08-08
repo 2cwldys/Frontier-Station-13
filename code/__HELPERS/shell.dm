@@ -69,7 +69,12 @@
 	if(world.system_type == UNIX)
 		return "cd \"[GLOB.config.server_root_path]\" && [command]"
 	var/static/bat_id = 0
-	var/bat_file = "data/shelleo_cd_[++bat_id].bat"
+	// Backslash, not forward slash -- del misparses an embedded "/" as the
+	// start of a switch (/P, /F, /S, /Q, ...) rather than a path separator,
+	// which is what "Parameter format not correct" actually was. The .bat
+	// file's own invocation (the first half of the compound command below)
+	// never had this problem -- only del's argument parsing does.
+	var/bat_file = "data\\shelleo_cd_[++bat_id].bat"
 	rustg_file_write("cd /d \"[GLOB.config.server_root_path]\"\n[command]\n", bat_file)
 	return "[bat_file] & del [bat_file]"
 

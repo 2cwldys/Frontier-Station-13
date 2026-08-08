@@ -36,6 +36,25 @@
 	can_pass_under = FALSE
 	light_power_on = 1
 
+/// Cargo-orderable variant a player can build into their own commissioned
+/// hull (ship_commissioning_console.dm) -- unlike the mapped-in base type
+/// above (always pre-anchored), this one starts loose like every other kit
+/// part and needs a wrench first. Required at commission time
+/// (_drydockCommissionRun(), persistence_shuttles.dm) -- without one, the
+/// hull has no way to actually pilot itself on the overmap once
+/// commissioned (shuttle_control alone only ever offers point-to-point
+/// docking, not real flight).
+/obj/structure/machinery/computer/ship/helm/terminal/buildable
+	anchored = FALSE
+
+/obj/structure/machinery/computer/ship/helm/terminal/buildable/attackby(obj/item/attacking_item, mob/user, params)
+	if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		attacking_item.play_tool_sound(get_turf(src), 50)
+		anchored = !anchored
+		to_chat(user, anchored ? SPAN_NOTICE("Helm console secured in place.") : SPAN_NOTICE("Helm console unsecured."))
+		return TRUE
+	return ..(attacking_item, user, params)
+
 /obj/structure/machinery/computer/ship/helm/Initialize()
 	. = ..()
 	get_known_sectors()
@@ -392,6 +411,22 @@
 	has_off_keyboards = TRUE
 	can_pass_under = FALSE
 	light_power_on = 1
+
+/// Cargo-orderable variant a player can build into their own commissioned
+/// hull -- same convention as helm/terminal/buildable above. Purely
+/// optional -- not required at commission time (helm alone is), this is
+/// the display-only companion console some players may still want for its
+/// own sake.
+/obj/structure/machinery/computer/ship/navigation/terminal/buildable
+	anchored = FALSE
+
+/obj/structure/machinery/computer/ship/navigation/terminal/buildable/attackby(obj/item/attacking_item, mob/user, params)
+	if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		attacking_item.play_tool_sound(get_turf(src), 50)
+		anchored = !anchored
+		to_chat(user, anchored ? SPAN_NOTICE("Navigation console secured in place.") : SPAN_NOTICE("Navigation console unsecured."))
+		return TRUE
+	return ..(attacking_item, user, params)
 
 /obj/structure/machinery/computer/ship/navigation/attack_hand(mob/user)
 	if(stat & (NOPOWER|BROKEN))

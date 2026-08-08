@@ -22,6 +22,9 @@ type ShipCommissioningData = {
   propulsion_required: number;
   propulsion_count: number;
   propulsion_found: BooleanLike;
+  helm_found: BooleanLike;
+  fuel_port_found: BooleanLike;
+  engine_control_found: BooleanLike;
   can_generate_floor: BooleanLike;
 };
 
@@ -34,7 +37,10 @@ export const ShipCommissioning = (props) => {
     !data.transponder_found ||
     !data.transponder_aligned ||
     !data.console_found ||
-    !data.propulsion_found;
+    !data.propulsion_found ||
+    !data.helm_found ||
+    !data.fuel_port_found ||
+    !data.engine_control_found;
 
   return (
     <Window width={420} height={460}>
@@ -93,6 +99,35 @@ export const ShipCommissioning = (props) => {
               required propulsion engines found in the build envelope --
               cargo-order more (Propulsion Engine Crate) and wrench them
               down anywhere inside the hull.
+            </Box>
+          </Section>
+        )}
+        {!!data.beacon_found && !data.helm_found && (
+          <Section title="Helm Console Required">
+            <Box color="bad">
+              No helm console found in the build envelope -- without one,
+              this hull could never actually be piloted on the overmap.
+              Cargo-order one (Helm Console Crate) and wrench it down
+              anywhere inside the hull.
+            </Box>
+          </Section>
+        )}
+        {!!data.beacon_found && !data.fuel_port_found && (
+          <Section title="Fuel Port Required">
+            <Box color="bad">
+              No fuel port found in the build envelope -- without one, this
+              hull could never be refuelled. Cargo-order one (Fuel Port
+              Crate) and attach it to a wall anywhere inside the hull.
+            </Box>
+          </Section>
+        )}
+        {!!data.beacon_found && !data.engine_control_found && (
+          <Section title="Engine Control Terminal Required">
+            <Box color="bad">
+              No engine control terminal found in the build envelope --
+              without one, this hull's engines could never actually be
+              turned on. Cargo-order one (Engine Control Terminal Crate) and
+              wrench it down anywhere inside the hull.
             </Box>
           </Section>
         )}

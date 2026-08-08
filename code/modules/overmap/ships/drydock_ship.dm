@@ -126,7 +126,7 @@
 	name = "shuttle control console"
 
 /// Cargo-orderable variant a player can build into their own commissioned
-/// hull (ship_commissioning_console.dm/Part 3) -- unlike the mapped-in base
+/// hull (ship_commissioning_console.dm) -- unlike the mapped-in base
 /// type above (always pre-anchored, spawned pre-anchored by
 /// drydockAutoFurnish() too), this one starts loose like every other kit
 /// machine and needs a wrench first. shuttle_tag is left unset here --
