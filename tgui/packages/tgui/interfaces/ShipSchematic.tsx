@@ -132,6 +132,19 @@ export const ShipSchematic = (props) => {
                     : `Enter Ship (${board_cooldown}s)`}
                 </Button>
               )}
+              {sub_shuttle_tags.length > 0 && (
+                <Button
+                  fluid
+                  mt={1}
+                  icon="street-view"
+                  disabled={!can_board}
+                  onClick={() => act('board_subship')}
+                >
+                  {can_board
+                    ? 'Enter Sub-Ship'
+                    : `Enter Sub-Ship (${board_cooldown}s)`}
+                </Button>
+              )}
               <Button
                 fluid
                 mt={1}

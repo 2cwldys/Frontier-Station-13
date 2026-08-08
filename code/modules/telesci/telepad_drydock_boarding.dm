@@ -797,6 +797,20 @@
 			return get_turf(console)
 	return null
 
+/// Same idea as _drydock_console_turf() above, but keyed by shuttle_tag
+/// instead of z -- a sub-ship (sub_shuttle_tags, drydock_ship.dm) is its own
+/// /datum/shuttle mapped into the SAME hull's Z as its parent, so a plain
+/// z-based lookup can't tell the two consoles apart. Used by
+/// ship_schematic.dm's "Enter Sub-Ship" to land on the sub-ship's own
+/// console specifically, not the main hull's.
+/proc/_drydock_subship_console_turf(shuttle_tag)
+	var/datum/shuttle/sub = SSshuttle.shuttles[shuttle_tag]
+	if(!istype(sub))
+		return null
+	for(var/obj/structure/machinery/computer/shuttle_control/console in sub.shuttle_computers)
+		return get_turf(console)
+	return null
+
 /// Finds the deployed, non-stashed drydock ship whose interior L is
 /// currently standing on, or null if L isn't aboard one -- shared by the
 /// core disembark proc and the Drydock program's ui_data() "am I aboard a

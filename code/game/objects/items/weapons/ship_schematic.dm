@@ -197,6 +197,32 @@
 			_drydock_board_core(user, null, last_boarded_by_ckey)
 			. = TRUE
 
+		// Same delivery pipeline "board" above uses (cooldown, combat/dead
+		// checks, spool-up VFX, re-validation) -- the only difference is the
+		// landing turf, forced to the sub-ship's own console
+		// (_drydock_subship_console_turf(), telepad_drydock_boarding.dm)
+		// instead of letting _drydock_board_deliver() resolve the main
+		// hull's. target stays the main ship (DS) since a sub-ship has no
+		// independent ledger entry of its own -- ownership/distance/ready
+		// checks correctly apply to the ship this schematic actually
+		// controls. Shares last_boarded_by_ckey with "board" deliberately,
+		// so rapidly switching between the two can't be used to dodge the
+		// cooldown.
+		if("board_subship")
+			var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
+			if(!template || !length(template.sub_shuttle_tags))
+				return TRUE
+			var/tag = (template.sub_shuttle_tags.len == 1) ? template.sub_shuttle_tags[1] : tgui_input_list(user, "Board which sub-ship?", "Enter Sub-Ship", template.sub_shuttle_tags)
+			if(!tag)
+				return TRUE
+			var/turf/sub_console = _drydock_subship_console_turf(tag)
+			if(!sub_console)
+				to_chat(user, SPAN_WARNING("Could not locate that sub-ship's navigation console."))
+				return TRUE
+			log_drydock("drydock ui_act (schematic): [key_name(user)] requested Enter Sub-Ship ('[tag]').")
+			_drydock_board_deliver(user, DS, last_boarded_by_ckey, sub_console)
+			. = TRUE
+
 		if("invite_board")
 			log_drydock("drydock ui_act (schematic): [key_name(user)] requested Invite to Board.")
 			_drydock_invite_board_core(user, last_boarded_by_ckey)
