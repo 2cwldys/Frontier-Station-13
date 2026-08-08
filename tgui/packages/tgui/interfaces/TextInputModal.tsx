@@ -15,6 +15,8 @@ type TextInputData = {
   placeholder: string;
   timeout: number;
   title: string;
+  width: number | null;
+  height: number | null;
 };
 
 export const sanitizeMultiline = (toSanitize: string) => {
@@ -35,6 +37,8 @@ export const TextInputModal = (props) => {
     placeholder = '',
     timeout,
     title,
+    width,
+    height,
   } = data;
 
   const [input, setInput] = useState(placeholder || '');
@@ -50,12 +54,17 @@ export const TextInputModal = (props) => {
   };
 
   const visualMultiline = multiline || input.length >= 30;
-  // Dynamically changes the window height based on the message.
+  // Dynamically changes the window height based on the message, unless the
+  // caller (tgui_input_text(), text.dm) asked for a fixed size explicitly --
+  // e.g. modify_hub_laws() editing a document far bigger than this formula
+  // was ever tuned for.
   const windowHeight =
+    height ??
     135 +
-    (message.length > 30 ? Math.ceil(message.length / 4) : 0) +
-    (visualMultiline ? 75 : 0) +
-    (message.length && large_buttons ? 5 : 0);
+      (message.length > 30 ? Math.ceil(message.length / 4) : 0) +
+      (visualMultiline ? 75 : 0) +
+      (message.length && large_buttons ? 5 : 0);
+  const windowWidth = width ?? 325;
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     if (event.key === KEY.Enter && (!visualMultiline || !event.shiftKey)) {
@@ -66,7 +75,7 @@ export const TextInputModal = (props) => {
     }
   }
   return (
-    <Window title={title} width={325} height={windowHeight}>
+    <Window title={title} width={windowWidth} height={windowHeight}>
       {timeout && <Loader value={timeout} />}
       <Window.Content onKeyDown={handleKeyDown}>
         <Section fill>

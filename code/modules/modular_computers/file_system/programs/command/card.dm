@@ -832,11 +832,27 @@ GLOBAL_LIST_EMPTY(hub_law_book_print_cooldown)
 	title = "Hub Laws"
 	author = "The Hub Authority"
 
+	// Mirrors /obj/effect/decal/cleanable's own claim-tracking vars, same as
+	// every other cleanbot litter type (shards.dm, cigs_lighters.dm,
+	// ammunition.dm) -- /obj/item has neither var declared generically, so
+	// without these, cleanbot.dm's I.vars["clean_marked"]/["being_cleaned"]
+	// writes silently no-op (you can't set an undeclared var through the
+	// vars[] accessor), every read back comes back null, and
+	// handle_target()'s very first check reads that null as "claimed by
+	// something else" and immediately abandons the target -- every time,
+	// before ever pathing to or cleaning one.
+	var/being_cleaned = FALSE
+	var/datum/weakref/clean_marked = null
+
 /obj/item/book/hub_laws/attack_self(mob/user)
 	if(!GLOB.hub_law_text)
 		to_chat(user, "This book is completely blank!")
 		return
-	user << browse(HTML_SKELETON("<TT><I>Penned by [author].</I></TT> <BR>" + "[GLOB.hub_law_text]"), "window=book")
+	// nl2br() (__HELPERS/text.dm) -- raw \n does nothing in HTML, it just
+	// collapses to whitespace, so admin-typed line breaks (modify_hub_laws(),
+	// persistence_factions.dm) were silently lost the instant this got
+	// dropped into the book's browse() window.
+	user << browse(HTML_SKELETON("<TT><I>Penned by [author].</I></TT> <BR>" + nl2br(GLOB.hub_law_text)), "window=book")
 	user.visible_message("[user] opens a book titled \"[title]\" and begins reading intently.")
 	playsound(loc, 'sound/items/bureaucracy/bookopen.ogg', 50, TRUE)
 	onclose(user, "book")

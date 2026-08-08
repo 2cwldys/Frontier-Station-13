@@ -3051,56 +3051,29 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// player to undock manually; a forced stash (shutdown sweep, admin Force
 	// Stash) can't wait on that, so it recalls the ship home itself first --
 	// mirroring the sub-ship recall-or-abort pattern just below.
-	if(istype(stashing_shuttle_datum) && home_landmark && stashing_shuttle_datum.current_location != home_landmark)
-		if(!force)
-			if(user)
-				to_chat(user, SPAN_WARNING("This ship is currently docked -- undock before stashing."))
-			log_drydock_warning("drydockStash: refused -- shuttle_id=[shuttle_id] is away from home (at '[stashing_shuttle_datum.current_location]') (acting=[acting]).")
+	if(!force && istype(stashing_shuttle_datum) && home_landmark && stashing_shuttle_datum.current_location != home_landmark)
+		if(user)
+			to_chat(user, SPAN_WARNING("This ship is currently docked -- undock before stashing."))
+		log_drydock_warning("drydockStash: refused -- shuttle_id=[shuttle_id] is away from home (at '[stashing_shuttle_datum.current_location]') (acting=[acting]).")
+		return FALSE
+	// Recalls the ship itself (if away from home -- a no-op otherwise) and
+	// any bound sub-ship (unconditionally, not just for a forced stash --
+	// see _drydock_recall_ship_home()'s own doc comment for why). Shared
+	// with the periodic-autosave sweep (drydockRecallAllDeployed()) so both
+	// go through the exact same recall logic.
+	if(!_drydock_recall_ship_home(DS))
+		log_drydock_error("drydockStash: recall-home failed for shuttle_id=[shuttle_id] -- aborting stash cleanly, needs admin attention.")
+		return FALSE
+
+	// A real stash (shutdown, Force Stash Ship/All -- never a normal
+	// player-initiated one, which still just refuses via the occupancy
+	// check below) evacuates any living occupant first instead of simply
+	// giving up on that ship -- see _drydock_evacuate_occupants_before_stash()'s
+	// own doc comment for exactly what it can and can't safely handle.
+	if(force)
+		if(!_drydock_evacuate_occupants_before_stash(DS))
+			log_drydock_error("drydockStash: could not safely evacuate all living occupants for shuttle_id=[shuttle_id] -- aborting stash cleanly, needs admin attention.")
 			return FALSE
-		log_drydock("drydockStash: shuttle_id=[shuttle_id] is away from home -- force-recalling before stash (acting=[acting]).")
-		if(!stashing_shuttle_datum.attempt_move(home_landmark))
-			log_drydock_error("drydockStash: force-recall home failed (attempt_move refused) for shuttle_id=[shuttle_id] -- aborting stash cleanly, needs admin attention.")
-			return FALSE
-		log_drydock("drydockStash: shuttle_id=[shuttle_id] force-recalled home successfully.")
-	// A hangar sub-ship (drydock_ship.dm's sub_shuttle_tags) always travels
-	// with its parent -- no independent stash/retrieve of its own -- so it's
-	// recalled home unconditionally (not just for a forced stash) rather
-	// than refusing and telling the player to fly it there themselves. It
-	// may be docked elsewhere, mid-long_jump (see the moving_status ==
-	// SHUTTLE_IDLE checkpoint added to long_jump(), shuttle.dm), or actively
-	// piloted on the overmap (attempt_move()'s GLOB.shuttle_moved_event ->
-	// on_shuttle_jump() -> on_landing() correctly lands and halts it either
-	// way) -- all three are handled by the same attempt_move() call below.
-	// Must run BEFORE the occupancy check just below: once recalled, the
-	// sub-ship's turfs sit at its home landmark, which is part of the
-	// parent's own Z, so that check then naturally covers both vessels.
-	var/datum/map_template/drydock_ship/sub_template = SSmapping.drydock_ship_templates[DS.template_id]
-	if(sub_template && length(sub_template.sub_shuttle_tags))
-		for(var/sub_tag in sub_template.sub_shuttle_tags)
-			var/datum/shuttle/autodock/sub = SSshuttle.shuttles[sub_tag]
-			if(!istype(sub) || !istype(sub.current_location))
-				continue
-			if(sub.current_location.landmark_tag == sub.logging_home_tag)
-				continue // already home
-			var/obj/effect/shuttle_landmark/home = SSshuttle.get_landmark(sub.logging_home_tag)
-			if(!home)
-				log_drydock_error("drydockStash: force-recall failed -- no home landmark '[sub.logging_home_tag]' for sub-ship '[sub_tag]', shuttle_id=[shuttle_id].")
-				return FALSE
-			// Cancel any pending long_jump cleanly first -- the long_jump()
-			// checkpoint is what catches this if it's currently asleep
-			// mid-loop. Harmless no-op if it's just docked elsewhere/idle,
-			// or actively flying (flight never touches these vars).
-			sub.moving_status = SHUTTLE_IDLE
-			sub.next_location = null
-			sub.in_use = null
-			sub.set_process_state(IDLE_STATE)
-			if(sub.attempt_move(home))
-				sub.next_location = home
-				sub.process_arrived()
-				log_drydock("drydockStash: force-recalled sub-ship '[sub_tag]' home for shuttle_id=[shuttle_id] (acting=[acting]).")
-			else
-				log_drydock_error("drydockStash: force-recall of sub-ship '[sub_tag]' failed (attempt_move refused -- possibly grappled/blocked), shuttle_id=[shuttle_id]. Admin attention needed.")
-				return FALSE // don't let the parent stash proceed and orphan it
 
 	if(_drydock_ship_has_living_occupants(DS))
 		if(user)
@@ -3114,13 +3087,13 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 	var/scope = "ship:d:[shuttle_id]"
 	var/stash_z = DS.z
+	var/datum/map_template/drydock_ship/save_template = SSmapping.drydock_ship_templates[DS.template_id]
 	// Drop the hangar waypoint registrations before the z goes away, so a
 	// stashed ship's hangar stops being offered as a destination to anything
 	// still flying. Mirrors _drydock_register_subship_waypoints() at retrieve.
-	_drydock_unregister_subship_waypoints(GLOB.map_sectors["[stash_z]"], sub_template)
+	_drydock_unregister_subship_waypoints(GLOB.map_sectors["[stash_z]"], save_template)
 	SSpersistence.shipInteriorSave(stash_z, scope)
 
-	var/datum/map_template/drydock_ship/save_template = SSmapping.drydock_ship_templates[DS.template_id]
 	if(save_template && length(save_template.sub_shuttle_tags))
 		for(var/sub_tag in save_template.sub_shuttle_tags)
 			SSpersistence.subshipSnapshotSave(shuttle_id, sub_tag)
@@ -3162,6 +3135,136 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	if(!force)
 		_drydockFlagIfStolen(DS, user)
 	log_drydock("drydockStash: shuttle_id=[shuttle_id] fully stashed and torn down (acting=[acting]).")
+	return TRUE
+
+/// Recalls DS (and any bound sub-ship) back to its own home landmark if
+/// currently away -- shared by _drydockStashRun()'s own force path and the
+/// periodic-autosave sweep (drydockRecallAllDeployed() below), so both go
+/// through the exact same logic instead of two hand-written copies. The
+/// primary ship only actually moves if away from home (a no-op returning
+/// TRUE otherwise); a bound sub-ship is always recalled unconditionally,
+/// same as before this was factored out -- it has no independent stash of
+/// its own, so leaving it wherever it happened to be would either orphan it
+/// or leave it exposed to whatever it's docked with. Returns FALSE only on
+/// a genuine recall failure (attempt_move() refused -- blocked, grappled,
+/// missing home landmark) that needs admin attention.
+/datum/controller/subsystem/persistence/proc/_drydock_recall_ship_home(datum/drydock_ship/DS)
+	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
+	if(!istype(marker))
+		return FALSE
+	var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
+	var/obj/effect/shuttle_landmark/home_landmark = marker.landmark
+	if(istype(shuttle_datum) && home_landmark && shuttle_datum.current_location != home_landmark)
+		log_drydock("_drydock_recall_ship_home: shuttle_id=[DS.shuttle_id] is away from home -- force-recalling.")
+		if(!shuttle_datum.attempt_move(home_landmark))
+			log_drydock_error("_drydock_recall_ship_home: force-recall home failed (attempt_move refused) for shuttle_id=[DS.shuttle_id] -- needs admin attention.")
+			return FALSE
+		log_drydock("_drydock_recall_ship_home: shuttle_id=[DS.shuttle_id] force-recalled home successfully.")
+
+	var/datum/map_template/drydock_ship/sub_template = SSmapping.drydock_ship_templates[DS.template_id]
+	if(sub_template && length(sub_template.sub_shuttle_tags))
+		for(var/sub_tag in sub_template.sub_shuttle_tags)
+			var/datum/shuttle/autodock/sub = SSshuttle.shuttles[sub_tag]
+			if(!istype(sub) || !istype(sub.current_location))
+				continue
+			if(sub.current_location.landmark_tag == sub.logging_home_tag)
+				continue // already home
+			var/obj/effect/shuttle_landmark/home = SSshuttle.get_landmark(sub.logging_home_tag)
+			if(!home)
+				log_drydock_error("_drydock_recall_ship_home: force-recall failed -- no home landmark '[sub.logging_home_tag]' for sub-ship '[sub_tag]', shuttle_id=[DS.shuttle_id].")
+				return FALSE
+			// Cancel any pending long_jump cleanly first -- the long_jump()
+			// checkpoint is what catches this if it's currently asleep
+			// mid-loop. Harmless no-op if it's just docked elsewhere/idle,
+			// or actively flying (flight never touches these vars).
+			sub.moving_status = SHUTTLE_IDLE
+			sub.next_location = null
+			sub.in_use = null
+			sub.set_process_state(IDLE_STATE)
+			if(sub.attempt_move(home))
+				sub.next_location = home
+				sub.process_arrived()
+				log_drydock("_drydock_recall_ship_home: force-recalled sub-ship '[sub_tag]' home for shuttle_id=[DS.shuttle_id].")
+			else
+				log_drydock_error("_drydock_recall_ship_home: force-recall of sub-ship '[sub_tag]' failed (attempt_move refused -- possibly grappled/blocked), shuttle_id=[DS.shuttle_id].")
+				return FALSE // don't let the caller proceed and orphan it
+	return TRUE
+
+/// Periodic-autosave companion to drydockAutoStashAll() -- recalls every
+/// currently away-from-home deployed ship (and its sub-ships) back to its
+/// own open-space Z, WITHOUT stashing it, so the general Finalize sweeps
+/// that follow in forceSaveAll() always see every deployed ship sitting at
+/// its own persisted position (closing the "duplicated at an away-site Z
+/// across a restart" risk) while leaving every ship fully playable
+/// afterward -- exit, redock, or a manual stash are all still available to
+/// anyone aboard once they're off it. Called from forceSaveAll()
+/// (persistence.dm), before any Finalize sweep runs.
+/datum/controller/subsystem/persistence/proc/drydockRecallAllDeployed()
+	var/recalled_count = 0
+	var/failed_count = 0
+	for(var/sid in GLOB.drydock_ships)
+		var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
+		if(!DS || DS.stashed || !DS.z)
+			continue
+		var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
+		if(!istype(marker) || !istype(marker.landmark))
+			continue
+		var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
+		if(!istype(shuttle_datum) || shuttle_datum.current_location == marker.landmark)
+			continue // already home, nothing to recall
+		if(_drydock_recall_ship_home(DS))
+			recalled_count++
+		else
+			failed_count++
+	if(recalled_count || failed_count)
+		log_drydock("drydockRecallAllDeployed: periodic sweep complete -- [recalled_count] recalled, [failed_count] failed (needs admin attention).")
+
+/// Called from _drydockStashRun()'s force path right before the interior
+/// actually gets torn down -- force-persists every living human occupant
+/// off DS's own Z (and any bound sub-ship's own area) via whatever cryopod
+/// is reachable there, and vaults every loose (non-occupied) neural lace on
+/// the same scope, so a real stash (shutdown, Force Stash Ship/All) never
+/// has to just give up on a ship the way a normal, player-initiated stash
+/// still does via _drydock_ship_has_living_occupants() right after this.
+/// cryopod/persistence_force_store() (cryopod.dm) already does everything
+/// needed -- it accepts an arbitrary human mob (not just its own current
+/// occupant) and moves/persists them itself, so this never needs to
+/// physically walk anyone into a pod first. Deliberately does NOT attempt
+/// to handle a neural-lace consciousness (lace_occupied/lace_mob,
+/// _drydock_ship_has_living_occupants()'s other check) -- a lace_mob has no
+/// body for a cryopod to freeze, so persistence_force_store() correctly
+/// refuses it (istype() gate on mob/living/carbon/human) and that case
+/// still falls through to a clean abort below, same as today.
+/// Returns FALSE if any living occupant couldn't be safely evacuated this
+/// way -- the caller aborts the stash cleanly rather than risk stranding
+/// someone.
+/datum/controller/subsystem/persistence/proc/_drydock_evacuate_occupants_before_stash(datum/drydock_ship/DS)
+	if(!DS.z)
+		return TRUE
+	var/list/zs = list(DS.z)
+	var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
+	if(template && length(template.sub_shuttle_tags))
+		for(var/sub_tag in template.sub_shuttle_tags)
+			var/datum/shuttle/autodock/sub = SSshuttle.shuttles[sub_tag]
+			if(istype(sub) && istype(sub.current_location))
+				zs |= sub.current_location.z
+
+	for(var/mob/M in GLOB.mob_list)
+		if(!(M.z in zs) || M.stat == DEAD || !(M.client || M.ckey))
+			continue
+		var/obj/structure/machinery/cryopod/pod
+		for(var/obj/structure/machinery/cryopod/candidate in SSmachinery.machinery)
+			if(GET_Z(candidate) == M.z)
+				pod = candidate
+				break
+		if(!pod || !pod.persistence_force_store(M))
+			log_drydock_error("_drydock_evacuate_occupants_before_stash: could not safely evacuate living occupant '[key_name(M)]' from shuttle_id=[DS.shuttle_id] (no reachable cryopod, or not an ordinary human) -- aborting stash.")
+			return FALSE
+		log_drydock("_drydock_evacuate_occupants_before_stash: force-stored '[key_name(M)]' off shuttle_id=[DS.shuttle_id] before stash.")
+
+	var/list/lace_result = SSpersistence.vaultAllLaces(zs)
+	if(lace_result && lace_result["vaulted"])
+		log_drydock("_drydock_evacuate_occupants_before_stash: vaulted [lace_result["vaulted"]] loose neural lace(s) from shuttle_id=[DS.shuttle_id] before stash.")
 	return TRUE
 
 /// Shared non-destructive world-footprint teardown for a currently-deployed

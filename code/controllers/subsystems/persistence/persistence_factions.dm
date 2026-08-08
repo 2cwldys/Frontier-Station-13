@@ -824,7 +824,15 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 	if(!check_rights(R_ADMIN))
 		return
 
-	var/new_text = tgui_input_text(usr, "Hub law book text:", "Modify Hub Laws", GLOB.hub_law_text, multiline = TRUE, max_length = 4096)
+	// law_text (ss13_hub_law_text) is MEDIUMTEXT -- room for ~16MB, nowhere
+	// close to a real limiting factor here. 4096 was an arbitrary, needlessly
+	// tight cap for an admin-only lore/rules document; 20000 is still a real
+	// bound (this does get rendered whole in every printed book's browse()
+	// window) without being cramped for actual use.
+	// Explicit width/height -- the default dynamic sizing (TextInputModal.tsx)
+	// is tuned for short prompts, not a document that can now run to 20000
+	// characters.
+	var/new_text = tgui_input_text(usr, "Hub law book text:", "Modify Hub Laws", GLOB.hub_law_text, multiline = TRUE, max_length = 20000, width = 700, height = 600)
 	if(isnull(new_text))
 		return
 

@@ -1,0 +1,145 @@
+====================================================================
+ PIRACY BEACONS AND FACTION BEACONS
+====================================================================
+
+This document covers two separate beacon systems: the piracy beacon
+(unlocks black-market cargo access in nullsec) and the faction beacon
+(claims a Z-level of territory for a faction). They are unrelated to
+each other and unrelated to a player-built docking beacon (see
+playerbuiltshuttles.txt for that).
+
+
+--------------------------------------------------------------------
+ 1. PIRACY BEACON
+--------------------------------------------------------------------
+
+A piracy beacon is a crude, unlicensed anchor beacon. It never claims
+territory, never grants security bonuses, and never sweeps or tags
+anything to a faction. Its only job is to mark a Z-level as having
+"piracy infrastructure," which unlocks black-market options on cargo
+consoles located on that same Z-level.
+
+WHERE IT WORKS
+  A piracy beacon only ever functions in genuine unregulated
+  (nullsec) space. It will refuse to assemble at all in highsec, and
+  it stays dormant (powered but inactive) if built in medsec/highsec
+  or on a Z-level a live mission is currently using. Moving into
+  regulated space, or a mission claiming the sector, will silently
+  put an already-built beacon back to sleep until conditions are
+  right again -- you don't need to rebuild it, just wait or relocate.
+
+POWERING IT ON
+  Click the beacon to toggle it on/off. It needs fuel to actually
+  stay running (see below) -- if you try to power it on with no
+  fuel, it will refuse.
+
+FUEL
+  Feed it spacecash (bills or bundles, not an e-wallet) by clicking
+  the beacon with the cash in hand. It has a maximum reserve. While
+  powered and actually operational (in nullsec, not dormant), it
+  slowly drains that reserve over real time and automatically shuts
+  itself off once it runs dry. Alt-click the beacon to withdraw
+  stored credits back out as a cash bundle.
+
+GETTING THE SYNDICATE UPLINK TERMINAL
+  Once a piracy beacon is powered and operational on a Z-level:
+    1. You need a Cargo Order console that is faction-shackled
+       (linked to a faction's own network) and physically located on
+       that same Z-level.
+    2. Open the Cargo Order program and browse to the Operations
+       category. A "Syndicate Uplink Terminal" item will now be
+       visible in the catalog -- it is hidden entirely unless both
+       conditions above are met.
+    3. Order it like any other crate. It costs 250,000 credits and
+       contains a modified radio that conceals a black-market
+       purchasing terminal (a standard syndicate uplink).
+  A personal (non-faction-shackled) console can never order this,
+  regardless of beacon state -- it specifically requires a faction
+  network link.
+
+SELLING ILLEGAL GOODS
+  The Cargo Exports program's sell catalog normally hides anything
+  tagged as illegal contraband. While a powered, operational piracy
+  beacon sits on the same Z-level as the exporting console, those
+  illegal items become sellable through it -- a fencing channel for
+  stolen or black-market goods that isn't available anywhere else.
+
+
+--------------------------------------------------------------------
+ 2. FACTION BEACON
+--------------------------------------------------------------------
+
+A faction beacon claims an entire Z-level (and every connected deck
+of the same station/site) as one faction's own territory. Placement
+of the beacon itself is an admin/mapping decision -- it isn't
+something a faction can build wherever they like -- but once one
+exists, configuring and running it is normal faction business.
+
+WHAT CLAIMING A Z-LEVEL DOES
+  Once a beacon successfully claims its Z-level(s):
+    - Every compatible piece of infrastructure on that Z that isn't
+      already tagged to a different faction (cryopods, telepads,
+      consoles, telecomms, and more) gets automatically swept and
+      tagged to the beacon's faction over time -- you don't need to
+      tag every single machine by hand.
+    - The Z-level's security tier is raised to at least medsec (or
+      highsec, for the special Hub beacon variant). A configurable
+      "security radius" also raises nearby overmap sectors around it
+      to the same minimum tier.
+    - The Z-level is added to the persistence save list, so
+      everything built there survives a server restart.
+    - Non-members can be blocked from entering the territory,
+      subject to the server-wide faction raiding toggle (see below).
+  Destroying the beacon by combat damage reverses all of this: the
+  Z-level stops being saved and drops back to nullsec. Admin
+  deletion does not trigger this reversal.
+
+POWERING IT ON
+  The beacon starts locked and unpowered. Alt-click to unlock it
+  (like an APC or air alarm) -- while locked, only admins can touch
+  its power state. Once unlocked, click it to open its interface and
+  use the power toggle. Turning it on requires command rank in the
+  faction it's configured for (see Faction Tagger below); an
+  unconfigured beacon can't be powered on at all.
+
+FUEL
+  Same system as the piracy beacon -- feed it spacecash by clicking
+  it with cash in hand, alt-click to withdraw. It drains slowly while
+  powered and running, and auto-shuts-off if it runs out.
+
+ASSIGNING A FACTION -- THE FACTION TAGGER
+  A beacon has no faction until someone configures one. This is done
+  with a Faction Tagger item, not through the beacon's own interface
+  directly:
+    1. Point-and-click the faction tagger at the beacon (or at any
+       other compatible machine -- consoles, cryopods, telecomms,
+       turrets, doors, and more all use the same tool).
+    2. Its window shows the target's current faction (if any). Pick
+       "Set" and choose a faction from the dropdown to claim it, or
+       "Release" to clear an existing tag.
+    3. Setting a faction requires officer-level access in that
+       faction. Retagging something already claimed by a DIFFERENT
+       faction requires officer access in that faction too, not just
+       the one you're trying to switch to.
+  Small business/company-tier factions cannot claim a beacon at all
+  -- they have no pinned site of their own and must operate out of a
+  full faction's territory instead.
+
+PUBLIC TERRITORY
+  From the beacon's own interface, faction command can toggle
+  "Public Territory." A public territory always allows non-members
+  to enter, even while the server-wide faction raiding toggle is
+  turned off (which normally blocks outsiders from every claimed
+  territory at once). A private (non-public) territory is subject to
+  that raiding toggle like any other claimed site.
+
+SECURITY RADIUS
+  An admin-adjustable setting controlling how many overmap sectors
+  out (beyond the beacon's own Z) also get bumped to the beacon's
+  minimum security tier. A radius of 0 means only the beacon's own
+  Z-level is affected.
+
+RENAMING THE SITE
+  Faction command can also rename the overmap display name of the
+  beacon's own site from its interface -- this persists across
+  restarts. Leaving the new name blank restores the default.

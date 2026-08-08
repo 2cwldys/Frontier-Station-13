@@ -50,6 +50,7 @@ GLOBAL_LIST_INIT(ambient_playlist_tracks, list(
 	'sound/music/ambient_playlist/eve_lost_wormhole.ogg',
 	'sound/music/ambient_playlist/eve_forsaken_ruins.ogg',
 	'sound/music/ambient_playlist/eve_object_almost_accomplished.ogg',
+	'sound/music/ambient_playlist/hellsirens.ogg',
 ))
 
 /// Duration of each track in deciseconds, buffered a few deciseconds short so
@@ -90,6 +91,7 @@ GLOBAL_LIST_INIT(ambient_playlist_durations, list(
 	'sound/music/ambient_playlist/eve_lost_wormhole.ogg' = 3246,
 	'sound/music/ambient_playlist/eve_forsaken_ruins.ogg' = 3665,
 	'sound/music/ambient_playlist/eve_object_almost_accomplished.ogg' = 4615,
+	'sound/music/ambient_playlist/hellsirens.ogg' = 4680,
 ))
 
 /// Fallback duration (deciseconds, ~3 minutes) used only if a track is

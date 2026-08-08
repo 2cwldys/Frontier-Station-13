@@ -429,10 +429,12 @@ SUBSYSTEM_DEF(persistence)
  * (automatic, on every real reboot -- not the periodic autosave, which
  * never touches this).
  */
-/datum/controller/subsystem/persistence/proc/vaultAllLaces()
+/datum/controller/subsystem/persistence/proc/vaultAllLaces(list/z_filter = null)
 	var/vaulted = 0
 	var/skipped_alive = 0
 	for(var/obj/item/organ/internal/neural_lace/L in world)
+		if(z_filter && !(GET_Z(L) in z_filter))
+			continue
 		if(istype(L.loc, /obj/structure/machinery/lace_storage))
 			continue // already vaulted, nothing to do
 
@@ -469,6 +471,16 @@ SUBSYSTEM_DEF(persistence)
 		return
 
 	log_subsystem_persistence_info("forceSaveAll: Starting full persistence save.")
+
+	// Recall every away-from-home deployed ship (and its sub-ships) before
+	// anything else runs -- see drydockRecallAllDeployed()'s own doc comment
+	// (persistence_shuttles.dm) for why this closes the "duplicated at an
+	// away-site z across a restart" risk without actually stashing anyone's
+	// ship. Deliberately first, before any Finalize sweep below.
+	try
+		drydockRecallAllDeployed()
+	catch(var/exception/recall_e)
+		log_subsystem_persistence_panic("Unhandled exception during drydock recall sweep: [recall_e]")
 
 	try
 		economyFinalize()
