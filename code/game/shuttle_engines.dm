@@ -49,6 +49,17 @@
 		anchored = !anchored
 		to_chat(user, anchored ? SPAN_NOTICE("Propulsion unit secured in place.") : SPAN_NOTICE("Propulsion unit unsecured."))
 		return TRUE
+	// Purely cosmetic (this whole type has no functional vars, see the doc
+	// comment above) -- lets a player orient the exhaust to match their
+	// hull layout. Only while unsecured, same gate docking_transponder's
+	// own multitool-rotate uses.
+	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
+		if(anchored)
+			to_chat(user, SPAN_WARNING("\The [src] is secured in place -- unwrench it before changing its facing."))
+			return TRUE
+		dir = turn(dir, -90)
+		to_chat(user, SPAN_NOTICE("You rotate \the [src] -- it now faces [dir2text(dir)]."))
+		return TRUE
 	return ..(attacking_item, user, params)
 
 /obj/structure/shuttle/engine/propulsion/burst
