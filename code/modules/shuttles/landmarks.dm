@@ -180,6 +180,11 @@
 			GLOB.global_announcer.autosay(message, "Docking Oversight", announce_channel)
 	GLOB.shuttle_moved_event.unregister(shuttle, src)
 
+/// A dense, anchored movable on a target turf refuses the landing/dock the
+/// same way a dense turf already does -- a docking ship no longer squishes
+/// (silently qdel()s) an object in the way, it's simply not offered/allowed
+/// as a valid destination in the first place. Applies everywhere this proc
+/// gates a landing or dock, for every ship in the game.
 /proc/check_collision(list/target_turfs)
 	for(var/target_turf in target_turfs)
 		var/turf/target = target_turf
@@ -196,6 +201,10 @@
 
 		if(target.density)
 			return TRUE //dense turf
+
+		for(var/atom/movable/blocker in target)
+			if(blocker.density && blocker.anchored)
+				return TRUE //dense, anchored object in the way -- refuse rather than squish it on landing
 
 	return FALSE
 

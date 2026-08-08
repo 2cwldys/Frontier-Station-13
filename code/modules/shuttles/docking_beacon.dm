@@ -155,14 +155,15 @@
 	anchored = FALSE  // starts unanchored — won't register while in a crate or being carried
 	use_power = POWER_USE_IDLE
 	idle_power_usage = 10
-	// A ship's own hull can legally materialize directly on top of an active
-	// beacon's turf (check_collision(), landmarks.dm, only checks turf
-	// density, never object density) -- shuttle_moved() (shuttle.dm) then
-	// qdel()s any simulated, non-living object on that turf when the
-	// landing ship squishes (the default for every ship here). Matching
+	// A ship's own hull is meant to materialize directly on top of an active
+	// beacon's turf (that's the point of docking at one) -- density = FALSE
+	// means it never trips check_collision()'s dense/anchored-object refusal
+	// (landmarks.dm) either way, but shuttle_moved() (shuttle.dm) still
+	// qdel()s any simulated, non-living object on a landing turf regardless
+	// of density when the ship squishes onto it. Matching
 	// /obj/effect/shuttle_landmark's own simulated = 0 (landmarks.dm) is
-	// what keeps the landmark itself alive through the exact same pass --
-	// the beacon machine needs the same protection.
+	// what keeps the landmark itself alive through that same pass -- the
+	// beacon machine needs the same protection.
 	simulated = FALSE
 
 	var/landmark_tag  = ""

@@ -37,7 +37,7 @@
 
 /obj/structure/machinery/ion_engine
 	name = "ion propulsion device"
-	desc = "An advanced ion propulsion device, using energy and a minute amount of gas to generate thrust."
+	desc = "An advanced ion propulsion device, converting stored electrical charge directly into thrust -- no piped fuel gas needed."
 	icon = 'icons/obj/ship_engine.dmi'
 	icon_state = "nozzle"
 	power_channel = AREA_USAGE_ENVIRON
@@ -59,10 +59,42 @@
 /obj/structure/machinery/ion_engine/Initialize()
 	. = ..()
 	controller = new(src)
+	sync_ship_registration()
+
+/// Finds this engine's own ship (if any) and registers its controller into
+/// S.engines -- mirrors gas_thruster.dm's own proc of the same name exactly.
+/// Without this, the controller created above is never actually reachable
+/// from ship.engines/the engine control terminal at all, mapped-in or
+/// captured alike -- this type never had it, so it never actually worked
+/// even where mapped.
+/obj/structure/machinery/ion_engine/proc/sync_ship_registration()
+	if(!(length(SSshuttle.shuttle_areas) && !length(SSshuttle.shuttles_to_initialize) && SSshuttle.initialized))
+		return
+	for(var/obj/effect/overmap/visitable/ship/S as anything in SSshuttle.ships)
+		if(S.check_ownership(src))
+			S.engines |= controller
+			return
 
 /obj/structure/machinery/ion_engine/Destroy()
 	QDEL_NULL(controller)
 	. = ..()
+
+/// Cargo-orderable variant a player can build into their own commissioned
+/// hull (ship_commissioning_console.dm) -- starts loose like every other kit
+/// part this session added, needing only a wrench. Entirely self-contained:
+/// no piped fuel gas or fuel_port needed, only electrical power -- an
+/// alternate way to satisfy the same commission engine requirement the real
+/// nozzle engine (gas_thruster.dm) satisfies.
+/obj/structure/machinery/ion_engine/buildable
+	anchored = FALSE
+
+/obj/structure/machinery/ion_engine/buildable/attackby(obj/item/attacking_item, mob/user, params)
+	if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		attacking_item.play_tool_sound(get_turf(src), 50)
+		anchored = !anchored
+		to_chat(user, anchored ? SPAN_NOTICE("Ion engine secured in place.") : SPAN_NOTICE("Ion engine unsecured."))
+		return TRUE
+	return ..(attacking_item, user)
 
 /obj/structure/machinery/ion_engine/proc/get_status()
 	. = list()

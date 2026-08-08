@@ -1698,15 +1698,8 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		log_drydock_warning("drydockCommission: refused -- no helm console in envelope near [console] (acting=[acting]).")
 		return FALSE
 
-	// Per explicit follow-up request: navigation is now required too -- it's
-	// the only thing that lets crew actually see anything outside the hull
-	// (live position/speed/heading, nearby contacts), not merely a display
-	// nicety. Reverses the earlier "navigation is optional" decision.
-	if(!_drydock_envelope_find_navigation(envelope))
-		if(user)
-			to_chat(user, SPAN_WARNING("No navigation console found in the build envelope -- without one, this hull has no way to see anything outside itself."))
-		log_drydock_warning("drydockCommission: refused -- no navigation console in envelope near [console] (acting=[acting]).")
-		return FALSE
+	// Navigation is buildable/orderable but deliberately NOT required here --
+	// only helm and shuttle_control gate commissioning.
 
 	// Drydock ships genuinely consume fuel (fuel_consumption is non-zero for
 	// every hull -- see player_built_shuttle.dm) -- without a fuel port
@@ -1726,12 +1719,26 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return FALSE
 
 	// The decorative propulsion count above is structural only -- a real
-	// engine (one that actually burns piped fuel gas, populates
-	// datum/ship_engine) is a separate, additional requirement.
-	if(!_drydock_envelope_find_ship_engine(envelope))
+	// engine (one that actually populates datum/ship_engine) is a separate,
+	// additional requirement. Either a piped nozzle engine or a
+	// self-contained ion engine satisfies this -- not both.
+	if(!_drydock_envelope_find_ship_engine(envelope) && !_drydock_envelope_find_ion_engine(envelope))
 		if(user)
-			to_chat(user, SPAN_WARNING("No engine nozzle found in the build envelope -- without one, this hull has nothing to actually burn fuel for thrust."))
-		log_drydock_warning("drydockCommission: refused -- no engine nozzle in envelope near [console] (acting=[acting]).")
+			to_chat(user, SPAN_WARNING("No engine found in the build envelope -- without a nozzle engine (piped to a fuel-gas network) or an ion engine (self-contained, needs only power), this hull has nothing to actually burn for thrust."))
+		log_drydock_warning("drydockCommission: refused -- no engine of either type in envelope near [console] (acting=[acting]).")
+		return FALSE
+
+	// Without a sensors terminal + array, crew have no way to see anything
+	// outside the hull at all.
+	if(!_drydock_envelope_find_sensors_terminal(envelope))
+		if(user)
+			to_chat(user, SPAN_WARNING("No sensors terminal found in the build envelope -- without one, crew have no way to see anything outside the hull."))
+		log_drydock_warning("drydockCommission: refused -- no sensors terminal in envelope near [console] (acting=[acting]).")
+		return FALSE
+	if(!_drydock_envelope_find_sensor_array(envelope))
+		if(user)
+			to_chat(user, SPAN_WARNING("No sensor array found in the build envelope -- the sensors terminal has nothing to actually read from."))
+		log_drydock_warning("drydockCommission: refused -- no sensor array in envelope near [console] (acting=[acting]).")
 		return FALSE
 
 	// Payment -- mirrors drydockBuy()'s own personal/faction split exactly,
@@ -1940,6 +1947,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// every other captured object here gets rebound proactively instead of
 	// waiting on something else to trigger it, so do the same for these.
 	var/list/obj/structure/machinery/computer/ship/captured_ship_computers = list()
+	// Self-contained ion engines (ion_thruster.dm) -- same "built station-side
+	// before the ship existed, silently never links" gap the nozzle engine
+	// (Part 38) and ship computers above already needed fixing for.
+	var/list/obj/structure/machinery/ion_engine/captured_ion_engines = list()
 	for(var/turf/source_turf in translation)
 		var/turf/dest_turf = translation[source_turf]
 		if(!dest_turf)
@@ -1961,6 +1972,8 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 				captured_atmos_machines += M
 			else if(istype(M, /obj/structure/machinery/computer/ship))
 				captured_ship_computers += M
+			else if(istype(M, /obj/structure/machinery/ion_engine))
+				captured_ion_engines += M
 
 	// A player may have claimed the build site into a custom area via the
 	// station blueprints tool before building here (blueprints.dm,
@@ -2080,6 +2093,25 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			captured_engine.node = null
 			captured_engine.sync_ship_registration()
 		SSmachinery.setup_atmos_machinery(captured_atmos_machines, TRUE)
+
+	// Same registration gap as the nozzle engines above, for any self-contained
+	// ion engine the player built -- plus a power_change() re-derive, same
+	// reasoning as the captured ship computers' own call above (a machine
+	// built in a station-side area never recomputes NOPOWER after being
+	// forceMove()'d into the ship's own area here).
+	for(var/obj/structure/machinery/ion_engine/captured_ion_engine in captured_ion_engines)
+		captured_ion_engine.sync_ship_registration()
+		captured_ion_engine.power_change()
+
+	// refresh_fuel_ports_list() (overmap_shuttle.dm) only ever runs once, at
+	// the shuttle datum's own New() -- which for a commissioned ship fires
+	// at blank-shell template load time, before the player's own built fuel
+	// port has been captured onto this z at all. Without this, fuel_ports
+	// stays permanently empty and the engine's own backup-fuel draw
+	// (check_fuel(), gas_thruster.dm) has nothing to ever find. Re-run now
+	// that the fuel port has actually landed here.
+	if(istype(shuttle_datum))
+		shuttle_datum.refresh_fuel_ports_list()
 
 	DS.ready = TRUE
 
@@ -2885,6 +2917,37 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		var/obj/structure/machinery/atmospherics/unary/engine/nozzle = locate() in T
 		if(nozzle)
 			return nozzle
+	return null
+
+/// The first self-contained ion engine found anywhere in envelope, or null --
+/// an alternate way to satisfy the same commission requirement
+/// _drydock_envelope_find_ship_engine() checks, since either engine type
+/// populates datum/ship_engine the same way (ion_thruster.dm).
+/proc/_drydock_envelope_find_ion_engine(list/turf/envelope)
+	for(var/turf/T in envelope)
+		var/obj/structure/machinery/ion_engine/engine = locate() in T
+		if(engine)
+			return engine
+	return null
+
+/// The first sensors terminal found anywhere in envelope, or null --
+/// required at commission time since it's the only way to see anything
+/// outside the hull.
+/proc/_drydock_envelope_find_sensors_terminal(list/turf/envelope)
+	for(var/turf/T in envelope)
+		var/obj/structure/machinery/computer/ship/sensors/terminal = locate() in T
+		if(terminal)
+			return terminal
+	return null
+
+/// The first sensor array found anywhere in envelope, or null -- required
+/// alongside the sensors terminal, which has nothing to read from without
+/// one.
+/proc/_drydock_envelope_find_sensor_array(list/turf/envelope)
+	for(var/turf/T in envelope)
+		var/obj/structure/machinery/shipsensors/array = locate() in T
+		if(array)
+			return array
 	return null
 
 /// Every /obj/structure/shuttle/engine/propulsion (including the buildable

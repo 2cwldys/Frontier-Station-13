@@ -127,12 +127,32 @@
 		if(!HasFuel())
 			to_chat(user, SPAN_WARNING("\The [src] has no phoron left to burn."))
 			return
+		if(_currently_at_away_site())
+			to_chat(user, SPAN_WARNING("\The [src] refuses to engage -- it can't cloak the ship at an away site."))
+			return
 	_set_active(!active)
+
+/// TRUE when this device's ship is genuinely, physically parked at an away
+/// site right now -- mirrors ship_shield_generator.dm's own
+/// _currently_at_away_site() exactly (see its doc comment for why
+/// current_location, not linked's own position, is the reliable source once
+/// a ship is actually docked, and why is_away_level() covers pinned sites
+/// too).
+/obj/structure/machinery/ship_cloaking_device/proc/_currently_at_away_site()
+	if(!istype(linked, /obj/effect/overmap/visitable/ship/landable))
+		return FALSE
+	var/obj/effect/overmap/visitable/ship/landable/VS = linked
+	var/datum/shuttle/shuttle_datum = SSshuttle.shuttles[VS.shuttle]
+	if(!istype(shuttle_datum) || !shuttle_datum.current_location)
+		return FALSE
+	return is_away_level(shuttle_datum.current_location.z)
 
 /obj/structure/machinery/ship_cloaking_device/proc/_set_active(new_state, silent = FALSE)
 	if(active == new_state)
 		return
 	active = new_state
+	if(active)
+		_disable_own_ship_shields()
 	if(istype(linked))
 		linked.set_cloaked(active)
 		// Z-scoped, not the whole world -- announce_to_ship_z() (ship_shield_generator.dm)
@@ -149,6 +169,18 @@
 
 /obj/structure/machinery/ship_cloaking_device/update_icon()
 	set_light(active ? 2 : 0, 1, l_color = color)
+
+/// Symmetric with ship_shield_generator.dm's own _disable_own_ship_cloak() --
+/// a cloak and shields can't run at once, so activating the cloak
+/// force-drops any active shields on the same ship. linked here is generic
+/// (/obj/effect/overmap/visitable) since attempt_hook_up() isn't ship-typed;
+/// shield_generator only exists on the /ship subtype, hence the istype cast.
+/obj/structure/machinery/ship_cloaking_device/proc/_disable_own_ship_shields()
+	if(!istype(linked, /obj/effect/overmap/visitable/ship))
+		return
+	var/obj/effect/overmap/visitable/ship/VS = linked
+	if(istype(VS.shield_generator) && VS.shield_generator.active)
+		VS.shield_generator._set_active(FALSE)
 
 /obj/structure/machinery/ship_cloaking_device/attackby(obj/item/attacking_item, mob/user, params)
 	if(istype(attacking_item, sheet_path))
@@ -194,6 +226,7 @@
 	var/needed_sheets = power_output / time_per_sheet // fraction of a sheet burned per process() tick
 	data["seconds_per_sheet"] = time_per_sheet
 	data["seconds_remaining"] = (needed_sheets > 0) ? round((sheets + sheet_left) / needed_sheets) : null
+	data["at_away_site"] = _currently_at_away_site()
 	return data
 
 /**

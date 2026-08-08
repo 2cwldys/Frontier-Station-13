@@ -157,6 +157,8 @@
 	if(istype(linked, /obj/effect/overmap/visitable/ship))
 		var/obj/effect/overmap/visitable/ship/own_ship = linked
 		data["own_shields"] = get_shield_data(own_ship.shield_generator)
+		data["own_shield_control"] = get_shield_control_data(own_ship.shield_generator)
+		data["own_cloak_control"] = get_cloak_control_data(_find_own_cloak(own_ship))
 	if(linked?.targeting)
 		for(var/obj/structure/machinery/ship_weapon/SW in linked.ship_weapons)
 			if(!SW.special_firing_mechanism)
@@ -308,6 +310,21 @@
 			platform_direction = text2num(params["dir"])
 			. = TRUE
 
+		if("toggle_shields")
+			if(istype(linked, /obj/effect/overmap/visitable/ship))
+				var/obj/effect/overmap/visitable/ship/own_ship = linked
+				if(istype(own_ship.shield_generator))
+					own_ship.shield_generator.toggle_shield(usr)
+			. = TRUE
+
+		if("toggle_cloak")
+			if(istype(linked, /obj/effect/overmap/visitable/ship))
+				var/obj/effect/overmap/visitable/ship/own_ship = linked
+				var/obj/structure/machinery/ship_cloaking_device/CD = _find_own_cloak(own_ship)
+				if(CD)
+					CD.toggle_cloak(usr)
+			. = TRUE
+
 /obj/structure/machinery/computer/ship/targeting/proc/get_gun_data(var/obj/structure/machinery/ship_weapon/SW)
 	var/ammo_status = length(SW.ammunition) ? "Loaded, [length(SW.ammunition)] shots" : "Unloaded"
 	var/obj/item/ship_ammunition/SA
@@ -327,6 +344,45 @@
 	if(!gen || !gen.active)
 		return null
 	return list("shield_strength" = gen.shield_strength, "max_shield_strength" = gen.max_shield_strength)
+
+/// Own-ship shield toggle control data -- the same fields
+/// ShipShieldGenerator.tsx already computes its own disabled/reason logic
+/// from (ShipShieldGenerator.dm's ui_data()), so the console's own toggle
+/// button can never disagree with the generator's own console about when
+/// it's actually available.
+/obj/structure/machinery/computer/ship/targeting/proc/get_shield_control_data(obj/structure/machinery/ship_shield_generator/gen)
+	if(!istype(gen))
+		return list("exists" = FALSE)
+	return list(
+		"exists" = TRUE,
+		"active" = gen.active,
+		"anchored" = gen.anchored,
+		"has_fuel" = (gen.sheets > 0),
+		"at_away_site" = gen._currently_at_away_site(),
+		"recovery_seconds_left" = (world.time < gen.shield_recovery_at) ? round((gen.shield_recovery_at - world.time) / 10) : 0,
+	)
+
+/// No back-reference var exists from the ship to its own cloaking device
+/// (unlike shield_generator on ship.dm) -- mirrors the exact same
+/// SSmachinery.machinery scan _ship_gun.dm's own fire() already uses to
+/// force-uncloak a firing ship.
+/obj/structure/machinery/computer/ship/targeting/proc/_find_own_cloak(obj/effect/overmap/visitable/ship/own_ship)
+	for(var/obj/structure/machinery/ship_cloaking_device/CD in SSmachinery.machinery)
+		if(CD.linked == own_ship)
+			return CD
+	return null
+
+/obj/structure/machinery/computer/ship/targeting/proc/get_cloak_control_data(obj/structure/machinery/ship_cloaking_device/CD)
+	if(!istype(CD))
+		return list("exists" = FALSE)
+	return list(
+		"exists" = TRUE,
+		"active" = CD.active,
+		"anchored" = CD.anchored,
+		"has_fuel" = (CD.sheets > 0),
+		"at_away_site" = CD._currently_at_away_site(),
+		"lockout_seconds_left" = (world.time < CD.cloak_lockout_until) ? round((CD.cloak_lockout_until - world.time) / 10) : 0,
+	)
 
 /obj/structure/machinery/computer/ship/targeting/proc/copy_entrypoints(var/z_level_filter = 0)
 	. = list()

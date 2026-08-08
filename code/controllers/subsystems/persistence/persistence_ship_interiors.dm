@@ -239,6 +239,17 @@ GLOBAL_LIST_EMPTY(persistence_docked_turf_scope)
 	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
 	if(!DS || DS.stashed || DS.z != z)
 		return
+	// refresh_fuel_ports_list() (overmap_shuttle.dm) only ever runs once, at
+	// the shuttle datum's own New() -- which fires at template-load time,
+	// before objectsApplyZ() (above) has restored this ship's own saved fuel
+	// ports onto the z. Without this, any drydock ship's fuel_ports stays
+	// permanently empty on every single retrieve, not just the first
+	// commission -- same gap, same fix, run here for every ship type.
+	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[z]"]
+	var/datum/shuttle/autodock/overmap/shuttle_datum = istype(marker) ? SSshuttle.shuttles[marker.shuttle] : null
+	if(istype(shuttle_datum))
+		shuttle_datum.refresh_fuel_ports_list()
+
 	DS.ready = TRUE
 	log_drydock("_shipInteriorApplyFinish: shuttle_id=[shuttle_id] finished background settle, ready to board.")
 	if(DS.owner_ckey)

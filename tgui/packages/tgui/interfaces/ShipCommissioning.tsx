@@ -27,6 +27,8 @@ type ShipCommissioningData = {
   fuel_port_found: BooleanLike;
   engine_control_found: BooleanLike;
   ship_engine_found: BooleanLike;
+  sensors_terminal_found: BooleanLike;
+  sensor_array_found: BooleanLike;
   can_generate_floor: BooleanLike;
 };
 
@@ -41,10 +43,11 @@ export const ShipCommissioning = (props) => {
     !data.console_found ||
     !data.propulsion_found ||
     !data.helm_found ||
-    !data.navigation_found ||
     !data.fuel_port_found ||
     !data.engine_control_found ||
-    !data.ship_engine_found;
+    !data.ship_engine_found ||
+    !data.sensors_terminal_found ||
+    !data.sensor_array_found;
 
   return (
     <Window width={420} height={460}>
@@ -126,16 +129,6 @@ export const ShipCommissioning = (props) => {
             </Box>
           </Section>
         )}
-        {!!data.beacon_found && !data.navigation_found && (
-          <Section title="Navigation Console Required">
-            <Box color="bad">
-              No navigation console found in the build envelope -- without
-              one, crew have no way to see anything outside the hull.
-              Cargo-order one (Navigation Console Crate) and wrench it down
-              anywhere inside the hull.
-            </Box>
-          </Section>
-        )}
         {!!data.beacon_found && !data.fuel_port_found && (
           <Section title="Fuel Port Required">
             <Box color="bad">
@@ -156,12 +149,35 @@ export const ShipCommissioning = (props) => {
           </Section>
         )}
         {!!data.beacon_found && !data.ship_engine_found && (
-          <Section title="Engine Nozzle Required">
+          <Section title="Engine Required">
             <Box color="bad">
-              No engine nozzle found in the build envelope -- the decorative
-              propulsion units alone don't actually burn fuel. Cargo-order a
-              Ship Nozzle Engine Crate, wrench it down, and pipe it into a
-              fuel-gas network.
+              No engine found in the build envelope -- the decorative
+              propulsion units alone don't actually burn fuel. Cargo-order
+              either a Ship Nozzle Engine Crate (wrench it down and pipe it
+              into a fuel-gas network -- any gas canister works, not just
+              phoron) or an Ion Engine Crate (wrench it down and wire it to
+              power -- no piping needed at all). Either one satisfies this
+              requirement; you don't need both.
+            </Box>
+          </Section>
+        )}
+        {!!data.beacon_found && !data.sensors_terminal_found && (
+          <Section title="Sensors Terminal Required">
+            <Box color="bad">
+              No sensors terminal found in the build envelope -- without one,
+              crew have no way to see anything outside the hull. Cargo-order
+              one (Sensors Terminal Crate) and wrench it down anywhere inside
+              the hull.
+            </Box>
+          </Section>
+        )}
+        {!!data.beacon_found && !data.sensor_array_found && (
+          <Section title="Sensor Array Required">
+            <Box color="bad">
+              No sensor array found in the build envelope -- the sensors
+              terminal has nothing to actually read from without one.
+              Cargo-order one (Ship Sensor Array Crate) and wrench it down
+              anywhere inside the hull.
             </Box>
           </Section>
         )}

@@ -297,12 +297,38 @@
 		if(!HasFuel())
 			to_chat(user, SPAN_WARNING("\The [src] has no phoron left to burn."))
 			return
+		if(_currently_at_away_site())
+			to_chat(user, SPAN_WARNING("\The [src] refuses to raise shields -- they can't be projected at an away site."))
+			return
 	_set_active(!active)
+
+/// TRUE when this generator's ship is genuinely, physically parked at an
+/// away site right now (any /obj/effect/overmap/visitable/sector tagged
+/// ZTRAIT_AWAY -- pinned/persistent sites included, since those are stamped
+/// with the same trait, see is_away_level()/persistence.dm) -- shields can't
+/// be raised there (see toggle_shield()) and get silently switched off the
+/// instant a ship lands at one (see on_landing(), landable.dm). Resolved
+/// through the shuttle datum's own current_location rather than linked's own
+/// position -- once a ship is actually docked, its overmap marker (linked)
+/// sits nested inside the target sector's marker on the overmap-display z,
+/// so linked's own z no longer reflects where the ship really is.
+/// current_location is a /obj/effect/shuttle_landmark, never nested, so its
+/// z always does.
+/obj/structure/machinery/ship_shield_generator/proc/_currently_at_away_site()
+	if(!istype(linked, /obj/effect/overmap/visitable/ship/landable))
+		return FALSE
+	var/obj/effect/overmap/visitable/ship/landable/VS = linked
+	var/datum/shuttle/shuttle_datum = SSshuttle.shuttles[VS.shuttle]
+	if(!istype(shuttle_datum) || !shuttle_datum.current_location)
+		return FALSE
+	return is_away_level(shuttle_datum.current_location.z)
 
 /obj/structure/machinery/ship_shield_generator/proc/_set_active(new_state, silent = FALSE)
 	if(active == new_state)
 		return
 	active = new_state
+	if(active)
+		_disable_own_ship_cloak()
 	if(!silent)
 		visible_message(active \
 			? SPAN_NOTICE("\The [src] hums to life -- a faint shimmer spreads across the hull.") \
@@ -329,6 +355,19 @@
 
 /obj/structure/machinery/ship_shield_generator/update_icon()
 	set_light(active ? 2 : 0, 1, l_color = color)
+
+/// Shields and a cloak can't run at once -- raising shields force-drops any
+/// active cloak on the same ship. No back-reference var exists from the ship
+/// to its own cloaking device (unlike this generator, which registers onto
+/// ship.dm's shield_generator var) -- mirrors the exact SSmachinery.machinery
+/// scan _ship_gun.dm's own fire() already uses to force-uncloak a firing ship.
+/obj/structure/machinery/ship_shield_generator/proc/_disable_own_ship_cloak()
+	if(!istype(linked))
+		return
+	for(var/obj/structure/machinery/ship_cloaking_device/CD in SSmachinery.machinery)
+		if(CD.linked != linked || !CD.active)
+			continue
+		CD._set_active(FALSE)
 
 /// Z-wide broadcast to every mob on the given ship's Z-level(s) -- Z-wide,
 /// not console-range-limited like the engine announcer
@@ -611,6 +650,7 @@
 	data["seconds_per_sheet"] = time_per_sheet
 	data["seconds_remaining"] = (needed_sheets > 0) ? round((sheets + sheet_left) / needed_sheets) : null
 	data["recovery_seconds_left"] = (world.time < shield_recovery_at) ? round((shield_recovery_at - world.time) / 10) : 0
+	data["at_away_site"] = _currently_at_away_site()
 	return data
 
 /obj/structure/machinery/ship_shield_generator/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)

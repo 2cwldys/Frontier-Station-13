@@ -1165,3 +1165,51 @@
 	container_type = "crate"
 	groupable = TRUE
 	spawn_amount = 1
+
+/singleton/cargo_item/ion_engine_crate
+	category = "engineering"
+	name = "Ion Engine Crate"
+	supplier = "Hub"
+	description = "A ready-to-place ion propulsion device -- a self-contained alternative to the rocket nozzle engine, converting stored electrical charge directly into thrust with no piped fuel gas or fuel port needed. Wrench it down and wire it to power. Either this or a piped nozzle engine satisfies a commissioned hull's engine requirement -- not both."
+	price = 20000
+	items = list(/obj/structure/machinery/ion_engine/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/fusion_reactor_crate
+	category = "engineering"
+	name = "Fusion Reactor Crate"
+	supplier = "Hub"
+	description = "A ready-to-place miniature fusion reactor -- rated for 500 kW max safe output, runs on tritium sheets and needs a coolant top-up to run efficiently. Gives a self-built hull local electrical power without needing a full station-style grid. Not required to commission a hull, purely optional infrastructure. Handle with care -- overloading or emagging it can cause a serious explosion."
+	price = 50000
+	items = list(/obj/structure/machinery/power/portgen/basic/fusion/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/sensors_terminal_crate
+	category = "engineering"
+	name = "Sensors Terminal Crate"
+	supplier = "Hub"
+	description = "A ready-to-place sensors terminal -- required to see anything outside a commissioned hull and to set its sensor array's range. Wrench it down anywhere inside the hull; needs a Ship Sensor Array Crate too."
+	price = 15000
+	items = list(/obj/structure/machinery/computer/ship/sensors/terminal/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/ship_sensor_array_crate
+	category = "engineering"
+	name = "Ship Sensor Array Crate"
+	supplier = "Hub"
+	description = "A ready-to-place sensor array -- the actual hardware a sensors terminal reads from and commands. Wrench it down anywhere inside the hull; needs a Sensors Terminal Crate too."
+	price = 15000
+	items = list(/obj/structure/machinery/shipsensors/weak/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
