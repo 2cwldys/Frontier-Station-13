@@ -379,6 +379,26 @@
 	lace_mob.real_name = char_name
 	lace_mob.neural_lace = src
 
+	// Best-effort appearance/DNA restoration: unlike the normal death path
+	// (removed(), which clones DNA straight off the still-existing body),
+	// this verb exists specifically for when the body is ALSO gone -- the
+	// only remaining source is the connected client's own saved
+	// preferences. ready_dna() derives DNA from a mob's OWN appearance vars,
+	// so the shared preview mannequin (SSmobs.get_mannequin(), already used
+	// for character-preview rendering elsewhere -- preferences_setup.dm's
+	// update_mannequin()) gets prefs applied to it via the same copy_to()/
+	// ready_dna() sequence create_character() uses (new_player.dm), then the
+	// result is cloned off and the mannequin left as-is for the pool to
+	// reuse/expire normally. Without this, body_vat.dm has nothing to work
+	// from and a disaster-recovery resleeve grows into a random-looking body
+	// instead of the player's actual character.
+	if(C.prefs)
+		var/mob/living/carbon/human/dummy/mannequin/temp = SSmobs.get_mannequin(target_ckey)
+		C.prefs.copy_to(temp)
+		temp.dna.ready_dna(temp)
+		temp.dna.b_type = C.prefs.b_type
+		lace_mob.dna = temp.dna.Clone()
+
 	// Ghosts/observers keep their mind -- transfer preserves it. A mob with
 	// no mind (e.g. lobby) gets pulled in by ckey and a fresh mind built.
 	if(C.mob?.mind)

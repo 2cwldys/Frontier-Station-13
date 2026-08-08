@@ -443,6 +443,17 @@ SUBSYSTEM_DEF(persistence)
 			continue
 
 		L._auto_transfer_to_storage()
+		// A lace still installed on a dead body only gets as far as surgical
+		// extraction on the call above -- _auto_transfer_to_storage() ejects
+		// it via removed() and returns, scheduling a fresh 4-hour timer
+		// rather than continuing on to the vault itself (see that proc's own
+		// "removed() will call this again indirectly" comment: that's the
+		// NEW timer, not an immediate re-invocation). Finish the job now
+		// instead of leaving a freshly-extracted, still-unvaulted lace_mob
+		// exactly as exposed to the imminent restart as before this sweep
+		// existed.
+		if(L.lace_occupied && !istype(L.loc, /obj/structure/machinery/lace_storage))
+			L._auto_transfer_to_storage()
 		vaulted++
 
 	log_subsystem_persistence_info("Lace vault sweep: [vaulted] vaulted, [skipped_alive] skipped (alive owner).")
