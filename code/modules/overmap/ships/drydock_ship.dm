@@ -136,6 +136,11 @@
 /obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable
 	anchored = FALSE
 	circuit = /obj/item/circuitboard/ship/shuttle_control
+	/// Stable identity tag, lazily minted once -- lets a ship_commissioning
+	/// console's saved link to this specific console survive a restart. See
+	/// GLOB.drydock_linkable_devices_by_tag's own doc comment
+	/// (ship_commissioning_console.dm).
+	var/id_tag
 
 /obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable/Initialize()
 	. = ..()
@@ -143,8 +148,27 @@
 	// there before being built into a hull and captured (drydockCommission(),
 	// persistence_shuttles.dm) -- same registration every other player-placed
 	// kit machine does in its own Initialize() (docking_beacon.dm, etc.).
+	if(!id_tag)
+		id_tag = "shuttle_console_[REF(src)]"
+	GLOB.drydock_linkable_devices_by_tag[id_tag] = src
 	if(GLOB.config.sql_enabled && GLOB.persistence_ready)
 		SSpersistence.objectsRegisterTrack(src)
+
+/obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable/Destroy()
+	GLOB.drydock_linkable_devices_by_tag -= id_tag
+	return ..()
+
+/obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable/persistent_objects_get_content()
+	var/list/content = list()
+	content["id_tag"] = id_tag
+	return content
+
+/obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(content["id_tag"])
+		GLOB.drydock_linkable_devices_by_tag -= id_tag
+		id_tag = content["id_tag"]
+		GLOB.drydock_linkable_devices_by_tag[id_tag] = src
 
 /obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable/attackby(obj/item/attacking_item, mob/user, params)
 	if(attacking_item.tool_behaviour == TOOL_WRENCH)

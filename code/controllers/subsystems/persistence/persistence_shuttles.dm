@@ -379,6 +379,39 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			return TRUE
 	return FALSE
 
+/// The overmap sector marker representing where DS's content is GENUINELY,
+/// physically located right now -- NOT necessarily DS's own marker object
+/// directly. A ship's own marker (GLOB.map_sectors["[DS.z]"]) gets
+/// forceMove()'d into the target sector's own marker's .contents (nested,
+/// non-turf .loc) while SHIP_STATUS_LANDED (on_landing(), landable.dm --
+/// pre-existing, unconditional for every landable ship docking anywhere,
+/// see on_takeoff()'s own forceMove(get_turf(loc)) extraction right before
+/// flight logic can resume) -- get_dist() against a nested marker does not
+/// reliably reflect where the ship actually is. Any proximity check against
+/// a specific ship (not a sector in general) should resolve position through
+/// this proc instead of reading GLOB.map_sectors["[DS.z]"] directly.
+///
+/// When landed/docked, resolves via shuttle_datum.current_location instead
+/// -- a real landmark anchored to a real turf, set unconditionally and
+/// correctly by shuttle_moved() (shuttle.dm:251), the same "single source of
+/// truth" _drydockStashRun()'s own away-from-home stash gate already trusts
+/// -- and returns the sector that turf's own z actually belongs to. When not
+/// docked (SHIP_STATUS_OVERMAP), the marker already sits on a normal
+/// overmap turf, so it's returned directly, unchanged from today's behavior.
+/proc/_drydock_ship_sector(datum/drydock_ship/DS)
+	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
+	if(!istype(marker))
+		return null
+	if(marker.status != SHIP_STATUS_LANDED)
+		return marker
+	var/datum/shuttle/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
+	if(!istype(shuttle_datum) || !shuttle_datum.current_location)
+		return marker
+	var/turf/T = get_turf(shuttle_datum.current_location)
+	if(!T)
+		return marker
+	return GLOB.map_sectors["[T.z]"]
+
 /// Verbose debug logging for the drydock/shuttle system -- writes to the
 /// dedicated persistence subsystem log file (gated behind the
 /// log_subsystems_persistence config toggle), never shown to players. Every
@@ -2675,8 +2708,13 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		// A personal ship may stash near ANY faction's beacon (not
 		// necessarily one it owns), provided that beacon's own sector is
 		// currently med-sec or better -- a faction ship still requires its
-		// OWN faction's beacon specifically, same as retrieve.
-		if(!_drydock_secured_beacon_nearby(check_marker, DS.faction_uid))
+		// OWN faction's beacon specifically, same as retrieve. _drydock_ship_sector(),
+		// not check_marker directly -- check_marker is DS's own marker, which
+		// may currently be nested (docked) and would give get_dist() a
+		// meaningless result; check_marker itself is still used correctly
+		// below for the guest-ship/nested-in-host checks, which specifically
+		// care about its own nesting state.
+		if(!_drydock_secured_beacon_nearby(_drydock_ship_sector(DS), DS.faction_uid))
 			if(user)
 				to_chat(user, SPAN_WARNING(DS.faction_uid ? "This ship must be within 1 tile of your faction's own beacon to be stashed." : "You must be near a secured (med-sec or better) faction beacon to stash."))
 			log_drydock_warning("drydockStash: refused -- shuttle_id=[shuttle_id] not near a valid beacon (acting=[acting]).")

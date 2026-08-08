@@ -36,10 +36,39 @@
 		/obj/item/stack/cable_coil
 	)
 
+	/// Stable identity tag, lazily minted once (never position-derived --
+	/// this device can be moved before it's finally wrenched in place, unlike
+	/// docking_beacon's own position-derived landmark_tag). Lets a
+	/// ship_commissioning console's saved link survive a restart -- see
+	/// GLOB.drydock_linkable_devices_by_tag's own doc comment
+	/// (ship_commissioning_console.dm).
+	var/id_tag
+
 /obj/structure/machinery/docking_transponder/Initialize()
 	. = ..()
+	if(!id_tag)
+		id_tag = "transponder_[REF(src)]"
+	GLOB.drydock_linkable_devices_by_tag[id_tag] = src
 	if(GLOB.config.sql_enabled && GLOB.persistence_ready)
 		SSpersistence.objectsRegisterTrack(src)
+
+/obj/structure/machinery/docking_transponder/Destroy()
+	GLOB.drydock_linkable_devices_by_tag -= id_tag
+	return ..()
+
+/// Only id_tag needs saving -- everything else (position/dir/anchored) is
+/// already covered separately by the generic tracked-object save path.
+/obj/structure/machinery/docking_transponder/persistent_objects_get_content()
+	var/list/content = list()
+	content["id_tag"] = id_tag
+	return content
+
+/obj/structure/machinery/docking_transponder/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(content["id_tag"])
+		GLOB.drydock_linkable_devices_by_tag -= id_tag
+		id_tag = content["id_tag"]
+		GLOB.drydock_linkable_devices_by_tag[id_tag] = src
 
 /obj/structure/machinery/docking_transponder/attackby(obj/item/attacking_item, mob/user, params)
 	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)

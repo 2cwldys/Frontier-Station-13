@@ -426,7 +426,10 @@
 		// still has to actually be nearby (same or an adjacent sector, or up
 		// to DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX if it got hazard-overflow-
 		// placed -- shipPlaceOvermapMarker(), persistence_shuttles.dm).
-		var/obj/effect/overmap/visitable/ship_sector = GLOB.map_sectors["[DS.z]"]
+		// _drydock_ship_sector(), not a bare GLOB.map_sectors["[DS.z]"] lookup
+		// -- DS's own marker may currently be nested (docked, on_landing(),
+		// landable.dm), which would give get_dist() a meaningless result.
+		var/obj/effect/overmap/visitable/ship_sector = _drydock_ship_sector(DS)
 		if(!istype(mob_sector) || !istype(ship_sector) || get_dist(mob_sector, ship_sector) > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
 			continue
 		candidates += DS
@@ -545,7 +548,7 @@
 	if(QDELETED(L) || L.stat == DEAD || L.buckled_to)
 		return FALSE
 	var/obj/effect/overmap/visitable/recheck_mob_sector = _drydock_boarder_sector(L)
-	var/obj/effect/overmap/visitable/recheck_ship_sector = GLOB.map_sectors["[target.z]"]
+	var/obj/effect/overmap/visitable/recheck_ship_sector = _drydock_ship_sector(target)
 	if(!istype(recheck_mob_sector) || !istype(recheck_ship_sector) || get_dist(recheck_mob_sector, recheck_ship_sector) > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
 		to_chat(L, SPAN_WARNING("You're no longer close enough to board."))
 		return FALSE
@@ -663,7 +666,11 @@
 	var/datum/drydock_ship/target_ship = _drydock_board_resolve_ship(inviter, null)
 	if(!target_ship)
 		return FALSE
-	var/obj/effect/overmap/visitable/ship_sector = GLOB.map_sectors["[target_ship.z]"]
+	// _drydock_ship_sector(), not a bare GLOB.map_sectors["[target_ship.z]"]
+	// lookup -- see _drydock_board_resolve_ship()'s own identical fix above.
+	// Derived once here and reused unchanged below (lines checking
+	// candidate/target proximity) rather than re-deriving each time.
+	var/obj/effect/overmap/visitable/ship_sector = _drydock_ship_sector(target_ship)
 
 	// "Nearby" is sector-adjacency to the ship, same rule self-boarding uses
 	// (_drydock_board_resolve_ship) -- not physical same-Z proximity to the

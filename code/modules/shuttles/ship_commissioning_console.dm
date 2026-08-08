@@ -17,6 +17,17 @@
  * a reusable shipyard fixture, ready for the next hull the moment the
  * previous one launches.
  */
+
+/// tag string -> live device object, for the three linkable device types
+/// (docking_beacon -- keyed by its own landmark_tag; docking_transponder and
+/// the buildable shuttle_control console -- each keyed by a lazily-minted
+/// id_tag). Lets a saved link (linked_beacon_tag/linked_transponder_tag/
+/// linked_shuttle_console_tag below) be resolved back to whichever live
+/// object currently carries that tag after a restart re-creates everything
+/// fresh from the DB -- a raw object reference can't survive that, but a
+/// stable string plus this lookup can.
+GLOBAL_LIST_EMPTY(drydock_linkable_devices_by_tag)
+
 /obj/structure/machinery/computer/ship_commissioning
 	name = "ship commissioning console"
 	desc = "Surveys a build envelope and files the paperwork to commission a completed hull as a real, independently-owned shuttle."
@@ -62,10 +73,53 @@
 	var/obj/structure/machinery/docking_transponder/linked_transponder
 	var/obj/structure/machinery/computer/shuttle_control/linked_shuttle_console
 
+	/// Tag strings mirroring the three links above, saved/restored via
+	/// persistent_objects_get_content()/apply_content() below -- a raw
+	/// object reference can't survive a restart (everything gets destroyed
+	/// and recreated fresh from the DB), but a stable tag plus
+	/// GLOB.drydock_linkable_devices_by_tag can. Only consulted as a lazy
+	/// fallback inside the _valid_linked_*() checks when the live var above
+	/// is null but a saved tag exists -- resolved once, then cached into the
+	/// live var itself exactly as if freshly multitool-linked.
+	var/linked_beacon_tag
+	var/linked_transponder_tag
+	var/linked_shuttle_console_tag
+
 /obj/structure/machinery/computer/ship_commissioning/Initialize()
 	. = ..()
 	if(GLOB.config.sql_enabled && GLOB.persistence_ready)
 		SSpersistence.objectsRegisterTrack(src)
+
+/// Saves the three link TAGS (not raw references -- see linked_beacon_tag's
+/// own doc comment above). Reads the tag straight off whichever device is
+/// currently live-linked, if any -- if a tag was only ever lazily resolved
+/// from a previous restore and never re-confirmed live, linked_beacon_tag
+/// etc. below already holds it regardless, so this still saves correctly.
+/obj/structure/machinery/computer/ship_commissioning/persistent_objects_get_content()
+	var/list/content = list()
+	content["linked_beacon_tag"] = linked_beacon ? linked_beacon.landmark_tag : linked_beacon_tag
+	content["linked_transponder_tag"] = linked_transponder ? linked_transponder.id_tag : linked_transponder_tag
+	if(istype(linked_shuttle_console, /obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable))
+		var/obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable/console = linked_shuttle_console
+		content["linked_shuttle_console_tag"] = console.id_tag
+	else
+		content["linked_shuttle_console_tag"] = linked_shuttle_console_tag
+	return content
+
+/// Restores the three tags as plain strings only -- deliberately does NOT
+/// eagerly resolve them to live objects here. This runs during
+/// objectsInstantiateRows()'s single restore pass, where the beacon/
+/// transponder/console this console links to may not have been instantiated
+/// yet (ordering hazard) -- lazy resolution inside _valid_linked_*() (called
+/// on demand, well after boot completes) avoids that entirely.
+/obj/structure/machinery/computer/ship_commissioning/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(content["linked_beacon_tag"])
+		linked_beacon_tag = content["linked_beacon_tag"]
+	if(content["linked_transponder_tag"])
+		linked_transponder_tag = content["linked_transponder_tag"]
+	if(content["linked_shuttle_console_tag"])
+		linked_shuttle_console_tag = content["linked_shuttle_console_tag"]
 
 /obj/structure/machinery/computer/ship_commissioning/Destroy()
 	QDEL_LIST(envelope_indicators)
@@ -226,6 +280,16 @@
 /// reported invalid here but NOT cleared -- see linked_beacon's own doc
 /// comment above.
 /obj/structure/machinery/computer/ship_commissioning/proc/_valid_linked_beacon()
+	// Lazy tag resolution -- only reached post-boot (this proc is only ever
+	// called on demand, from ui_data()/ui_act()/preview/generate, never
+	// during the restore pass itself), so the target device has always had
+	// a chance to finish instantiating by now. Resolves once, then caches
+	// into linked_beacon itself exactly as if freshly multitool-linked --
+	// see linked_beacon_tag's own doc comment above.
+	if(!linked_beacon && linked_beacon_tag)
+		var/atom/movable/resolved = GLOB.drydock_linkable_devices_by_tag[linked_beacon_tag]
+		if(istype(resolved, /obj/structure/machinery/docking_beacon))
+			_link_device("beacon", resolved)
 	if(!linked_beacon)
 		return null
 	if(!linked_beacon.anchored || !linked_beacon.beacon_active)
@@ -240,6 +304,10 @@
 /// had (the linked device must genuinely be part of the built hull), just
 /// checked against a specific identity instead of scanning for any match.
 /obj/structure/machinery/computer/ship_commissioning/proc/_valid_linked_transponder(list/turf/envelope)
+	if(!linked_transponder && linked_transponder_tag)
+		var/atom/movable/resolved = GLOB.drydock_linkable_devices_by_tag[linked_transponder_tag]
+		if(istype(resolved, /obj/structure/machinery/docking_transponder))
+			_link_device("transponder", resolved)
 	if(!linked_transponder || !envelope)
 		return null
 	if(!(get_turf(linked_transponder) in envelope))
@@ -249,6 +317,10 @@
 /// Same shape as _valid_linked_transponder() above, for the required
 /// shuttle_control console.
 /obj/structure/machinery/computer/ship_commissioning/proc/_valid_linked_console(list/turf/envelope)
+	if(!linked_shuttle_console && linked_shuttle_console_tag)
+		var/atom/movable/resolved = GLOB.drydock_linkable_devices_by_tag[linked_shuttle_console_tag]
+		if(istype(resolved, /obj/structure/machinery/computer/shuttle_control))
+			_link_device("console", resolved)
 	if(!linked_shuttle_console || !envelope)
 		return null
 	if(!(get_turf(linked_shuttle_console) in envelope))

@@ -319,6 +319,13 @@
 		L.dir = dir
 
 /obj/structure/machinery/docking_beacon/proc/_register_landmark()
+	// Registers the beacon MACHINE itself (not its landmark, which is a
+	// separate object) under its own stable landmark_tag -- lets
+	// ship_commissioning's saved linked_beacon_tag (ship_commissioning_console.dm)
+	// be resolved back to this specific beacon after a restart re-creates it
+	// fresh from the DB. Idempotent, safe to repeat on the "already
+	// registered" early-return path below too.
+	GLOB.drydock_linkable_devices_by_tag[landmark_tag] = src
 	if(landmark_registered) return
 	// If shuttleStateRestore already created this landmark, just claim it
 	if(SSshuttle.registered_shuttle_landmarks[landmark_tag])
@@ -409,6 +416,8 @@
 	// Remove landmark (deregistering from its sector's waypoints first) and
 	// DB entry when beacon is deconstructed
 	_deregister_landmark()
+	if(landmark_tag)
+		GLOB.drydock_linkable_devices_by_tag -= landmark_tag
 	if(GLOB.config.sql_enabled && SSdbcore.Connect())
 		var/datum/db_query/q = SSdbcore.NewQuery(
 			"DELETE FROM ss13_player_docking_beacons WHERE landmark_tag = :tag",
