@@ -121,6 +121,12 @@
 	/// beacon's faction restriction. Null for a personally-owned ship,
 	/// same as an unrestricted beacon -- both compare as "no faction".
 	var/faction_uid
+	/// TRUE for a ship materialized via drydockCommission() -- never set for
+	/// a template-bought ship (drydockBuy()/drydockRetrieve() never touch
+	/// this, staying FALSE). Read by player_dock/is_valid() (docking_beacon.dm)
+	/// to decide whether a beacon's own player-built-specific max footprint
+	/// applies to this ship instead of its generic one.
+	var/player_built = FALSE
 
 /obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship
 	name = "shuttle control console"

@@ -80,6 +80,34 @@
 	var/blockage
 	var/exhaust_offset = 1 // for engines that are longer
 	var/exhaust_width = 1 //for engines that are wider
+	/// Cached by sync_ship_registration() below -- the shuttle datum owning
+	/// this nozzle, if any. Lets check_fuel() reach the ship's own fuel_ports
+	/// (a phoron tank backup source) without re-resolving it on every check.
+	var/datum/shuttle/autodock/overmap/my_shuttle
+
+/// Cargo-orderable variant a player can build into their own commissioned
+/// hull (ship_commissioning_console.dm) -- starts loose like every other
+/// kit part this session added (helm/navigation/engine-control terminals),
+/// needing only a wrench, instead of the full frame+circuit+cable+pipe
+/// assembly the mapped-in version goes through. Everything else (pipe
+/// connectivity, fuel burning, datum/ship_engine behavior) is completely
+/// unchanged -- this only skips the construction steps, it doesn't bypass
+/// needing a real piped fuel-gas source to actually work once placed.
+/// Required at commission time (_drydockCommissionRun(), persistence_shuttles.dm)
+/// alongside (not instead of) the existing decorative propulsion structure
+/// requirement -- without a real engine, engines_state has nothing to
+/// actually burn regardless of how many decorative propulsion units or fuel
+/// ports are present.
+/obj/structure/machinery/atmospherics/unary/engine/buildable
+	anchored = FALSE
+
+/obj/structure/machinery/atmospherics/unary/engine/buildable/attackby(obj/item/attacking_item, mob/user, params)
+	if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		attacking_item.play_tool_sound(get_turf(src), 50)
+		anchored = !anchored
+		to_chat(user, anchored ? SPAN_NOTICE("Engine nozzle secured in place.") : SPAN_NOTICE("Engine nozzle unsecured."))
+		return TRUE
+	return ..(attacking_item, user, params)
 
 /obj/structure/machinery/atmospherics/unary/engine/scc_shuttle
 	icon = 'icons/obj/spaceship/scc/ship_engine.dmi'
@@ -137,14 +165,31 @@
 	. = ..()
 	controller = new(src)
 	update_nearby_tiles(need_rebuild=1)
+	sync_ship_registration()
 
-	if(length(SSshuttle.shuttle_areas) && !length(SSshuttle.shuttles_to_initialize) && SSshuttle.initialized)
-		for(var/obj/effect/overmap/visitable/ship/S as anything in SSshuttle.ships)
-			if(S.check_ownership(src))
-				S.engines |= controller
-				if(dir != S.fore_dir)
-					stat |= BROKEN
-				break
+/// Finds this nozzle's own ship (if any) and registers its controller into
+/// S.engines -- split out of Initialize() so a captured nozzle (built
+/// station-side before its ship existed, then forceMove()'d onto the ship's
+/// own z at commission) can be re-run through this again afterward, the
+/// same "built before the ship existed, SSshuttle.ships didn't contain it
+/// yet, silently never links" gap helm/navigation consoles already needed
+/// fixing for (persistence_shuttles.dm's captured_ship_computers loop).
+/// `S.engines |= controller` is safe to repeat -- list OR-assign is already
+/// add-if-not-present.
+/obj/structure/machinery/atmospherics/unary/engine/proc/sync_ship_registration()
+	if(!(length(SSshuttle.shuttle_areas) && !length(SSshuttle.shuttles_to_initialize) && SSshuttle.initialized))
+		return
+	for(var/obj/effect/overmap/visitable/ship/S as anything in SSshuttle.ships)
+		if(S.check_ownership(src))
+			S.engines |= controller
+			// .shuttle (the registry name string) only exists on the
+			// landable subtype, not the base ship type this loop iterates.
+			if(istype(S, /obj/effect/overmap/visitable/ship/landable))
+				var/obj/effect/overmap/visitable/ship/landable/landable_S = S
+				my_shuttle = SSshuttle.shuttles[landable_S.shuttle]
+			if(dir != S.fore_dir)
+				stat |= BROKEN
+			return
 
 /obj/structure/machinery/atmospherics/unary/engine/Destroy()
 	QDEL_NULL(controller)
@@ -199,7 +244,35 @@
 	return use_power && operable() && (next_on < world.time)
 
 /obj/structure/machinery/atmospherics/unary/engine/proc/check_fuel()
+	if(air_contents.total_moles <= 5)
+		_draw_backup_fuel()
 	return air_contents.total_moles > 5 // minimum fuel usage is five moles, for EXTREMELY hot mix or super low pressure
+
+/// Backup/emergency fuel source: tops up this engine's own internal gas
+/// reservoir from any loaded phoron tank in the ship's own fuel_ports
+/// (overmap_shuttle.dm) once the piped network alone isn't enough to burn.
+/// Mirrors try_consume_fuel()'s own tank-draining pattern
+/// (overmap_shuttle.dm) -- merges the drawn gas into air_contents instead
+/// of comparing it against fuel_consumption directly, so get_thrust()/
+/// burn()'s own mole-based thrust math never needs to know about a second
+/// fuel source at all, only a topped-up reservoir. Applies to every ship
+/// with both a fuel port and a real engine, template or player-built --
+/// nothing here is player-built-specific.
+/obj/structure/machinery/atmospherics/unary/engine/proc/_draw_backup_fuel()
+	if(!my_shuttle || !my_shuttle.fuel_ports)
+		return
+	for(var/obj/structure/FP in my_shuttle.fuel_ports)
+		var/obj/item/tank/FT = locate() in FP
+		if(!FT)
+			continue
+		var/available = FT.air_contents.get_by_flag(XGM_GAS_FUEL)
+		if(available <= 0)
+			continue
+		var/to_draw = min(available, volume_per_burn * 2)
+		var/datum/gas_mixture/drawn = FT.remove_air_by_flag(XGM_GAS_FUEL, to_draw)
+		if(drawn)
+			air_contents.merge(drawn)
+		return
 
 /obj/structure/machinery/atmospherics/unary/engine/proc/get_thrust()
 	if(!is_on() || !check_fuel())

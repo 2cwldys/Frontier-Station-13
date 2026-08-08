@@ -34,6 +34,13 @@
 	/// as a valid destination in the first place.
 	var/max_footprint_x = 0
 	var/max_footprint_y = 0
+	/// 0 = unrestricted, and falls through to max_footprint_x/y above
+	/// unchanged. When set, REPLACES (not adds to) the generic check above
+	/// for a player-built ship specifically -- a template ship docking at
+	/// this same beacon is entirely unaffected by this pair either way.
+	/// Configured per-beacon via multitool (docking_beacon.dm's attackby()).
+	var/max_player_built_footprint_x = 0
+	var/max_player_built_footprint_y = 0
 
 /// Registered into a sector's generic_waypoints (see docking_beacon's
 /// _register_landmark()/_deregister_landmark()) so any ship's own
@@ -46,15 +53,23 @@
 	. = ..(shuttle, reason_out)
 	if(!.)
 		return FALSE
-	if(max_footprint_x || max_footprint_y)
+	// A player-built ship checks against this beacon's own player-built-
+	// specific max instead of the generic one below, if one's been set --
+	// a template ship never looks at max_player_built_footprint_x/y at all,
+	// so configuring it here can never change how templates dock anywhere.
+	var/is_player_built = istype(shuttle, /datum/shuttle/autodock/overmap/drydock_ship) && shuttle:player_built
+	var/check_x = max_footprint_x
+	var/check_y = max_footprint_y
+	if(is_player_built && (max_player_built_footprint_x || max_player_built_footprint_y))
+		check_x = max_player_built_footprint_x
+		check_y = max_player_built_footprint_y
+	if(check_x || check_y)
 		var/list/footprint = shuttle.get_footprint()
-		if(max_footprint_x && footprint[1] > max_footprint_x)
+		if((check_x && footprint[1] > check_x) || (check_y && footprint[2] > check_y))
 			if(reason_out)
-				reason_out += "hull footprint [footprint[1]]x[footprint[2]] exceeds this beacon's max width [max_footprint_x]"
-			return FALSE
-		if(max_footprint_y && footprint[2] > max_footprint_y)
-			if(reason_out)
-				reason_out += "hull footprint [footprint[1]]x[footprint[2]] exceeds this beacon's max height [max_footprint_y]"
+				reason_out += is_player_built \
+					? "Your player built ship cannot dock due to being larger than acceptable parameters (hull [footprint[1]]x[footprint[2]], max [check_x]x[check_y])." \
+					: "hull footprint [footprint[1]]x[footprint[2]] exceeds this beacon's max [check_x]x[check_y]"
 			return FALSE
 	// Entirely opt-in -- a ship carrying no docking_transponder at all skips
 	// this check completely and docks here exactly like it always could.
@@ -156,6 +171,11 @@
 	var/beacon_active = FALSE       // TRUE only after screwdriver activation
 	var/faction_restricted = ""     // "" = public; faction UID = restricted
 	var/beacon_shackled    = FALSE  // TRUE when claimed by a faction
+	/// Source of truth for the registered landmark's own
+	/// max_player_built_footprint_x/y (see _sync_landmark_player_built_footprint()
+	/// below) -- set via multitool. 0 = unrestricted.
+	var/max_player_built_footprint_x = 0
+	var/max_player_built_footprint_y = 0
 
 /obj/structure/machinery/docking_beacon/Initialize()
 	. = ..()
@@ -173,6 +193,8 @@
 	content["beacon_active"]     = beacon_active
 	content["faction_restricted"] = faction_restricted
 	content["beacon_shackled"]   = beacon_shackled
+	content["max_player_built_footprint_x"] = max_player_built_footprint_x
+	content["max_player_built_footprint_y"] = max_player_built_footprint_y
 	return content
 
 /obj/structure/machinery/docking_beacon/persistent_objects_apply_content(content, x, y, z)
@@ -181,6 +203,8 @@
 	if(!isnull(content["beacon_active"]))      beacon_active      = !!content["beacon_active"]
 	if(!isnull(content["faction_restricted"])) faction_restricted = content["faction_restricted"]
 	if(!isnull(content["beacon_shackled"]))    beacon_shackled    = !!content["beacon_shackled"]
+	if(!isnull(content["max_player_built_footprint_x"])) max_player_built_footprint_x = content["max_player_built_footprint_x"]
+	if(!isnull(content["max_player_built_footprint_y"])) max_player_built_footprint_y = content["max_player_built_footprint_y"]
 	// Initialize() already ran and decided against registering a landmark
 	// (beacon_active was still the default FALSE at that point) -- this is
 	// the only remaining chance to do it, now that the real saved value has
@@ -198,6 +222,7 @@
 		// this runs -- push the now-correct value onto the landmark too, in
 		// case _register_landmark() above created it before that happened.
 		_sync_landmark_facing()
+		_sync_landmark_player_built_footprint()
 
 /obj/structure/machinery/docking_beacon/attackby(obj/item/attacking_item, mob/user, params)
 	// Buffer (link this specific beacon into the multitool's own existing
@@ -209,7 +234,7 @@
 	// the facing in, same as the transponder's own multitool rotate
 	// (docking_transponder.dm).
 	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
-		var/choice = tgui_alert(user, "Buffer this beacon into the multitool, or rotate its facing?", "Docking Beacon", list("Buffer", "Rotate"))
+		var/choice = tgui_alert(user, "Buffer this beacon into the multitool, rotate its facing, or set its max player-built ship size?", "Docking Beacon", list("Buffer", "Rotate", "Set Max Player-Built Size"))
 		if(QDELETED(src) || QDELETED(user) || !user.Adjacent(src))
 			return TRUE
 		if(choice == "Buffer")
@@ -227,6 +252,18 @@
 			dir = turn(dir, -90)
 			_sync_landmark_facing()
 			to_chat(user, SPAN_NOTICE("You rotate \the [src] -- it now faces [dir2text(dir)]."))
+			return TRUE
+		if(choice == "Set Max Player-Built Size")
+			var/new_x = tgui_input_number(user, "Max player-built ship width (X), 0 = unrestricted:", "Docking Beacon", max_player_built_footprint_x, 100, 0)
+			if(isnull(new_x))
+				return TRUE
+			var/new_y = tgui_input_number(user, "Max player-built ship height (Y), 0 = unrestricted:", "Docking Beacon", max_player_built_footprint_y, 100, 0)
+			if(isnull(new_y))
+				return TRUE
+			max_player_built_footprint_x = new_x
+			max_player_built_footprint_y = new_y
+			_sync_landmark_player_built_footprint()
+			to_chat(user, SPAN_NOTICE("Max player-built ship size set to [new_x ? "[new_x]" : "unrestricted"]x[new_y ? "[new_y]" : "unrestricted"]."))
 			return TRUE
 		return TRUE
 	// Faction ID swipe — claim or release beacon (same pattern as cryopods/telepads)
@@ -318,6 +355,16 @@
 	if(L)
 		L.faction_restricted = faction_restricted
 		L.beacon_shackled    = beacon_shackled
+
+/// Pushes max_player_built_footprint_x/y from the beacon machine onto its
+/// live registered landmark -- same pattern as _sync_landmark_faction()
+/// above, needed because player_dock/is_valid() (the actual check) reads
+/// these off the landmark, not the machine.
+/obj/structure/machinery/docking_beacon/proc/_sync_landmark_player_built_footprint()
+	var/obj/effect/shuttle_landmark/player_dock/L = SSshuttle.registered_shuttle_landmarks[landmark_tag]
+	if(L)
+		L.max_player_built_footprint_x = max_player_built_footprint_x
+		L.max_player_built_footprint_y = max_player_built_footprint_y
 
 /// Pushes this beacon's own dir onto its live registered landmark -- the
 /// landmark (not the beacon machine) is what player_dock/is_valid() actually

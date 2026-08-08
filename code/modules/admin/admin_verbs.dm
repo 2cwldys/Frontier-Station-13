@@ -217,6 +217,7 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/force_stash_all_ships,
 	/datum/admins/proc/restore_ship_backup,
 	/datum/admins/proc/set_drydock_ship_cap,
+	/datum/admins/proc/free_drydock_ship_name,
 	/datum/admins/proc/generate_away_site,
 	/datum/admins/proc/remove_away_site,
 	/datum/admins/proc/manage_away_site_mob_presets,

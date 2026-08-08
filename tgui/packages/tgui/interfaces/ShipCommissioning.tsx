@@ -23,8 +23,10 @@ type ShipCommissioningData = {
   propulsion_count: number;
   propulsion_found: BooleanLike;
   helm_found: BooleanLike;
+  navigation_found: BooleanLike;
   fuel_port_found: BooleanLike;
   engine_control_found: BooleanLike;
+  ship_engine_found: BooleanLike;
   can_generate_floor: BooleanLike;
 };
 
@@ -39,8 +41,10 @@ export const ShipCommissioning = (props) => {
     !data.console_found ||
     !data.propulsion_found ||
     !data.helm_found ||
+    !data.navigation_found ||
     !data.fuel_port_found ||
-    !data.engine_control_found;
+    !data.engine_control_found ||
+    !data.ship_engine_found;
 
   return (
     <Window width={420} height={460}>
@@ -65,6 +69,16 @@ export const ShipCommissioning = (props) => {
               then multitool this console to link it.
             </Box>
           )}
+          <Button
+            fluid
+            mt={1}
+            icon="unlink"
+            color="bad"
+            tooltip="Unlinks the beacon, transponder, and shuttle control console all at once, so you can start over."
+            onClick={() => act('clear_links')}
+          >
+            Clear Links
+          </Button>
         </Section>
         {!!data.beacon_found && !data.console_found && (
           <Section title="Shuttle Control Console Required">
@@ -112,6 +126,16 @@ export const ShipCommissioning = (props) => {
             </Box>
           </Section>
         )}
+        {!!data.beacon_found && !data.navigation_found && (
+          <Section title="Navigation Console Required">
+            <Box color="bad">
+              No navigation console found in the build envelope -- without
+              one, crew have no way to see anything outside the hull.
+              Cargo-order one (Navigation Console Crate) and wrench it down
+              anywhere inside the hull.
+            </Box>
+          </Section>
+        )}
         {!!data.beacon_found && !data.fuel_port_found && (
           <Section title="Fuel Port Required">
             <Box color="bad">
@@ -131,6 +155,16 @@ export const ShipCommissioning = (props) => {
             </Box>
           </Section>
         )}
+        {!!data.beacon_found && !data.ship_engine_found && (
+          <Section title="Engine Nozzle Required">
+            <Box color="bad">
+              No engine nozzle found in the build envelope -- the decorative
+              propulsion units alone don't actually burn fuel. Cargo-order a
+              Ship Nozzle Engine Crate, wrench it down, and pipe it into a
+              fuel-gas network.
+            </Box>
+          </Section>
+        )}
         {!!data.envelope_occupied && (
           <Section title="Build Envelope Occupied">
             <Box color="bad">
@@ -142,13 +176,22 @@ export const ShipCommissioning = (props) => {
         )}
         <Section title="Build Envelope">
           <LabeledList>
-            <LabeledList.Item label="Max Size">
+            <LabeledList.Item label="Build Size">
               {data.footprint_x} x {data.footprint_y} tiles
             </LabeledList.Item>
             <LabeledList.Item label="Commission Fee">
               {data.price} credits
             </LabeledList.Item>
           </LabeledList>
+          <Button
+            fluid
+            mt={1}
+            icon="ruler-combined"
+            tooltip="Changes the build envelope size for this console -- preview again afterward."
+            onClick={() => act('set_build_size')}
+          >
+            Set Build Size
+          </Button>
           <Button
             fluid
             mt={1}

@@ -49,6 +49,15 @@ GLOBAL_LIST_EMPTY(drydock_linkable_devices_by_tag)
 		/obj/item/stack/cable_coil = 2
 	)
 
+	/// This console's own configurable build envelope size -- defaults to
+	/// SUBSHIP_FOOTPRINT_X/Y (the shared standard every other footprint check
+	/// in the game still uses), but adjustable per-console via "Set Build
+	/// Size" in the TGUI (ui_act()'s "set_build_size" case below), bounded to
+	/// PLAYER_BUILD_ENVELOPE_MIN/MAX. Every SUBSHIP_FOOTPRINT_X/Y reference
+	/// elsewhere in this file reads these instead.
+	var/build_envelope_x = SUBSHIP_FOOTPRINT_X
+	var/build_envelope_y = SUBSHIP_FOOTPRINT_Y
+
 	/// Turf-highlight indicators from the last Preview Build Envelope, if any
 	/// -- cleared/replaced on the next preview or on commission.
 	var/list/obj/effect/shuttle_warning/envelope_indicators = list()
@@ -165,6 +174,26 @@ GLOBAL_LIST_EMPTY(drydock_linkable_devices_by_tag)
 	if(source == linked_shuttle_console)
 		linked_shuttle_console = null
 
+/// Unlinks all three devices at once -- lets a player start over (re-link to
+/// a different beacon/transponder/console) without having to remember which
+/// slot still holds a stale link, or destroy/rebuild anything to force a
+/// clean slate.
+/obj/structure/machinery/computer/ship_commissioning/proc/_clear_all_links()
+	if(linked_beacon)
+		UnregisterSignal(linked_beacon, COMSIG_QDELETING)
+		linked_beacon = null
+	if(linked_transponder)
+		UnregisterSignal(linked_transponder, COMSIG_QDELETING)
+		linked_transponder = null
+	if(linked_shuttle_console)
+		UnregisterSignal(linked_shuttle_console, COMSIG_QDELETING)
+		linked_shuttle_console = null
+	linked_beacon_tag = null
+	linked_transponder_tag = null
+	linked_shuttle_console_tag = null
+	QDEL_LIST(envelope_indicators)
+	envelope_clean_for_generate = FALSE
+
 /// Base /obj/structure/machinery/computer's own attackby() only ever handles
 /// the screwdriver (deconstruct-if-anchored-and-broken) -- wrench-to-secure
 /// has to be added here ourselves, same pattern docking_beacon.dm uses.
@@ -222,8 +251,8 @@ GLOBAL_LIST_EMPTY(drydock_linkable_devices_by_tag)
 	data["beacon_found"] = !!beacon
 	data["beacon_label"] = beacon ? (beacon.dock_label || "Docking Port") : null
 	data["beacon_link_broken"] = !!linked_beacon && !beacon
-	data["footprint_x"] = SUBSHIP_FOOTPRINT_X
-	data["footprint_y"] = SUBSHIP_FOOTPRINT_Y
+	data["footprint_x"] = build_envelope_x
+	data["footprint_y"] = build_envelope_y
 	data["price"] = SHIP_COMMISSION_PRICE
 	var/obj/item/card/id/ID = user.GetIdCard()
 	data["own_faction"] = (ID && ID.employer_faction) ? ID.employer_faction : null
@@ -248,8 +277,10 @@ GLOBAL_LIST_EMPTY(drydock_linkable_devices_by_tag)
 	data["propulsion_count"] = envelope ? _drydock_envelope_count_propulsion(envelope) : 0
 	data["propulsion_found"] = data["propulsion_count"] >= SHIP_COMMISSION_MIN_PROPULSION
 	data["helm_found"] = envelope ? !!_drydock_envelope_find_helm(envelope) : FALSE
+	data["navigation_found"] = envelope ? !!_drydock_envelope_find_navigation(envelope) : FALSE
 	data["fuel_port_found"] = envelope ? !!_drydock_envelope_find_fuel_port(envelope) : FALSE
 	data["engine_control_found"] = envelope ? !!_drydock_envelope_find_engine_control(envelope) : FALSE
+	data["ship_engine_found"] = envelope ? !!_drydock_envelope_find_ship_engine(envelope) : FALSE
 	// Snapshot from the last Preview -- see envelope_clean_for_generate's
 	// own doc comment for why this isn't re-checked live here.
 	data["can_generate_floor"] = data["beacon_found"] && envelope_clean_for_generate
@@ -261,6 +292,25 @@ GLOBAL_LIST_EMPTY(drydock_linkable_devices_by_tag)
 		return
 	var/mob/user = usr
 	switch(action)
+		if("clear_links")
+			_clear_all_links()
+			to_chat(user, SPAN_NOTICE("Cleared all device links -- multitool a beacon, transponder, and shuttle control console (Buffer), then multitool this console to relink them."))
+			. = TRUE
+		if("set_build_size")
+			var/new_x = tgui_input_number(user, "Build envelope width (X), [PLAYER_BUILD_ENVELOPE_MIN]-[PLAYER_BUILD_ENVELOPE_MAX]:", "Set Build Size", build_envelope_x, PLAYER_BUILD_ENVELOPE_MAX, PLAYER_BUILD_ENVELOPE_MIN)
+			if(isnull(new_x))
+				return TRUE
+			var/new_y = tgui_input_number(user, "Build envelope height (Y), [PLAYER_BUILD_ENVELOPE_MIN]-[PLAYER_BUILD_ENVELOPE_MAX]:", "Set Build Size", build_envelope_y, PLAYER_BUILD_ENVELOPE_MAX, PLAYER_BUILD_ENVELOPE_MIN)
+			if(isnull(new_y))
+				return TRUE
+			build_envelope_x = clamp(new_x, PLAYER_BUILD_ENVELOPE_MIN, PLAYER_BUILD_ENVELOPE_MAX)
+			build_envelope_y = clamp(new_y, PLAYER_BUILD_ENVELOPE_MIN, PLAYER_BUILD_ENVELOPE_MAX)
+			// Stale relative to the new size -- force a fresh Preview before
+			// Generate Build Floor/Commission can be trusted again.
+			QDEL_LIST(envelope_indicators)
+			envelope_clean_for_generate = FALSE
+			to_chat(user, SPAN_NOTICE("Build envelope size set to [build_envelope_x]x[build_envelope_y] -- preview again to see it."))
+			. = TRUE
 		if("preview")
 			_show_envelope_preview(user)
 			. = TRUE
@@ -355,15 +405,15 @@ GLOBAL_LIST_EMPTY(drydock_linkable_devices_by_tag)
 	var/turf/center = beacon ? get_turf(beacon) : null
 	if(!center)
 		return null
-	var/half_x = round((SUBSHIP_FOOTPRINT_X - 1) / 2)
-	var/half_y = round((SUBSHIP_FOOTPRINT_Y - 1) / 2)
+	var/half_x = round((build_envelope_x - 1) / 2)
+	var/half_y = round((build_envelope_y - 1) / 2)
 	switch(beacon.dir)
 		if(WEST)
-			return locate(center.x - SUBSHIP_FOOTPRINT_X, center.y - half_y, center.z)
+			return locate(center.x - build_envelope_x, center.y - half_y, center.z)
 		if(EAST)
 			return locate(center.x + 1, center.y - half_y, center.z)
 		if(SOUTH)
-			return locate(center.x - half_x, center.y - SUBSHIP_FOOTPRINT_Y, center.z)
+			return locate(center.x - half_x, center.y - build_envelope_y, center.z)
 		if(NORTH)
 			return locate(center.x - half_x, center.y + 1, center.z)
 	// Non-cardinal dir shouldn't be reachable (rotate only ever turns by
@@ -381,7 +431,7 @@ GLOBAL_LIST_EMPTY(drydock_linkable_devices_by_tag)
 	var/turf/corner = _get_envelope_corner(beacon)
 	if(!corner)
 		return null
-	return block(corner, locate(corner.x + SUBSHIP_FOOTPRINT_X - 1, corner.y + SUBSHIP_FOOTPRINT_Y - 1, corner.z))
+	return block(corner, locate(corner.x + build_envelope_x - 1, corner.y + build_envelope_y - 1, corner.z))
 
 /// Highlights the build envelope, same shuttle_warning indicator any ship
 /// landing preview already uses -- except the one edge matching where the
@@ -403,18 +453,18 @@ GLOBAL_LIST_EMPTY(drydock_linkable_devices_by_tag)
 	if(!corner)
 		to_chat(user, SPAN_WARNING("The build envelope runs off the edge of the map."))
 		return
-	var/list/turf/envelope = block(corner, locate(corner.x + SUBSHIP_FOOTPRINT_X - 1, corner.y + SUBSHIP_FOOTPRINT_Y - 1, corner.z))
+	var/list/turf/envelope = block(corner, locate(corner.x + build_envelope_x - 1, corner.y + build_envelope_y - 1, corner.z))
 	envelope_clean_for_generate = !_envelope_generate_conflict(envelope, beacon)
 	var/required_facing = turn(beacon.dir, 180)
 	for(var/turf/T in envelope)
 		var/is_airlock_edge = FALSE
 		switch(required_facing)
 			if(EAST)
-				is_airlock_edge = (T.x == corner.x + SUBSHIP_FOOTPRINT_X - 1)
+				is_airlock_edge = (T.x == corner.x + build_envelope_x - 1)
 			if(WEST)
 				is_airlock_edge = (T.x == corner.x)
 			if(NORTH)
-				is_airlock_edge = (T.y == corner.y + SUBSHIP_FOOTPRINT_Y - 1)
+				is_airlock_edge = (T.y == corner.y + build_envelope_y - 1)
 			if(SOUTH)
 				is_airlock_edge = (T.y == corner.y)
 		var/obj/effect/shuttle_warning/indicator = new(T)
@@ -422,7 +472,7 @@ GLOBAL_LIST_EMPTY(drydock_linkable_devices_by_tag)
 			indicator.color = "#3a2210"
 		envelope_indicators += indicator
 	addtimer(CALLBACK(src, PROC_REF(_clear_envelope_preview)), 10 SECONDS)
-	to_chat(user, SPAN_NOTICE("Build envelope highlighted -- [SUBSHIP_FOOTPRINT_X]x[SUBSHIP_FOOTPRINT_Y] tiles, extending [dir2text(beacon.dir)] from the beacon. The tinted edge (facing [dir2text(required_facing)]) is where your airlock and transponder need to go."))
+	to_chat(user, SPAN_NOTICE("Build envelope highlighted -- [build_envelope_x]x[build_envelope_y] tiles, extending [dir2text(beacon.dir)] from the beacon. The tinted edge (facing [dir2text(required_facing)]) is where your airlock and transponder need to go."))
 	to_chat(user, envelope_clean_for_generate \
 		? SPAN_NOTICE("Envelope is clear -- Generate Build Floor is available.") \
 		: SPAN_WARNING("Envelope already has something built or standing in it -- Generate Build Floor is unavailable until it's clear."))
@@ -469,7 +519,7 @@ GLOBAL_LIST_EMPTY(drydock_linkable_devices_by_tag)
 	if(!corner)
 		to_chat(user, SPAN_WARNING("The build envelope runs off the edge of the map."))
 		return
-	var/list/turf/envelope = block(corner, locate(corner.x + SUBSHIP_FOOTPRINT_X - 1, corner.y + SUBSHIP_FOOTPRINT_Y - 1, corner.z))
+	var/list/turf/envelope = block(corner, locate(corner.x + build_envelope_x - 1, corner.y + build_envelope_y - 1, corner.z))
 	if(_envelope_generate_conflict(envelope, beacon))
 		to_chat(user, SPAN_WARNING("Can't generate a build floor -- something's already built or standing in the envelope. Preview again to see what's blocking it."))
 		return

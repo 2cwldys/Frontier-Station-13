@@ -1614,7 +1614,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		if(user)
 			to_chat(user, SPAN_WARNING("The build envelope runs off the edge of the map."))
 		return FALSE
-	var/list/turf/envelope = block(source_corner, locate(source_corner.x + SUBSHIP_FOOTPRINT_X - 1, source_corner.y + SUBSHIP_FOOTPRINT_Y - 1, source_corner.z))
+	var/list/turf/envelope = block(source_corner, locate(source_corner.x + console.build_envelope_x - 1, source_corner.y + console.build_envelope_y - 1, source_corner.z))
 
 	for(var/turf/T in envelope)
 		if(isspaceturf(T) || isopenspace(T))
@@ -1691,12 +1691,21 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 	// Presence-only, like the console/APC checks above -- shuttle_control
 	// alone only ever offers point-to-point docking, not real overmap
-	// flight. Navigation is deliberately NOT checked here -- it's
-	// buildable/optional, not required.
+	// flight.
 	if(!_drydock_envelope_find_helm(envelope))
 		if(user)
 			to_chat(user, SPAN_WARNING("No helm console found in the build envelope -- without one, this hull could never actually be piloted on the overmap."))
 		log_drydock_warning("drydockCommission: refused -- no helm console in envelope near [console] (acting=[acting]).")
+		return FALSE
+
+	// Per explicit follow-up request: navigation is now required too -- it's
+	// the only thing that lets crew actually see anything outside the hull
+	// (live position/speed/heading, nearby contacts), not merely a display
+	// nicety. Reverses the earlier "navigation is optional" decision.
+	if(!_drydock_envelope_find_navigation(envelope))
+		if(user)
+			to_chat(user, SPAN_WARNING("No navigation console found in the build envelope -- without one, this hull has no way to see anything outside itself."))
+		log_drydock_warning("drydockCommission: refused -- no navigation console in envelope near [console] (acting=[acting]).")
 		return FALSE
 
 	// Drydock ships genuinely consume fuel (fuel_consumption is non-zero for
@@ -1714,6 +1723,15 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		if(user)
 			to_chat(user, SPAN_WARNING("No engine control terminal found in the build envelope -- without one, this hull's engines could never actually be turned on."))
 		log_drydock_warning("drydockCommission: refused -- no engine control terminal in envelope near [console] (acting=[acting]).")
+		return FALSE
+
+	// The decorative propulsion count above is structural only -- a real
+	// engine (one that actually burns piped fuel gas, populates
+	// datum/ship_engine) is a separate, additional requirement.
+	if(!_drydock_envelope_find_ship_engine(envelope))
+		if(user)
+			to_chat(user, SPAN_WARNING("No engine nozzle found in the build envelope -- without one, this hull has nothing to actually burn fuel for thrust."))
+		log_drydock_warning("drydockCommission: refused -- no engine nozzle in envelope near [console] (acting=[acting]).")
 		return FALSE
 
 	// Payment -- mirrors drydockBuy()'s own personal/faction split exactly,
@@ -1869,6 +1887,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 	var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
 	if(istype(shuttle_datum))
+		// Commission always materializes a player-built ship, by definition --
+		// read by player_dock/is_valid() (docking_beacon.dm) to decide whether
+		// a beacon's own player-built-specific max footprint applies here.
+		shuttle_datum.player_built = TRUE
 		// Every player-built shuttle shares this one template/shuttle name --
 		// same per-instance uniqueness rename _drydockRetrieveRun() does, or
 		// a second commission/retrieve collides hard (/datum/shuttle/New()).
@@ -1890,6 +1912,20 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// Z, then wipe the build site clean. The beacon and this console are
 	// never touched, by specific object reference (not type), on either pass.
 	var/turf/dest_corner = locate(bounds[MAP_MINX], bounds[MAP_MINY], new_z)
+	// The blank shell template's own mapped room is a fixed 9x9 -- a
+	// player-configured envelope bigger than that (console.build_envelope_x/y)
+	// extends past the template's own painted area into the rest of
+	// that dedicated Z, which is fine (ChangeTurf() below freely overwrites
+	// whatever base turf is there regardless) as long as those turfs actually
+	// exist on the Z at all. Confirm that explicitly rather than trusting it --
+	// losing part of a built hull silently because a turf resolved null would
+	// be exactly the kind of data loss this session already had to fix once.
+	if(dest_corner.x + console.build_envelope_x - 1 > world.maxx || dest_corner.y + console.build_envelope_y - 1 > world.maxy)
+		DS.stashed = TRUE
+		if(user)
+			to_chat(user, SPAN_WARNING("Commission failed -- this build envelope size doesn't fit on a fresh ship z. Contact an admin."))
+		log_drydock_error("drydockCommission: build envelope [console.build_envelope_x]x[console.build_envelope_y] doesn't fit on new_z=[new_z] (dest_corner=[dest_corner.x],[dest_corner.y], world max=[world.maxx],[world.maxy]).")
+		return FALSE
 	var/list/translation = get_turf_translation(source_corner, dest_corner, envelope)
 	var/obj/structure/machinery/computer/shuttle_control/captured_console
 	var/obj/structure/machinery/power/apc/captured_apc
@@ -1995,6 +2031,12 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	for(var/obj/structure/machinery/computer/ship/captured_ship_computer in captured_ship_computers)
 		SSshuttle.lonely_ship_computers -= captured_ship_computer
 		captured_ship_computer.sync_linked()
+		// Re-derive NOPOWER against its new surroundings -- same reason as
+		// the captured airpump's own power_change() call below: nothing else
+		// recomputes this after a forceMove(), so a console built in an
+		// unpowered area station-side would otherwise stay stuck reporting
+		// no power indefinitely once captured here.
+		captured_ship_computer.power_change()
 
 	// Re-bind the captured APC to its new surroundings -- APC/Initialize()
 	// (apc.dm) only ever sets area/area.apc/its own "[area] APC" name ONCE,
@@ -2026,6 +2068,17 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// admin-notice-worthy "initializing atmos machinery" event, just a
 	// routine part of every commission.
 	if(length(captured_atmos_machines))
+		// Engine nozzles specifically: atmos_init() (gas_thruster.dm) bails
+		// immediately if node is already set (`if(node) return`), so a
+		// nozzle captured with a stale node from its old station-side
+		// position would never re-scan for the ship's own actual pipe
+		// layout -- same reasoning as _link_to_airpump()'s node=null reset
+		// just above, ported to this type specifically. Also re-attempt ship
+		// registration here -- a nozzle built before the ship existed never
+		// found one to register into at its own Initialize().
+		for(var/obj/structure/machinery/atmospherics/unary/engine/captured_engine in captured_atmos_machines)
+			captured_engine.node = null
+			captured_engine.sync_ship_registration()
 		SSmachinery.setup_atmos_machinery(captured_atmos_machines, TRUE)
 
 	DS.ready = TRUE
@@ -2068,8 +2121,18 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			// footprint, facing mismatch, raid-block, faction-restriction) --
 			// attempt_move() never half-applies on refusal, so falling back
 			// is always safe.
-			var/reason_text = !istype(beacon_landmark) ? "the beacon's own landmark is no longer registered (deactivated/deconstructed mid-commission)" \
-				: (length(dock_refusal_reason) ? jointext(dock_refusal_reason, "; ") : "attempt_move() refused for an unlogged reason")
+			// Split the single "deactivated/deconstructed" catch-all into the
+			// three genuinely distinct states it could actually be -- turns
+			// the next occurrence into a concrete fact instead of a guess.
+			var/reason_text
+			if(istype(beacon_landmark))
+				reason_text = length(dock_refusal_reason) ? jointext(dock_refusal_reason, "; ") : "attempt_move() refused for an unlogged reason"
+			else if(QDELETED(beacon))
+				reason_text = "the beacon machine itself was deconstructed/destroyed mid-commission"
+			else if(!beacon.beacon_active)
+				reason_text = "the beacon was deactivated (screwdriver) mid-commission"
+			else
+				reason_text = "the beacon is still active but its landmark_tag '[beacon.landmark_tag]' has no matching registered landmark -- registration bug, needs admin attention"
 			log_drydock_warning("drydockCommission: dock_at_beacon requested but real docking failed for shuttle_id=[new_id] -- [reason_text] -- falling back to nearby placement.")
 			shipPlaceOvermapMarker(marker, target_sector, DRYDOCK_SHIP_PLACEMENT_RADIUS)
 			if(user)
@@ -2378,6 +2441,13 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 	var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
 	if(istype(shuttle_datum))
+		// A retrieved ship's shuttle datum is freshly recreated every time
+		// (template.load_new_z()/load_into_z() above), so player_built has
+		// to be re-derived here too, not just set once at commission --
+		// otherwise a commissioned ship would lose the flag the moment it's
+		// stashed and retrieved again. hidden_from_catalog is exactly what
+		// already marks the shared player-built shell template elsewhere.
+		shuttle_datum.player_built = !!template.hidden_from_catalog
 		// Per-instance identity: give this deployment's shuttle registry
 		// entry and marker a unique name (suffixed with the ledger id) so
 		// multiple instances of the same template can be deployed at once --
@@ -2771,6 +2841,17 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			return helm
 	return null
 
+/// The first navigation console found anywhere in envelope, or null --
+/// required at commission time since it's the only thing that lets crew see
+/// anything outside the hull (live position/speed/heading, nearby
+/// contacts), not merely a display nicety.
+/proc/_drydock_envelope_find_navigation(list/turf/envelope)
+	for(var/turf/T in envelope)
+		var/obj/structure/machinery/computer/ship/navigation/nav = locate() in T
+		if(nav)
+			return nav
+	return null
+
 /// The first fuel port found anywhere in envelope, or null -- required at
 /// commission time since drydock ships genuinely consume fuel
 /// (fuel_consumption is non-zero for every hull, player-built ships
@@ -2792,6 +2873,18 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		var/obj/structure/machinery/computer/ship/engines/terminal = locate() in T
 		if(terminal)
 			return terminal
+	return null
+
+/// The first real engine nozzle found anywhere in envelope, or null --
+/// required at commission time alongside (not instead of) the decorative
+/// propulsion count above -- the nozzle is what actually burns fuel gas for
+/// thrust and populates datum/ship_engine (gas_thruster.dm), which the
+/// decorative propulsion structure never does.
+/proc/_drydock_envelope_find_ship_engine(list/turf/envelope)
+	for(var/turf/T in envelope)
+		var/obj/structure/machinery/atmospherics/unary/engine/nozzle = locate() in T
+		if(nozzle)
+			return nozzle
 	return null
 
 /// Every /obj/structure/shuttle/engine/propulsion (including the buildable
@@ -2842,6 +2935,23 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 				to_chat(user, SPAN_WARNING(DS.faction_uid ? "This ship must be within 1 tile of your faction's own beacon to be stashed." : "You must be near a secured (med-sec or better) faction beacon to stash."))
 			log_drydock_warning("drydockStash: refused -- shuttle_id=[shuttle_id] not near a valid beacon (acting=[acting]).")
 			return FALSE
+		// _drydock_secured_beacon_nearby() above only checks that the SHIP is
+		// near SOME qualifying beacon -- for a personal ship that's any
+		// faction's beacon, not necessarily one anywhere near the player --
+		// so without this, a player could stash a ship sitting at a
+		// completely different away site just because it happened to be
+		// parked near a good-enough beacon there. Faction ships aren't
+		// affected -- they already require their own faction's specific
+		// beacon, a much tighter constraint than "any secured beacon."
+		if(!DS.faction_uid && istype(user))
+			var/obj/effect/overmap/visitable/player_sector = _drydock_boarder_sector(user)
+			var/obj/effect/overmap/visitable/ship_sector_now = _drydock_ship_sector(DS)
+			var/stash_dist = (istype(player_sector) && istype(ship_sector_now)) ? get_dist(player_sector, ship_sector_now) : INFINITY
+			if(stash_dist > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
+				if(user)
+					to_chat(user, SPAN_WARNING("You need to be at the ship's own location to stash it -- you're at [player_sector || "an unresolvable location"], it's at [ship_sector_now || "an unresolvable location"]."))
+				log_drydock_warning("drydockStash: refused -- [acting] not near shuttle_id=[shuttle_id] (player=[player_sector], ship=[ship_sector_now], dist=[stash_dist]).")
+				return FALSE
 		var/mob/living/living_user = istype(user, /mob/living) ? user : null
 		if((living_user && living_user.in_recent_combat()) || (istype(check_marker) && check_marker.in_recent_combat()))
 			if(user)

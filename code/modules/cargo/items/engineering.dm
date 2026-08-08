@@ -1153,3 +1153,15 @@
 	container_type = "crate"
 	groupable = TRUE
 	spawn_amount = 1
+
+/singleton/cargo_item/ship_nozzle_engine_crate
+	category = "engineering"
+	name = "Ship Nozzle Engine Crate"
+	supplier = "Hub"
+	description = "A ready-to-place rocket nozzle engine -- the real thing that actually burns fuel gas for thrust, required alongside the decorative propulsion units for a commissioned hull to move under its own power. Wrench it down and pipe it into a fuel-gas network before commissioning."
+	price = 15000
+	items = list(/obj/structure/machinery/atmospherics/unary/engine/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1

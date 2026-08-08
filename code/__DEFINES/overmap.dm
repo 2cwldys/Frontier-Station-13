@@ -28,10 +28,19 @@
 #define SUBSHIP_FOOTPRINT_X 9
 #define SUBSHIP_FOOTPRINT_Y 9
 
+/// Sanity bounds for a commissioning console's own configurable build
+/// envelope size (build_envelope_x/y, ship_commissioning_console.dm) --
+/// MIN keeps the envelope big enough to be buildable at all (console +
+/// beacon + a minimum viable hull), MAX keeps a player-chosen size from
+/// becoming a performance/gameplay problem.
+#define PLAYER_BUILD_ENVELOPE_MIN 9
+#define PLAYER_BUILD_ENVELOPE_MAX 20
+
 /// Credits charged by drydockCommission() (persistence_shuttles.dm) to turn
 /// a player-built hull into a real, independently-owned shuttle -- flat fee
 /// regardless of what was actually built, same spirit as drydockScuttle()'s
 /// flat fee.
+/// Cheaper than template drydock ships, however the parts increase costs considerably.
 #define SHIP_COMMISSION_PRICE 100000
 
 /// Max tiles a ship_commissioning console will look for a linked, active

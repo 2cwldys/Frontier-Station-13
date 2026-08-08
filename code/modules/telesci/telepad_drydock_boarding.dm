@@ -969,11 +969,25 @@
 		// goes through the same spool-up/combat-recheck/portal tail below --
 		// only the eye-view CLICKING step is skipped, not the safety window.
 		use_picker = FALSE
+		// Match the SPECIFIC away site the player actually picked (target_z)
+		// -- with more than one highsec/hub-tier site in existence, a plain
+		// "first one found in world" grab (the original shape here) ignores
+		// the player's own selection entirely and can send them to a
+		// completely different site's hub pad instead of the one they
+		// picked. Falls back to any hub pad at all only if this specific
+		// site genuinely doesn't have one of its own.
 		for(var/obj/structure/machinery/telepad_cargo/travel/hub/H in world)
 			if(QDELETED(H))
 				continue
-			destination = get_turf(H)
-			break
+			if(GET_Z(H) == target_z)
+				destination = get_turf(H)
+				break
+		if(!destination)
+			for(var/obj/structure/machinery/telepad_cargo/travel/hub/H in world)
+				if(QDELETED(H))
+					continue
+				destination = get_turf(H)
+				break
 		if(!destination)
 			to_chat(L, SPAN_WARNING("No Hub travel pad could be found."))
 			return FALSE
