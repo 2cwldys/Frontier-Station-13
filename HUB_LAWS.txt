@@ -9,8 +9,8 @@ YOU HAVE A CERTAIN UNALIENABLE RIGHTS IN HUB TERRITORY AS A HUB CITIZEN:
 - No Hub Lancer, Store Owner, or Hub Official may discriminate against you to solicit for a crime or tresspass.
 - YOU HAVE THE RIGHT TO EMPLOY SOMEONE TO SPEAK ON YOUR BEHALF.
 - YOU HAVE THE RIGHT TO YOUR MINING CLAIMS IF YOU REACHED THEM FIRST IN HIGH SEC.
-- YOU MAY REQUEST TOTAL AMNESTY.
 - THERE IS AN IMMENSE, MUTUAL RESPECT FOR PERSONAL PROPERTY AND PRIVACY.
+- YOU MAY REQUEST TOTAL AMNESTY.
 
 These rights only apply in high security zones.
 Any and all hostile actions are tracked by an extensive sensor grid.
@@ -220,17 +220,15 @@ ABLE TO BOND FROM COMMAND: YES
 REPOSSESSION: NO
 FINE: 50000 C
 
-
 18. Demolition and/or Destructive Violence.
 (Exploding canisters with welders, setting off explosives, causing mass damage.)
 
 JAILED: YES
 CRYOGENIC SUSPENSION: YES
 DURATION: EIGHTY FOUR HOURS
-ABLE TO BOND FROM COMMAND: YES
+ABLE TO BOND FROM COMMAND: NO
 REPOSSESSION: NO
 FINE: 75000 C
-
 
 19. Issuing tactical commands to fire on another ship.
 (THE person/faction officer who gave the order, or if alone, DECIDED to shoot.)
@@ -241,7 +239,6 @@ DURATION: TWELVE HOURS
 ABLE TO BOND FROM COMMAND: YES
 REPOSSESSION: YES
 FINE: 100000 C
-
 
 20. Using prohibited technologies on board your ship.
 
@@ -257,7 +254,6 @@ ABLE TO BOND FROM COMMAND: NO
 REPOSSESSION: YES
 FINE: 250000 C
 
-
 21. Refusal to lower shields for INSPECTION, BOARDING, or DEMAND by PORT AUTHORITIES, HUB LANCERS, or HUB COMMAND STAFF.
 
 JAILED: YES
@@ -267,7 +263,6 @@ ABLE TO BOND FROM COMMAND: YES
 REPOSSESSION: YES
 FINE: 20000 C
 
-
 22. Smuggling ILLICIT or PROHIBITED GOODS, SUBSTANCES, or harboring FUGITIVES.
 
 JAILED: YES
@@ -276,7 +271,6 @@ DURATION: FOURTY EIGHT HOURS
 ABLE TO BOND FROM COMMAND: NO
 REPOSSESSION: YES
 FINE: 150000 C
-
 
 23. Illicting Self for Prostitution.
 
@@ -405,3 +399,85 @@ DURATION: -
 ABLE TO BOND FROM COMMAND: -
 REPOSSESSION: NO
 FINE: 5000 C
+
+
+34. Attempting to SOLICIT a BRIBE to HUB LANCER OR COMMAND STAFF.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: FOUR HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: NO
+FINE: 15000 C
+
+
+35. Excessive loitering in businesses where no transactions are being made.
+(Buy things, talk business, be productive or get out.)
+
+JAILED: NO
+CRYOGENIC SUSPENSION: NO
+DURATION: -
+ABLE TO BOND FROM COMMAND: -
+REPOSSESSION: NO
+FINE: 10000 C
+
+
+36. ALL SHIP and SHUTTLE owners that possess a drydock vessel title, MUST pay an initial ad valoriam &amp;#34;according-to-value&amp;#34; TAX.
+
+This applies to all ships, but most especially for manually constructed hulls.
+
+You must at the time of commission or purchase of a drydock ship, inform the Hub Port Authority to have it inspected and cleared, and then pay a fixed percentage of the assessed monetary worth of the vessel.
+
+If the initial tax is not found to be paid to the Port Authority or Frontier Beacon Council, you will be held in violation of this crime and statute.
+
+Violation of this results in the following-
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: FOUR HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: YES
+FINE: 25000 C
+
+
+37. TERRORISM.
+(Attempting to incite terrorism in high-security areas.)
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: SEVENTY TWO HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 125000 C
+
+
+38. Messing with other-faction beacons.
+
+The Frontier Beacon Council and Command Authority will issue the warrant for seizure of vessels and arrests of those attempting to mess with solidified factions and their territory holdings. Attempting to disable, misplace, move or, or sabotage faction beacons that claim ownership to sectors will result in punishment.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: TWENTY FOUR HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: NO
+FINE: 75000 C
+
+
+39. Recruiting others for terrorist organizations.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: FOURTY EIGHT HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: NO
+FINE: 100000 C
+
+
+40. Vigilantism, and/or Impersonating a PEACE OFFICER, PORT AUTHORITY, or HUB COMMAND STAFF.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: FOURTY EIGHT HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 125000 C
