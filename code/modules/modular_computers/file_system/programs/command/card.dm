@@ -831,6 +831,10 @@ GLOBAL_LIST_EMPTY(hub_law_book_print_cooldown)
 	unique = TRUE
 	title = "Hub Laws"
 	author = "The Hub Authority"
+	// Every copy in circulation shows the same live GLOB.hub_law_text, not
+	// content actually stored on this instance -- wearing/breaking it (or
+	// needing repair) would mean nothing anyway, so don't bother tracking it.
+	degrades_with_use = FALSE
 
 	// Mirrors /obj/effect/decal/cleanable's own claim-tracking vars, same as
 	// every other cleanbot litter type (shards.dm, cigs_lighters.dm,
