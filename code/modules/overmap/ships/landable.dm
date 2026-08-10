@@ -214,6 +214,17 @@
 		for(var/obj/structure/machinery/ion_engine/ion in SSmachinery.machinery)
 			if(GET_Z(ion) == zlevel && ion.on)
 				ion.on = FALSE
+	// Pre-sync the hum state so _update_engine_hum() (ship.dm) never sees this
+	// as an on->off TRANSITION, which is what queues the "engines powered off"
+	// voice line and the shutdown stinger. Docking is real turf relocation, so
+	// once landed the engine console is physically on the host site's own z --
+	// that announcer's GET_Z(M) != GET_Z(console) audience filter stops
+	// isolating our crew and broadcasts to everyone standing nearby. Same
+	// reasoning as the silent shield/cloak shutdown just below; a player
+	// toggling the engines by hand still gets the announcer normally.
+	// The hum loop is still stopped correctly -- that cleanup runs off
+	// engine_hum_listeners, outside the transition branch.
+	engine_hum_active = FALSE
 
 	if(is_away_level(into.z))
 		if(shield_generator && shield_generator.active)

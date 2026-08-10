@@ -3013,7 +3013,6 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return FALSE
 	var/obj/effect/overmap/visitable/ship/landable/check_marker = GLOB.map_sectors["[DS.z]"]
 	var/datum/shuttle/autodock/overmap/drydock_ship/stashing_shuttle_datum = istype(check_marker) ? SSshuttle.shuttles[check_marker.shuttle] : null
-	var/obj/effect/shuttle_landmark/home_landmark = istype(check_marker) ? check_marker.landmark : null
 	if(!force)
 		// A personal ship may stash near ANY faction's beacon (not
 		// necessarily one it owns), provided that beacon's own sector is
@@ -3082,7 +3081,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// player to undock manually; a forced stash (shutdown sweep, admin Force
 	// Stash) can't wait on that, so it recalls the ship home itself first --
 	// mirroring the sub-ship recall-or-abort pattern just below.
-	if(!force && istype(stashing_shuttle_datum) && home_landmark && stashing_shuttle_datum.current_location != home_landmark)
+	if(!force && istype(stashing_shuttle_datum) && !_drydock_ship_is_home(DS, stashing_shuttle_datum))
 		if(user)
 			to_chat(user, SPAN_WARNING("This ship is currently docked -- undock before stashing."))
 		log_drydock_warning("drydockStash: refused -- shuttle_id=[shuttle_id] is away from home (at '[stashing_shuttle_datum.current_location]') (acting=[acting]).")
@@ -3276,7 +3275,13 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	if(!istype(shuttle_datum) || !istype(home_landmark))
 		log_drydock_error("_drydock_recall_ship_home: could not resolve a home landmark for shuttle_id=[DS.shuttle_id] (marker.landmark=[marker.landmark ? "set" : "NULL"], logging_home_tag='[istype(shuttle_datum) ? shuttle_datum.logging_home_tag : "n/a"]') -- refusing to report a recall that never happened. Needs admin attention.")
 		return FALSE
-	if(shuttle_datum.current_location != home_landmark)
+	// Already on our own z counts as home -- see _drydock_ship_is_home(). Moving
+	// from (say) the transit landmark to the home landmark on that same z
+	// overlaps the hull with itself, which attempt_move() now refuses outright,
+	// so attempting it could only fail and abort an otherwise-fine stash. There
+	// is nothing to recall: the hull is already on the z that is about to be
+	// saved and torn down.
+	if(!_drydock_ship_is_home(DS, shuttle_datum) && shuttle_datum.current_location != home_landmark)
 		log_drydock("_drydock_recall_ship_home: shuttle_id=[DS.shuttle_id] is away from home -- force-recalling.")
 		if(!shuttle_datum.attempt_move(home_landmark))
 			// Last resort: the ship's own open space is genuinely unreachable
@@ -3508,10 +3513,49 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// when it already IS a ship landmark. Returns null only when a ship genuinely
 /// has no home to return to, which callers must treat as a hard failure rather
 /// than "nothing to do".
+/// TRUE when this ship is physically sitting in its own open space.
+///
+/// Deliberately NOT an object-identity comparison against marker.landmark.
+/// That reference goes stale -- a landmark re-created by a rehome, or replaced
+/// across a stash/retrieve cycle while the marker kept pointing at the old one
+/// -- and comparing against a stale value reports a ship parked at home as
+/// "docked", greying out Stash with no way for the player to ever clear it.
+///
+/// A ship's own dedicated z IS its open space -- GLOB.persistence_ship_z holds
+/// that claim for as long as it is deployed, and no other ship can be given it.
+/// So being anywhere on that z is being home.
+///
+/// Deliberately NOT narrowed to "parked at the /ship home landmark". A hull can
+/// legitimately sit on its own z at a landmark that is not the home one -- most
+/// commonly its own landmark_transition, which player_built_shuttle.dm maps on
+/// that same z. To the player that is plainly open space (the transit
+/// landmark's base_turf is /turf/space), and requiring the exact home landmark
+/// reported them as "docked" with no way to clear it, since the hop from
+/// transit to home overlaps the hull with itself and is refused outright.
+///
+/// Stashing from anywhere on the z is safe: shipInteriorSave() captures the
+/// whole z regardless of which landmark the hull is parked at, and a retrieve
+/// re-seats current_location from the template anyway.
+///
+/// Used by both _drydockStashRun()'s refusal and the schematic's own
+/// away_from_home field, so the greyed-out button and the server can never
+/// disagree about whether a stash is allowed.
+/proc/_drydock_ship_is_home(datum/drydock_ship/DS, datum/shuttle/shuttle_datum)
+	if(!DS || !DS.z || !istype(shuttle_datum) || !istype(shuttle_datum.current_location))
+		return FALSE
+	var/turf/here = get_turf(shuttle_datum.current_location)
+	return here && here.z == DS.z
+
 /proc/_drydock_resolve_home_landmark(obj/effect/overmap/visitable/ship/landable/marker, datum/shuttle/shuttle_datum)
 	if(!istype(marker))
 		return null
-	if(istype(marker.landmark))
+	// Validated, not merely type-checked. A landmark that is no longer on one
+	// of the marker's own z-levels is a stale reference (a rehome built a new
+	// one elsewhere, or a stash/retrieve cycle replaced it while the marker
+	// kept the old pointer). Trusting it is what made recall no-op and the UI
+	// report a docked ship that was already home -- fall through to the
+	// recovery chain below instead of returning it.
+	if(istype(marker.landmark) && (marker.landmark.z in marker.map_z))
 		return marker.landmark
 
 	var/obj/effect/shuttle_landmark/recovered

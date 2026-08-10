@@ -270,6 +270,24 @@
 		return FALSE
 	testing("[src] moving to [destination]. Areas are [english_list(shuttle_area)]")
 	var/list/translation = get_turf_translation(get_turf(current_location), get_turf(destination), get_hull_turfs())
+	// An OVERLAPPING move -- one where a turf is both a source and a target --
+	// is something translate_turfs() cannot perform safely under any
+	// circumstances. Such a turf has contents transported INTO it by one pair
+	// and then transported back out (or reverted to base_turf by the second,
+	// unconditional loop) by another, with the outcome decided purely by
+	// iteration order. The hull is shredded rather than relocated.
+	//
+	// This is reachable in normal play: a landmark_transition mapped on the
+	// ship's OWN z (player_built_shuttle.dm) sits close enough to the home
+	// landmark that hopping between them overlaps the hull with itself. Refuse
+	// instead of attempting it -- and never "fix" that refusal by letting
+	// check_collision() ignore the mover's own hull, which is the change that
+	// destroyed a live crewed ship.
+	for(var/turf/source in translation)
+		var/turf/target = translation[source]
+		if(target && (target in translation))
+			log_world("SHUTTLE: '[name]' refused a move to [destination] -- the destination footprint overlaps the hull's own current position.")
+			return FALSE
 	var/old_location = current_location
 	GLOB.shuttle_pre_move_event.raise_event(src, old_location, destination)
 	shuttle_moved(destination, translation)

@@ -158,13 +158,12 @@
 	if(!DS.stashed && DS.z)
 		var/obj/effect/overmap/visitable/ship/landable/home_marker = GLOB.map_sectors["[DS.z]"]
 		var/datum/shuttle/home_shuttle = istype(home_marker) ? SSshuttle.shuttles[home_marker.shuttle] : null
-		// Resolved, not read straight off marker.landmark -- that var can be
-		// null or stale (see _drydock_resolve_home_landmark()), and comparing
-		// against a bad value reports a ship sitting at home as "docked",
-		// greying out Stash with no way to clear it. The UI, the recall path,
-		// and the destination list all resolve home the same way.
-		var/obj/effect/shuttle_landmark/home_landmark = _drydock_resolve_home_landmark(home_marker, home_shuttle)
-		if(istype(home_shuttle) && istype(home_landmark) && home_shuttle.current_location != home_landmark)
+		// The exact proc _drydockStashRun() gates on, so the button and the
+		// server can never disagree. Asks whether the hull is physically in its
+		// own open space rather than comparing landmark objects -- that
+		// comparison reported a ship sitting at home as docked whenever
+		// marker.landmark had gone stale, with no way to clear it.
+		if(istype(home_shuttle) && !_drydock_ship_is_home(DS, home_shuttle))
 			data["away_from_home"] = TRUE
 
 	var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]

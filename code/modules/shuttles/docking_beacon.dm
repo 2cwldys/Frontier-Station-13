@@ -471,7 +471,14 @@
 	var/obj/effect/shuttle_landmark/player_dock/L = new /obj/effect/shuttle_landmark/player_dock(get_turf(src))
 	L.landmark_tag       = landmark_tag
 	L.name               = dock_label ? dock_label : "Docking Port ([x],[y],[z])"
-	L.base_turf          = /turf/simulated/floor/plating
+	// base_turf is deliberately left unset so get_base_turf_by_area()
+	// (translate_turfs(), __HELPERS/turfs.dm) resolves it against the area the
+	// pad is actually returned to. This landmark declares no
+	// SLANDMARK_FLAG_AUTOSET, so LateInitialize() resolves its base_area to the
+	// space area -- hardcoding plating here put the vacated envelope into a
+	// space AREA while forcing its turfs to floor, leaving a departing ship's
+	// pad as floors hanging in open space instead of the space that was there
+	// before it landed.
 	L.faction_restricted = faction_restricted
 	L.beacon_shackled    = beacon_shackled
 	L.dir                = dir
