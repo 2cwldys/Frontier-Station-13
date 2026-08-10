@@ -410,6 +410,9 @@ SUBSYSTEM_DEF(persistence)
 	SSpersistence.floorItemsFinalize()
 	SSpersistence.botsFinalize()
 	SSpersistence.subshipSnapshotSaveAllDeployed()
+	// Same trailing cleanup the periodic save and Shutdown() both run -- see
+	// drydockForgetBeaconEnvelopes() (persistence_shuttles.dm).
+	SSpersistence.drydockForgetBeaconEnvelopes()
 
 	SSpersistence.save_in_progress = FALSE
 	// Same post-save queue kick as the periodic fire() -- stash/retrieve
@@ -612,6 +615,14 @@ SUBSYSTEM_DEF(persistence)
 		shuttleStateFinalize()
 	catch(var/exception/shuttle_e)
 		log_subsystem_persistence_panic("Unhandled exception during shuttle state persistence finalization: [shuttle_e]")
+
+	// Last, so it cleans up whatever the sweeps above just wrote -- see
+	// drydockForgetBeaconEnvelopes()'s own doc comment (persistence_shuttles.dm)
+	// for why a docking pad's tiles are never meant to persist.
+	try
+		drydockForgetBeaconEnvelopes()
+	catch(var/exception/beacon_forget_e)
+		log_subsystem_persistence_panic("Unhandled exception during docking beacon envelope cleanup: [beacon_forget_e]")
 
 	log_subsystem_persistence_info("forceSaveAll: Full persistence save complete.")
 
@@ -1079,6 +1090,14 @@ SUBSYSTEM_DEF(persistence)
 		drydockAutoStashAll()
 	catch(var/exception/drydock_e)
 		log_subsystem_persistence_panic("Unhandled exception during drydock auto-stash: [drydock_e]")
+
+	// After the stash sweep above -- see drydockForgetBeaconEnvelopes()'s own
+	// doc comment (persistence_shuttles.dm). A pad's tiles are never meant to
+	// survive a reboot, so nothing left at one can reconstruct itself.
+	try
+		drydockForgetBeaconEnvelopes()
+	catch(var/exception/beacon_forget_e)
+		log_subsystem_persistence_panic("Unhandled exception during docking beacon envelope cleanup: [beacon_forget_e]")
 
 	try
 		shuttleStateFinalize()

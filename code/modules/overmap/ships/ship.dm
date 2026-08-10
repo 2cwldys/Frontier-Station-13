@@ -194,8 +194,8 @@
 	return round(get_total_thrust()/get_vessel_mass(), SHIP_MOVE_RESOLUTION)
 
 //Does actual burn and returns the resulting acceleration
-/obj/effect/overmap/visitable/ship/proc/get_burn_acceleration()
-	return round(burn() / get_vessel_mass(), SHIP_MOVE_RESOLUTION)
+/obj/effect/overmap/visitable/ship/proc/get_burn_acceleration(play_sound = TRUE)
+	return round(burn(1, play_sound) / get_vessel_mass(), SHIP_MOVE_RESOLUTION)
 
 /obj/effect/overmap/visitable/ship/proc/get_vessel_mass()
 	. = vessel_mass
@@ -257,8 +257,10 @@
 	// This is also the mathematical definition for Vector.size
 	var/magnitude_velocity = ((speed[1] ** 2) + (speed[2] **2)) ** (1/2)
 
-	// Get the magnitude of our desired change in velocity
-	var/alpha = min(get_burn_acceleration(), magnitude_velocity)
+	// Get the magnitude of our desired change in velocity -- play_sound =
+	// FALSE, this is only here for the math; the Dampener already has its
+	// own dedicated cue above, not the raw engine-burn noise.
+	var/alpha = min(get_burn_acceleration(FALSE), magnitude_velocity)
 
 	// First we "Normalize" the current velocity to get the direction without a distance
 	// Then we take the exact negative of this direction to get its true opposite
@@ -411,9 +413,9 @@
 					M.client.pixel_y = pixel_y
 	..()
 
-/obj/effect/overmap/visitable/ship/proc/burn(var/power_modifier = 1)
+/obj/effect/overmap/visitable/ship/proc/burn(var/power_modifier = 1, play_sound = TRUE)
 	for(var/datum/ship_engine/E in engines)
-		. += E.burn(power_modifier)
+		. += E.burn(power_modifier, play_sound)
 
 /obj/effect/overmap/visitable/ship/proc/get_total_thrust()
 	for(var/datum/ship_engine/E in engines)
@@ -488,7 +490,10 @@
 	return FALSE
 
 /obj/effect/overmap/visitable/ship/proc/turn_ship(var/new_dir)
-	burn(0.25)
+	// play_sound = FALSE -- this call is only here for the fuel/thrust math,
+	// not a deliberate burn; plain turning should stay quiet, not sound like
+	// an engine burn.
+	burn(0.25, FALSE)
 	var/angle = new_dir == WEST ? 45 : -45
 	dir = turn(dir, angle)
 	update_icon()

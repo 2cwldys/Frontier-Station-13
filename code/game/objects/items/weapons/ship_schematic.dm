@@ -148,6 +148,18 @@
 	data["shuttle_id"] = DS.shuttle_id
 	data["save_in_progress"] = SSpersistence.save_in_progress
 	data["busy"] = _drydock_ship_busy(DS.shuttle_id)
+	// _drydockStashRun() refuses a non-forced stash whenever the ship is away
+	// from its own home landmark (docked at a beacon, in a hangar slot, or
+	// nested in another ship's visiting slot). It only said so AFTER the
+	// click, so the Stash button looked perfectly available right up until it
+	// wasn't -- report the exact same comparison here so the button and the
+	// server can't disagree.
+	data["away_from_home"] = FALSE
+	if(!DS.stashed && DS.z)
+		var/obj/effect/overmap/visitable/ship/landable/home_marker = GLOB.map_sectors["[DS.z]"]
+		var/datum/shuttle/home_shuttle = istype(home_marker) ? SSshuttle.shuttles[home_marker.shuttle] : null
+		if(istype(home_shuttle) && istype(home_marker.landmark) && home_shuttle.current_location != home_marker.landmark)
+			data["away_from_home"] = TRUE
 
 	var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
 	data["sub_shuttle_tags"] = (template && length(template.sub_shuttle_tags)) ? template.sub_shuttle_tags : list()

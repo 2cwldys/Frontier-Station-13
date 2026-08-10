@@ -137,6 +137,12 @@
 	GLOB.persistence_template_loaded_z |= z
 	if(SSmapping.z_list && z <= length(SSmapping.z_list))
 		SSmapping.z_list[z].name = name // rename the reused level for admin tooling
+		// Reset to THIS template's own traits -- a pooled Z otherwise keeps
+		// whatever traits its previous occupant had (space_level.dm's traits
+		// var has no other mutator), which is wrong whenever the pool hands a
+		// former away-site Z to a ship or vice versa (GLOB.reusable_z_pool is
+		// shared between both, see persistence_ship_interiors.dm).
+		SSmapping.z_list[z].set_traits(traits[1])
 
 	var/datum/map_load_metadata/M = maploader.load_map(file(mappath), x, y, z, no_changeturf = FALSE)
 	if(M)

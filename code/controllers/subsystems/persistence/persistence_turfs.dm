@@ -266,6 +266,56 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 	return saved
 
 /**
+ * Permanently forgets any saved rows for the given turfs, right now.
+ *
+ * Exists because both save sweeps below iterate `/turf/simulated` ONLY -- a
+ * turf that reverts from simulated to UNSIMULATED (space, most commonly) is
+ * never visited by the collector at all, so it can never emit the
+ * "reverted to default, delete its row" coordinate that _turfsCollectOne()
+ * produces for an ordinary reversion. Its stale row would otherwise survive
+ * every future save and get faithfully restored by turfsInitialize() on the
+ * next boot -- resurrecting floors and walls at a site that was deliberately
+ * cleared (the commission build-site wipe, _drydockCommissionRun(),
+ * persistence_shuttles.dm, being the case that does this at scale).
+ *
+ * Takes live turfs and buckets by persistence_scope_for_z() exactly as
+ * _turfsCollectOne() does, so a deployed ship Z's rows are deleted under the
+ * ship's own scope rather than the map's.
+ */
+/datum/controller/subsystem/persistence/proc/turfsForget(list/turfs)
+	if(!length(turfs))
+		return
+	if(!databaseCheckConnection("turfsForget"))
+		return
+
+	var/list/delete_by_scope = list()
+	for(var/turf/T in turfs)
+		var/scope_escaped = replacetext(persistence_scope_for_z(T.z), "'", "''")
+		if(!(scope_escaped in delete_by_scope))
+			delete_by_scope[scope_escaped] = list()
+		delete_by_scope[scope_escaped] += "([T.x],[T.y],[T.z])"
+		// Drop the in-memory copy too, so nothing in this same session can
+		// re-derive the row from cache before the next real save.
+		GLOB.persistence_turfs_cache -= "[T.x]|[T.y]|[T.z]"
+		CHECK_TICK
+
+	var/forgotten = 0
+	for(var/scope_escaped in delete_by_scope)
+		var/list/coords = delete_by_scope[scope_escaped]
+		if(!length(coords))
+			continue
+		var/datum/db_query/wipe = SSdbcore.NewQuery(
+			"DELETE FROM ss13_worldstate_turfs WHERE map_path = '[scope_escaped]' AND (x,y,z) IN ([coords.Join(",")])"
+		)
+		wipe.Execute()
+		databaseCheckQueryResult(wipe, "turfsForget delete")
+		qdel(wipe)
+		forgotten += length(coords)
+		CHECK_TICK
+
+	log_subsystem_persistence_info("Turfs: Forgot [forgotten] turf row(s) across [length(delete_by_scope)] scope(s).")
+
+/**
  * Save all structurally changed turfs to the database at round end.
  * Full world scan  compares every simulated floor and wall against its base state.
  * Called from SSpersistence.Shutdown() and forceSaveAll().

@@ -215,6 +215,8 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/manage_persistent_overmap_sites,
 	/datum/admins/proc/force_stash_ship,
 	/datum/admins/proc/force_stash_all_ships,
+	/datum/admins/proc/clear_docking_beacons,
+	/datum/admins/proc/toggle_ship_z_reuse,
 	/datum/admins/proc/restore_ship_backup,
 	/datum/admins/proc/set_drydock_ship_cap,
 	/datum/admins/proc/free_drydock_ship_name,

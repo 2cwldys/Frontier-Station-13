@@ -27,7 +27,10 @@
 
 	// Fixed literal chosen only by world.system_type -- never built from admin- or
 	// player-supplied text, so there is no injection surface here.
-	var/command = (world.system_type == UNIX) ? "scripts/db_backup.sh" : "scripts/db_backup.bat"
+	// Backslashes on Windows -- cmd.exe parses a leading "scripts/..." token as
+	// a command plus switches rather than a path, the same misparse Part 34's
+	// `del` fix already had to work around.
+	var/command = (world.system_type == UNIX) ? "scripts/db_backup.sh" : "scripts\\db_backup.bat"
 	// Relative -- the shelled-out process's cwd comes from DreamDaemon's own OS
 	// process cwd, which isn't guaranteed to be the repo root (see
 	// GLOB.config.server_root_path's doc comment, configuration.dm). Prefix an
@@ -48,5 +51,11 @@
 		return
 
 	to_chat(usr, SPAN_GOOD("Backup complete:"))
-	to_chat(usr, stdout)
+	// A script can legitimately report progress on stderr while still
+	// succeeding, so show both rather than only stdout -- printing an empty
+	// line was what made a completed backup look like it said nothing at all.
+	var/report = trim(stdout)
+	if(trim(stderr))
+		report = report ? "[report]\n[trim(stderr)]" : trim(stderr)
+	to_chat(usr, report || "No output captured.")
 	log_and_message_admins("ran a manual database backup", usr)

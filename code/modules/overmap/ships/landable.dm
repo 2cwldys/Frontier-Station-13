@@ -151,8 +151,8 @@
 	core_landmark = null
 	. = ..()
 
-/obj/effect/shuttle_landmark/visiting_shuttle/is_valid(datum/shuttle/shuttle)
-	. = ..()
+/obj/effect/shuttle_landmark/visiting_shuttle/is_valid(datum/shuttle/shuttle, list/reason_out, check_objects = TRUE)
+	. = ..(shuttle, reason_out, check_objects)
 	if(!.)
 		return
 	var/datum/shuttle/boss_shuttle = SSshuttle.shuttles[core_landmark.shuttle_name]

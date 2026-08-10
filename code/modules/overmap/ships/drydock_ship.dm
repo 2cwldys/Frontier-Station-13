@@ -15,6 +15,12 @@
  */
 
 /datum/map_template/drydock_ship
+	// The base /datum/map_template default (ZTRAITS_AWAY) tags a hull's own
+	// interior Z as an away site -- wrong for a ship's own home Z, and the
+	// reason shield/cloak generators (is_away_level(), ship_shield_generator.dm/
+	// ship_cloaking_device.dm) refused to activate while genuinely docked at
+	// the ship's own drydock, not an actual away site.
+	traits = list(list())
 	/// Credits charged by drydockBuy() (persistence_shuttles.dm). 0 = free.
 	var/price = 0
 	/// Area type identifying this hull's bridge/CIC/command room, for hulls

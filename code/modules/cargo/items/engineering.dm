@@ -1166,6 +1166,18 @@
 	groupable = TRUE
 	spawn_amount = 1
 
+/singleton/cargo_item/targeting_computer_crate
+	category = "engineering"
+	name = "Targeting Computer Crate"
+	supplier = "Hub"
+	description = "A ready-to-place targeting systems console for a ship's weaponry. Wrench it down anywhere aboard, then multitool it to buffer it for hooking up to ship weapons. Entirely optional -- a hull commissions and flies perfectly well without one."
+	price = 15000
+	items = list(/obj/structure/machinery/computer/ship/targeting/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
 /singleton/cargo_item/ion_engine_crate
 	category = "engineering"
 	name = "Ion Engine Crate"

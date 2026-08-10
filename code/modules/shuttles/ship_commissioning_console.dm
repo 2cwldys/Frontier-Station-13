@@ -286,6 +286,13 @@ GLOBAL_LIST_EMPTY(drydock_linkable_devices_by_tag)
 	// Snapshot from the last Preview -- see envelope_clean_for_generate's
 	// own doc comment for why this isn't re-checked live here.
 	data["can_generate_floor"] = data["beacon_found"] && envelope_clean_for_generate
+	// Gates the admin-only envelope wipe below. Re-checked server-side in
+	// ui_act() too -- never trust client-side hiding alone.
+	data["is_admin"] = !!check_rights(R_ADMIN, 0, user)
+	// Deliberately NOT beacon_found -- see _admin_envelope_beacon()'s own doc
+	// comment for why the admin wipe must still work with a deactivated or
+	// out-of-range beacon.
+	data["admin_wipe_available"] = !!_admin_envelope_beacon()
 	return data
 
 /obj/structure/machinery/computer/ship_commissioning/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
@@ -294,6 +301,40 @@ GLOBAL_LIST_EMPTY(drydock_linkable_devices_by_tag)
 		return
 	var/mob/user = usr
 	switch(action)
+		// Admin-only counterpart to the "Clear Docking Beacons" verb
+		// (persistence_shuttles.dm), scoped to just this console's own
+		// envelope: wipes it back to open space and forgets its saved rows,
+		// for clearing a half-built or leftover hull without hunting down the
+		// beacon it belongs to.
+		if("admin_wipe_envelope")
+			if(!check_rights(R_ADMIN, 0, user))
+				return
+			var/list/turf/wipe_envelope = _get_admin_envelope_turfs()
+			if(!length(wipe_envelope))
+				to_chat(user, SPAN_WARNING("No beacon linked to this console (or it's on another z) -- there's no envelope to define. Link one first."))
+				return
+			// Never wipe with anyone still inside -- refuse rather than leave
+			// them floating in open space. Re-checked here (not just at the
+			// prompt) so someone stepping in mid-dialog is still caught. Same
+			// gate commissioning itself uses, so it also covers an occupied
+			// neural lace lying there, not just a body.
+			if(_drydock_envelope_has_occupants(wipe_envelope))
+				to_chat(user, SPAN_WARNING("Someone (or an occupied neural lace) is still inside the build envelope -- refusing to wipe."))
+				return
+			if(tgui_alert(user, "Wipe this console's entire build envelope back to open space and forget its saved turf/object rows? This cannot be undone.", "Wipe Build Envelope", list("Wipe", "Cancel")) != "Wipe")
+				return
+			if(_drydock_envelope_has_occupants(wipe_envelope))
+				to_chat(user, SPAN_WARNING("Someone stepped into the build envelope -- refusing to wipe."))
+				return
+			for(var/turf/T in wipe_envelope)
+				T.ChangeTurf(get_base_turf_by_area(T))
+			SSpersistence.turfsForget(wipe_envelope)
+			SSpersistence.objectsForget(wipe_envelope)
+			envelope_clean_for_generate = FALSE
+			log_and_message_admins("wiped a ship commissioning build envelope ([length(wipe_envelope)] tiles) and forgot its persistence rows.", user, get_turf(src))
+			to_chat(user, SPAN_GOOD("Build envelope wiped to open space and forgotten ([length(wipe_envelope)] tiles)."))
+			. = TRUE
+
 		if("clear_links")
 			_clear_all_links()
 			to_chat(user, SPAN_NOTICE("Cleared all device links -- multitool a beacon, transponder, and shuttle control console (Buffer), then multitool this console to relink them."))
@@ -403,25 +444,41 @@ GLOBAL_LIST_EMPTY(drydock_linkable_devices_by_tag)
 /// bounds at all. That nearest edge is also the exact one
 /// _show_envelope_preview() tints -- turn(beacon.dir, 180), the direction a
 /// docking_transponder needs to face, always lands on that same edge.
-/obj/structure/machinery/computer/ship_commissioning/proc/_get_envelope_corner(obj/structure/machinery/docking_beacon/beacon)
-	var/turf/center = beacon ? get_turf(beacon) : null
-	if(!center)
+/// Beacon resolution for the ADMIN envelope wipe specifically -- deliberately
+/// looser than _valid_linked_beacon() above.
+///
+/// That proc additionally requires the beacon be anchored, `beacon_active`,
+/// and within BUILD_ENVELOPE_BEACON_RANGE, which is correct for deciding
+/// whether a player may commission -- but it means the admin wipe goes dead
+/// exactly when it's most needed, since deactivating or unlinking the beacon
+/// is precisely what happens while cleaning up an abandoned build. Only the
+/// same-z requirement is kept, because envelope geometry is meaningless
+/// without it.
+/obj/structure/machinery/computer/ship_commissioning/proc/_admin_envelope_beacon()
+	if(!linked_beacon && linked_beacon_tag)
+		var/atom/movable/resolved = GLOB.drydock_linkable_devices_by_tag[linked_beacon_tag]
+		if(istype(resolved, /obj/structure/machinery/docking_beacon))
+			linked_beacon = resolved
+	if(!linked_beacon || linked_beacon.z != z)
 		return null
-	var/half_x = round((build_envelope_x - 1) / 2)
-	var/half_y = round((build_envelope_y - 1) / 2)
-	switch(beacon.dir)
-		if(WEST)
-			return locate(center.x - build_envelope_x, center.y - half_y, center.z)
-		if(EAST)
-			return locate(center.x + 1, center.y - half_y, center.z)
-		if(SOUTH)
-			return locate(center.x - half_x, center.y - build_envelope_y, center.z)
-		if(NORTH)
-			return locate(center.x - half_x, center.y + 1, center.z)
-	// Non-cardinal dir shouldn't be reachable (rotate only ever turns by
-	// 90 degrees from a cardinal start) -- fall back to centered rather
-	// than error.
-	return locate(center.x - half_x, center.y - half_y, center.z)
+	return linked_beacon
+
+/// The envelope block for the admin wipe, resolved through
+/// _admin_envelope_beacon() rather than the commission-grade validity check.
+/obj/structure/machinery/computer/ship_commissioning/proc/_get_admin_envelope_turfs()
+	var/obj/structure/machinery/docking_beacon/beacon = _admin_envelope_beacon()
+	var/turf/corner = _get_envelope_corner(beacon)
+	if(!corner)
+		return null
+	return block(corner, locate(corner.x + build_envelope_x - 1, corner.y + build_envelope_y - 1, corner.z))
+
+/// Thin wrapper over the shared beacon geometry (docking_beacon_envelope_corner(),
+/// docking_beacon.dm) at THIS console's own configured build size -- the pad
+/// cleanup sweeps resolve the same beacon through the same proc at the
+/// beacon's own max footprint instead, so the two can never disagree about
+/// where a pad's tiles actually are.
+/obj/structure/machinery/computer/ship_commissioning/proc/_get_envelope_corner(obj/structure/machinery/docking_beacon/beacon)
+	return docking_beacon_envelope_corner(beacon, build_envelope_x, build_envelope_y)
 
 /// The SUBSHIP_FOOTPRINT_X x SUBSHIP_FOOTPRINT_Y block of turfs the build
 /// envelope covers, positioned per _get_envelope_corner() -- null if no

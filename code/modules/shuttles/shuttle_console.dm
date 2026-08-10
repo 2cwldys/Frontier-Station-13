@@ -219,7 +219,19 @@
 		if(SHUTTLE_WARMUP) shuttle_state = "warmup"
 		if(SHUTTLE_INTRANSIT) shuttle_state = "in_transit"
 
-	return list(
+#ifdef DOCKING_REFUSAL_DIAGNOSTICS
+	// Why each nearby landmark was excluded from the destination picker --
+	// see last_destination_refusals (overmap_shuttle.dm). Only meaningful for
+	// an overmap shuttle (the type that has a destination picker at all), and
+	// only populated once get_possible_destinations() has actually run for
+	// this shuttle, so an empty/missing list is normal rather than an error.
+	var/list/refusals = list()
+	if(istype(shuttle, /datum/shuttle/autodock/overmap))
+		var/datum/shuttle/autodock/overmap/overmap_shuttle = shuttle
+		refusals = overmap_shuttle.last_destination_refusals || list()
+#endif
+
+	. = list(
 		"shuttle_status" = get_shuttle_status(shuttle),
 		"shuttle_state" = shuttle_state,
 		"has_docking" = shuttle.active_docking_controller? 1 : 0,
@@ -232,6 +244,13 @@
 		"ship_name" = _display_ship_name(shuttle),
 		"current_location" = shuttle.get_location_name(),
 	)
+#ifdef DOCKING_REFUSAL_DIAGNOSTICS
+	// Both TGUI templates already render their refusal section behind
+	// `!!data.destination_refusals?.length`, so simply omitting the field
+	// here is all that's needed to strip it from a production build.
+	.["destination_refusals"] = refusals
+#endif
+	return .
 
 /obj/structure/machinery/computer/shuttle_control/ui_act(action, params)
 	. = ..()

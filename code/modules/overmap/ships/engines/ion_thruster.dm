@@ -17,8 +17,8 @@
 /datum/ship_engine/ion/get_thrust()
 	return thruster.get_thrust()
 
-/datum/ship_engine/ion/burn(var/power_modifier = 1)
-	return thruster.burn(power_modifier)
+/datum/ship_engine/ion/burn(var/power_modifier = 1, play_sound = TRUE)
+	return thruster.burn(power_modifier, play_sound)
 
 /datum/ship_engine/ion/set_thrust_limit(new_limit)
 	thruster.thrust_limit = new_limit
@@ -73,7 +73,13 @@
 	for(var/obj/effect/overmap/visitable/ship/S as anything in SSshuttle.ships)
 		if(S.check_ownership(src))
 			S.engines |= controller
+#ifdef DRYDOCK_ENGINE_DIAGNOSTICS
+			log_debug("ENGINE DIAG: ion [src] at [get_area(src)] ([x],[y],[z]) MATCHED ship '[S]' -- [S.name] now has [length(S.engines)] engine(s).")
+#endif
 			return
+#ifdef DRYDOCK_ENGINE_DIAGNOSTICS
+	log_debug("ENGINE DIAG: ion [src] at [get_area(src)] ([x],[y],[z]) -- NO ship claimed ownership across [length(SSshuttle.ships)] ship(s).")
+#endif
 
 /obj/structure/machinery/ion_engine/Destroy()
 	QDEL_NULL(controller)
@@ -107,11 +113,12 @@
 	if(!powered())
 		. += list(list("text" = "Insufficient power to operate.", "severity" = "bad"))
 
-/obj/structure/machinery/ion_engine/proc/burn(var/power_modifier = 1)
+/obj/structure/machinery/ion_engine/proc/burn(var/power_modifier = 1, play_sound = TRUE)
 	if(!on && !powered())
 		return 0
 	use_power_oneoff(thrust_limit * burn_cost * power_modifier)
-	playsound(loc, 'sound/machines/thruster.ogg', (50 * thrust_limit * power_modifier), FALSE, world.view * 4, 0.1)
+	if(play_sound)
+		playsound(loc, 'sound/machines/thruster.ogg', (50 * thrust_limit * power_modifier), FALSE, world.view * 4, 0.1)
 	. = thrust_limit * generated_thrust * power_modifier
 
 /obj/structure/machinery/ion_engine/proc/get_thrust()
