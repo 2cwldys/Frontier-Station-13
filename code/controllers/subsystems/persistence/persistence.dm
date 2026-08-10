@@ -412,7 +412,16 @@ SUBSYSTEM_DEF(persistence)
 	SSpersistence.subshipSnapshotSaveAllDeployed()
 	// Same trailing cleanup the periodic save and Shutdown() both run -- see
 	// drydockForgetBeaconEnvelopes() (persistence_shuttles.dm).
-	SSpersistence.drydockForgetBeaconEnvelopes()
+	//
+	// try/catch is NOT optional here: save_in_progress gates the Stash,
+	// Retrieve and Scuttle buttons on every ship schematic AND the Ship
+	// Drydock program. An exception escaping between setting it TRUE and
+	// clearing it below leaves every one of those greyed out, with no way to
+	// recover short of a server restart.
+	try
+		SSpersistence.drydockForgetBeaconEnvelopes()
+	catch(var/exception/beacon_forget_e)
+		log_subsystem_persistence_panic("Unhandled exception during docking beacon envelope cleanup: [beacon_forget_e]")
 
 	SSpersistence.save_in_progress = FALSE
 	// Same post-save queue kick as the periodic fire() -- stash/retrieve

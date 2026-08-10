@@ -1908,6 +1908,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			shuttle_datum.name = new_shuttle_name
 			SSshuttle.shuttles[new_shuttle_name] = shuttle_datum
 			marker.shuttle = new_shuttle_name
+			// Without this the ship's own home landmark stays filed under the
+			// pre-rename key and can never be offered as a destination again --
+			// see _drydock_rekey_ship_waypoints().
+			_drydock_rekey_ship_waypoints(marker, old_shuttle_name, new_shuttle_name)
 
 	marker.name = DS.display_name()
 
@@ -2013,6 +2017,13 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// _drydock_reposition_ship_landmark()'s own doc comment for why a
 	// centre-anchored landmark misaligns every future dock by half a hull.
 	_drydock_reposition_ship_landmark(marker, shuttle_datum, "drydockCommission (shuttle_id=[new_id])")
+
+	// This sector was created at runtime, so initialize_sectors() never ran for
+	// it and the waypoint tags populate_sector_objects() queued -- the ship's
+	// own "Open Space" home landmark among them -- would otherwise never become
+	// real destinations, leaving the ship able to dock but never undock. See
+	// register_sector_waypoints() (controllers/subsystems/processing/shuttle.dm).
+	SSshuttle.register_sector_waypoints(marker)
 
 	// Hook up whichever shuttle_control console the player actually built,
 	// same as drydockAutoFurnish() does for its own auto-spawned one.
@@ -2503,6 +2514,9 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			shuttle_datum.name = new_shuttle_name
 			SSshuttle.shuttles[new_shuttle_name] = shuttle_datum
 			marker.shuttle = new_shuttle_name
+			// Same stale-key problem the sub-ship waypoint registration below
+			// already guards against -- see _drydock_rekey_ship_waypoints().
+			_drydock_rekey_ship_waypoints(marker, old_shuttle_name, new_shuttle_name)
 			for(var/obj/structure/machinery/computer/shuttle_control/console in shuttle_datum.shuttle_computers)
 				console.shuttle_tag = new_shuttle_name
 
@@ -3151,18 +3165,106 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// or leave it exposed to whatever it's docked with. Returns FALSE only on
 /// a genuine recall failure (attempt_move() refused -- blocked, grappled,
 /// missing home landmark) that needs admin attention.
+/// Absolute fallback for a ship whose own open space is unreachable: give it a
+/// brand-new, guaranteed-empty z, put its home landmark there, and move it in.
+///
+/// Only ever called after a normal recall has already been refused. A ship that
+/// cannot reach its own home is otherwise stranded permanently -- every retry
+/// hits the identical refusal -- so a fresh z is strictly better than leaving
+/// it stuck, even though it costs a z-level.
+///
+/// Ordering is deliberate and matters: the new z and landmark are fully built
+/// and the MOVE IS ATTEMPTED FIRST. Only once the ship is physically on the new
+/// z does any ledger/registry state change. If the move fails, everything
+/// provisioned here is discarded and the ship is left exactly as it was --
+/// never half-migrated with DS.z pointing somewhere the hull isn't, which is
+/// the failure mode that loses ships.
+/datum/controller/subsystem/persistence/proc/_drydock_rehome_to_fresh_z(datum/drydock_ship/DS, obj/effect/overmap/visitable/ship/landable/marker, datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum)
+	if(!istype(marker) || !istype(shuttle_datum))
+		return FALSE
+
+	// Never recycle here -- a pooled z can carry leftovers, and this path exists
+	// precisely because the ship's existing ground is already untrustworthy.
+	var/datum/space_level/fresh = SSmapping.add_new_zlevel("Rehomed Open Space for [shuttle_datum.name]", list(ZTRAIT_RESERVED = TRUE), contain_turfs = FALSE)
+	if(!fresh)
+		return FALSE
+	var/new_z = fresh.z_value
+	var/turf/centre = locate(round(world.maxx / 2), round(world.maxy / 2), new_z)
+	if(!centre)
+		return FALSE
+
+	// Unique tag -- reusing the template's fixed tag would collide with the old
+	// landmark still sitting in the registry (register_landmark() rejects
+	// duplicates outright).
+	var/obj/effect/shuttle_landmark/ship/rehomed = new(centre, shuttle_datum.name)
+	rehomed.landmark_tag = "nav_rehomed_[DS.shuttle_id]_[new_z]"
+	rehomed.shuttle_name = shuttle_datum.name
+	rehomed.name = "Open Space"
+	// Space, explicitly -- the exact defect that duplicated hulls in the first
+	// place was a home landmark whose base_area resolved to the ship's OWN area
+	// (see player_built_shuttle.dm).
+	rehomed.landmark_flags = SLANDMARK_FLAG_ZERO_G
+	rehomed.base_turf = /turf/space
+	rehomed.base_area = locate(/area/space) || world.area
+	SSshuttle.register_landmark(rehomed.landmark_tag, rehomed)
+
+	// Move BEFORE committing any state. A refusal here must leave the ship
+	// untouched.
+	if(!shuttle_datum.attempt_move(rehomed))
+		SSshuttle.registered_shuttle_landmarks -= rehomed.landmark_tag
+		qdel(rehomed)
+		log_drydock_error("_drydock_rehome_to_fresh_z: the fresh z at [new_z] ALSO refused shuttle_id=[DS.shuttle_id] -- discarded it and left the ship where it was.")
+		return FALSE
+
+	// Committed: the hull is physically on new_z, so the ledger and registries
+	// follow it.
+	var/old_z = DS.z
+	var/scope = "ship:d:[DS.shuttle_id]"
+	marker.landmark = rehomed
+	for(var/zlevel in marker.map_z)
+		GLOB.map_sectors["[zlevel]"] = null
+	GLOB.persistence_ship_z -= "[old_z]"
+	marker.map_z = list(new_z)
+	GLOB.map_sectors["[new_z]"] = marker
+	GLOB.persistence_ship_z["[new_z]"] = scope
+	GLOB.zone_security_by_z["[new_z]"] = DS.faction_uid ? ZONE_MEDSEC : ZONE_NULLSEC
+	DS.z = new_z
+	// Point the ship's saved content rows at the z it actually lives on now,
+	// or the next retrieve would restore its interior onto the abandoned one.
+	remapShipRows(scope, new_z)
+	log_and_message_admins("Drydock: '[DS.display_name()]' (#[DS.shuttle_id]) could not reach its own open space (z=[old_z]) and was rehomed onto a fresh z=[new_z].", null, get_turf(marker))
+	return TRUE
+
 /datum/controller/subsystem/persistence/proc/_drydock_recall_ship_home(datum/drydock_ship/DS)
 	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
 	if(!istype(marker))
 		return FALSE
 	var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
-	var/obj/effect/shuttle_landmark/home_landmark = marker.landmark
-	if(istype(shuttle_datum) && home_landmark && shuttle_datum.current_location != home_landmark)
+	var/obj/effect/shuttle_landmark/home_landmark = _drydock_resolve_home_landmark(marker, shuttle_datum)
+	// FAIL CLOSED. This used to read marker.landmark directly and, when that
+	// was null, skip the whole move and still return TRUE -- reporting a
+	// successful recall for a ship that never budged. _drydockStashRun() then
+	// went on to shipInteriorSave() the ship's EMPTY home z and tear the marker
+	// down while the real hull sat somewhere else entirely. A stash that cannot
+	// bring the ship home must never proceed.
+	if(!istype(shuttle_datum) || !istype(home_landmark))
+		log_drydock_error("_drydock_recall_ship_home: could not resolve a home landmark for shuttle_id=[DS.shuttle_id] (marker.landmark=[marker.landmark ? "set" : "NULL"], logging_home_tag='[istype(shuttle_datum) ? shuttle_datum.logging_home_tag : "n/a"]') -- refusing to report a recall that never happened. Needs admin attention.")
+		return FALSE
+	if(shuttle_datum.current_location != home_landmark)
 		log_drydock("_drydock_recall_ship_home: shuttle_id=[DS.shuttle_id] is away from home -- force-recalling.")
 		if(!shuttle_datum.attempt_move(home_landmark))
-			log_drydock_error("_drydock_recall_ship_home: force-recall home failed (attempt_move refused) for shuttle_id=[DS.shuttle_id] -- needs admin attention.")
-			return FALSE
-		log_drydock("_drydock_recall_ship_home: shuttle_id=[DS.shuttle_id] force-recalled home successfully.")
+			// Last resort: the ship's own open space is genuinely unreachable
+			// (its home z is occupied, corrupted, or gone). Rather than leave
+			// it stranded forever, give it a brand-new empty z to call home and
+			// move it there -- the caller then proceeds with the normal stash,
+			// which saves the interior and tears that z down again.
+			log_drydock_warning("_drydock_recall_ship_home: home move refused for shuttle_id=[DS.shuttle_id] -- provisioning a fresh open-space z as a fallback.")
+			if(!_drydock_rehome_to_fresh_z(DS, marker, shuttle_datum))
+				log_drydock_error("_drydock_recall_ship_home: fallback rehome ALSO failed for shuttle_id=[DS.shuttle_id] -- needs admin attention.")
+				return FALSE
+			log_drydock("_drydock_recall_ship_home: shuttle_id=[DS.shuttle_id] rehomed onto a fresh z successfully.")
+		else
+			log_drydock("_drydock_recall_ship_home: shuttle_id=[DS.shuttle_id] force-recalled home successfully.")
 
 	var/datum/map_template/drydock_ship/sub_template = SSmapping.drydock_ship_templates[DS.template_id]
 	if(sub_template && length(sub_template.sub_shuttle_tags))
@@ -3325,6 +3427,97 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	log_drydock("_drydock_reposition_ship_landmark: anchored landmark to the transponder at ([anchor.x],[anchor.y],[anchor.z]) for [context].")
 	return TRUE
 
+/// Re-files a ship's own restricted waypoints under its NEW shuttle name
+/// after the per-instance uniqueness rename.
+///
+/// find_z_levels() (landable.dm) registers the ship's own "Open Space" home
+/// landmark with `add_landmark(landmark, shuttle)` -- a RESTRICTED waypoint
+/// keyed by the shuttle's name string at template-load time, deliberately so
+/// that landmark belongs to this ship alone and no other vessel can target it.
+/// Commission/retrieve then rename the shuttle datum to "[name] #[id]" for
+/// registry uniqueness. get_waypoints() (sectors.dm) only ever looks
+/// restricted_waypoints up under the CURRENT name, so without this the home
+/// landmark stays filed under a key nothing will ever ask for again: it
+/// silently vanishes from every destination list and the ship can never
+/// undock. (The FORE/PORT/AFT/STARBOARD visiting slots keep working because
+/// those are registered as GENERIC waypoints.)
+///
+/// A re-key, never a downgrade to generic -- the exclusivity is the point.
+/proc/_drydock_rekey_ship_waypoints(obj/effect/overmap/visitable/ship/landable/marker, old_name, new_name)
+	if(!istype(marker) || !old_name || !new_name || old_name == new_name)
+		return
+	var/list/moved = LAZYACCESS(marker.restricted_waypoints, old_name)
+	if(length(moved))
+		for(var/obj/effect/shuttle_landmark/L in moved)
+			// Keep the landmark's own idea of its owner in step, so a later
+			// cross-z forceMove() (landmarks.dm) re-registers it under the new
+			// key instead of resurrecting the stale one.
+			L.shuttle_restricted = new_name
+		LAZYSET(marker.restricted_waypoints, new_name, moved)
+	LAZYREMOVE(marker.restricted_waypoints, old_name)
+	// visiting_shuttle/is_valid() (landable.dm) resolves its governing shuttle
+	// via SSshuttle.shuttles[core_landmark.shuttle_name] and dereferences the
+	// result -- a stale name there returns null and runtimes every check.
+	if(istype(marker.landmark))
+		marker.landmark.shuttle_name = new_name
+
+/// This ship's own "Open Space" home landmark, resolved defensively, with
+/// `marker.landmark` repaired in place whenever a fallback had to be used.
+///
+/// `marker.landmark` is assigned in exactly one place --
+/// populate_sector_objects() (landable.dm) -- which early-returns and retries
+/// on a 2-second timer whenever the shuttle datum isn't registered yet. A
+/// runtime retrieve can lose that race, leaving the var null with nothing to
+/// ever set it again. Everything that needs to send a ship home reads it, so
+/// one lost race silently breaks undocking, force-recall, Force Stash, and
+/// Clear Docking Beacons all at once.
+///
+/// Falls back to the shuttle datum's own logging_home_tag -- the same
+/// resolution _drydock_evict_docked_shuttle() already uses for non-drydock
+/// shuttles, and for a player-built hull that tag is exactly
+/// "nav_drydock_ship_player_built_shuttle_space" -- then to current_location
+/// when it already IS a ship landmark. Returns null only when a ship genuinely
+/// has no home to return to, which callers must treat as a hard failure rather
+/// than "nothing to do".
+/proc/_drydock_resolve_home_landmark(obj/effect/overmap/visitable/ship/landable/marker, datum/shuttle/shuttle_datum)
+	if(!istype(marker))
+		return null
+	if(istype(marker.landmark))
+		return marker.landmark
+
+	var/obj/effect/shuttle_landmark/recovered
+	if(istype(shuttle_datum) && shuttle_datum.logging_home_tag)
+		recovered = SSshuttle.get_landmark(shuttle_datum.logging_home_tag)
+	if(!istype(recovered) && istype(shuttle_datum) && istype(shuttle_datum.current_location, /obj/effect/shuttle_landmark/ship))
+		recovered = shuttle_datum.current_location
+
+	if(istype(recovered))
+		// Self-heal: put it back where every other caller expects to find it,
+		// so this only ever has to be recovered once.
+		marker.landmark = recovered
+		log_drydock_warning("_drydock_resolve_home_landmark: marker.landmark was missing for '[marker.shuttle]' -- recovered '[recovered.landmark_tag]' and repaired it in place.")
+	return recovered
+
+/// The first turf in `envelope` that a shuttle's own area covers, or null.
+///
+/// The authoritative "is a ship physically sitting here" test, derived from
+/// the turfs themselves rather than from any bookkeeping var. Docking is real
+/// turf relocation (translate_turfs(), shuttle.dm) and carries AREA membership
+/// with it, so a shuttle area covering these tiles means a hull is genuinely
+/// on them -- no matter what current_location claims.
+///
+/// Exists because trusting current_location got a live ship deleted: the
+/// "Clear Docking Beacons" verb matched docked ships by
+/// `current_location == pad`, found none (that var goes stale after the
+/// uniqueness rename), and wiped the envelope with the hull still on it.
+/// Any destructive envelope operation must consult this FIRST and refuse.
+/proc/_drydock_envelope_shuttle_turf(list/turf/envelope)
+	for(var/turf/T in envelope)
+		var/area/A = get_area(T)
+		if(A && (A in SSshuttle.shuttle_areas))
+			return T
+	return null
+
 /// TRUE if any ship commissioning console currently claims this beacon --
 /// either resolved live, or still only as a restored-but-not-yet-resolved
 /// saved tag (linked_beacon_tag, ship_commissioning_console.dm), so a link
@@ -3369,6 +3562,20 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			continue
 		var/list/envelope = beacon.get_envelope_turfs()
 		if(!length(envelope))
+			continue
+		// Never forget rows while a hull is physically on these tiles. Two
+		// distinct hazards, one check:
+		//  * A beacon built ABOARD a ship puts its envelope on that ship's own
+		//    z, so persistence_scope_for_z() resolves to "ship:d:<id>" and this
+		//    sweep would delete that ship's OWN saved turf/object rows -- every
+		//    single save.
+		//  * A ship docked here at save time is genuinely sitting on those
+		//    coordinates, and its content is not the pad's to discard.
+		// Same physical-presence rule clear_docking_beacons() uses, and for the
+		// same reason: bookkeeping can drift, turf area membership cannot.
+		var/turf/occupied = _drydock_envelope_shuttle_turf(envelope)
+		if(occupied)
+			log_drydock("drydockForgetBeaconEnvelopes: skipped beacon '[beacon.landmark_tag]' -- a ship's hull ([get_area(occupied)]) is physically on its envelope.")
 			continue
 		turfsForget(envelope)
 		objectsForget(envelope)
@@ -3915,19 +4122,50 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 		// Evict first -- never wipe turfs out from under a hull still on them.
 		var/obj/effect/shuttle_landmark/pad = SSshuttle.registered_shuttle_landmarks[beacon.landmark_tag]
+		// Fail CLOSED. This used to be `if(istype(pad))` wrapping only the
+		// eviction loop, so an unresolvable pad skipped straight past eviction
+		// and wiped anyway -- "couldn't look" was treated as "nothing there",
+		// and it deleted a live ship.
+		if(!istype(pad))
+			skipped++
+			log_drydock_error("clear_docking_beacons: beacon '[beacon.landmark_tag]' SKIPPED -- its landmark could not be resolved, so whether anything is docked here is unknown. Refusing to wipe.")
+			continue
 		var/eviction_failed = FALSE
-		if(istype(pad))
-			for(var/shuttle_name in SSshuttle.shuttles)
-				var/datum/shuttle/docked = SSshuttle.shuttles[shuttle_name]
-				if(!istype(docked) || docked.current_location != pad)
-					continue
-				if(!_drydock_evict_docked_shuttle(docked, usr))
-					eviction_failed = TRUE
-					continue
-				evicted++
+		for(var/shuttle_name in SSshuttle.shuttles)
+			var/datum/shuttle/docked = SSshuttle.shuttles[shuttle_name]
+			if(!istype(docked) || docked.current_location != pad)
+				continue
+			if(!_drydock_evict_docked_shuttle(docked, usr))
+				eviction_failed = TRUE
+				continue
+			evicted++
 		if(eviction_failed)
 			skipped++
 			log_drydock_error("clear_docking_beacons: beacon '[beacon.landmark_tag]' left untouched -- a docked shuttle could not be evicted (see preceding error). Needs admin attention.")
+			continue
+
+		// Physical fallback, independent of every var above: if a shuttle area
+		// still covers any of these tiles, a hull is genuinely there regardless
+		// of what current_location said. Rather than only refusing, resolve
+		// that area back to its owning shuttle and evict THAT -- matching by
+		// tag/current_location misses a ship whose bookkeeping has drifted,
+		// which is how this verb reported "0 shuttles" while a hull sat on the
+		// pad. Only if a hull is STILL there afterwards do we refuse.
+		var/turf/still_occupied = _drydock_envelope_shuttle_turf(envelope)
+		if(still_occupied)
+			var/area/occupying_area = get_area(still_occupied)
+			for(var/shuttle_name in SSshuttle.shuttles)
+				var/datum/shuttle/physical = SSshuttle.shuttles[shuttle_name]
+				if(!istype(physical) || !(occupying_area in physical.shuttle_area))
+					continue
+				log_drydock("clear_docking_beacons: beacon '[beacon.landmark_tag]' -- found '[physical.name]' physically on the envelope via its area, evicting it (nothing reported as docked here).")
+				if(_drydock_evict_docked_shuttle(physical, usr))
+					evicted++
+				break
+			still_occupied = _drydock_envelope_shuttle_turf(envelope)
+		if(still_occupied)
+			skipped++
+			log_and_message_admins("clear_docking_beacons: beacon '[beacon.landmark_tag]' REFUSED -- a ship's hull is still physically on its envelope ([get_area(still_occupied)] at ([still_occupied.x],[still_occupied.y],[still_occupied.z])) and could not be evicted. Nothing was wiped.", usr, still_occupied)
 			continue
 
 		// Never wipe a pad someone is still standing on -- refuse this one

@@ -276,6 +276,15 @@ GLOBAL_LIST_EMPTY(persistence_docked_turf_scope)
 	if(istype(shuttle_datum) && finish_template && finish_template.hidden_from_catalog)
 		_drydock_reposition_ship_landmark(marker, shuttle_datum, "retrieve (shuttle_id=[shuttle_id])")
 
+	// A sector created at RUNTIME never goes through initialize_sectors(), so
+	// the waypoint tags populate_sector_objects() queued -- including this
+	// ship's own "Open Space" home landmark -- are otherwise never turned into
+	// real destinations. Without this the ship can dock somewhere and then has
+	// no way to select home again. Safe here: the marker and its landmark are
+	// fully settled by this point, and the call is idempotent.
+	// See register_sector_waypoints() (controllers/subsystems/processing/shuttle.dm).
+	SSshuttle.register_sector_waypoints(marker)
+
 	DS.ready = TRUE
 	log_drydock("_shipInteriorApplyFinish: shuttle_id=[shuttle_id] finished background settle, ready to board.")
 	if(DS.owner_ckey)

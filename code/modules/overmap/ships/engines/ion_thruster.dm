@@ -52,7 +52,16 @@
 
 	var/datum/ship_engine/ion/controller
 	var/thrust_limit = 1
-	var/on = TRUE
+	/// Starts OFF, like the gas nozzle (use_power = POWER_USE_OFF) and every
+	/// other buildable part -- a player switches it on deliberately from the
+	/// engine control terminal.
+	///
+	/// This was TRUE, which made it impossible to keep an ion engine shut down
+	/// across a stash: the stash-time power-down (_drydock_power_down_ship_systems(),
+	/// persistence_shuttles.dm) set it FALSE correctly, but with no persistence
+	/// override the object was reconstructed on retrieve with initial(on) --
+	/// TRUE -- so it came back running every single time regardless.
+	var/on = FALSE
 	var/burn_cost = 36000
 	var/generated_thrust = 2.5
 
@@ -85,6 +94,28 @@
 	QDEL_NULL(controller)
 	. = ..()
 
+/**
+ * Persists the on/off state and thrust limit across a stash/retrieve, the
+ * same gap ship_cloaking_device.dm and ship_shield_generator.dm each had to
+ * fix: objectsRegisterTrack() happens for free via /obj/structure/machinery's
+ * own Initialize(), but with no content override every restore silently
+ * reverted to the mapped defaults. Without this an engine a player switched
+ * off stays switched off only until the next retrieve.
+ */
+/obj/structure/machinery/ion_engine/persistent_objects_get_content()
+	var/list/content = ..()
+	content["on"] = on
+	content["thrust_limit"] = thrust_limit
+	return content
+
+/obj/structure/machinery/ion_engine/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	on = content["on"] || FALSE
+	if(!isnull(content["thrust_limit"]))
+		thrust_limit = text2num(content["thrust_limit"])
+
 /// Cargo-orderable variant a player can build into their own commissioned
 /// hull (ship_commissioning_console.dm) -- starts loose like every other kit
 /// part this session added, needing only a wrench. Entirely self-contained:
@@ -112,6 +143,15 @@
 
 	if(!powered())
 		. += list(list("text" = "Insufficient power to operate.", "severity" = "bad"))
+
+	// Stated explicitly so the engine control terminal never reads as though a
+	// fuel source is simply missing -- this engine has no fuel concept at all,
+	// which is why a loaded fuel port never appears against it. Only the gas
+	// nozzle (gas_thruster.dm) draws from the ship's fuel_ports.
+	. += list(list(
+		"text" = "Draws electrical charge only -- burns no fuel gas, and cannot use a fuel port.",
+		"severity" = "info"
+	))
 
 /obj/structure/machinery/ion_engine/proc/burn(var/power_modifier = 1, play_sound = TRUE)
 	if(!on && !powered())

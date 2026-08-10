@@ -326,6 +326,16 @@ GLOBAL_LIST_EMPTY(drydock_linkable_devices_by_tag)
 			if(_drydock_envelope_has_occupants(wipe_envelope))
 				to_chat(user, SPAN_WARNING("Someone stepped into the build envelope -- refusing to wipe."))
 				return
+			// Physical guard, independent of any docking bookkeeping -- a
+			// shuttle area covering these tiles means a real hull is on them.
+			// See _drydock_envelope_shuttle_turf() (persistence_shuttles.dm):
+			// trusting current_location instead of the turfs is exactly what
+			// let the Clear Docking Beacons verb delete a live ship.
+			var/turf/occupied_by_ship = _drydock_envelope_shuttle_turf(wipe_envelope)
+			if(occupied_by_ship)
+				to_chat(user, SPAN_WARNING("A ship's hull is currently sitting on this envelope ([get_area(occupied_by_ship)]) -- refusing to wipe. Undock it first."))
+				log_and_message_admins("admin envelope wipe REFUSED -- a ship's hull ([get_area(occupied_by_ship)]) is on the envelope.", user, occupied_by_ship)
+				return
 			for(var/turf/T in wipe_envelope)
 				T.ChangeTurf(get_base_turf_by_area(T))
 			SSpersistence.turfsForget(wipe_envelope)

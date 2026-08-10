@@ -196,6 +196,25 @@
 	// cloak (unlike shield_generator, below) -- same SSmachinery.machinery
 	// scan _ship_gun.dm's own fire() already uses to force-uncloak a firing
 	// ship.
+	// Engines come off the moment we touch down anywhere -- a station pad or an
+	// away site alike -- rather than being left burning while parked. Clears
+	// the ship-wide toggle AND each engine individually: engines_state alone
+	// only gates new burns, and marker.engines (the datum/ship_engine registry)
+	// is not reliably populated, so the real machines are swept directly the
+	// same way _drydock_power_down_ship_systems() (persistence_shuttles.dm) has
+	// to.
+	engines_state = FALSE
+	for(var/datum/ship_engine/E as anything in engines)
+		if(E.is_on())
+			E.toggle()
+	for(var/zlevel in map_z)
+		for(var/obj/structure/machinery/atmospherics/unary/engine/nozzle in SSmachinery.machinery)
+			if(GET_Z(nozzle) == zlevel && nozzle.use_power)
+				nozzle.update_use_power(POWER_USE_OFF)
+		for(var/obj/structure/machinery/ion_engine/ion in SSmachinery.machinery)
+			if(GET_Z(ion) == zlevel && ion.on)
+				ion.on = FALSE
+
 	if(is_away_level(into.z))
 		if(shield_generator && shield_generator.active)
 			shield_generator._set_active(FALSE, silent = TRUE)

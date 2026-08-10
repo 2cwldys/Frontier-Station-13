@@ -48,9 +48,29 @@
 	landmark_transition = "nav_drydock_ship_player_built_shuttle_transit"
 	logging_home_tag = "nav_drydock_ship_player_built_shuttle_space"
 
+/// base_turf/base_area pinned to space, and SLANDMARK_FLAG_AUTOSET
+/// deliberately dropped, matching every working template hull
+/// (xanu_frigate.dm, orion_miner.dm, ...).
+///
+/// translate_turfs() (__HELPERS/turfs.dm) reverts a departing ship's vacated
+/// turfs to `current_location.base_area`/`base_turf`. Template hulls map this
+/// landmark out in open space, so AUTOSET derives space for both and home
+/// correctly empties out when they leave. THIS landmark is mapped inside the
+/// 9x9 room (and repositioned onto the hull by
+/// _drydock_reposition_ship_landmark()), so AUTOSET was deriving the SHIP'S
+/// OWN area and the room's floor instead -- meaning home never reverted to
+/// space on departure and the ship's shuttle_area silently spanned both home
+/// AND wherever it had docked. get_turf_translation() then built its
+/// footprint from both places at once, which is what produced the
+/// "would land outside this z-level's map bounds" refusals and left the ship
+/// unable to pick anything, including its own home.
 /obj/effect/shuttle_landmark/ship/drydock_ship_player_built_shuttle
+	name = "Open Space"
 	shuttle_name = "Player-Built Shuttle"
 	landmark_tag = "nav_drydock_ship_player_built_shuttle_space"
+	landmark_flags = SLANDMARK_FLAG_ZERO_G
+	base_turf = /turf/space
+	base_area = /area/space
 
 /obj/effect/shuttle_landmark/drydock_ship_player_built_shuttle_transit
 	name = "In transit"

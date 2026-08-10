@@ -149,7 +149,8 @@
 		// short_jump()ing straight to the destination; if our transit hop
 		// can't happen, degrade to exactly that rather than abandoning the
 		// jump.
-		if(attempt_move(interim))
+		var/reached_interim = attempt_move(interim)
+		if(reached_interim)
 			on_move_interim()
 		var/fwooshed = 0
 		destination.deploy_landing_indicators(src)
@@ -167,7 +168,17 @@
 			var/datum/shuttle/autodock/failed = src
 			if(istype(failed))
 				failed._report_launch_abort(jump_refusal)
-			attempt_move(start_location) //try to go back to where we started. If that fails, I guess we're stuck in the interim location
+			// Recovery is ONLY for being genuinely stranded at the interim
+			// landmark with nowhere to be -- never for undoing the player's
+			// own departure. Re-docking at start_location is what flew a ship
+			// straight back onto the beacon it had just undocked from, on
+			// every single attempt, with no way to escape.
+			//
+			// A ship left sitting in transit/open space is a recoverable
+			// situation the player can fly out of; a ship forcibly re-docked
+			// at the place it is trying to leave is a trap.
+			if(reached_interim && current_location == interim && istype(start_location, /obj/effect/shuttle_landmark/ship))
+				attempt_move(start_location) //only ever back to our OWN open space, never back onto a dock
 
 		moving_status = SHUTTLE_IDLE
 

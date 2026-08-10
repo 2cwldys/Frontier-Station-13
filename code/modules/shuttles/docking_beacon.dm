@@ -72,6 +72,35 @@
 					? "Your player built ship cannot dock due to being larger than acceptable parameters (hull [footprint[1]]x[footprint[2]], max [check_x]x[check_y])." \
 					: "hull footprint [footprint[1]]x[footprint[2]] exceeds this beacon's max [check_x]x[check_y]"
 			return FALSE
+	// Occupancy. Nothing reserves a docking destination: `in_use` locks the
+	// SHUTTLE, not the landmark, and the gap between validating and arriving
+	// spans the whole warmup + travel_time, so two ships can both pass every
+	// check and then race for the same pad. Today the loser is only caught
+	// incidentally, when the winner's dense hull WALLS trip check_collision() --
+	// a smaller craft landing entirely within a bigger ship's open floor is
+	// refused by nothing at all.
+	//
+	// Established two independent ways so this fails closed when either is
+	// unreliable: current_location (which closes the race, since the winner
+	// sets it the instant it lands) and physical shuttle-area coverage of the
+	// pad's own turf (which holds even when that bookkeeping has drifted --
+	// the exact drift that let the wipe verb delete a live ship, Parts 74/77).
+	for(var/other_name in SSshuttle.shuttles)
+		var/datum/shuttle/other = SSshuttle.shuttles[other_name]
+		if(!istype(other) || other == shuttle)
+			continue
+		if(other.current_location != src)
+			continue
+		if(reason_out)
+			reason_out += "another ship ([other.name]) is already docked here"
+		return FALSE
+	var/turf/pad_turf = get_turf(src)
+	var/area/pad_area = pad_turf ? get_area(pad_turf) : null
+	if(pad_area && (pad_area in SSshuttle.shuttle_areas) && !(pad_area in shuttle.shuttle_area))
+		if(reason_out)
+			reason_out += "another ship's hull is physically occupying this pad ([pad_area])"
+		return FALSE
+
 	// Entirely opt-in -- a ship carrying no docking_transponder at all skips
 	// this check completely and docks here exactly like it always could.
 	// One that DOES carry one must face the exact opposite direction from

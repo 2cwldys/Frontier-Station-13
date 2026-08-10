@@ -107,7 +107,10 @@
 		return FALSE
 	for(var/area/A in shuttle.shuttle_area)
 		var/list/translation = get_turf_translation(get_turf(shuttle.current_location), get_turf(src), A.contents)
-		if(check_collision(list_values(translation), check_objects))
+		// `shuttle` passed as the mover -- a ship is never blocked by its own
+		// hull. See check_collision()'s own doc comment for why that isn't
+		// hypothetical.
+		if(check_collision(list_values(translation), check_objects, shuttle))
 			if(reason_out)
 				// check_collision() (this file) treats a null translated turf
 				// as a collision too ("collides with edge of map") -- a
@@ -123,6 +126,12 @@
 						off_map_count++
 						continue
 					var/turf/T = target_turf
+					// Same self-exclusion the real check uses -- otherwise the
+					// refusal text lists the ship's OWN walls, consoles and
+					// crew as what's blocking it, which is what made this
+					// failure so hard to read.
+					if(get_area(T) in shuttle.shuttle_area)
+						continue
 					if(T.density)
 						blocking += "[T.type] at ([T.x],[T.y],[T.z])"
 					if(check_objects)
@@ -202,12 +211,27 @@
 /// footprint at a candidate destination silently removes it from the
 /// destination list entirely, even though an actual dock attempt there
 /// would otherwise be fine to at least offer and then correctly refuse.
-/proc/check_collision(list/target_turfs, check_objects = TRUE)
+/// mover, when supplied, is the shuttle actually making this move -- any
+/// target turf belonging to ITS OWN areas is skipped entirely.
+///
+/// A ship can never legitimately be blocked by its own hull, and it genuinely
+/// happens: a ship whose area ends up covering two places at once (see the
+/// home landmark's base_area handling, player_built_shuttle.dm) finds its own
+/// walls, consoles and crew sitting on the destination and refuses to move
+/// there forever -- permanently stranding it, since every retry hits the same
+/// wall. Excluding the mover's own areas lets the move proceed and
+/// translate_turfs() re-consolidate the footprint into one place.
+/proc/check_collision(list/target_turfs, check_objects = TRUE, datum/shuttle/mover = null)
 	for(var/target_turf in target_turfs)
 		var/turf/target = target_turf
 
 		if(!target)
 			return TRUE //collides with edge of map
+
+		// Part of the ship doing the moving -- it is not an obstruction, it IS
+		// the mover, and translate_turfs() is about to relocate it anyway.
+		if(mover && (get_area(target) in mover.shuttle_area))
+			continue
 
 		// IMPORTANT: The below area check is commented out as it is not compatible with the Horizon,
 		// which has docking ports with clashing turfs + areas! There's no good reason for this not to

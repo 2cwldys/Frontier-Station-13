@@ -89,6 +89,30 @@
 				if(reason != "already at this destination")
 					last_destination_refusals += "[LZ.name]: [reason]"
 #endif
+
+	// A ship must ALWAYS be able to fly back to its own home landmark. Getting
+	// there via the sector waypoint lists depends on a long chain -- the
+	// landmark being registered under a tag that still matches, the sector's
+	// queued waypoints having been drained, the marker being enumerable while
+	// nested inside whatever it's docked with -- and any one link breaking
+	// strands the ship permanently with no way home. So offer it directly off
+	// the marker instead of looking it up, exactly as _drydock_recall_ship_home()
+	// (persistence_shuttles.dm) already does for the system-facing path.
+	// Still gated on is_valid(), so a genuinely blocked home is reported rather
+	// than silently offered.
+	for(var/obj/effect/overmap/visitable/ship/landable/own_marker as anything in SSshuttle.ships)
+		if(own_marker.shuttle != name)
+			continue
+		var/obj/effect/shuttle_landmark/home = _drydock_resolve_home_landmark(own_marker, src)
+		if(istype(home) && home != current_location && !(home in res))
+			var/list/home_refusal = list()
+			if(home.is_valid(src, home_refusal, FALSE))
+				res["[own_marker.name] - [home.name]"] = home
+#ifdef DOCKING_REFUSAL_DIAGNOSTICS
+			else if(length(home_refusal))
+				last_destination_refusals += "[home.name] (own home): [home_refusal[1]]"
+#endif
+		break
 	return res
 
 /datum/shuttle/autodock/overmap/get_location_name()
