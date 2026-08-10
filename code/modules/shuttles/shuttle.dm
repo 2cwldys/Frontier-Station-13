@@ -106,7 +106,14 @@
 			return
 
 		moving_status = SHUTTLE_INTRANSIT //shouldn't matter but just to be safe
-		attempt_move(destination)
+		// Return value was previously discarded entirely -- a refused move left
+		// the ship at home while the autodock state machine went on to report a
+		// successful arrival. Same defect long_jump() had.
+		var/list/jump_refusal = list()
+		if(!destination.is_valid(src, jump_refusal) || !attempt_move(destination))
+			var/datum/shuttle/autodock/failed = src
+			if(istype(failed))
+				failed._report_launch_abort(jump_refusal)
 		moving_status = SHUTTLE_IDLE
 
 /datum/shuttle/proc/long_jump(var/obj/effect/shuttle_landmark/destination, var/obj/effect/shuttle_landmark/interim, var/travel_time)
@@ -133,21 +140,45 @@
 
 		arrive_time = world.time + travel_time*10
 		moving_status = SHUTTLE_INTRANSIT
-		if(attempt_move(interim))
+		// The transit hop is a visual nicety, NOT a prerequisite. It used to
+		// wrap this entire block, so a failed hop silently skipped the whole
+		// jump and dropped straight to SHUTTLE_IDLE -- which the autodock
+		// state machine then read as a completed arrival, announcing "Arriving
+		// at destination" for a ship that never left home. Template sub-ships
+		// dodge this entirely by having no landmark_transition at all and
+		// short_jump()ing straight to the destination; if our transit hop
+		// can't happen, degrade to exactly that rather than abandoning the
+		// jump.
+		var/reached_interim = attempt_move(interim)
+		if(reached_interim)
 			on_move_interim()
-			var/fwooshed = 0
-			destination.deploy_landing_indicators(src)
-			while (world.time < arrive_time)
-				if(moving_status == SHUTTLE_IDLE)
-					destination.clear_landing_indicators()
-					return //someone force-recalled us mid-flight
-				if(!fwooshed && (arrive_time - world.time) < 100)
-					fwooshed = 1
-					playsound(destination, sound_landing, 50, 20)
-				sleep(5)
-			if(!attempt_move(destination))
+		var/fwooshed = 0
+		destination.deploy_landing_indicators(src)
+		while (world.time < arrive_time)
+			if(moving_status == SHUTTLE_IDLE)
 				destination.clear_landing_indicators()
-				attempt_move(start_location) //try to go back to where we started. If that fails, I guess we're stuck in the interim location
+				return //someone force-recalled us mid-flight
+			if(!fwooshed && (arrive_time - world.time) < 100)
+				fwooshed = 1
+				playsound(destination, sound_landing, 50, 20)
+			sleep(5)
+		var/list/jump_refusal = list()
+		if(!destination.is_valid(src, jump_refusal) || !attempt_move(destination))
+			destination.clear_landing_indicators()
+			var/datum/shuttle/autodock/failed = src
+			if(istype(failed))
+				failed._report_launch_abort(jump_refusal)
+			// Recovery is ONLY for being genuinely stranded at the interim
+			// landmark with nowhere to be -- never for undoing the player's
+			// own departure. Re-docking at start_location is what flew a ship
+			// straight back onto the beacon it had just undocked from, on
+			// every single attempt, with no way to escape.
+			//
+			// A ship left sitting in transit/open space is a recoverable
+			// situation the player can fly out of; a ship forcibly re-docked
+			// at the place it is trying to leave is a trap.
+			if(reached_interim && current_location == interim && istype(start_location, /obj/effect/shuttle_landmark/ship))
+				attempt_move(start_location) //only ever back to our OWN open space, never back onto a dock
 
 		moving_status = SHUTTLE_IDLE
 
@@ -158,6 +189,53 @@
 * Shuttle Moved Handling * (Observer Pattern Implementation: Shuttle Moved)
 * Shuttle Pre Move Handling * (Observer Pattern Implementation: Shuttle Pre Move)
 *****************/
+
+/// Clears a STRAY copy of this shuttle's own footprint sitting on the
+/// destination, before the real move lands on top of it.
+///
+/// A ship whose area ends up covering two places at once (see the home
+/// landmark's base_area handling, player_built_shuttle.dm) leaves a ghost hull
+/// -- walls, consoles, machinery, sometimes crew -- on its own home z. Letting
+/// check_collision() ignore the mover's own areas is what makes the move
+/// possible again, but on its own that would be actively dangerous:
+/// transport_turf_contents() only ChangeTurf()s the target and forceMoves the
+/// source's contents ON TOP, leaving the ghost's objects in place (duplicated
+/// machinery), and shuttle_moved()'s squish pass qdel()s destination contents
+/// and GIBS any living mob standing there.
+///
+/// So the ghost is removed first, deliberately and gently: objects deleted,
+/// turfs reverted, and any living mob moved clear rather than killed. Strictly
+/// scoped to turfs that are (a) in this shuttle's OWN areas and (b) not part of
+/// the hull actually being moved -- the real ship is always a source turf of
+/// this same translation, so it can never be caught by this.
+/datum/shuttle/proc/_clear_own_stray_footprint(list/translation)
+	var/list/sources = list()
+	for(var/turf/source in translation)
+		sources[source] = TRUE
+
+	var/cleared = 0
+	for(var/turf/source in translation)
+		var/turf/target = translation[source]
+		if(!target || sources[target])
+			continue // the real hull we're moving, not a ghost
+		if(!(get_area(target) in shuttle_area))
+			continue // not ours -- ordinary collision rules apply, untouched
+
+		for(var/atom/movable/AM in target)
+			if(isliving(AM))
+				// Never gib someone standing in the stray copy -- shove them
+				// clear and let the hull land.
+				var/turf/refuge = get_step(target, pick(GLOB.cardinals))
+				AM.forceMove(refuge || target)
+				continue
+			if(!AM.simulated)
+				continue // landmarks, markers and other non-game effects
+			qdel(AM)
+		target.ChangeTurf(get_base_turf_by_area(target))
+		cleared++
+
+	if(cleared)
+		log_world("SHUTTLE: '[name]' cleared [cleared] stray turf(s) of its own duplicated footprint at the destination before moving.")
 
 /datum/shuttle/proc/attempt_move(var/obj/effect/shuttle_landmark/destination)
 	if(current_location == destination)
@@ -172,6 +250,7 @@
 	for(var/area/A in shuttle_area)
 		testing("Moving [A]")
 		translation += get_turf_translation(get_turf(current_location), get_turf(destination), A.contents)
+	_clear_own_stray_footprint(translation)
 	var/old_location = current_location
 	GLOB.shuttle_pre_move_event.raise_event(src, old_location, destination)
 	shuttle_moved(destination, translation)

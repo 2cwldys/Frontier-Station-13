@@ -94,14 +94,23 @@
 /// whichever check actually caused a FALSE return -- optional, every
 /// existing caller that doesn't care is unaffected (defaults to null).
 /// Turns "doesn't work" into a concrete, actionable fact instead of a guess.
-/obj/effect/shuttle_landmark/proc/is_valid(var/datum/shuttle/shuttle, list/reason_out)
+///
+/// check_objects -- see check_collision()'s own doc comment (this file).
+/// Defaults TRUE (today's strict behavior, unchanged for every real
+/// dock/land attempt); only get_possible_destinations() (overmap_shuttle.dm)
+/// passes FALSE, since that call is purely building a destination list, not
+/// attempting a real move.
+/obj/effect/shuttle_landmark/proc/is_valid(var/datum/shuttle/shuttle, list/reason_out, check_objects = TRUE)
 	if(shuttle.current_location == src)
 		if(reason_out)
 			reason_out += "already at this destination"
 		return FALSE
 	for(var/area/A in shuttle.shuttle_area)
 		var/list/translation = get_turf_translation(get_turf(shuttle.current_location), get_turf(src), A.contents)
-		if(check_collision(list_values(translation)))
+		// `shuttle` passed as the mover -- a ship is never blocked by its own
+		// hull. See check_collision()'s own doc comment for why that isn't
+		// hypothetical.
+		if(check_collision(list_values(translation), check_objects, shuttle))
 			if(reason_out)
 				// check_collision() (this file) treats a null translated turf
 				// as a collision too ("collides with edge of map") -- a
@@ -117,11 +126,18 @@
 						off_map_count++
 						continue
 					var/turf/T = target_turf
+					// Same self-exclusion the real check uses -- otherwise the
+					// refusal text lists the ship's OWN walls, consoles and
+					// crew as what's blocking it, which is what made this
+					// failure so hard to read.
+					if(get_area(T) in shuttle.shuttle_area)
+						continue
 					if(T.density)
 						blocking += "[T.type] at ([T.x],[T.y],[T.z])"
-					for(var/atom/movable/M in T)
-						if(M.density && M.anchored)
-							blocking += "[M] at ([T.x],[T.y],[T.z])"
+					if(check_objects)
+						for(var/atom/movable/M in T)
+							if(M.density && M.anchored)
+								blocking += "[M] at ([T.x],[T.y],[T.z])"
 				var/list/reasons = list()
 				if(off_map_count)
 					reasons += "[off_map_count] tile\s of the hull would land outside this z-level's map bounds entirely (destination too close to the map edge for the hull to fit)"
@@ -184,13 +200,38 @@
 /// same way a dense turf already does -- a docking ship no longer squishes
 /// (silently qdel()s) an object in the way, it's simply not offered/allowed
 /// as a valid destination in the first place. Applies everywhere this proc
-/// gates a landing or dock, for every ship in the game.
-/proc/check_collision(list/target_turfs)
+/// gates a real landing or dock, for every ship in the game.
+///
+/// check_objects = FALSE skips the object-density check (turf density and
+/// off-map edges are always checked either way) -- used only when this is
+/// being called to decide whether to LIST a destination
+/// (get_possible_destinations(), overmap_shuttle.dm) rather than to actually
+/// attempt one. Without this, incidental clutter (a machine, furniture --
+/// anything dense/anchored) anywhere within a ship's own hull-sized
+/// footprint at a candidate destination silently removes it from the
+/// destination list entirely, even though an actual dock attempt there
+/// would otherwise be fine to at least offer and then correctly refuse.
+/// mover, when supplied, is the shuttle actually making this move -- any
+/// target turf belonging to ITS OWN areas is skipped entirely.
+///
+/// A ship can never legitimately be blocked by its own hull, and it genuinely
+/// happens: a ship whose area ends up covering two places at once (see the
+/// home landmark's base_area handling, player_built_shuttle.dm) finds its own
+/// walls, consoles and crew sitting on the destination and refuses to move
+/// there forever -- permanently stranding it, since every retry hits the same
+/// wall. Excluding the mover's own areas lets the move proceed and
+/// translate_turfs() re-consolidate the footprint into one place.
+/proc/check_collision(list/target_turfs, check_objects = TRUE, datum/shuttle/mover = null)
 	for(var/target_turf in target_turfs)
 		var/turf/target = target_turf
 
 		if(!target)
 			return TRUE //collides with edge of map
+
+		// Part of the ship doing the moving -- it is not an obstruction, it IS
+		// the mover, and translate_turfs() is about to relocate it anyway.
+		if(mover && (get_area(target) in mover.shuttle_area))
+			continue
 
 		// IMPORTANT: The below area check is commented out as it is not compatible with the Horizon,
 		// which has docking ports with clashing turfs + areas! There's no good reason for this not to
@@ -202,9 +243,10 @@
 		if(target.density)
 			return TRUE //dense turf
 
-		for(var/atom/movable/blocker in target)
-			if(blocker.density && blocker.anchored)
-				return TRUE //dense, anchored object in the way -- refuse rather than squish it on landing
+		if(check_objects)
+			for(var/atom/movable/blocker in target)
+				if(blocker.density && blocker.anchored)
+					return TRUE //dense, anchored object in the way -- refuse rather than squish it on landing
 
 	return FALSE
 

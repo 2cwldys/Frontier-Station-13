@@ -876,6 +876,22 @@
 		return FALSE
 	return (DS.owner_ckey == ckey && DS.owner_char_name == char_name) || ("[ckey]|[char_name]" in DS.crew_ckeys)
 
+/// TRUE for the literal map-authored Hub home turf (is_centcom_level()) OR
+/// any z the Hub faction (uid "hub") currently claims via a faction_beacon
+/// (get_owning_faction_beacon(), faction_beacon.dm) -- the Hub can extend
+/// its territory beyond its own home Z the same way any other faction claims
+/// ground, and those claimed sectors are Hub territory too even though
+/// they're not centcom-tagged. Used by _drydock_disembark_core() to decide
+/// which candidates get a fixed-pad/no-eye-view landing instead of a normal
+/// away-site pick -- deliberately NOT used for the Hub-personnel access gate
+/// just below, which stays scoped to the literal home turf like every other
+/// is_centcom_level() caller (telepad_travel.dm, personal_travel.dm).
+/proc/_disembark_is_hub_z(z)
+	if(is_centcom_level(z))
+		return TRUE
+	var/obj/structure/machinery/faction_beacon/owner = get_owning_faction_beacon(z)
+	return owner && normalize_faction_uid(owner.faction_uid) == "hub"
+
 /// Core disembark delivery, shared by the mob verb below and the Drydock
 /// program's "Exit Ship" action -- only the trigger differs. Step off a
 /// currently-deployed drydock ship -- available from anywhere aboard (no
@@ -938,7 +954,23 @@
 				continue
 			if(!length(nearby.map_z))
 				continue
-			var/turf/site_turf = personal_travel_find_space_landing(nearby.map_z[1])
+			var/turf/site_turf
+			if(_disembark_is_hub_z(nearby.map_z[1]))
+				// Hub territory (home turf, or anywhere the Hub faction
+				// claims via a beacon) is never a free eye-view landing spot
+				// ("people should enter the hub, just not anywhere") --
+				// anchor this candidate to its own dedicated travel pad
+				// instead of a random open turf on the same Z, same fixed
+				// arrival point Personal Travel's "Return to Hub" already
+				// uses. Falls back to a normal space-landing turf only if
+				// this specific Z genuinely has no pad of its own.
+				for(var/obj/structure/machinery/telepad_cargo/travel/hub/H in world)
+					if(QDELETED(H) || GET_Z(H) != nearby.map_z[1])
+						continue
+					site_turf = get_turf(H)
+					break
+			if(!site_turf)
+				site_turf = personal_travel_find_space_landing(nearby.map_z[1])
 			if(site_turf)
 				candidate_turfs["[nearby.name]"] = site_turf
 
@@ -970,42 +1002,11 @@
 		to_chat(L, SPAN_WARNING("That sector is restricted to Hub personnel."))
 		return FALSE
 	var/is_dock_target = (shuttle_datum && marker.status == SHIP_STATUS_LANDED && target_z == GET_Z(shuttle_datum.current_location))
-	var/is_hub_target = (zone_security_get(target_z) == ZONE_HIGHSEC)
 
 	var/turf/destination
 	var/use_picker = TRUE
 
-	if(is_hub_target)
-		// Highsec (the Hub) is never eye-view-pickable, even exterior-only --
-		// "people should enter the hub, just not anywhere." Route straight to
-		// the Hub's own dedicated travel telepad instead, the same fixed
-		// arrival point Personal Travel's "Return to Hub" already uses. Still
-		// goes through the same spool-up/combat-recheck/portal tail below --
-		// only the eye-view CLICKING step is skipped, not the safety window.
-		use_picker = FALSE
-		// Match the SPECIFIC away site the player actually picked (target_z)
-		// -- with more than one highsec/hub-tier site in existence, a plain
-		// "first one found in world" grab (the original shape here) ignores
-		// the player's own selection entirely and can send them to a
-		// completely different site's hub pad instead of the one they
-		// picked. Falls back to any hub pad at all only if this specific
-		// site genuinely doesn't have one of its own.
-		for(var/obj/structure/machinery/telepad_cargo/travel/hub/H in world)
-			if(QDELETED(H))
-				continue
-			if(GET_Z(H) == target_z)
-				destination = get_turf(H)
-				break
-		if(!destination)
-			for(var/obj/structure/machinery/telepad_cargo/travel/hub/H in world)
-				if(QDELETED(H))
-					continue
-				destination = get_turf(H)
-				break
-		if(!destination)
-			to_chat(L, SPAN_WARNING("No Hub travel pad could be found."))
-			return FALSE
-	else if(is_dock_target)
+	if(is_dock_target)
 		// Only the actual dock target has an "instant" option -- a nearby
 		// away-site pick never had a fixed landmark turf to begin with, so it
 		// always goes straight to the eye view.
@@ -1027,6 +1028,17 @@
 			play_announcer_sound_priority(L, 'sound/AI/announcements/exiting_ship.ogg')
 			log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id] at its docked beacon.")
 			return TRUE
+	else if(_disembark_is_hub_z(target_z) && get_effective_faction_rank(L, "hub") < 2)
+		// Hub territory is never a free eye-view landing spot for rank-and-
+		// file ("people should enter the hub, just not anywhere") --
+		// anchor_turf was already resolved to the Hub's own dedicated travel
+		// pad when this candidate was built (the loop above), not a random
+		// open turf, so deliver straight to exactly what the player picked.
+		// Command-rank Hub personnel (rank >= 2, same officer-tier gate as
+		// faction_manage.dm's own op_rank >= 2 checks) are trusted with the
+		// same free eye-view picker everyone else gets below.
+		use_picker = FALSE
+		destination = anchor_turf
 
 	if(use_picker)
 		destination = _drydock_pick_destination_turf(L, target_z, anchor_turf)
@@ -1072,7 +1084,7 @@
 
 	_drydock_deliver_with_portal(L, destination)
 	to_chat(L, SPAN_GOOD("You disembark the ship."))
-	log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id][is_hub_target ? " via the Hub telepad" : " choosing a landing spot"].")
+	log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id][use_picker ? " choosing a landing spot" : " via the Hub telepad"].")
 	return TRUE
 
 /mob/living/verb/disembark_drydock_ship()

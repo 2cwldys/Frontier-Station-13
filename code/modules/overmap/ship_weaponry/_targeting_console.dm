@@ -39,6 +39,47 @@
 	can_pass_under = FALSE
 	light_power_on = 1
 
+/// Cargo-orderable variant a player can install on their own ship -- starts
+/// loose like every other kit part this session added, needing only a wrench.
+/// Deliberately NOT a commissioning requirement: a hull flies perfectly well
+/// without one, this is optional weapons equipment.
+///
+/// Multitool opens the same Buffer/Rotate choice docking_beacon.dm uses. The
+/// buffer is what will hook this console up to ship weaponry once those are
+/// orderable too.
+/obj/structure/machinery/computer/ship/targeting/buildable
+	anchored = FALSE
+
+/obj/structure/machinery/computer/ship/targeting/buildable/attackby(obj/item/attacking_item, mob/user, params)
+	if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		attacking_item.play_tool_sound(get_turf(src), 50)
+		anchored = !anchored
+		to_chat(user, anchored ? SPAN_NOTICE("Targeting computer secured in place.") : SPAN_NOTICE("Targeting computer unsecured."))
+		return TRUE
+	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
+		var/choice = tgui_alert(user, "Buffer this targeting computer into the multitool, or rotate its facing?", "Targeting Computer", list("Buffer", "Rotate"))
+		if(QDELETED(src) || QDELETED(user) || !user.Adjacent(src))
+			return TRUE
+		if(choice == "Buffer")
+			if(!istype(attacking_item, /obj/item/multitool))
+				to_chat(user, SPAN_WARNING("\The [attacking_item] can't hold a buffer."))
+				return TRUE
+			var/obj/item/multitool/tool = attacking_item
+			tool.set_buffer(src)
+			to_chat(user, SPAN_NOTICE("You buffer \the [src] into \the [tool]."))
+			return TRUE
+		if(choice == "Rotate")
+			// Same gate the docking beacon's own rotate uses -- wrench it down
+			// to lock the facing in.
+			if(anchored)
+				to_chat(user, SPAN_WARNING("\The [src] is secured in place -- unwrench it before changing its facing."))
+				return TRUE
+			dir = turn(dir, -90)
+			to_chat(user, SPAN_NOTICE("You rotate \the [src] -- it now faces [dir2text(dir)]."))
+			return TRUE
+		return TRUE
+	return ..(attacking_item, user, params)
+
 /obj/structure/machinery/computer/ship/targeting/Initialize()
 	..()
 	return INITIALIZE_HINT_LATELOAD

@@ -28,12 +28,6 @@
 GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 #define FACTION_CLOCK_TOGGLE_COOLDOWN (5 MINUTES)
 
-/// world.time of each ckey's last hub law book print, keyed by ckey -- not
-/// persisted (resets each server session, same as faction_clock_toggle_cooldown
-/// above).
-GLOBAL_LIST_EMPTY(hub_law_book_print_cooldown)
-#define HUB_LAW_BOOK_PRINT_COOLDOWN (10 HOURS)
-
 /datum/computer_file/program/card_mod/ui_data(mob/user)
 	var/list/data = initial_data()
 
@@ -96,8 +90,7 @@ GLOBAL_LIST_EMPTY(hub_law_book_print_cooldown)
 		data["can_leave_faction"] = FALSE
 		data["clocked_in"] = FALSE
 
-	var/hub_cooldown_last = user.ckey ? GLOB.hub_law_book_print_cooldown[user.ckey] : 0
-	var/hub_cooldown_remaining = hub_cooldown_last ? (HUB_LAW_BOOK_PRINT_COOLDOWN - (world.time - hub_cooldown_last)) : 0
+	var/hub_cooldown_remaining = user.ckey ? get_hub_law_book_cooldown_remaining(user.ckey) : 0
 	data["can_print_hub_laws"] = hub_cooldown_remaining <= 0
 	data["hub_law_cooldown_text"] = hub_cooldown_remaining > 0 ? DisplayTimeText(hub_cooldown_remaining) : null
 
@@ -620,11 +613,11 @@ GLOBAL_LIST_EMPTY(hub_law_book_print_cooldown)
 		if("print_hub_laws")
 			if(!computer || !user.ckey)
 				return
-			var/hub_cooldown_last = GLOB.hub_law_book_print_cooldown[user.ckey]
-			if(hub_cooldown_last && (world.time - hub_cooldown_last < HUB_LAW_BOOK_PRINT_COOLDOWN))
-				to_chat(user, SPAN_WARNING("You can't print another hub law book yet -- try again in [DisplayTimeText(HUB_LAW_BOOK_PRINT_COOLDOWN - (world.time - hub_cooldown_last))]."))
+			var/hub_cooldown_remaining = get_hub_law_book_cooldown_remaining(user.ckey)
+			if(hub_cooldown_remaining > 0)
+				to_chat(user, SPAN_WARNING("You can't print another hub law book yet -- try again in [DisplayTimeText(hub_cooldown_remaining)]."))
 				return
-			GLOB.hub_law_book_print_cooldown[user.ckey] = world.time
+			set_hub_law_book_print_time(user.ckey)
 			var/obj/item/book/hub_laws/new_book = new(get_turf(computer))
 			user.put_in_hands(new_book)
 			to_chat(user, SPAN_GOOD("You print a hub law book."))

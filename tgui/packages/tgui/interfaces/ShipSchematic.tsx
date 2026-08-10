@@ -14,6 +14,7 @@ type ShipSchematicData = {
   title_holder_name?: string;
   reported_stolen?: BooleanLike;
   needs_rename?: BooleanLike;
+  away_from_home?: BooleanLike;
   shuttle_id?: number;
   save_in_progress?: BooleanLike;
   busy?: BooleanLike;
@@ -36,6 +37,7 @@ export const ShipSchematic = (props) => {
     title_holder_name,
     reported_stolen,
     needs_rename,
+    away_from_home,
     save_in_progress,
     busy,
     sub_shuttle_tags = [],
@@ -105,13 +107,17 @@ export const ShipSchematic = (props) => {
                 fluid
                 mt={1}
                 icon="box"
-                disabled={!!stashed || !!busy || !!save_in_progress}
+                disabled={
+                  !!stashed || !!busy || !!save_in_progress || !!away_from_home
+                }
                 tooltip={
                   busy
                     ? 'Retrieve/stash in progress -- please wait.'
                     : save_in_progress
                       ? 'World save in progress -- please wait.'
-                      : undefined
+                      : away_from_home
+                        ? 'This ship is currently docked -- undock before stashing.'
+                        : undefined
                 }
                 onClick={() => act('stash')}
               >

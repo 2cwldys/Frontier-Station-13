@@ -88,6 +88,35 @@
 	data["engines_info"] = enginfo
 	data["total_thrust"] = total_thrust
 
+	// Ship-level fuel reserve. The per-engine block above only ever reports
+	// what each engine's own get_status() says, so a loaded fuel port was
+	// invisible here: an ion engine has no fuel concept at all, and a gas
+	// nozzle only mentions its own internal reservoir, never the tanks it can
+	// draw from. Report the ship's fuel_ports directly instead
+	// (refresh_fuel_ports_list(), overmap_shuttle.dm), so the crew can see what
+	// is actually aboard regardless of which engine type is fitted.
+	var/list/port_info = list()
+	var/total_fuel = 0
+	if(istype(connected, /obj/effect/overmap/visitable/ship/landable))
+		var/obj/effect/overmap/visitable/ship/landable/landable_ship = connected
+		var/datum/shuttle/autodock/overmap/fuel_shuttle = SSshuttle.shuttles[landable_ship.shuttle]
+		if(istype(fuel_shuttle))
+			for(var/obj/structure/FP in fuel_shuttle.fuel_ports)
+				var/list/pdata = list()
+				pdata["port_area"] = "[get_area(FP)]"
+				var/obj/item/tank/FT = locate() in FP
+				if(FT)
+					var/moles = FT.air_contents.get_by_flag(XGM_GAS_FUEL)
+					pdata["tank"] = "[FT.name]"
+					pdata["fuel"] = round(moles, 0.01)
+					total_fuel += moles
+				else
+					pdata["tank"] = null
+					pdata["fuel"] = 0
+				port_info += list(pdata)
+	data["fuel_ports"] = port_info
+	data["total_fuel"] = round(total_fuel, 0.01)
+
 	return data
 
 /obj/structure/machinery/computer/ship/engines/ui_act(action, params)

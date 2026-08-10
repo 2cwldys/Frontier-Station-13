@@ -48,9 +48,10 @@
 /// faction gate lives here instead of restricted_waypoints (which is
 /// keyed by a single exact shuttle name, not a faction) so it applies to
 /// every ship of the right faction uniformly.
-/// reason_out -- see the base is_valid()'s own doc comment (landmarks.dm).
-/obj/effect/shuttle_landmark/player_dock/is_valid(datum/shuttle/shuttle, list/reason_out)
-	. = ..(shuttle, reason_out)
+/// reason_out/check_objects -- see the base is_valid()'s own doc comment
+/// (landmarks.dm).
+/obj/effect/shuttle_landmark/player_dock/is_valid(datum/shuttle/shuttle, list/reason_out, check_objects = TRUE)
+	. = ..(shuttle, reason_out, check_objects)
 	if(!.)
 		return FALSE
 	// A player-built ship checks against this beacon's own player-built-
@@ -71,6 +72,35 @@
 					? "Your player built ship cannot dock due to being larger than acceptable parameters (hull [footprint[1]]x[footprint[2]], max [check_x]x[check_y])." \
 					: "hull footprint [footprint[1]]x[footprint[2]] exceeds this beacon's max [check_x]x[check_y]"
 			return FALSE
+	// Occupancy. Nothing reserves a docking destination: `in_use` locks the
+	// SHUTTLE, not the landmark, and the gap between validating and arriving
+	// spans the whole warmup + travel_time, so two ships can both pass every
+	// check and then race for the same pad. Today the loser is only caught
+	// incidentally, when the winner's dense hull WALLS trip check_collision() --
+	// a smaller craft landing entirely within a bigger ship's open floor is
+	// refused by nothing at all.
+	//
+	// Established two independent ways so this fails closed when either is
+	// unreliable: current_location (which closes the race, since the winner
+	// sets it the instant it lands) and physical shuttle-area coverage of the
+	// pad's own turf (which holds even when that bookkeeping has drifted --
+	// the exact drift that let the wipe verb delete a live ship, Parts 74/77).
+	for(var/other_name in SSshuttle.shuttles)
+		var/datum/shuttle/other = SSshuttle.shuttles[other_name]
+		if(!istype(other) || other == shuttle)
+			continue
+		if(other.current_location != src)
+			continue
+		if(reason_out)
+			reason_out += "another ship ([other.name]) is already docked here"
+		return FALSE
+	var/turf/pad_turf = get_turf(src)
+	var/area/pad_area = pad_turf ? get_area(pad_turf) : null
+	if(pad_area && (pad_area in SSshuttle.shuttle_areas) && !(pad_area in shuttle.shuttle_area))
+		if(reason_out)
+			reason_out += "another ship's hull is physically occupying this pad ([pad_area])"
+		return FALSE
+
 	// Entirely opt-in -- a ship carrying no docking_transponder at all skips
 	// this check completely and docks here exactly like it always could.
 	// One that DOES carry one must face the exact opposite direction from
@@ -127,8 +157,8 @@
 	/// currently parked there.
 	var/obj/effect/shuttle_landmark/real_home
 
-/obj/effect/shuttle_landmark/player_dock/hangar_slot/is_valid(datum/shuttle/shuttle)
-	. = ..()
+/obj/effect/shuttle_landmark/player_dock/hangar_slot/is_valid(datum/shuttle/shuttle, list/reason_out, check_objects = TRUE)
+	. = ..(shuttle, reason_out, check_objects)
 	if(!.)
 		return FALSE
 	if(bound_sub_shuttle && real_home && bound_sub_shuttle.current_location == real_home)
@@ -346,6 +376,50 @@
 		return TRUE
 
 	return ..(attacking_item, user, params)
+
+/// Bottom-left corner of the size_x by size_y block extending out from this
+/// beacon in whichever direction it currently faces, starting one tile clear
+/// of the beacon itself (so the beacon always sits just OUTSIDE the block it
+/// defines, like a real dock marker standing clear of the airlock it serves).
+///
+/// Shared geometry -- the commissioning console's build envelope
+/// (_get_envelope_corner(), ship_commissioning_console.dm) and the
+/// save-time/admin pad cleanup sweeps (drydockForgetBeaconEnvelopes(),
+/// clear_docking_beacons(), persistence_shuttles.dm) all resolve a beacon's
+/// footprint through this one proc, so they can never disagree about which
+/// tiles belong to a given pad.
+/proc/docking_beacon_envelope_corner(obj/structure/machinery/docking_beacon/beacon, size_x, size_y)
+	var/turf/center = beacon ? get_turf(beacon) : null
+	if(!center)
+		return null
+	var/half_x = round((size_x - 1) / 2)
+	var/half_y = round((size_y - 1) / 2)
+	switch(beacon.dir)
+		if(WEST)
+			return locate(center.x - size_x, center.y - half_y, center.z)
+		if(EAST)
+			return locate(center.x + 1, center.y - half_y, center.z)
+		if(SOUTH)
+			return locate(center.x - half_x, center.y - size_y, center.z)
+		if(NORTH)
+			return locate(center.x - half_x, center.y + 1, center.z)
+	// Non-cardinal dir shouldn't be reachable (rotate only ever turns by
+	// 90 degrees from a cardinal start) -- fall back to centered rather
+	// than error.
+	return locate(center.x - half_x, center.y - half_y, center.z)
+
+/// Every turf in this beacon's own landing envelope, sized to the LARGEST
+/// hull that could legally dock here (the generic subship cap, or this
+/// beacon's own player-built override if it's been configured larger) --
+/// so a cleanup sweep over this block always covers whatever actually landed.
+/// Null if the beacon isn't on a real turf.
+/obj/structure/machinery/docking_beacon/proc/get_envelope_turfs()
+	var/size_x = max(SUBSHIP_FOOTPRINT_X, max_player_built_footprint_x)
+	var/size_y = max(SUBSHIP_FOOTPRINT_Y, max_player_built_footprint_y)
+	var/turf/corner = docking_beacon_envelope_corner(src, size_x, size_y)
+	if(!corner)
+		return null
+	return block(corner, locate(corner.x + size_x - 1, corner.y + size_y - 1, corner.z))
 
 /// Pushes faction_restricted/beacon_shackled from the beacon machine onto
 /// its live registered landmark (if any) -- used by both the ID-swipe

@@ -31,6 +31,22 @@
 // players don't see internal tag/ref debug info in a normal console.
 //#define AIRLOCK_CYCLER_DIAGNOSTICS
 
+// If defined, a shuttle console that finds no valid landing sites also
+// reports WHY each nearby destination was refused -- in chat when Choose
+// Destination comes up empty, and as a section on the console itself. The
+// text names raw turf types and coordinates, so comment this out for a
+// live/production build; defined by default while docking geometry is still
+// being actively tested.
+//#define DOCKING_REFUSAL_DIAGNOSTICS
+
+// If defined, ship engines log their own ship-registration attempt (whether
+// the SSshuttle.ships scan ran, which area the engine is actually in, and
+// whether check_ownership() matched) plus every backup fuel draw, and the
+// commission capture logs what it captured. For chasing the "no engines
+// detected" / fuel port not reaching the engine terminal problem -- comment
+// out to strip it entirely.
+//#define DRYDOCK_ENGINE_DIAGNOSTICS
+
 // If defined, the floor-item persistence path logs every decision it makes
 // for a faction-tagged clothing item: which branch dropped it (if any),
 // whether its extra state blob was built, and which restore branch ran on

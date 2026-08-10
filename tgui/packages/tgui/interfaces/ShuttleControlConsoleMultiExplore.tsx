@@ -20,6 +20,7 @@ export type ShuttleControlConsoleMultiExploreData = {
   fuel_usage: number;
   remaining_fuel: number;
   fuel_span: string;
+  destination_refusals: string[];
 };
 
 export const ShuttleControlConsoleMultiExplore = (props) => {
@@ -89,6 +90,18 @@ export const ShuttleControlConsoleMultiExplore = (props) => {
               </LabeledList>
             </Box>
           ) : null}
+          {!!data.destination_refusals?.length && (
+            <Box mt={1}>
+              <Box color="label" mb={1}>
+                Nearby destinations refused:
+              </Box>
+              {data.destination_refusals.map((refusal) => (
+                <Box key={refusal} color="bad">
+                  {refusal}
+                </Box>
+              ))}
+            </Box>
+          )}
         </Section>
 
         {data.destination_map_image ? (

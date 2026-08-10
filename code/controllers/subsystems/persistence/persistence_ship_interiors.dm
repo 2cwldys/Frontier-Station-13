@@ -47,6 +47,17 @@ GLOBAL_LIST_EMPTY(persistence_ship_z)
 /// empty at startup and an SQL mirror could only ever hold stale numbers.
 GLOBAL_LIST_EMPTY(reusable_z_pool)
 
+/// Master on/off for recycling torn-down ship Z-levels at all. TRUE keeps
+/// today's behaviour (pool a wiped z, hand it to the next retrieve); FALSE
+/// makes every retrieve load a brand-new z instead, trading z-level count for
+/// a guarantee that no ship can ever inherit another's ground. Flipped at
+/// runtime by the "Toggle Ship Z Reuse" admin verb (persistence_shuttles.dm).
+///
+/// In-memory only -- resets to the default on reboot, same as the other
+/// in-memory admin-tunable globals. Independent of _z_is_verifiably_empty()
+/// (below), which vets a candidate z regardless of this setting.
+GLOBAL_VAR_INIT(persistence_allow_z_reuse, TRUE)
+
 /// The persistence scope key content rows on this z should be written under:
 /// the ship scope if a ship owns the z, else the current map's path.
 /proc/persistence_scope_for_z(z)
@@ -249,6 +260,30 @@ GLOBAL_LIST_EMPTY(persistence_docked_turf_scope)
 	var/datum/shuttle/autodock/overmap/shuttle_datum = istype(marker) ? SSshuttle.shuttles[marker.shuttle] : null
 	if(istype(shuttle_datum))
 		shuttle_datum.refresh_fuel_ports_list()
+#ifdef DRYDOCK_ENGINE_DIAGNOSTICS
+		log_debug("ENGINE DIAG: retrieve refresh_fuel_ports_list() for '[shuttle_datum.name]' found [length(shuttle_datum.fuel_ports)] fuel port(s) across areas [english_list(shuttle_datum.shuttle_area)].")
+#endif
+
+	// Retrieve rebuilds this ship's z from its template, which restores the
+	// template's own mapped landmark position -- dead centre of the room, for
+	// player_built_shuttle. That silently undoes the commission-time anchoring
+	// on a ship's very first stash/retrieve cycle, after which every dock is
+	// misaligned by half a hull and beacons stop appearing in the destination
+	// list at all. Re-anchor here, now that objectsApplyZ() above has actually
+	// restored the transponder onto this z. Scoped to player-built hulls --
+	// a mapper-authored template ship's landmark is placed deliberately.
+	var/datum/map_template/drydock_ship/finish_template = SSmapping.drydock_ship_templates[DS.template_id]
+	if(istype(shuttle_datum) && finish_template && finish_template.hidden_from_catalog)
+		_drydock_reposition_ship_landmark(marker, shuttle_datum, "retrieve (shuttle_id=[shuttle_id])")
+
+	// A sector created at RUNTIME never goes through initialize_sectors(), so
+	// the waypoint tags populate_sector_objects() queued -- including this
+	// ship's own "Open Space" home landmark -- are otherwise never turned into
+	// real destinations. Without this the ship can dock somewhere and then has
+	// no way to select home again. Safe here: the marker and its landmark are
+	// fully settled by this point, and the call is idempotent.
+	// See register_sector_waypoints() (controllers/subsystems/processing/shuttle.dm).
+	SSshuttle.register_sector_waypoints(marker)
 
 	DS.ready = TRUE
 	log_drydock("_shipInteriorApplyFinish: shuttle_id=[shuttle_id] finished background settle, ready to board.")
@@ -394,6 +429,8 @@ GLOBAL_LIST_EMPTY(persistence_docked_turf_scope)
 /datum/controller/subsystem/persistence/proc/poolReusableZ(z)
 	if(!z)
 		return
+	if(!GLOB.persistence_allow_z_reuse)
+		return // reuse disabled server-wide -- don't pool it in the first place
 	if((z in GLOB.persistence_pinned_site_z) || GLOB.persistence_ship_z["[z]"] || is_station_level(z))
 		return
 	GLOB.reusable_z_pool |= z
@@ -405,6 +442,8 @@ GLOBAL_LIST_EMPTY(persistence_docked_turf_scope)
  * available (caller falls back to load_new_z()).
  */
 /datum/controller/subsystem/persistence/proc/acquireReusableZ()
+	if(!GLOB.persistence_allow_z_reuse)
+		return 0 // caller falls back to load_new_z() for a brand-new z
 	while(length(GLOB.reusable_z_pool))
 		var/z = GLOB.reusable_z_pool[1]
 		GLOB.reusable_z_pool.Cut(1, 2)
@@ -416,8 +455,35 @@ GLOBAL_LIST_EMPTY(persistence_docked_turf_scope)
 			continue
 		if(zlevel_has_players(z))
 			continue
+		// Runs regardless of the reuse toggle above -- the cheap guards to
+		// this point only prove nobody has CLAIMED this z, not that it's
+		// actually empty. Anything still here means a teardown didn't
+		// complete, and handing it to a ship would materialize that hull on
+		// top of the leftovers.
+		if(!_z_is_verifiably_empty(z))
+			log_subsystem_persistence_warning("Persistence: z=[z] rejected from the reusable pool -- not verifiably empty (leftover content from an incomplete teardown). Dropped rather than reused.")
+			continue
 		return z
 	return 0
+
+/// TRUE only if z genuinely holds nothing a correct teardown should have
+/// left behind: no simulated turfs, no living mobs, no machinery. Bounded
+/// single-z scan with CHECK_TICK -- trivial next to the map-template load the
+/// caller is about to perform anyway, and the only thing standing between a
+/// half-torn-down z and a ship being rebuilt on top of its leftovers.
+/datum/controller/subsystem/persistence/proc/_z_is_verifiably_empty(z)
+	if(z < 1 || z > world.maxz)
+		return FALSE
+	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+		CHECK_TICK
+		if(istype(T, /turf/simulated))
+			return FALSE
+		for(var/atom/movable/AM in T)
+			if(isliving(AM))
+				return FALSE
+			if(istype(AM, /obj/structure/machinery))
+				return FALSE
+	return TRUE
 
 /// Stamps interior_saved_at = NOW() on the ledger row the scope key encodes
 /// ("ship:d:<shuttle_id>").

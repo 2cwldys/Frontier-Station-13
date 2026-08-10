@@ -30,6 +30,8 @@ type ShipCommissioningData = {
   sensors_terminal_found: BooleanLike;
   sensor_array_found: BooleanLike;
   can_generate_floor: BooleanLike;
+  is_admin: BooleanLike;
+  admin_wipe_available: BooleanLike;
 };
 
 export const ShipCommissioning = (props) => {
@@ -276,6 +278,24 @@ export const ShipCommissioning = (props) => {
             </Button>
           )}
         </Section>
+        {!!data.is_admin && (
+          <Section title="Administration">
+            <Button
+              fluid
+              icon="eraser"
+              color="bad"
+              disabled={!data.admin_wipe_available}
+              tooltip={
+                data.admin_wipe_available
+                  ? "Wipes this console's whole build envelope back to open space and forgets its saved turf/object rows, so nothing rebuilds there on the next boot. Works even if the beacon is deactivated."
+                  : 'No beacon linked to this console (or it is on another z) -- there is no envelope to define. Link one first.'
+              }
+              onClick={() => act('admin_wipe_envelope')}
+            >
+              Wipe Build Envelope (Admin)
+            </Button>
+          </Section>
+        )}
       </Window.Content>
     </Window>
   );

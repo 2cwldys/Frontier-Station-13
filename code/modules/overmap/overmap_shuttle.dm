@@ -4,6 +4,15 @@
 	var/range = 0	//how many overmap tiles can shuttle go, for picking destinations and returning.
 	var/fuel_consumption = 0 //Amount of moles of gas consumed per trip; If zero, then shuttle is magic and does not need fuel
 	var/list/obj/structure/fuel_port/fuel_ports //the fuel ports of the shuttle (but usually just one)
+#ifdef DOCKING_REFUSAL_DIAGNOSTICS
+	/// Human-readable "why this nearby landmark wasn't offered" strings from
+	/// the LAST get_possible_destinations() call -- rebuilt wholesale every
+	/// call, never appended across calls. Surfaced by the shuttle console
+	/// (shuttle_console.dm) so an empty destination list explains itself
+	/// instead of just being silently empty. Populated from is_valid()'s own
+	/// reason_out mechanism, which every refusal branch already fills in.
+	var/list/last_destination_refusals = list()
+#endif
 
 	category = /datum/shuttle/autodock/overmap
 
@@ -54,13 +63,56 @@
 
 /datum/shuttle/autodock/overmap/proc/get_possible_destinations(mob/user)
 	var/list/res = list()
+#ifdef DOCKING_REFUSAL_DIAGNOSTICS
+	last_destination_refusals = list()
+#endif
 	for (var/obj/effect/overmap/visitable/S in range(get_turf(waypoint_sector(current_location)), range))
 		if(istype(S, /obj/effect/overmap/visitable/ship) && !S.is_detectable(user))
 			continue
 		var/list/waypoints = S.get_waypoints(name)
 		for(var/obj/effect/shuttle_landmark/LZ in waypoints)
-			if(LZ.is_valid(src))
+			// check_objects = FALSE -- this is purely building a list of
+			// candidate destinations, not attempting a real move. Incidental
+			// clutter within the hull footprint shouldn't hide a destination
+			// from the list; check_collision()'s own doc comment (landmarks.dm)
+			// has the full reasoning. The real move attempt (attempt_move(),
+			// shuttle.dm) still checks strictly and will correctly refuse.
+			var/list/refusal = list()
+			if(LZ.is_valid(src, refusal, FALSE))
 				res["[waypoints[LZ]] - [LZ.name]"] = LZ
+#ifdef DOCKING_REFUSAL_DIAGNOSTICS
+			else if(length(refusal))
+				// "already at this destination" is the one refusal that's
+				// normal and expected every single call -- reporting it would
+				// just be noise on an otherwise-healthy console.
+				var/reason = refusal[1]
+				if(reason != "already at this destination")
+					last_destination_refusals += "[LZ.name]: [reason]"
+#endif
+
+	// A ship must ALWAYS be able to fly back to its own home landmark. Getting
+	// there via the sector waypoint lists depends on a long chain -- the
+	// landmark being registered under a tag that still matches, the sector's
+	// queued waypoints having been drained, the marker being enumerable while
+	// nested inside whatever it's docked with -- and any one link breaking
+	// strands the ship permanently with no way home. So offer it directly off
+	// the marker instead of looking it up, exactly as _drydock_recall_ship_home()
+	// (persistence_shuttles.dm) already does for the system-facing path.
+	// Still gated on is_valid(), so a genuinely blocked home is reported rather
+	// than silently offered.
+	for(var/obj/effect/overmap/visitable/ship/landable/own_marker as anything in SSshuttle.ships)
+		if(own_marker.shuttle != name)
+			continue
+		var/obj/effect/shuttle_landmark/home = _drydock_resolve_home_landmark(own_marker, src)
+		if(istype(home) && home != current_location && !(home in res))
+			var/list/home_refusal = list()
+			if(home.is_valid(src, home_refusal, FALSE))
+				res["[own_marker.name] - [home.name]"] = home
+#ifdef DOCKING_REFUSAL_DIAGNOSTICS
+			else if(length(home_refusal))
+				last_destination_refusals += "[home.name] (own home): [home_refusal[1]]"
+#endif
+		break
 	return res
 
 /datum/shuttle/autodock/overmap/get_location_name()

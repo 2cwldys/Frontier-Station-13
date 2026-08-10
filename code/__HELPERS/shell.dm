@@ -63,20 +63,36 @@
 /// and hand shelleo() a plain, quote-free command to run instead -- with at
 /// most shelleo()'s own single outer quote pair in play, there's nothing
 /// left to mismanage. Not needed on UNIX -- /bin/sh -c has no such quirk.
+///
+/// The .bat is also what makes shelleo()'s exit code and captured output
+/// actually belong to the command being run -- see the body for why the
+/// earlier "run it, then delete it in the same shell command" form reported
+/// success for every failure.
 /proc/prefix_server_root_cd(command)
 	if(!GLOB.config.server_root_path)
 		return command
 	if(world.system_type == UNIX)
 		return "cd \"[GLOB.config.server_root_path]\" && [command]"
-	var/static/bat_id = 0
-	// Backslash, not forward slash -- del misparses an embedded "/" as the
-	// start of a switch (/P, /F, /S, /Q, ...) rather than a path separator,
-	// which is what "Parameter format not correct" actually was. The .bat
-	// file's own invocation (the first half of the compound command below)
-	// never had this problem -- only del's argument parsing does.
-	var/bat_file = "data\\shelleo_cd_[++bat_id].bat"
-	rustg_file_write("cd /d \"[GLOB.config.server_root_path]\"\n[command]\n", bat_file)
-	return "[bat_file] & del [bat_file]"
+	// One fixed filename, cleaned up on the way IN rather than by a trailing
+	// `& del` in the shell command itself. That old form had two problems, both
+	// of which silently reported success for a failed run:
+	//
+	//  * `cmd /c "A & B"` exits with **B's** code, not A's -- so errorcode was
+	//    always `del`'s (0), never the actual command's, and every failure
+	//    looked like a clean backup.
+	//  * with `del` as the last statement, the real command's own output was no
+	//    longer what the caller was inspecting.
+	//
+	// Running the .bat as the ONLY statement makes shelleo()'s captured exit
+	// code and output genuinely those of the command. `shell()` blocks until
+	// the process exits, so no two calls can ever overlap on this filename.
+	var/bat_file = "data\\shelleo_cd.bat"
+	fdel(bat_file) // leftover from the previous call
+	// `call` so control RETURNS here when command is itself a .bat (without it
+	// cmd transfers permanently and the exit line below never runs), then
+	// propagate that command's real errorlevel as this script's exit code.
+	rustg_file_write("@echo off\ncd /d \"[GLOB.config.server_root_path]\"\ncall [command]\nexit /b %errorlevel%\n", bat_file)
+	return bat_file
 
 /proc/shell_url_scrub(url)
 	var/static/regex/bad_chars_regex = regex("\[^#%&./:=?\\w]*", "g")

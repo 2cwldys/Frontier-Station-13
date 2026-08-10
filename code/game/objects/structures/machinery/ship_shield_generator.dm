@@ -263,6 +263,14 @@
 
 /obj/structure/machinery/ship_shield_generator/process()
 	_update_hum()
+	// A ship that was just retrieved/restored may not have had its overmap
+	// marker registered yet the first time this ticked, leaving `linked` null
+	// through no fault of the generator's. Retry the link BEFORE the
+	// force-off branch below can read that as "lost its ship" and silently
+	// tear down a legitimately persisted active state -- which is what made
+	// the saved on/off state look like it never persisted at all.
+	if(active && anchored && !istype(linked))
+		_hook_up_to_ship()
 	if(active && anchored && istype(linked) && HasFuel())
 		UseFuel()
 		if(shield_strength < max_shield_strength)
@@ -691,6 +699,28 @@
 	// (fired later from _hook_up_to_ship(), once linked exists) would see a
 	// fake "crossing" from 0 up to whatever was restored and misannounce it.
 	prev_shield_strength = shield_strength
-	// The raw flag only -- see _hook_up_to_ship() for why the bubble/tier
-	// re-sync happens there instead of here (linked doesn't exist yet).
 	active = content["active"] || FALSE
+	// Re-apply everything DERIVED from the raw vars above, here rather than
+	// leaning on _hook_up_to_ship() to do it.
+	//
+	// A restored object is created with `new` at runtime (objectsInstantiateRows(),
+	// persistence_objects.dm), well after SSatoms init -- so INITIALIZE_HINT_LATELOAD
+	// fires LateInitialize() (and thus _hook_up_to_ship()) IMMEDIATELY during
+	// that `new`, before this proc ever runs. That first pass therefore saw
+	// active = FALSE and shield_strength = 0, hid the bubble, and set `linked`
+	// -- and its own `if(linked) return TRUE` guard means it can never run
+	// again to correct any of it. Left alone, a generator saved while online
+	// comes back with no light, no hull bubble, and no overmap bubble on its
+	// ship's marker, while `active` is silently TRUE underneath.
+	//
+	// _hook_up_to_ship() is idempotent, so calling it here costs nothing when
+	// the link already resolved and recovers the case where it hadn't yet.
+	_hook_up_to_ship()
+	update_icon()
+	if(active)
+		// prev_shield_strength was matched to shield_strength just above, so
+		// this only re-shows the bubble (hull + overmap) for the restored
+		// charge -- it can't misfire a threshold voice line.
+		_check_tier_transition()
+	else
+		hide_bubble()

@@ -1,7 +1,7 @@
 HUB LAW REGISTRY:
 (These laws may be subjected to be changed at any time.)
 OOC LAST CHANGE:
-10:15 PM (EST) 8-8-2026
+1:04 AM (EST) 8-9-2026
 
  
  
@@ -36,6 +36,7 @@ Verdicts and judgements may be capital and extremely punishing, to preserve peac
  
 
 1. No violence, threat, or harm to yourself or another.
+(DOES NOT APPLY TO BOUNTY HOLDERS.)
 
 JAILED: YES
 CRYOGENIC SUSPENSION: YES
@@ -144,6 +145,7 @@ REPOSSESSION: YES
 FINE: 50000 C
 
 9. Attempted Murder.
+(DOES NOT APPLY TO BOUNTY HOLDERS.)
 
 JAILED: YES
 CRYOGENIC SUSPENSION: YES
@@ -153,6 +155,7 @@ REPOSSESSION: YES
 FINE: 75000 C
 
 10. First Degree MURDER or MANSLAUGHTER.
+(DOES NOT APPLY TO BOUNTY HOLDERS.)
 (INTENTIONAL and METHODICAL.)
 
 DEATH by LANCER FIRING SQUAD and your lace becomes VAULTED.
@@ -166,6 +169,7 @@ REPOSSESSION: YES
 FINE: 150000 C
 
 11. Second Degree MURDER or MANSLAUGHTER.
+(DOES NOT APPLY TO BOUNTY HOLDERS.)
 (Without MEDITATION or PRETENSE, and/or potentially ACCIDENTAL.)
 
 JAILED: YES
@@ -197,6 +201,7 @@ REPOSSESSION: YES
 FINE: 150000 C
 
 14. Interfering or Obstructing a PEACE OFFICER or HUB COMMAND STAFF.
+(This can also be applied in double to cases of RESISTING ARREST.)
 
 JAILED: YES
 CRYOGENIC SUSPENSION: YES
@@ -254,12 +259,13 @@ ABLE TO BOND FROM COMMAND: YES
 REPOSSESSION: YES
 FINE: 100000 C
 
-20. Using prohibited technologies on board your ship.
+20. Possessing, or using prohibited technologies on board your ship or in HUB territory.
 
 THIS INVOLVES:
 (so far)
 - Cloaking Devices
 - Heavy Ship Weapons and Ordinance
+- Commander Beacons
 
 JAILED: YES
 CRYOGENIC SUSPENSION: YES
@@ -423,7 +429,6 @@ ABLE TO BOND FROM COMMAND: -
 REPOSSESSION: NO
 FINE: 10000 C
 
-
 36. ALL SHIP and SHUTTLE owners that possess a drydock vessel title, MUST pay an initial ad valoriam according to value TAX.
 
 This applies to all ships, but most especially for manually constructed hulls.
@@ -441,7 +446,6 @@ ABLE TO BOND FROM COMMAND: YES
 REPOSSESSION: YES
 FINE: 25000 C
 
-
 37. TERRORISM.
 (Attempting to incite terrorism in high-security areas.)
 
@@ -451,7 +455,6 @@ DURATION: SEVENTY TWO HOURS
 ABLE TO BOND FROM COMMAND: NO
 REPOSSESSION: YES
 FINE: 125000 C
-
 
 38. Messing with other-faction beacons.
 
@@ -464,7 +467,6 @@ ABLE TO BOND FROM COMMAND: YES
 REPOSSESSION: NO
 FINE: 75000 C
 
-
 39. Recruiting others for terrorist organizations.
 
 JAILED: YES
@@ -473,7 +475,6 @@ DURATION: FOURTY EIGHT HOURS
 ABLE TO BOND FROM COMMAND: NO
 REPOSSESSION: NO
 FINE: 100000 C
-
 
 40. Vigilantism, and/or Impersonating a PEACE OFFICER, PORT AUTHORITY, or HUB COMMAND STAFF.
 
@@ -544,6 +545,31 @@ DURATION: FOURTY EIGHT HOURS
 ABLE TO BOND FROM COMMAND: NO
 REPOSSESSION: YES
 FINE: 75000 C
+
+
+46. ILLEGAL Salvage Operations
+
+If you are told to stop by Hub Authorities when conducting salvage operations in high security space, you may be held liable for extensive punishment. You may be impeding on an investigation and may be told to stop. Otherwise, assume all ordinary salvage operations are permitted. You have the RIGHT to the salvage YOU find, and it belongs to you outside of the contents of this statute.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: TWENTY FOUR HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: YES
+FINE: 100000 C
+
+
+47. Illiciting a Bounty on HUB LANCERS, HUB PERSONNEL (non civilians), or HUB COMMAND STAFF.
+
+Placing a bounty, or intending to fulfill a bounty against HUB personnel is prohibited, and will be enforced to the fullest extent of the law.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: SEVENTY TWO HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 150000 C
+
 
  
  

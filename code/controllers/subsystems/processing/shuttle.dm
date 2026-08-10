@@ -143,6 +143,34 @@ SUBSYSTEM_DEF(shuttle)
 //Also adds automatic landmarks that were waiting on their sector to spawn.
 /datum/controller/subsystem/shuttle/proc/initialize_sector(obj/effect/overmap/visitable/given_sector)
 	given_sector.populate_sector_objects() // This is a late init operation that sets up the sector's map_z and does non-overmap-related init tasks.
+	register_sector_waypoints(given_sector)
+	initialized_sectors |= given_sector
+
+/**
+ * Turns a sector's QUEUED waypoint tags (initial_generic_waypoints /
+ * initial_restricted_waypoints, filled in by populate_sector_objects()) into
+ * real entries in its generic_waypoints/restricted_waypoints lists.
+ *
+ * Split out of initialize_sector() because that proc is only ever reached
+ * from initialize_sectors(), which walks `sectors_to_initialize` ONCE at
+ * SSshuttle init and then nulls it. Every sector created at runtime -- every
+ * drydock commission and every retrieve -- therefore had its queue silently
+ * never consumed: a landable ship's own "Open Space" home landmark
+ * (queued by populate_sector_objects(), landable.dm, when
+ * use_mapped_z_levels is TRUE) stayed registered globally in
+ * registered_shuttle_landmarks but belonged to no sector's waypoint list, so
+ * get_waypoints() never returned it and the ship could never select its own
+ * home as a destination -- i.e. it could dock somewhere and then never undock.
+ * Its FORE/PORT/AFT/STARBOARD slots kept working the whole time because those
+ * are add_landmark()'d directly rather than queued.
+ *
+ * Idempotent: add_landmark() is a plain `+=`, and these paths can now
+ * legitimately run more than once for the same sector, so anything already
+ * present is skipped rather than duplicated.
+ */
+/datum/controller/subsystem/shuttle/proc/register_sector_waypoints(obj/effect/overmap/visitable/given_sector)
+	if(!istype(given_sector))
+		return
 
 	for(var/landmark_tag in given_sector.initial_generic_waypoints)
 		if(!try_add_landmark_tag(landmark_tag, given_sector))
@@ -157,10 +185,9 @@ SUBSYSTEM_DEF(shuttle)
 	for(var/thing in landmarks_to_check)
 		var/obj/effect/shuttle_landmark/automatic/landmark = thing
 		if(landmark.z in given_sector.map_z)
-			given_sector.add_landmark(landmark, landmark.shuttle_restricted)
+			if(!(landmark in given_sector.generic_waypoints))
+				given_sector.add_landmark(landmark, landmark.shuttle_restricted)
 			landmarks_awaiting_sector -= landmark
-
-	initialized_sectors |= given_sector
 
 /datum/controller/subsystem/shuttle/proc/try_add_landmark_tag(landmark_tag, obj/effect/overmap/visitable/given_sector)
 	var/obj/effect/shuttle_landmark/landmark = get_landmark(landmark_tag)
@@ -168,11 +195,15 @@ SUBSYSTEM_DEF(shuttle)
 		return FALSE
 
 	if(landmark.landmark_tag in given_sector.initial_generic_waypoints)
-		given_sector.add_landmark(landmark)
+		// Already-present guard -- see register_sector_waypoints()'s own doc
+		// comment for why this can now run twice for the same sector.
+		if(!(landmark in given_sector.generic_waypoints))
+			given_sector.add_landmark(landmark)
 		. = TRUE
 	for(var/shuttle_name in given_sector.initial_restricted_waypoints)
 		if(landmark.landmark_tag in given_sector.initial_restricted_waypoints[shuttle_name])
-			given_sector.add_landmark(landmark, shuttle_name)
+			if(!(landmark in LAZYACCESS(given_sector.restricted_waypoints, shuttle_name)))
+				given_sector.add_landmark(landmark, shuttle_name)
 			. = TRUE
 
 /datum/controller/subsystem/shuttle/proc/initialize_shuttle(var/shuttle_type)

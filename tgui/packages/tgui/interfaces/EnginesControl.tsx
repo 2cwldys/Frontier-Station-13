@@ -26,12 +26,20 @@ type StatusLine = {
   severity?: 'good' | 'average' | 'bad';
 };
 
+type FuelPortInfo = {
+  port_area: string;
+  tank: string | null;
+  fuel: number;
+};
+
 type Data = {
   state: 'status' | 'engines' | string;
   global_state: BooleanLike;
   global_limit: number; // percentage
   total_thrust: number;
   engines_info: EngineInfo[];
+  fuel_ports: FuelPortInfo[];
+  total_fuel: number;
 };
 
 export const EnginesControl = (_props) => {
@@ -103,6 +111,36 @@ export const EnginesControl = (_props) => {
               {round(data.total_thrust * 10, 0.1) / 10}
             </LabeledList.Item>
           </LabeledList>
+        </Section>
+
+        <Section title="Fuel Reserve">
+          {!data.fuel_ports?.length ? (
+            <Box color="label">
+              No fuel ports aboard. Nozzle engines draw from a piped gas
+              network, and fall back to a loaded fuel port when it runs dry.
+            </Box>
+          ) : (
+            <LabeledList>
+              {data.fuel_ports.map((P, i) => (
+                <LabeledList.Item key={i} label={P.port_area}>
+                  {P.tank ? (
+                    <Box inline color={P.fuel > 0 ? 'good' : 'bad'}>
+                      {P.tank}: {P.fuel} mole(s) of fuel
+                    </Box>
+                  ) : (
+                    <Box inline color="bad">
+                      Empty -- no tank loaded
+                    </Box>
+                  )}
+                </LabeledList.Item>
+              ))}
+              <LabeledList.Item label="Total fuel">
+                <Box inline bold color={data.total_fuel > 0 ? 'good' : 'bad'}>
+                  {data.total_fuel} mole(s)
+                </Box>
+              </LabeledList.Item>
+            </LabeledList>
+          )}
         </Section>
 
         {!engines.length && <NoticeBox>No engines detected.</NoticeBox>}
