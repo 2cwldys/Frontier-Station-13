@@ -190,52 +190,75 @@
 * Shuttle Pre Move Handling * (Observer Pattern Implementation: Shuttle Pre Move)
 *****************/
 
-/// Clears a STRAY copy of this shuttle's own footprint sitting on the
-/// destination, before the real move lands on top of it.
+/// The turfs that genuinely make up this hull right now.
 ///
-/// A ship whose area ends up covering two places at once (see the home
-/// landmark's base_area handling, player_built_shuttle.dm) leaves a ghost hull
-/// -- walls, consoles, machinery, sometimes crew -- on its own home z. Letting
-/// check_collision() ignore the mover's own areas is what makes the move
-/// possible again, but on its own that would be actively dangerous:
-/// transport_turf_contents() only ChangeTurf()s the target and forceMoves the
-/// source's contents ON TOP, leaving the ghost's objects in place (duplicated
-/// machinery), and shuttle_moved()'s squish pass qdel()s destination contents
-/// and GIBS any living mob standing there.
+/// shuttle_area holds area INSTANCES, and BYOND areas are singletons -- so if
+/// anything ever stamps one of our areas onto turfs somewhere else (a vacated
+/// home whose base_area resolved to the ship's own area, say), A.contents
+/// silently starts reporting two footprints as though both were the ship.
 ///
-/// So the ghost is removed first, deliberately and gently: objects deleted,
-/// turfs reverted, and any living mob moved clear rather than killed. Strictly
-/// scoped to turfs that are (a) in this shuttle's OWN areas and (b) not part of
-/// the hull actually being moved -- the real ship is always a source turf of
-/// this same translation, so it can never be caught by this.
-/datum/shuttle/proc/_clear_own_stray_footprint(list/translation)
-	var/list/sources = list()
-	for(var/turf/source in translation)
-		sources[source] = TRUE
-
-	var/cleared = 0
-	for(var/turf/source in translation)
-		var/turf/target = translation[source]
-		if(!target || sources[target])
-			continue // the real hull we're moving, not a ghost
-		if(!(get_area(target) in shuttle_area))
-			continue // not ours -- ordinary collision rules apply, untouched
-
-		for(var/atom/movable/AM in target)
-			if(isliving(AM))
-				// Never gib someone standing in the stray copy -- shove them
-				// clear and let the hull land.
-				var/turf/refuge = get_step(target, pick(GLOB.cardinals))
-				AM.forceMove(refuge || target)
+/// Feeding that straight into get_turf_translation() is catastrophic rather
+/// than merely wrong: both footprints get translated by the same offset, so the
+/// leftover's sources are the very turfs the real hull is arriving on.
+/// translate_turfs() then transports the newly-landed hull straight back out
+/// again and reverts those turfs -- its second loop reverts every source
+/// unconditionally -- leaving the contents loose on bare space with no hull
+/// around them.
+///
+/// The hull is always where current_location is, so anything of ours outside
+/// that z-range is leftover and must never enter a translation.
+/datum/shuttle/proc/get_hull_turfs()
+	. = list()
+	var/turf/here = get_turf(current_location)
+	if(!here)
+		return
+	var/lowest_z = here.z - multiz
+	for(var/area/A in shuttle_area)
+		for(var/turf/T in A.contents)
+			if(T.z > here.z || T.z < lowest_z)
 				continue
-			if(!AM.simulated)
-				continue // landmarks, markers and other non-game effects
+			. += T
+
+/// Releases a leftover footprint our areas still cover away from the hull.
+///
+/// The timing is the entire safety argument. This runs only AFTER the move has
+/// completed, so the real hull is -- by definition -- on current_location's own
+/// z, and "ours, but on another z" identifies the leftover with nothing left to
+/// get wrong. An earlier attempt ran BEFORE the move and had to guess which of
+/// two footprints was real; it guessed wrong and wiped a crewed hull.
+///
+/// A turf with a living mob on it is skipped outright, clutter and all.
+/datum/shuttle/proc/_clear_stray_footprint()
+	var/turf/here = get_turf(current_location)
+	if(!here)
+		return
+	var/lowest_z = here.z - multiz
+	var/list/stray = list()
+	for(var/area/A in shuttle_area)
+		for(var/turf/T in A.contents)
+			if(T.z <= here.z && T.z >= lowest_z)
+				continue //the hull itself
+			stray += T
+
+	if(!length(stray))
+		return
+
+	var/area/space_area = locate(/area/space)
+	var/cleared = 0
+	for(var/turf/T as anything in stray)
+		if(locate(/mob/living) in T)
+			continue //never clear a turf someone is standing on
+		for(var/atom/movable/AM in T)
+			if(isliving(AM) || !AM.simulated)
+				continue
 			qdel(AM)
-		target.ChangeTurf(get_base_turf_by_area(target))
+		if(space_area)
+			T.change_area(T.loc, space_area)
+		T.ChangeTurf(get_base_turf_by_area(T))
 		cleared++
 
 	if(cleared)
-		log_world("SHUTTLE: '[name]' cleared [cleared] stray turf(s) of its own duplicated footprint at the destination before moving.")
+		log_world("SHUTTLE: '[name]' released [cleared] leftover turf(s) its areas still covered away from the hull.")
 
 /datum/shuttle/proc/attempt_move(var/obj/effect/shuttle_landmark/destination)
 	if(current_location == destination)
@@ -246,14 +269,29 @@
 	if(current_location.cannot_depart(src))
 		return FALSE
 	testing("[src] moving to [destination]. Areas are [english_list(shuttle_area)]")
-	var/list/translation = list()
-	for(var/area/A in shuttle_area)
-		testing("Moving [A]")
-		translation += get_turf_translation(get_turf(current_location), get_turf(destination), A.contents)
-	_clear_own_stray_footprint(translation)
+	var/list/translation = get_turf_translation(get_turf(current_location), get_turf(destination), get_hull_turfs())
+	// An OVERLAPPING move -- one where a turf is both a source and a target --
+	// is something translate_turfs() cannot perform safely under any
+	// circumstances. Such a turf has contents transported INTO it by one pair
+	// and then transported back out (or reverted to base_turf by the second,
+	// unconditional loop) by another, with the outcome decided purely by
+	// iteration order. The hull is shredded rather than relocated.
+	//
+	// This is reachable in normal play: a landmark_transition mapped on the
+	// ship's OWN z (player_built_shuttle.dm) sits close enough to the home
+	// landmark that hopping between them overlaps the hull with itself. Refuse
+	// instead of attempting it -- and never "fix" that refusal by letting
+	// check_collision() ignore the mover's own hull, which is the change that
+	// destroyed a live crewed ship.
+	for(var/turf/source in translation)
+		var/turf/target = translation[source]
+		if(target && (target in translation))
+			log_world("SHUTTLE: '[name]' refused a move to [destination] -- the destination footprint overlaps the hull's own current position.")
+			return FALSE
 	var/old_location = current_location
 	GLOB.shuttle_pre_move_event.raise_event(src, old_location, destination)
 	shuttle_moved(destination, translation)
+	_clear_stray_footprint()
 	GLOB.shuttle_moved_event.raise_event(src, old_location, destination)
 	destination.shuttle_arrived(src)
 	return TRUE

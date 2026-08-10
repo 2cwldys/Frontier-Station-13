@@ -104,10 +104,21 @@
 		if(own_marker.shuttle != name)
 			continue
 		var/obj/effect/shuttle_landmark/home = _drydock_resolve_home_landmark(own_marker, src)
-		if(istype(home) && home != current_location && !(home in res))
-			var/list/home_refusal = list()
-			if(home.is_valid(src, home_refusal, FALSE))
-				res["[own_marker.name] - [home.name]"] = home
+		if(!istype(home) || home == current_location || (home in res))
+			continue
+		// Already parked on our own z -- our open space is where we ALREADY are.
+		// Offering it as a destination from here can only produce a translation
+		// that overlaps the hull with itself, which attempt_move() (shuttle.dm)
+		// refuses, so the player just gets "Launch aborted -- the destination is
+		// obstructed" for a trip they have already completed. There is nothing
+		// to travel to.
+		var/turf/here = get_turf(current_location)
+		var/turf/there = get_turf(home)
+		if(here && there && here.z == there.z)
+			continue
+		var/list/home_refusal = list()
+		if(home.is_valid(src, home_refusal, FALSE))
+			res["[own_marker.name] - [home.name]"] = home
 #ifdef DOCKING_REFUSAL_DIAGNOSTICS
 			else if(length(home_refusal))
 				last_destination_refusals += "[home.name] (own home): [home_refusal[1]]"
