@@ -475,7 +475,7 @@
 	name = "fuel tank"
 	supplier = "Hub"
 	description = "A tank filled with welding fuel."
-	price = 10
+	price = 500
 	items = list(
 		/obj/structure/reagent_dispensers/fueltank
 	)
@@ -1221,6 +1221,104 @@
 	description = "A ready-to-place sensor array -- the actual hardware a sensors terminal reads from and commands. Wrench it down anywhere inside the hull; needs a Sensors Terminal Crate too."
 	price = 15000
 	items = list(/obj/structure/machinery/shipsensors/weak/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/cablecoil
+	category = "engineering"
+	name = "cable coil"
+	supplier = "Hub"
+	description = "A full coil of power cable."
+	price = 60
+	items = list(
+		/obj/item/stack/cable_coil
+	)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/powercontrolmodule
+	category = "engineering"
+	name = "power control module"
+	supplier = "Hub"
+	description = "Looks like a circuit. Probably is."
+	price = 150
+	items = list(
+		/obj/item/module/power_control
+	)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/airalarmcircuit
+	category = "engineering"
+	name = "air alarm circuit"
+	supplier = "Hub"
+	description = "Looks like a circuit. Probably is."
+	price = 60
+	items = list(
+		/obj/item/airalarm_electronics
+	)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/airlockcircuit
+	category = "engineering"
+	name = "airlock circuit"
+	supplier = "Hub"
+	description = "Looks like a circuit. Probably is."
+	price = 60
+	items = list(
+		/obj/item/airlock_electronics
+	)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/firealarmcircuit
+	category = "engineering"
+	name = "fire alarm circuit"
+	supplier = "Hub"
+	description = "Looks like a circuit. Probably is."
+	price = 60
+	items = list(
+		/obj/item/firealarm_electronics
+	)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/rfd_construction
+	category = "engineering"
+	name = "Rapid Fabrication Device C-Class"
+	supplier = "Hub"
+	description = "A RFD, modified to construct walls and floors."
+	price = 45
+	items = list(
+		/obj/item/rfd/construction
+	)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/rfd_ammo
+	category = "engineering"
+	name = "compressed matter cartridge"
+	supplier = "Hub"
+	description = "Highly compressed matter for the RFD."
+	price = 15
+	items = list(
+		/obj/item/rfd_ammo
+	)
 	access = ACCESS_ENGINE
 	container_type = "crate"
 	groupable = TRUE
