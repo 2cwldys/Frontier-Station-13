@@ -97,11 +97,28 @@ GLOBAL_VAR_INIT(drydock_periodic_sweep_started, FALSE)
 		if(!istype(marker) || !marker.landmark)
 			continue
 		var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
-		if(istype(shuttle_datum) && shuttle_datum.current_location != marker.landmark)
+		// _drydock_ship_is_home(), NOT a comparison against marker.landmark. A
+		// ship parked on its own z at a landmark that simply isn't the home one
+		// (its own landmark_transition, most often) was being flagged as
+		// "docked elsewhere" while sitting in its own open space -- which made
+		// every save skip its turfs, and made its own shipInteriorSave() delete
+		// its floor items and freeze its machines. Same definition of home the
+		// stash gate, the schematic and the recall all use.
+		if(istype(shuttle_datum) && !_drydock_ship_is_home(DS, shuttle_datum))
 			var/turf_scope = "ship:d:[sid]"
-			for(var/area/A in shuttle_datum.shuttle_area)
-				for(var/turf/T in A.contents)
-					GLOB.persistence_docked_turf_scope[T] = turf_scope
+			// Scoped to the hull's CURRENT z. shuttle_area for a player-built
+			// hull is the shared singleton /area/drydock_ship/player_built_shuttle
+			// (commission only renames it), so A.contents spans every deployed
+			// player-built ship -- without this, one ship being away flags every
+			// other player-built ship's turfs as excluded too.
+			var/turf/hull_at = get_turf(shuttle_datum.current_location)
+			var/hull_z = hull_at ? hull_at.z : 0
+			if(hull_z)
+				for(var/area/A in shuttle_datum.shuttle_area)
+					for(var/turf/T in A.contents)
+						if(T.z != hull_z)
+							continue
+						GLOB.persistence_docked_turf_scope[T] = turf_scope
 		// Bound sub-craft (Xanu Fighter/Boarder, etc., sub_shuttle_tags) use
 		// the exact same real attempt_move()/shuttle_moved() movement as any
 		// other shuttle datum -- one can fly off its home slot and dock

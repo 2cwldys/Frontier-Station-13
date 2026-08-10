@@ -422,18 +422,20 @@
 /datum/controller/subsystem/persistence/proc/floorItemsFinalizeZ(z, scope)
 	if(!databaseCheckConnection("floorItemsFinalizeZ"))
 		return
-	var/datum/db_query/wipe_q = SSdbcore.NewQuery(
-		"DELETE FROM ss13_floor_items WHERE map_path = :map_path",
-		list("map_path" = scope)
-	)
-	wipe_q.Execute()
-	databaseCheckQueryResult(wipe_q, "floorItemsFinalizeZ delete")
-	qdel(wipe_q)
-
+	// Collect BEFORE deleting anything. This proc replaces the scope wholesale,
+	// so a rebuild that comes back empty for the wrong reason doesn't just fail
+	// to save -- it destroys everything already saved. That is exactly what
+	// happened: the docked-turf exclusion wrongly flagged a ship sitting in its
+	// own open space, every row was suppressed, and the DELETE committed an
+	// empty scope over the ship's entire floor-item history.
 	var/list/value_rows = list()
+	var/suppressed = 0
 	for(var/obj/item/I in world)
 		CHECK_TICK
 		if(I.z != z)
+			continue
+		if(isturf(I.loc) && persistence_turf_docked_elsewhere(I.loc))
+			suppressed++
 			continue
 		try
 			var/list/row = _floorItemRow(I)
@@ -441,6 +443,23 @@
 				value_rows += list(row)
 		catch(var/exception/e)
 			log_subsystem_persistence_error("Floor items: Failed to serialize [I] ([I.type]) for ship-Z save: [e]")
+
+	// Self-contradictory: this IS the ship's own save, so it can never be right
+	// for the ship's own turfs to be excluded as "docked somewhere else". Abort
+	// without touching the existing rows rather than replacing them with a
+	// suppressed, incomplete set. A genuinely emptied ship is unaffected --
+	// nothing was suppressed there, so it still correctly saves zero rows.
+	if(suppressed)
+		log_subsystem_persistence_error("Floor items: REFUSING to save z=[z] ([scope]) -- [suppressed] item\s were excluded as 'docked away from home' during this ship's OWN interior save. Existing rows left intact; this needs investigating.")
+		return
+
+	var/datum/db_query/wipe_q = SSdbcore.NewQuery(
+		"DELETE FROM ss13_floor_items WHERE map_path = :map_path",
+		list("map_path" = scope)
+	)
+	wipe_q.Execute()
+	databaseCheckQueryResult(wipe_q, "floorItemsFinalizeZ delete")
+	qdel(wipe_q)
 
 	var/saved = _floorItemsFlush(value_rows, "floorItemsFinalizeZ")
 	log_subsystem_persistence_info("Floor items: Saved [saved] ship floor items for z=[z] ([scope]).")

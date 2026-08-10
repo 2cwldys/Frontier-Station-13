@@ -96,11 +96,32 @@ GLOBAL_VAR_INIT(persistence_allow_z_reuse, TRUE)
 /// away from its own home landmark.
 GLOBAL_LIST_EMPTY(persistence_docked_turf_scope)
 
+/// The z currently being captured by shipInteriorSave(), or 0.
+///
+/// A ship's own interior save is AUTHORITATIVE for its z -- it must record what
+/// is physically sitting there, unconditionally. The docked-turf exclusion above
+/// exists purely to stop the general, z-scoped sweeps misattributing a docked
+/// hull's turfs to the host station; applying it to the ship's own save is
+/// nonsense, and it was actively destructive: floorItemsFinalizeZ() DELETEs the
+/// whole ship scope up front and then rebuilds it, so a stale exclusion entry
+/// suppressed every row and committed an EMPTY scope over good data, wiping the
+/// ship's floor contents outright. Tracked machines fared no better -- their
+/// add/update calls consult the same exclusion, freezing each machine at the
+/// last state written (usually "empty, as built").
+GLOBAL_VAR_INIT(persistence_interior_save_z, 0)
+
 /// TRUE if this turf currently belongs to a ship that's physically docked
 /// away from its own home Z right now -- see persistence_docked_turf_scope
 /// above for why this must exclude, not redirect.
+///
+/// Never TRUE for the z a shipInteriorSave() is currently capturing: that save
+/// IS the ship's own, so it must never skip the ship's own turfs.
 /proc/persistence_turf_docked_elsewhere(turf/T)
-	return T && GLOB.persistence_docked_turf_scope[T]
+	if(!T)
+		return FALSE
+	if(GLOB.persistence_interior_save_z && T.z == GLOB.persistence_interior_save_z)
+		return FALSE
+	return GLOB.persistence_docked_turf_scope[T]
 
 /// TRUE if any deployed drydock ship is already using this template.
 /// Shuttle datum names are per-template, and /datum/shuttle/New() hard-
@@ -155,6 +176,10 @@ GLOBAL_LIST_EMPTY(persistence_docked_turf_scope)
 	if(!databaseCheckConnection("shipInteriorSave"))
 		return FALSE
 	log_subsystem_persistence_info("Ship interiors: saving z=[z] under [scope]...")
+	// This save is authoritative for this z -- suspend the docked-turf exclusion
+	// for it, or a stale entry silently blanks the ship's entire interior. See
+	// GLOB.persistence_interior_save_z's own doc comment.
+	GLOB.persistence_interior_save_z = z
 	try
 		turfsFinalizeZ(z)
 	catch(var/exception/turfs_e)
@@ -183,6 +208,7 @@ GLOBAL_LIST_EMPTY(persistence_docked_turf_scope)
 		atmosFinalizeZ(z, scope)
 	catch(var/exception/atmos_e)
 		log_subsystem_persistence_error("Ship interiors: atmos save failed for [scope]: [atmos_e]")
+	GLOB.persistence_interior_save_z = 0
 	_shipLedgerTouchSavedAt(scope)
 	return TRUE
 

@@ -228,14 +228,23 @@
 /// two footprints was real; it guessed wrong and wiped a crewed hull.
 ///
 /// A turf with a living mob on it is skipped outright, clutter and all.
-/datum/shuttle/proc/_clear_stray_footprint()
+///
+/// departed_z scopes this to the z we just LEFT, and that bound is essential,
+/// not tidiness: shuttle_area for a player-built hull is the shared singleton
+/// /area/drydock_ship/player_built_shuttle (commission only renames it), so
+/// A.contents spans EVERY deployed player-built ship. "Anything of ours not on
+/// our current z" would therefore delete other players' ships wholesale. Only
+/// the z this hull physically vacated can hold a footprint this hull left.
+/datum/shuttle/proc/_clear_stray_footprint(departed_z)
 	var/turf/here = get_turf(current_location)
-	if(!here)
+	if(!here || !departed_z || departed_z == here.z)
 		return
 	var/lowest_z = here.z - multiz
 	var/list/stray = list()
 	for(var/area/A in shuttle_area)
 		for(var/turf/T in A.contents)
+			if(T.z != departed_z)
+				continue //not the z we just vacated -- never ours to touch
 			if(T.z <= here.z && T.z >= lowest_z)
 				continue //the hull itself
 			stray += T
@@ -289,9 +298,11 @@
 			log_world("SHUTTLE: '[name]' refused a move to [destination] -- the destination footprint overlaps the hull's own current position.")
 			return FALSE
 	var/old_location = current_location
+	var/turf/departed_from = get_turf(current_location)
+	var/departed_z = departed_from ? departed_from.z : 0
 	GLOB.shuttle_pre_move_event.raise_event(src, old_location, destination)
 	shuttle_moved(destination, translation)
-	_clear_stray_footprint()
+	_clear_stray_footprint(departed_z)
 	GLOB.shuttle_moved_event.raise_event(src, old_location, destination)
 	destination.shuttle_arrived(src)
 	return TRUE
