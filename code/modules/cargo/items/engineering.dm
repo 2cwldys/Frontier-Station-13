@@ -1323,3 +1323,17 @@
 	container_type = "crate"
 	groupable = TRUE
 	spawn_amount = 1
+
+/singleton/cargo_item/emergencyshieldprojector
+	category = "engineering"
+	name = "emergency shield projector"
+	supplier = "Hub"
+	description = "Used to seal minor hull breaches."
+	price = 10000
+	items = list(
+		/obj/structure/machinery/shieldgen
+	)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
