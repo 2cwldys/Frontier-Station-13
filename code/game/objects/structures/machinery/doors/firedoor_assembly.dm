@@ -41,7 +41,12 @@
 			playsound(src.loc, 'sound/items/Deconstruct.ogg', 50, 1)
 			user.visible_message(SPAN_WARNING("[user] has inserted a circuit into \the [src]!"),
 									"You have inserted the circuit into \the [src]!")
-			new /obj/structure/machinery/door/firedoor(src.loc)
+			// dir = SOUTH is /obj/structure/machinery/door/firedoor's own
+			// class default (firedoor.dm) -- copy the assembly's own dir
+			// across, or a correctly-oriented assembly's facing (set at
+			// build time by Produce(), stack.dm) is silently discarded.
+			var/obj/structure/machinery/door/firedoor/new_door = new /obj/structure/machinery/door/firedoor(src.loc)
+			new_door.dir = dir
 			qdel(attacking_item)
 			qdel(src)
 		else
