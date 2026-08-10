@@ -37,7 +37,7 @@
 // text names raw turf types and coordinates, so comment this out for a
 // live/production build; defined by default while docking geometry is still
 // being actively tested.
-#define DOCKING_REFUSAL_DIAGNOSTICS
+//#define DOCKING_REFUSAL_DIAGNOSTICS
 
 // If defined, ship engines log their own ship-registration attempt (whether
 // the SSshuttle.ships scan ran, which area the engine is actually in, and
@@ -45,7 +45,7 @@
 // commission capture logs what it captured. For chasing the "no engines
 // detected" / fuel port not reaching the engine terminal problem -- comment
 // out to strip it entirely.
-#define DRYDOCK_ENGINE_DIAGNOSTICS
+//#define DRYDOCK_ENGINE_DIAGNOSTICS
 
 // If defined, the floor-item persistence path logs every decision it makes
 // for a faction-tagged clothing item: which branch dropped it (if any),

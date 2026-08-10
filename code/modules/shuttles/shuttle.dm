@@ -190,6 +190,53 @@
 * Shuttle Pre Move Handling * (Observer Pattern Implementation: Shuttle Pre Move)
 *****************/
 
+/// Clears a STRAY copy of this shuttle's own footprint sitting on the
+/// destination, before the real move lands on top of it.
+///
+/// A ship whose area ends up covering two places at once (see the home
+/// landmark's base_area handling, player_built_shuttle.dm) leaves a ghost hull
+/// -- walls, consoles, machinery, sometimes crew -- on its own home z. Letting
+/// check_collision() ignore the mover's own areas is what makes the move
+/// possible again, but on its own that would be actively dangerous:
+/// transport_turf_contents() only ChangeTurf()s the target and forceMoves the
+/// source's contents ON TOP, leaving the ghost's objects in place (duplicated
+/// machinery), and shuttle_moved()'s squish pass qdel()s destination contents
+/// and GIBS any living mob standing there.
+///
+/// So the ghost is removed first, deliberately and gently: objects deleted,
+/// turfs reverted, and any living mob moved clear rather than killed. Strictly
+/// scoped to turfs that are (a) in this shuttle's OWN areas and (b) not part of
+/// the hull actually being moved -- the real ship is always a source turf of
+/// this same translation, so it can never be caught by this.
+/datum/shuttle/proc/_clear_own_stray_footprint(list/translation)
+	var/list/sources = list()
+	for(var/turf/source in translation)
+		sources[source] = TRUE
+
+	var/cleared = 0
+	for(var/turf/source in translation)
+		var/turf/target = translation[source]
+		if(!target || sources[target])
+			continue // the real hull we're moving, not a ghost
+		if(!(get_area(target) in shuttle_area))
+			continue // not ours -- ordinary collision rules apply, untouched
+
+		for(var/atom/movable/AM in target)
+			if(isliving(AM))
+				// Never gib someone standing in the stray copy -- shove them
+				// clear and let the hull land.
+				var/turf/refuge = get_step(target, pick(GLOB.cardinals))
+				AM.forceMove(refuge || target)
+				continue
+			if(!AM.simulated)
+				continue // landmarks, markers and other non-game effects
+			qdel(AM)
+		target.ChangeTurf(get_base_turf_by_area(target))
+		cleared++
+
+	if(cleared)
+		log_world("SHUTTLE: '[name]' cleared [cleared] stray turf(s) of its own duplicated footprint at the destination before moving.")
+
 /datum/shuttle/proc/attempt_move(var/obj/effect/shuttle_landmark/destination)
 	if(current_location == destination)
 		return FALSE
@@ -203,6 +250,7 @@
 	for(var/area/A in shuttle_area)
 		testing("Moving [A]")
 		translation += get_turf_translation(get_turf(current_location), get_turf(destination), A.contents)
+	_clear_own_stray_footprint(translation)
 	var/old_location = current_location
 	GLOB.shuttle_pre_move_event.raise_event(src, old_location, destination)
 	shuttle_moved(destination, translation)
