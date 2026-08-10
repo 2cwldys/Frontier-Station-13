@@ -108,16 +108,22 @@ export const ShipSchematic = (props) => {
                 mt={1}
                 icon="box"
                 disabled={
-                  !!stashed || !!busy || !!save_in_progress || !!away_from_home
+                  !!stashed ||
+                  !!busy ||
+                  !!save_in_progress ||
+                  !!away_from_home ||
+                  !ready
                 }
                 tooltip={
                   busy
                     ? 'Retrieve/stash in progress -- please wait.'
                     : save_in_progress
                       ? 'World save in progress -- please wait.'
-                      : away_from_home
-                        ? 'This ship is currently docked -- undock before stashing.'
-                        : undefined
+                      : !ready
+                        ? 'This ship is still being retrieved -- wait until it is ready to board.'
+                        : away_from_home
+                          ? 'This ship is currently docked -- undock before stashing.'
+                          : undefined
                 }
                 onClick={() => act('stash')}
               >
