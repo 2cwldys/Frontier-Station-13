@@ -105,46 +105,39 @@
 		if(reason_out)
 			reason_out += "already at this destination"
 		return FALSE
-	for(var/area/A in shuttle.shuttle_area)
-		var/list/translation = get_turf_translation(get_turf(shuttle.current_location), get_turf(src), A.contents)
-		// `shuttle` passed as the mover -- a ship is never blocked by its own
-		// hull. See check_collision()'s own doc comment for why that isn't
-		// hypothetical.
-		if(check_collision(list_values(translation), check_objects, shuttle))
-			if(reason_out)
-				// check_collision() (this file) treats a null translated turf
-				// as a collision too ("collides with edge of map") -- a
-				// for(var/turf/T in ...) loop silently skips those nulls, so
-				// naming this separately is the only way to distinguish "the
-				// hull doesn't fit on this map at all" from "something is
-				// actually in the way." This is what "off grid"/shows red on
-				// the landing preview means in practice.
-				var/list/off_map_count = 0
-				var/list/blocking = list()
-				for(var/target_turf in list_values(translation))
-					if(!target_turf)
-						off_map_count++
-						continue
-					var/turf/T = target_turf
-					// Same self-exclusion the real check uses -- otherwise the
-					// refusal text lists the ship's OWN walls, consoles and
-					// crew as what's blocking it, which is what made this
-					// failure so hard to read.
-					if(get_area(T) in shuttle.shuttle_area)
-						continue
-					if(T.density)
-						blocking += "[T.type] at ([T.x],[T.y],[T.z])"
-					if(check_objects)
-						for(var/atom/movable/M in T)
-							if(M.density && M.anchored)
-								blocking += "[M] at ([T.x],[T.y],[T.z])"
-				var/list/reasons = list()
-				if(off_map_count)
-					reasons += "[off_map_count] tile\s of the hull would land outside this z-level's map bounds entirely (destination too close to the map edge for the hull to fit)"
-				if(length(blocking))
-					reasons += "blocked by: [english_list(blocking)]"
-				reason_out += "hull footprint doesn't fit at the destination -- [length(reasons) ? jointext(reasons, "; ") : "unlogged reason"]"
-			return FALSE
+	// get_hull_turfs() (shuttle.dm), never raw area contents -- an area that has
+	// been stamped onto turfs away from the hull would otherwise be validated as
+	// though the ship were in two places at once.
+	var/list/translation = get_turf_translation(get_turf(shuttle.current_location), get_turf(src), shuttle.get_hull_turfs())
+	if(check_collision(list_values(translation), check_objects))
+		if(reason_out)
+			// check_collision() (this file) treats a null translated turf
+			// as a collision too ("collides with edge of map") -- a
+			// for(var/turf/T in ...) loop silently skips those nulls, so
+			// naming this separately is the only way to distinguish "the
+			// hull doesn't fit on this map at all" from "something is
+			// actually in the way." This is what "off grid"/shows red on
+			// the landing preview means in practice.
+			var/list/off_map_count = 0
+			var/list/blocking = list()
+			for(var/target_turf in list_values(translation))
+				if(!target_turf)
+					off_map_count++
+					continue
+				var/turf/T = target_turf
+				if(T.density)
+					blocking += "[T.type] at ([T.x],[T.y],[T.z])"
+				if(check_objects)
+					for(var/atom/movable/M in T)
+						if(M.density && M.anchored)
+							blocking += "[M] at ([T.x],[T.y],[T.z])"
+			var/list/reasons = list()
+			if(off_map_count)
+				reasons += "[off_map_count] tile\s of the hull would land outside this z-level's map bounds entirely (destination too close to the map edge for the hull to fit)"
+			if(length(blocking))
+				reasons += "blocked by: [english_list(blocking)]"
+			reason_out += "hull footprint doesn't fit at the destination -- [length(reasons) ? jointext(reasons, "; ") : "unlogged reason"]"
+		return FALSE
 	var/conn = GetConnectedZlevels(z)
 	for(var/w in (z - shuttle.multiz) to z)
 		if(!(w in conn))
@@ -155,10 +148,11 @@
 
 /obj/effect/shuttle_landmark/proc/deploy_landing_indicators(var/datum/shuttle/shuttle)
 	LAZYINITLIST(landing_indicators)
-	for(var/area/A in shuttle.shuttle_area)
-		var/list/translation = get_turf_translation(get_turf(shuttle.current_location), get_turf(src), A.contents)
-		for(var/target_turf in list_values(translation))
-			landing_indicators += new /obj/effect/shuttle_warning(target_turf)
+	// Same hull turfs the move itself will use, so the preview shows where the
+	// ship actually lands rather than also marking out a leftover footprint.
+	var/list/translation = get_turf_translation(get_turf(shuttle.current_location), get_turf(src), shuttle.get_hull_turfs())
+	for(var/target_turf in list_values(translation))
+		landing_indicators += new /obj/effect/shuttle_warning(target_turf)
 
 /obj/effect/shuttle_landmark/proc/clear_landing_indicators()
 	QDEL_LIST(landing_indicators) // lazyclear but we delete the effects as well
@@ -211,27 +205,21 @@
 /// footprint at a candidate destination silently removes it from the
 /// destination list entirely, even though an actual dock attempt there
 /// would otherwise be fine to at least offer and then correctly refuse.
-/// mover, when supplied, is the shuttle actually making this move -- any
-/// target turf belonging to ITS OWN areas is skipped entirely.
 ///
-/// A ship can never legitimately be blocked by its own hull, and it genuinely
-/// happens: a ship whose area ends up covering two places at once (see the
-/// home landmark's base_area handling, player_built_shuttle.dm) finds its own
-/// walls, consoles and crew sitting on the destination and refuses to move
-/// there forever -- permanently stranding it, since every retry hits the same
-/// wall. Excluding the mover's own areas lets the move proceed and
-/// translate_turfs() re-consolidate the footprint into one place.
-/proc/check_collision(list/target_turfs, check_objects = TRUE, datum/shuttle/mover = null)
+/// This check is deliberately strict about the mover's own hull too. Skipping
+/// target turfs that belong to the moving shuttle's own areas was tried and had
+/// to be reverted: it was meant to unstick a ship whose area covered two places
+/// at once, but "unsticking" it meant letting a translation run that contained
+/// both footprints, which reverted the hull's turfs the instant it landed and
+/// left the crew loose in space. The two-footprint problem belongs to
+/// get_hull_turfs() (shuttle.dm), which keeps the leftover out of the
+/// translation entirely -- not here.
+/proc/check_collision(list/target_turfs, check_objects = TRUE)
 	for(var/target_turf in target_turfs)
 		var/turf/target = target_turf
 
 		if(!target)
 			return TRUE //collides with edge of map
-
-		// Part of the ship doing the moving -- it is not an obstruction, it IS
-		// the mover, and translate_turfs() is about to relocate it anyway.
-		if(mover && (get_area(target) in mover.shuttle_area))
-			continue
 
 		// IMPORTANT: The below area check is commented out as it is not compatible with the Horizon,
 		// which has docking ports with clashing turfs + areas! There's no good reason for this not to

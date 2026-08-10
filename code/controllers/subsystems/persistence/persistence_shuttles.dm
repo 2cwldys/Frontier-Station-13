@@ -2987,6 +2987,25 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			to_chat(user, SPAN_WARNING("That ship is already stashed."))
 		log_drydock_warning("drydockStash: refused -- shuttle_id=[shuttle_id] already stashed (acting=[acting]).")
 		return FALSE
+	// A retrieve releases the op lock as soon as the marker is placed, but the
+	// interior is still being applied asynchronously after that -- so between
+	// "Ship retrieved, you'll be notified when it's ready to board" and the
+	// apply actually finishing, this ship reads as neither busy nor stashed.
+	// Stashing in that window saves a half-restored interior back over the good
+	// rows and tears the marker down mid-load, wedging the ship. DS.ready is
+	// exactly that window's flag (set at _shipInteriorApplyFinish(),
+	// persistence_ship_interiors.dm), so gate on it.
+	if(!DS.ready)
+		if(!force)
+			if(user)
+				to_chat(user, SPAN_WARNING("This ship is still being retrieved -- wait until you're notified it's ready to board."))
+			log_drydock_warning("drydockStash: refused -- shuttle_id=[shuttle_id] is not ready yet (retrieve still applying its interior), acting=[acting].")
+			return FALSE
+		// Forced stashes (shutdown sweep, admin Force Stash) still proceed --
+		// refusing one at shutdown would leave the ledger claiming a deployed
+		// ship whose z is about to disappear. Logged loudly because the saved
+		// interior may be incomplete.
+		log_drydock_warning("drydockStash: shuttle_id=[shuttle_id] force-stashed while NOT ready -- its interior may still have been mid-apply. Verify it after retrieve (acting=[acting]).")
 	if(!force && !(check_rights(R_ADMIN, 0, user) || DS.owned_by(user)))
 		if(user)
 			to_chat(user, SPAN_WARNING("You don't have permission to stash this ship."))
@@ -3235,7 +3254,14 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	log_and_message_admins("Drydock: '[DS.display_name()]' (#[DS.shuttle_id]) could not reach its own open space (z=[old_z]) and was rehomed onto a fresh z=[new_z].", null, get_turf(marker))
 	return TRUE
 
-/datum/controller/subsystem/persistence/proc/_drydock_recall_ship_home(datum/drydock_ship/DS)
+/// allow_rehome -- whether a ship that genuinely cannot reach its own open
+/// space may be given a brand-new z to live on instead. TRUE for a real stash,
+/// where the alternative is a stash that can never complete. FALSE for the
+/// periodic autosave sweep: provisioning a z-level and physically relocating a
+/// ship a player deliberately parked somewhere is far too heavy-handed for
+/// background housekeeping, and it reads to the player as their ship being
+/// dumped into empty space for no reason they can see.
+/datum/controller/subsystem/persistence/proc/_drydock_recall_ship_home(datum/drydock_ship/DS, allow_rehome = TRUE)
 	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
 	if(!istype(marker))
 		return FALSE
@@ -3258,6 +3284,9 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			// it stranded forever, give it a brand-new empty z to call home and
 			// move it there -- the caller then proceeds with the normal stash,
 			// which saves the interior and tears that z down again.
+			if(!allow_rehome)
+				log_drydock_warning("_drydock_recall_ship_home: home move refused for shuttle_id=[DS.shuttle_id] -- leaving it where it is (rehoming is reserved for a real stash).")
+				return FALSE
 			log_drydock_warning("_drydock_recall_ship_home: home move refused for shuttle_id=[DS.shuttle_id] -- provisioning a fresh open-space z as a fallback.")
 			if(!_drydock_rehome_to_fresh_z(DS, marker, shuttle_datum))
 				log_drydock_error("_drydock_recall_ship_home: fallback rehome ALSO failed for shuttle_id=[DS.shuttle_id] -- needs admin attention.")
@@ -3317,7 +3346,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
 		if(!istype(shuttle_datum) || shuttle_datum.current_location == marker.landmark)
 			continue // already home, nothing to recall
-		if(_drydock_recall_ship_home(DS))
+		if(_drydock_recall_ship_home(DS, allow_rehome = FALSE))
 			recalled_count++
 		else
 			failed_count++
