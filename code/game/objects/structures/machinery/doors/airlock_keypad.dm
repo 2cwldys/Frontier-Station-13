@@ -113,18 +113,27 @@
 /obj/structure/machinery/door/airlock/keypad/proc/_is_setter(mob/user)
 	return set_code && (user.ckey == setter_ckey) && (user.real_name == setter_name)
 
+/// Keypad actions are handled BEFORE delegating upward, deliberately.
+///
+/// The usual `. = ..()` / `if(.) return TRUE` opener does not work here: the
+/// parent airlock's own ui_act() (airlock.dm) ends with an unconditional
+/// `return TRUE` after its switch, so it claims EVERY action -- including ones
+/// it has no case for. Opening with it meant this proc returned before its own
+/// switch ever ran, and not one keypad button did anything: no digits, no
+/// clear, no enter, no reset. Handle what belongs to this door first, and only
+/// fall through to the parent for everything else.
 /obj/structure/machinery/door/airlock/keypad/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
-	. = ..()
-	if(.)
-		return TRUE
-
 	var/mob/user = usr
 	var/isAdmin = isobserver(user) && check_rights(R_ADMIN, FALSE, user)
 
 	switch(action)
 		if("type")
 			var/digit = params["value"]
-			if(istext(digit) && length(digit) == 1 && text2num(digit) != null && length(entry_buffer) < 5)
+			// Membership test rather than text2num(): in DM `null == 0` is
+			// TRUE, so `text2num("0") != null` is FALSE and the digit 0 was
+			// rejected while 1-9 passed. A five-digit code containing a zero
+			// could never be entered at all.
+			if(istext(digit) && length(digit) == 1 && findtext("0123456789", digit) && length(entry_buffer) < 5)
 				entry_buffer += digit
 			. = TRUE
 		if("clear")
@@ -189,6 +198,13 @@
 			if(isAdmin)
 				message_admins("[key_name_admin(user)] restored keypad door [src] to normal operation at [COORD(src)].")
 			. = TRUE
+
+	if(.)
+		SStgui.update_uis(src)
+		return TRUE
+	// Not ours -- let the ordinary airlock controls (bolts, power, idscan, the
+	// wire panel) work as they do on any other airlock.
+	return ..()
 
 /**
  * Persists the code/setter/lock state across a restart -- same generic
