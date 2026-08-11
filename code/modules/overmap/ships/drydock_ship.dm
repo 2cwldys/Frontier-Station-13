@@ -141,10 +141,12 @@
 /// hull (ship_commissioning_console.dm) -- unlike the mapped-in base
 /// type above (always pre-anchored, spawned pre-anchored by
 /// drydockAutoFurnish() too), this one starts loose like every other kit
-/// machine and needs a wrench first. shuttle_tag is left unset here --
+/// machine and needs a wrench first. shuttle_tag starts unset here --
 /// drydockCommission() (persistence_shuttles.dm) assigns it once the built
 /// hull is captured onto its new dedicated Z, the same way
-/// drydockAutoFurnish() already does for its own auto-spawned console.
+/// drydockAutoFurnish() already does for its own auto-spawned console. From
+/// then on it's persisted (get/apply_content below), since a stash tears
+/// this object down and recreates it fresh on every retrieve.
 /obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable
 	anchored = FALSE
 	circuit = /obj/item/circuitboard/ship/shuttle_control
@@ -173,14 +175,35 @@
 /obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable/persistent_objects_get_content()
 	var/list/content = list()
 	content["id_tag"] = id_tag
+	content["shuttle_tag"] = shuttle_tag
 	return content
 
+/**
+ * shuttle_tag is restored here, but Initialize() (shuttle_console.dm) has
+ * ALREADY run by this point -- objectsInstantiateRows() (persistence_objects.dm)
+ * calls new typepath(spawn_turf), which runs Initialize() synchronously,
+ * before ever applying saved content -- so the object's own Initialize()
+ * saw shuttle_tag still unset and already filed it into
+ * SSshuttle.lonely_shuttle_computers instead of the real ship's own
+ * shuttle_computers list. Restoring the var alone doesn't undo that
+ * bookkeeping, so redo the hookup here explicitly -- the exact same shape
+ * drydockCommission()'s own capture step uses
+ * (persistence_shuttles.dm:2060-2063) -- instead of relying on someone
+ * happening to open the console's UI first to lazily self-heal via
+ * _resolve_shuttle() (shuttle_console.dm).
+ */
 /obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable/persistent_objects_apply_content(content, x, y, z)
 	..()
 	if(content["id_tag"])
 		GLOB.drydock_linkable_devices_by_tag -= id_tag
 		id_tag = content["id_tag"]
 		GLOB.drydock_linkable_devices_by_tag[id_tag] = src
+	if(content["shuttle_tag"])
+		shuttle_tag = content["shuttle_tag"]
+		var/datum/shuttle/shuttle = SSshuttle.shuttles[shuttle_tag]
+		if(istype(shuttle))
+			SSshuttle.lonely_shuttle_computers -= src
+			shuttle.shuttle_computers += src
 
 /obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable/attackby(obj/item/attacking_item, mob/user, params)
 	if(attacking_item.tool_behaviour == TOOL_WRENCH)

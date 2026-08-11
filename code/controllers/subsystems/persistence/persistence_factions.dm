@@ -1401,13 +1401,18 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 ///
 /// The single rule behind every link/unlink gate on doors, door buttons and
 /// airlock cyclers, so they cannot drift apart. Open networks (untagged or
-/// "public") are free for all; a real faction tag needs MEMBERSHIP of that
-/// faction -- rank 0, not officer, since wiring a checkpoint is routine work
-/// rather than a command decision. Admins bypass, as everywhere else.
+/// "public") are free for all; a real faction tag needs employment there.
+///
+/// FACTION_RANK_CREW, not OFFICER: wiring a checkpoint is routine work, so
+/// anyone actually employed by the faction can do it. That is only safe because
+/// merely printing an ID no longer counts as employment -- those registrations
+/// are FACTION_RANK_CIVILIAN (card.dm), below crew, so somebody who has only
+/// ever touched a faction console is correctly refused. Admins bypass, as
+/// everywhere else.
 /proc/can_rewire_faction_device(mob/user, network_uid)
 	if(faction_network_is_open(network_uid))
 		return TRUE
-	return can_configure_faction_shackle(user, network_uid, 0)
+	return can_configure_faction_shackle(user, network_uid, FACTION_RANK_CREW)
 
 /proc/can_configure_faction_shackle(mob/user, faction_uid, rank_required = 1)
 	if(check_rights(R_ADMIN, 0, user))

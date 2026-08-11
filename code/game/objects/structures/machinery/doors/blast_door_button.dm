@@ -127,11 +127,6 @@
 				return TRUE
 	return FALSE
 
-/// Toggle-links (or unlinks) a blast door/shutter to this button by
-/// assigning (or clearing) the door's own `id` var -- trigger() (door_control.dm,
-/// unchanged) already matches purely on `id` equality. Generates this
-/// button's own id once, on first-ever link (not REF(), which isn't
-/// restart-stable -- both ends persist their `id` via worldstate_vars).
 /// Whether user may link/unlink a door carrying this faction tag.
 ///
 /// Without this, buffer-linking is a clean access bypass: a faction-tagged door
@@ -140,11 +135,10 @@
 /// reverse -- unlinking, or resetting a button, would let an outsider cut a
 /// faction's doors off from their own controls.
 ///
-/// Untagged doors (persistent_network "") are unaffected: ordinary construction
-/// stays ordinary. Rank 0, deliberately not officer -- the bar is MEMBERSHIP of
-/// the owning faction, not seniority within it, since wiring a checkpoint is
-/// routine work rather than a command decision. Admins bypass, as everywhere
-/// else can_configure_faction_shackle() is used.
+/// Untagged and "public" doors are unaffected: ordinary construction stays
+/// ordinary. See can_rewire_faction_device() (persistence_factions.dm) for the
+/// shared rule: the bar is EMPLOYMENT by the owning faction. Printing yourself
+/// an ID does not count -- that registers as FACTION_RANK_CIVILIAN (card.dm).
 /obj/structure/machinery/button/remote/blast_door/buildable/proc/_can_link_faction_door(mob/user, obj/structure/machinery/door/D)
 	if(!istype(D))
 		return TRUE
@@ -160,9 +154,14 @@
 			return TRUE
 	return can_rewire_faction_device(user, D.faction_tagger_get_uid())
 
+/// Toggle-links (or unlinks) a blast door/shutter to this button by
+/// assigning (or clearing) the door's own `id` var -- trigger() (door_control.dm,
+/// unchanged) already matches purely on `id` equality. Generates this
+/// button's own id once, on first-ever link (not REF(), which isn't
+/// restart-stable -- both ends persist their `id` via worldstate_vars).
 /obj/structure/machinery/button/remote/blast_door/buildable/proc/_link_door(obj/structure/machinery/door/blast/D, mob/user)
 	if(!_can_link_faction_door(user, D))
-		to_chat(user, SPAN_WARNING("\The [D] is tagged to [get_faction_name(D.persistent_network)] -- you have no standing there to wire it to anything."))
+		to_chat(user, SPAN_WARNING("\The [D] is tagged to [get_faction_name(D.persistent_network)] -- you are not employed there, so you cannot wire it to anything."))
 		return
 	if(!id)
 		id = "blastbtn_[rand(100000, 999999)]"
@@ -179,7 +178,7 @@
 /// id_tag, not a reuse of it.
 /obj/structure/machinery/button/remote/blast_door/buildable/proc/_link_airlock(obj/structure/machinery/door/airlock/A, mob/user)
 	if(!_can_link_faction_door(user, A))
-		to_chat(user, SPAN_WARNING("\The [A] is tagged to [get_faction_name(A.persistent_network)] -- you have no standing there to wire it to anything."))
+		to_chat(user, SPAN_WARNING("\The [A] is tagged to [get_faction_name(A.persistent_network)] -- you are not employed there, so you cannot wire it to anything."))
 		return
 	if(!id)
 		id = "blastbtn_[rand(100000, 999999)]"
@@ -222,7 +221,7 @@
 		if(!_can_link_faction_door(user, D))
 			blocked |= get_faction_name(D.faction_tagger_get_uid())
 	if(length(blocked))
-		to_chat(user, SPAN_WARNING("\The [src] controls doors tagged to [english_list(blocked)] -- you have no standing there, so it can't be reset."))
+		to_chat(user, SPAN_WARNING("\The [src] controls doors tagged to [english_list(blocked)] -- you are not employed there, so it can't be reset."))
 		return
 
 	var/count = 0

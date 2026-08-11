@@ -32,8 +32,8 @@
 	var/has_interior_sensor
 	var/has_exterior_sensor
 	/// Faction tagger compatible var -- "" (untagged) or a real faction_uid.
-	/// Tagging a cycler controller locks its LINKS: only members of that
-	/// faction (or an admin) can add, remove or reset the doors, pumps and
+	/// Tagging a cycler controller locks its LINKS: only people employed by
+	/// that faction (or an admin) can add, remove or reset the doors, pumps and
 	/// sensors it drives. Without it, anyone with a multitool could rewire or
 	/// wipe a faction's airlock cycler -- which is both an access bypass (link
 	/// a chamber to doors you shouldn't control) and a griefing vector (clear
@@ -96,10 +96,10 @@
 
 /// Whether user may change this controller's links.
 ///
-/// Rank 0, deliberately not officer -- the bar is MEMBERSHIP of the owning
-/// faction, not seniority within it, matching the door button's own
-/// _can_link_faction_door(). Admins bypass, as everywhere else
-/// can_configure_faction_shackle() is used.
+/// Untagged and "public" controllers stay open to everyone; a real faction tag
+/// needs EMPLOYMENT by that faction. See can_rewire_faction_device()
+/// (persistence_factions.dm) for the shared rule -- printing yourself an ID does
+/// not count, that registers as FACTION_RANK_CIVILIAN (card.dm).
 /obj/structure/machinery/embedded_controller/radio/airlock/proc/can_modify_links(mob/user)
 	return can_rewire_faction_device(user, persistent_network)
 
@@ -215,7 +215,7 @@
 		// (airlock_control.dm); gating only one side would leave the other
 		// wide open.
 		if(!can_modify_links(user))
-			to_chat(user, SPAN_WARNING("\The [src] is tagged to [get_faction_name(persistent_network)] -- you have no standing there to change its links."))
+			to_chat(user, SPAN_WARNING("\The [src] is tagged to [get_faction_name(persistent_network)] -- you are not employed there, so you cannot change its links."))
 			return TRUE
 		var/obj/structure/machinery/door/airlock/door = MT.get_buffer(/obj/structure/machinery/door/airlock)
 		if(door)

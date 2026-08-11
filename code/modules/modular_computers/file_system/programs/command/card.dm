@@ -258,7 +258,7 @@ GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 							assign_owner_ckey = H.ckey
 							break
 					if(assign_owner_ckey && !get_faction_member(assign_owner_ckey, assign_id_net))
-						SSpersistence.factionRegisterMember(assign_owner_ckey, id_card.registered_name, assign_id_net, id_card.assignment, 0)
+						SSpersistence.factionRegisterMember(assign_owner_ckey, id_card.registered_name, assign_id_net, id_card.assignment, FACTION_RANK_CIVILIAN)
 
 				SSrecords.reset_manifest()
 				callHook("reassign_employee", list(id_card))
@@ -321,7 +321,7 @@ GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 				// if they are, so an existing officer/command rank is never
 				// silently reset back to 0 by a routine card reprint.
 				if(!get_faction_member(user.ckey, repl_net))
-					SSpersistence.factionRegisterMember(user.ckey, user.real_name, repl_net, new_card.assignment, 0)
+					SSpersistence.factionRegisterMember(user.ckey, user.real_name, repl_net, new_card.assignment, FACTION_RANK_CIVILIAN)
 			new_card.update_name()
 
 			// Re-apply access for the job
@@ -476,6 +476,13 @@ GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 			new_card.rank                 = "Unassigned"
 			new_card.employer_faction     = disp_net
 			new_card.associated_account_number = dispense_acct
+			// A self-printed card is a civilian one: general station movement
+			// only, nothing departmental. Same access the Assistant job gets
+			// (/datum/job/assistant/get_access(), ship_crew.dm) and gated on the
+			// same server toggle, so "what the bottom tier may open" stays one
+			// decision rather than two that can disagree. Real access comes with
+			// a real job assignment through Faction Management.
+			new_card.access = GLOB.config.assistant_maint ? list(ACCESS_MAINT_TUNNELS) : list()
 			new_card.update_name()
 			if(istype(user, /mob/living/carbon/human))
 				var/mob/living/carbon/human/H = user
@@ -485,8 +492,21 @@ GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 					H.employer_faction = disp_net
 				H.set_id_info(new_card)
 			user.put_in_hands(new_card)
-			// Register member record in DB and save account number for payroll
-			SSpersistence.factionRegisterMember(user.ckey, user.real_name, disp_net)
+			// Register member record in DB and save account number for payroll.
+			// CIVILIAN, not CREW: printing yourself a card is not employment.
+			// The row has to exist (payroll, account number, clock-in all key
+			// off it), but it must not confer the standing an actual rank-0 job
+			// does -- otherwise anyone who ever touched a faction console counts
+			// as crew of that faction. Only a real job assignment through
+			// Faction Management issues CREW or above.
+			//
+			// Guarded like the other registration sites in this file, and it
+			// matters more here: factionRegisterMember() is an upsert that
+			// overwrites rank, so an unguarded call would DEMOTE an existing
+			// employee to civilian every time they printed themselves a card.
+			// Someone already employed keeps whatever rank they earned.
+			if(!get_faction_member(user.ckey, disp_net))
+				SSpersistence.factionRegisterMember(user.ckey, user.real_name, disp_net, null, FACTION_RANK_CIVILIAN)
 			if(dispense_acct)
 				SSpersistence.factionUpdateMemberAccount(user.ckey, disp_net, dispense_acct)
 			// Resolve the live account datum regardless of which step above found
@@ -723,7 +743,7 @@ GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 		// as a non-member. Skip if already a member so a routine reprint
 		// never resets an existing officer/command rank back to 0.
 		if(!get_faction_member(user.ckey, verb_repl_net))
-			SSpersistence.factionRegisterMember(user.ckey, user.real_name, verb_repl_net, new_card.assignment, 0)
+			SSpersistence.factionRegisterMember(user.ckey, user.real_name, verb_repl_net, new_card.assignment, FACTION_RANK_CIVILIAN)
 	new_card.update_name()
 
 	var/datum/job/jobdatum

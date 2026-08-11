@@ -234,14 +234,14 @@
 	// door buffered, and multitooling this door with the controller buffered.
 	// The controller's own attackby() guards the first; this guards the second.
 	if(!controller.can_modify_links(user))
-		to_chat(user, SPAN_WARNING("\The [controller] is tagged to [get_faction_name(controller.persistent_network)] -- you have no standing there to link to it."))
+		to_chat(user, SPAN_WARNING("\The [controller] is tagged to [get_faction_name(controller.persistent_network)] -- you are not employed there, so you cannot link to it."))
 		return
 	// The DOOR's own tag matters too, not just the controller's. Otherwise a
 	// faction's exterior/interior airlock could be pulled into a cycler by
 	// someone outside that faction, handing them control of it through the
 	// cycler instead of directly.
 	if(!can_rewire_faction_device(user, persistent_network))
-		to_chat(user, SPAN_WARNING("\The [src] is tagged to [get_faction_name(persistent_network)] -- you have no standing there to wire it to a cycler."))
+		to_chat(user, SPAN_WARNING("\The [src] is tagged to [get_faction_name(persistent_network)] -- you are not employed there, so you cannot wire it to a cycler."))
 		return
 	_ensure_id_tag()
 	controller._ensure_id_tag()
@@ -436,7 +436,7 @@
 /// sensor's passive pressure reports.
 /obj/structure/machinery/airlock_sensor/proc/_link_to_controller(obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller, mob/user)
 	if(!controller.can_modify_links(user))
-		to_chat(user, SPAN_WARNING("\The [controller] is tagged to [get_faction_name(controller.persistent_network)] -- you have no standing there to link to it."))
+		to_chat(user, SPAN_WARNING("\The [controller] is tagged to [get_faction_name(controller.persistent_network)] -- you are not employed there, so you cannot link to it."))
 		return
 	_ensure_id_tag()
 	controller._ensure_id_tag()
@@ -709,7 +709,7 @@
 /// is untouched by linking -- that's fixed by which subtype was built.
 /obj/structure/machinery/access_button/proc/_link_to_controller(obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller, mob/user)
 	if(!controller.can_modify_links(user))
-		to_chat(user, SPAN_WARNING("\The [controller] is tagged to [get_faction_name(controller.persistent_network)] -- you have no standing there to link to it."))
+		to_chat(user, SPAN_WARNING("\The [controller] is tagged to [get_faction_name(controller.persistent_network)] -- you are not employed there, so you cannot link to it."))
 		return
 	controller._ensure_id_tag()
 	if(master_tag == controller.id_tag)
