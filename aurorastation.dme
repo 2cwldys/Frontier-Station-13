@@ -2021,6 +2021,7 @@
 #include "code\modules\cargo\items\cartridges.dm"
 #include "code\modules\cargo\items\custodial.dm"
 #include "code\modules\cargo\items\engineering.dm"
+#include "code\modules\cargo\items\faction_equipment.dm"
 #include "code\modules\cargo\items\hospitality.dm"
 #include "code\modules\cargo\items\hydroponics.dm"
 #include "code\modules\cargo\items\medical.dm"

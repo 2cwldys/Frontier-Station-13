@@ -472,8 +472,15 @@ GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 			// Dispense new blank faction ID
 			var/obj/item/card/id/new_card = new /obj/item/card/id(get_turf(computer))
 			new_card.registered_name      = user.real_name
-			new_card.assignment           = "Unassigned"
-			new_card.rank                 = "Unassigned"
+			// "Civilian", not "Unassigned" -- that exact string is what
+			// human_holds_any_job() (hostile_npc.dm) tests for, and it is what
+			// portable_turret.dm's assess_living() and hostile-NPC friend/foe
+			// already use to decide who is NOT exempt from their own faction's
+			// guns. Saying "Unassigned" made a self-printed card read as a job
+			// holder and quietly bought immunity from the faction whose console
+			// printed it.
+			new_card.assignment           = "Civilian"
+			new_card.rank                 = "Civilian"
 			new_card.employer_faction     = disp_net
 			new_card.associated_account_number = dispense_acct
 			// A self-printed card is a civilian one: general station movement

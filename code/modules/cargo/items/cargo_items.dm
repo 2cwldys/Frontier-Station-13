@@ -46,6 +46,29 @@
 	/// Z-level with an active piracy beacon -- see piracy_beacon_active_on_z().
 	var/requires_piracy_beacon = FALSE
 
+	/// Faction-exclusive equipment. Null/empty = orderable by anyone (every
+	/// pre-existing item, unchanged). Otherwise a faction uid, or a list of
+	/// them, and only a console shackled to one of those factions may see or
+	/// order it -- see _can_order_faction_item() (cargo_order.dm), which gates
+	/// both the listing and the order itself.
+	///
+	/// Same shape as requires_piracy_beacon deliberately: one declarative var on
+	/// the item, checked in the same two places, rather than a second
+	/// registration mechanism that could disagree with this one.
+	var/restricted_to_faction
+
+	/// If TRUE, every spawned piece that is faction-taggable gets tagged to the
+	/// ordering console's own faction via the existing faction_tagger_set()
+	/// interface -- so faction gear arrives already marked (and, for clothing,
+	/// already wearing that faction's colour) instead of needing a tagger pass
+	/// by hand.
+	var/tag_spawned_to_faction = FALSE
+
+	/// Optional colour applied to every spawned piece. Independent of
+	/// tag_spawned_to_faction -- use it for a house look on items that are not
+	/// faction-taggable, or to override the faction colour deliberately.
+	var/spawned_color
+
 /// Sets the item's adjusted_price according to different price modifiers. Returns nothing.
 /singleton/cargo_item/proc/get_adjusted_price()
 	var/return_price = price
