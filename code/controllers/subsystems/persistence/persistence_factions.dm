@@ -1409,6 +1409,18 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 /// are FACTION_RANK_CIVILIAN (card.dm), below crew, so somebody who has only
 /// ever touched a faction console is correctly refused. Admins bypass, as
 /// everywhere else.
+/// Whether user may WEAR equipment tagged to this faction network.
+///
+/// Same standing as rewiring that faction's infrastructure, deliberately routed
+/// through the same proc so kit and hardware cannot drift apart on what
+/// "belongs to this faction" means. Untagged and "public" gear is unrestricted.
+///
+/// Scoped to wearing only -- picking up, carrying and storing tagged gear stay
+/// unrestricted, so confiscating an enemy uniform still works, it just cannot be
+/// put on.
+/proc/can_use_faction_equipment(mob/user, network_uid)
+	return can_rewire_faction_device(user, network_uid)
+
 /proc/can_rewire_faction_device(mob/user, network_uid)
 	if(faction_network_is_open(network_uid))
 		return TRUE

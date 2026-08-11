@@ -98,6 +98,14 @@
 // leave undefined to keep admin logs server-local only.
 //#define EXPORT_ADMIN_LOG_TO_DISCORD
 
+// If defined, faction-tagged equipment can only be WORN by people employed by
+// that faction (can_use_faction_equipment(), persistence_factions.dm) -- gated
+// in mob_can_equip() (items.dm) so every equip route is covered at once.
+// Untagged and "public" gear is never affected, and carrying/storing/
+// confiscating tagged gear stays unrestricted either way: only wearing is.
+// Comment out to let anyone wear anything, as before this existed.
+//#define FACTION_EQUIPMENT_WEAR_LOCK
+
 // If defined, two factions can become allied via a Faction Management
 // propose/accept handshake -- either side can break it anytime. Allied
 // factions can access each other's station under the faction raiding gate,

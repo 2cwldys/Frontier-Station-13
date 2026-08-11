@@ -723,6 +723,17 @@ GLOBAL_LIST_EMPTY(persistence_reusable_z_verified)
 				continue //someone's mind may live in here -- never forced, occupied or not
 			forced_types |= "[AM.type]"
 			forced++
+			// Deregistered by hand, because neither route below will do it.
+			// /obj/Destroy() (objs.dm) normally deregisters tracked objects, but
+			// anything reaching this sweep is here precisely BECAUSE its
+			// Destroy() never ran -- qdel() short-circuited before it -- and
+			// del() below is a hard delete that bypasses Destroy() as well. Left
+			// alone, the object would vanish while GLOB.persistence_object_track_register
+			// kept a dangling entry for it.
+			if(isobj(AM))
+				var/obj/tracked = AM
+				if(tracked.persistent_objects_track_active)
+					SSpersistence.objectsDeregisterTrack(tracked)
 			try
 				// Off the turf first. This is what actually frees the z, and it
 				// works even when the object cannot be deleted at all.
