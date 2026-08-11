@@ -28,7 +28,7 @@ export const KeypadDoor = (props) => {
 
   return (
     <Window width={380} height={650}>
-      <Window.Content>
+      <Window.Content scrollable>
         <Section title={data.doorName}>
           <LabeledList>
             <LabeledList.Item label="Status">

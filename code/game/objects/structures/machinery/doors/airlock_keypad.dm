@@ -74,6 +74,19 @@
 	if(set_code)
 		lock(TRUE)
 
+/// Alt-click closes the door without opening the TGUI first -- the same
+/// action as its own "Close Door" button (close_door, ui_act() below).
+/// close() above already refuses outright while admin_forced_open is set,
+/// so "unless it's admin bolt opened" is already handled there for free;
+/// this only needs to gate on actually being open and physically at the door.
+/obj/structure/machinery/door/airlock/keypad/AltClick(mob/user)
+	if(!Adjacent(user))
+		return ..()
+	if(density)
+		return ..()
+	close()
+	return TRUE
+
 /obj/structure/machinery/door/airlock/keypad/attack_hand(mob/user as mob)
 	if(!istype(user, /mob/living/silicon))
 		if(isElectrified())

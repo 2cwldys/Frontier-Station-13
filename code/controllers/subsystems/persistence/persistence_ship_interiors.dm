@@ -634,9 +634,9 @@ GLOBAL_LIST_EMPTY(persistence_reusable_z_verified)
 			log_subsystem_persistence_error("Ship interiors: [context] qdel failed for [AM] on z=[z]: [qdel_e]")
 
 	var/pass = 1
-	var/found_any = TRUE
-	while(found_any && pass < 5)
-		found_any = FALSE
+	var/removed_any = TRUE
+	while(removed_any && pass < 5)
+		removed_any = FALSE
 		pass++
 		for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
 			CHECK_TICK
@@ -646,34 +646,47 @@ GLOBAL_LIST_EMPTY(persistence_reusable_z_verified)
 					qdel(AM)
 				catch(var/exception/qdel_e)
 					log_subsystem_persistence_error("Ship interiors: [context] mop-up qdel failed for [AM] on z=[z]: [qdel_e]")
-				found_any = TRUE
-	// The loop is capped at 4 mop-up passes, so it CAN give up with movables
-	// still present -- silently, until now. If that happens the z is not clean
-	// and whatever is left is about to be inherited by the next occupant.
-	if(found_any)
-		log_subsystem_persistence_warning("Ship interiors: [context] exhausted its mop-up passes on z=[z] with movables still present -- the z may not be fully clean.")
+				// Counts what was actually REMOVED, not what was merely seen.
+				// Setting this per-sighting meant a single undeletable object
+				// kept every pass "productive" and made the exhausted-passes
+				// warning below fire on every teardown, healthy or not.
+				if(QDELETED(AM) || AM.loc != T)
+					removed_any = TRUE
+	if(removed_any)
+		log_subsystem_persistence_warning("Ship interiors: [context] used all its mop-up passes on z=[z] and was still removing movables -- the z may not be fully clean.")
 
 	// Movables are gone, so converting every turf to space is safe.
 	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
 		T.ChangeTurf(/turf/space)
 		CHECK_TICK
 
-	// FINAL sweep, after the turf conversion, and FORCED.
+	// FINAL sweep, after the turf conversion. Does NOT use qdel().
 	//
 	// Two things survive everything above. ChangeTurf() can itself produce
 	// movables -- a structure turf dropping debris, contents dumped onto the
-	// tile as it converts -- and nothing used to run after it, so whatever it
-	// created outlived the entire teardown. Separately, qdel() is cooperative:
-	// SSgarbage defers the real del(), and anything returning
-	// QDEL_HINT_LETMELIVE or holding a live reference (certain consoles and
-	// machines do exactly this) simply refuses to go and stays on the z.
+	// tile as it converts -- so a pass has to run after it. And, the reason this
+	// pass cannot be another qdel: qdel() (garbage.dm) short-circuits before
+	// `force` is ever consulted --
 	//
-	// force = TRUE routes through garbage.dm's own del() path. On a z being
-	// recycled, "this object declines to be deleted" is not a state worth
-	// honouring -- nothing here has a future, the z is about to be handed to a
-	// different ship, and the alternative is what actually happens today: the
-	// pooled z fails its emptiness assertion, gets discarded, and every retrieve
-	// loads a brand-new z forever while the abandoned ones accumulate junk.
+	//     if(!isnull(to_delete.gc_destroyed))  ... return   // already qdel'd
+	//     if(SEND_SIGNAL(to_delete, COMSIG_PREQDELETED, force)) return // vetoed
+	//
+	// -- so the FIRST qdel is the only one that can accomplish anything, and
+	// `force = TRUE` changes how Destroy() behaves only if Destroy() is reached
+	// at all. A repeat attempt on something the earlier passes already failed on
+	// is guaranteed to be a no-op. That is precisely what was happening: the
+	// buildable shuttle control console outlived every pass, the pooled z failed
+	// its emptiness assertion, was discarded, and every retrieve loaded a fresh
+	// z while abandoned ones accumulated.
+	//
+	// So use the primitives instead. moveToNullspace() is the part that matters
+	// for reuse -- it takes the object off the turf regardless of gc_destroyed,
+	// component vetoes or deferred collection, and an empty z is all the caller
+	// needs. del() then removes it outright; it cannot be vetoed and has no
+	// early return (garbage.dm itself falls back to it). The cooperative passes
+	// above are left untouched, so objects still get a normal Destroy() and
+	// clean up their own references -- this only governs the stragglers, on a z
+	// that is being recycled and where nothing has a future.
 	//
 	// Re-checked immediately before it runs, because everything above yields on
 	// CHECK_TICK: a force-delete is irreversible, so it must never fire on a z
@@ -700,6 +713,7 @@ GLOBAL_LIST_EMPTY(persistence_reusable_z_verified)
 			return
 
 	var/forced = 0
+	var/list/forced_types = list()
 	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
 		CHECK_TICK
 		for(var/atom/movable/AM in T.contents.Copy())
@@ -707,13 +721,20 @@ GLOBAL_LIST_EMPTY(persistence_reusable_z_verified)
 				continue //never force-delete a living mob, whatever it is doing here
 			if(istype(AM, /obj/item/organ/internal/neural_lace))
 				continue //someone's mind may live in here -- never forced, occupied or not
+			forced_types |= "[AM.type]"
+			forced++
 			try
-				qdel(AM, force = TRUE)
-				forced++
-			catch(var/exception/qdel_e)
-				log_subsystem_persistence_error("Ship interiors: [context] forced delete failed for [AM] ([AM.type]) on z=[z]: [qdel_e]")
+				// Off the turf first. This is what actually frees the z, and it
+				// works even when the object cannot be deleted at all.
+				AM.moveToNullspace()
+			catch(var/exception/move_e)
+				log_subsystem_persistence_error("Ship interiors: [context] could not move [AM] ([AM.type]) to nullspace on z=[z]: [move_e]")
+			try
+				del(AM)
+			catch(var/exception/del_e)
+				log_subsystem_persistence_error("Ship interiors: [context] hard delete failed for [AM] ([AM.type]) on z=[z]: [del_e]")
 	if(forced)
-		log_subsystem_persistence_info("Ship interiors: [context] force-deleted [forced] movable(s) that survived the cooperative passes on z=[z].")
+		log_subsystem_persistence_info("Ship interiors: [context] hard-removed [forced] movable(s) that survived the cooperative passes on z=[z]: [english_list(forced_types)].")
 
 /// TRUE only if z genuinely holds nothing a correct teardown should have left
 /// behind: no simulated turfs, no living mobs, no machinery. Bounded single-z
