@@ -1164,6 +1164,18 @@ GLOBAL_LIST_INIT(admin_verbs_storyteller, list(
 			to_chat(src, "<b>Enabled ghost writers.</b>")
 			message_admins("Admin [key_name_admin(usr)] has enabled ghost writers.", 1)
 
+/client/proc/toggleconnectionlogging()
+	set name = "Toggle Connection Logging"
+	set category = "Server"
+	if(!holder)	return
+	GLOB.log_player_connections = !GLOB.log_player_connections
+	if(GLOB.log_player_connections)
+		to_chat(src, "<b>Enabled connection logging.</b>")
+		message_admins("Admin [key_name_admin(usr)] has enabled connection logging.", 1)
+	else
+		to_chat(src, "<b>Disabled connection logging.</b>")
+		message_admins("Admin [key_name_admin(usr)] has disabled connection logging.", 1)
+
 /client/proc/toggledrones()
 	set name = "Toggle maintenance drones"
 	set category = "Server"
