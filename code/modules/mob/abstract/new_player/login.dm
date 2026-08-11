@@ -29,6 +29,45 @@
 	// music starts a moment later, once the UI has already had a head start.
 	show_persistent_menu()
 	addtimer(CALLBACK(client, /client/proc/playtitlemusic), 1 SECOND)
+	// Own channel (CHANNEL_ANNOUNCER via play_announcer_sound()) from the
+	// lobby music's CHANNEL_LOBBYMUSIC, so the two don't collide -- same
+	// 1-second deferral as the music above, for the same reason (let the
+	// Character Select UI's own asset download get a head start first).
+	addtimer(CALLBACK(src, PROC_REF(_play_welcome_line)), 1 SECOND)
+
+/**
+ * Plays a one-time lobby-connect welcome voice line -- WELCOME_TO_FRONTIER_STATION
+ * by default, or WELCOME_BACK for a ckey that's certifiably spawned a
+ * character at least once before (SQL COUNT against ss13_characters'
+ * first_spawned_at column, the same "has this character actually been
+ * played" signal new_player.dm's own starter-PDA grant already uses --
+ * only under WELCOME_BACK_VOICE_LINES; leave that undefined to always play
+ * the plain welcome line with no DB query at all. Gated the same way every
+ * other play_announcer_sound() call site gates itself (ASFX_ANNOUNCER,
+ * client.prefs already loaded by LateLogin() -- InitPrefs() runs before it
+ * in client/New()).
+ */
+/mob/abstract/new_player/proc/_play_welcome_line()
+	if(!client || !client.prefs)
+		return
+	if(!(client.prefs.sfx_toggles & ASFX_ANNOUNCER))
+		return
+
+	var/line = 'sound/AI/announcements/welcome_to_frontier_station.ogg'
+
+#ifdef WELCOME_BACK_VOICE_LINES
+	if(GLOB.config.sql_saves && SSdbcore.Connect())
+		var/datum/db_query/query = SSdbcore.NewQuery(
+			"SELECT COUNT(*) FROM ss13_characters WHERE ckey = :ckey AND first_spawned_at IS NOT NULL",
+			list("ckey" = client.ckey))
+		query.Execute()
+		if(query.NextRow())
+			if((text2num(query.item[1]) || 0) > 0)
+				line = 'sound/AI/announcements/welcome_back.ogg'
+		qdel(query)
+#endif
+
+	play_announcer_sound(src, line)
 
 /// A spawn attempt aborted after PersistentAutoSpawn() closed the menu and
 /// flagged spawning -- reset and give the menu back so the player isn't stranded.

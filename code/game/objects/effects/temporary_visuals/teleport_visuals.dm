@@ -8,6 +8,17 @@
 /obj/effect/temp_visual/phase/out
 	icon_state = "phaseout"
 
+/// Continuous variant used for the "someone is about to teleport here" cue
+/// during a channeled travel spool-up (drydock board/disembark, Personal
+/// Travel -- see _start_travel_spool_pulses(), telepad_travel.dm). Blue
+/// instead of green so it stays visually distinct from the rig teleporter's
+/// own instant phase flash. `duration` is just a dead-man's-switch backstop
+/// -- actual removal is driven by _travel_spool_visual_tick(), which always
+/// finishes first for every current caller's 15-second channel.
+/obj/effect/temp_visual/phase/spool
+	color = COLOR_BLUE
+	duration = 20 SECONDS
+
 /obj/effect/temp_visual/phase/rift
 	icon = 'icons/obj/rig_modules.dmi'
 	icon_state = "rift"

@@ -136,10 +136,42 @@
 		else
 			return ""
 
+#ifdef PADD_BUTTON_PRESS_SOUNDS
+/// Every PADD_BUTTON_PRESS_1.._6.ogg -- picked at random per click, see
+/// ui_act() below. One shared list for every modular_computer subtype
+/// (PDA/laptop/tablet/console), same as the rest of this device's
+/// behavior already being defined once on the base type.
+// NOTE: PADD_BUTTON_PRESS_2.mp3 was not present in D:\Downloads alongside
+// the other 5 -- only 1/3/4/5/6 exist on disk right now. Add
+// 'sound/effects/padd_button_press_2.ogg' back to this list once it's
+// supplied; deliberately not faked with a placeholder copy.
+GLOBAL_LIST_INIT(padd_button_sounds, list(
+	'sound/effects/padd_button_press_1.ogg',
+	'sound/effects/padd_button_press_3.ogg',
+	'sound/effects/padd_button_press_4.ogg',
+	'sound/effects/padd_button_press_5.ogg',
+	'sound/effects/padd_button_press_6.ogg',
+))
+/// How often (per device) a button-press click sound can play -- rapid
+/// clicking shouldn't spam it.
+#define PADD_BUTTON_SOUND_COOLDOWN 4.5 SECONDS
+#endif
+
 /obj/item/modular_computer/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
 	. = ..()
 	if(.)
 		return
+
+#ifdef PADD_BUTTON_PRESS_SOUNDS
+	// Single choke point -- every button click on any running program
+	// dispatches through here first (see the active_program.ui_act() call
+	// right below), so one hook covers every PDA/laptop/tablet/console
+	// screen at once. playsound(), not a client-only cue -- audible to
+	// anyone standing near the physical device, not just whoever's holding it.
+	if(action && world.time >= next_button_sound_at)
+		next_button_sound_at = world.time + PADD_BUTTON_SOUND_COOLDOWN
+		playsound(src, pick(GLOB.padd_button_sounds), 15, TRUE)
+#endif
 
 	if(active_program)
 		. = active_program.ui_act(action, params, ui, state)
@@ -206,7 +238,9 @@
 			toggle_service(params["service_to_toggle"], usr)
 			. = TRUE
 
+#ifndef PADD_BUTTON_PRESS_SOUNDS
 	playsound(src, click_sound, 50)
+#endif
 	update_icon()
 
 /obj/item/modular_computer/ui_status(mob/user, datum/ui_state/state)

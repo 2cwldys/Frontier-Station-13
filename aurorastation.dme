@@ -1551,6 +1551,7 @@
 #include "code\game\objects\structures\machinery\seed_extractor.dm"
 #include "code\game\objects\structures\machinery\ship_cloaking_device.dm"
 #include "code\game\objects\structures\machinery\ship_shield_generator.dm"
+#include "code\game\objects\structures\machinery\ship_tractor_beam.dm"
 #include "code\game\objects\structures\machinery\sleeper_pod.dm"
 #include "code\game\objects\structures\machinery\sm_growthtray.dm"
 #include "code\game\objects\structures\machinery\spaceheater.dm"

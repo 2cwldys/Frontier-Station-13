@@ -39,6 +39,21 @@
 	/// directly, without walking every machine aboard.
 	var/obj/structure/machinery/ship_shield_generator/shield_generator
 
+	/// This ship's own tractor beam projector, if one is built/wrenched down
+	/// and linked (see ship_tractor_beam.dm's _hook_up_to_ship()) -- null
+	/// otherwise. Mirrors shield_generator above.
+	var/obj/structure/machinery/ship_tractor_beam/tractor_beam
+	/// The ENEMY tractor beam projector currently holding this ship, null if
+	/// free -- the single source of truth can_burn() (below),
+	/// toggle_shield() (ship_shield_generator.dm), and the engine console
+	/// (engine_control.dm) all gate on. Set/cleared only by
+	/// ship_tractor_beam.dm's _acquire_lock()/_release_lock().
+	var/obj/structure/machinery/ship_tractor_beam/tractored_by
+	/// world.time this ship's own console may next attempt to break free of
+	/// tractored_by -- see the "attempt_break_free" ui_act() case,
+	/// _targeting_console.dm.
+	var/tractor_break_attempt_at = 0
+
 	/// Tonnes, arbitrary number, affects acceleration provided by engines. Will help determine the speed of the ship.
 	vessel_mass = 10000
 	/// Arbitrary number, affects how likely the ship is to evade meteors.
@@ -316,7 +331,27 @@
 		if(newloc && loc != newloc)
 			Move(newloc)
 			handle_wraparound()
+			_drag_tractored_target()
 	sensor_visibility = min(round(base_sensor_visibility + get_speed_sensor_increase(), 1), 100)
+
+/// If this ship currently has an enemy ship tractored, keeps it at exactly
+/// the relative offset tractor_beam.lock_offset_x/y captured at lock time
+/// (ship_tractor_beam.dm's _acquire_lock()) -- called every time THIS
+/// ship's own position actually changes, never by the held ship itself
+/// (its own can_burn() already refuses to move it under its own power, so
+/// there's no risk of the two writes racing). forceMove(), not Move() --
+/// the held ship isn't "flying" here, it's just being towed along.
+/obj/effect/overmap/visitable/ship/proc/_drag_tractored_target()
+	if(!tractor_beam?.locked_target)
+		return
+	var/obj/effect/overmap/visitable/ship/T = tractor_beam.locked_target
+	var/turf/dest = locate(x + tractor_beam.lock_offset_x, y + tractor_beam.lock_offset_y, z)
+	if(!dest)
+		// Hit the edge of the map and can't maintain the hold -- sever
+		// rather than leave the target stranded out of range.
+		tractor_beam._release_lock()
+		return
+	T.forceMove(dest)
 
 /// How close (in tiles) a mob needs to be to the engine console to hear the
 /// ASFX_ANNOUNCER "engines powered on/off" voice line -- unlike the
@@ -423,6 +458,8 @@
 
 /obj/effect/overmap/visitable/ship/proc/can_burn()
 	if(halted)
+		return 0
+	if(tractored_by)
 		return 0
 	if (world.time < last_burn + burn_delay)
 		return 0

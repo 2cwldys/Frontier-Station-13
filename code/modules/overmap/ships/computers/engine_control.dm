@@ -70,6 +70,7 @@
 	data["state"] = display_state
 	data["global_state"] = !!connected.engines_state
 	data["global_limit"] = round(connected.thrust_limit * 100)
+	data["tractored"] = !!connected.tractored_by
 
 	var/total_thrust = 0
 	var/list/enginfo = list()
@@ -128,6 +129,10 @@
 		return FALSE
 
 	if(use_check_and_message(usr))
+		return FALSE
+
+	if(connected.tractored_by)
+		to_chat(usr, SPAN_WARNING("The engine controls are locked out -- a tractor beam has this ship pinned in place."))
 		return FALSE
 
 	switch(action)

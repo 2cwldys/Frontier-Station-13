@@ -308,6 +308,9 @@
 		if(_currently_at_away_site())
 			to_chat(user, SPAN_WARNING("\The [src] refuses to raise shields -- they can't be projected at an away site."))
 			return
+		if(_currently_tractored())
+			to_chat(user, SPAN_WARNING("\The [src] refuses to raise shields -- a tractor beam has this ship pinned, overriding the field."))
+			return
 	_set_active(!active)
 
 /// TRUE when this generator's ship is genuinely, physically parked at an
@@ -330,6 +333,16 @@
 	if(!istype(shuttle_datum) || !shuttle_datum.current_location)
 		return FALSE
 	return is_away_level(shuttle_datum.current_location.z)
+
+/// TRUE when this generator's own ship is currently held by an enemy
+/// tractor beam (ship.dm's tractored_by) -- shields can't be raised while
+/// held (see toggle_shield()), matching the engine console's own lockout
+/// (engine_control.dm) for the same reason.
+/obj/structure/machinery/ship_shield_generator/proc/_currently_tractored()
+	if(!istype(linked, /obj/effect/overmap/visitable/ship))
+		return FALSE
+	var/obj/effect/overmap/visitable/ship/VS = linked
+	return !!VS.tractored_by
 
 /obj/structure/machinery/ship_shield_generator/proc/_set_active(new_state, silent = FALSE)
 	if(active == new_state)
@@ -403,6 +416,37 @@
 				play_announcer_sound(M, sound_path, volume, supersede_key)
 		else
 			M << sound(sound_path, volume = volume)
+
+/**
+ * Passive third-party sensor detection: notifies any player currently
+ * watching a targeting console's overmap radar (viewing_overmap(),
+ * ship.dm) that some OTHER ship (actor_ship) just did something combat-
+ * relevant, as long as it isn't one of the two directly-involved ships
+ * (they already get their own dedicated announce_to_ship_z() lines) and
+ * actor_ship isn't cloaked-and-hidden from the observer
+ * (is_detectable(), overmap_object.dm -- already the single source of
+ * truth for "can this ship even be seen"). Delivered as chat text + a
+ * direct client sound, not TGUI data -- mirrors send_sensor_message()/
+ * display_message() (event.dm/sensors.dm)'s "chat + sound" shape, the
+ * closest existing precedent, though that one only ever fires for a
+ * ship's own hazard events, never another ship's actions -- there's no
+ * other existing mechanic that notifies an uninvolved third party like
+ * this.
+ */
+/proc/broadcast_combat_sensor_contact(obj/effect/overmap/visitable/actor_ship, obj/effect/overmap/visitable/other_ship, message)
+	for(var/obj/structure/machinery/computer/ship/targeting/console in SSmachinery.machinery)
+		if(!length(console.viewers) || !istype(console.linked))
+			continue
+		if(console.linked == actor_ship || console.linked == other_ship)
+			continue // the two direct participants already get their own dedicated lines
+		if(!actor_ship.is_detectable(console.linked))
+			continue
+		for(var/datum/weakref/W in console.viewers)
+			var/mob/M = W.resolve()
+			if(!istype(M) || !M.client)
+				continue
+			to_chat(M, SPAN_WARNING("Sensor Contact: [message]"))
+			M << sound('sound/machines/consolewarning.ogg', volume = 40)
 
 /// Thin per-instance wrapper around announce_to_ship_z() for this
 /// generator's own linked ship -- see that proc's doc comment.
@@ -659,6 +703,7 @@
 	data["seconds_remaining"] = (needed_sheets > 0) ? round((sheets + sheet_left) / needed_sheets) : null
 	data["recovery_seconds_left"] = (world.time < shield_recovery_at) ? round((shield_recovery_at - world.time) / 10) : 0
 	data["at_away_site"] = _currently_at_away_site()
+	data["tractored"] = _currently_tractored()
 	return data
 
 /obj/structure/machinery/ship_shield_generator/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)

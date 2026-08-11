@@ -257,6 +257,23 @@
 	qdel(anchor)
 	return result
 
+/// TRUE when the ship at target_z is currently held by a tractor beam AND L
+/// is crew/owner/faction of the ship doing the tractoring (not the target) --
+/// _drydock_full_access_check() reused as-is, just evaluated against the
+/// TRACTORING ship's own Z instead of the target's. Lets a crew that's
+/// captured an enemy vessel actually board its real interior via Personal
+/// Travel/Pod Warp, instead of being stuck exterior-only like any other
+/// hostile boarding attempt -- deliberately scoped to the tractoring ship's
+/// own people, not literally anyone.
+/proc/_tractor_boarding_access_check(mob/L, target_z)
+	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[target_z]"]
+	if(!istype(marker, /obj/effect/overmap/visitable/ship))
+		return FALSE
+	var/obj/effect/overmap/visitable/ship/target_ship = marker
+	if(!target_ship.tractored_by || !istype(target_ship.tractored_by.linked))
+		return FALSE
+	return _drydock_full_access_check(L, target_ship.tractored_by.linked.z)
+
 /// The shared four-case access rule -- see the file header above.
 /proc/_drydock_pick_access_mode(mob/living/L, target_z)
 	for(var/sid in GLOB.drydock_ships)
@@ -265,11 +282,16 @@
 			continue
 		if(_drydock_full_access_check(L, target_z))
 			return DRYDOCK_PICK_MODE_OPEN
+		if(_tractor_boarding_access_check(L, target_z))
+			return DRYDOCK_PICK_MODE_OPEN
 		return DRYDOCK_PICK_MODE_EXTERIOR_ONLY
 	// Any other ship-type marker (non-drydock -- NPC/faction ships, the
-	// Horizon, etc.) has no ownership concept to open up -- always exterior.
+	// Horizon, etc.) has no ownership concept to open up -- always exterior,
+	// unless it's currently tractored by a ship this traveler crews.
 	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[target_z]"]
 	if(istype(marker, /obj/effect/overmap/visitable/ship))
+		if(_tractor_boarding_access_check(L, target_z))
+			return DRYDOCK_PICK_MODE_OPEN
 		return DRYDOCK_PICK_MODE_EXTERIOR_ONLY
 	// Explicit .powered check rather than trusting GLOB.faction_beacon_by_z
 	// presence alone -- a beacon comment states an unpowered beacon can

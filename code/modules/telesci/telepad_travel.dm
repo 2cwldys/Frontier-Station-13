@@ -37,13 +37,31 @@
 /// Fires _travel_spool_pulse() immediately, then every 5 seconds until
 /// duration -- personal_travel.dm's original 15s/3-pulse cadence (t=0/5/10),
 /// generalized to any duration so a 3-second channel (pod warp) still gets
-/// its one t=0 pulse without extra repeats.
+/// its one t=0 pulse without extra repeats. Also spawns a continuous blue
+/// "teleporting here" visual (temp_visual/phase/spool) at both ends for the
+/// duration of the channel -- see _travel_spool_visual_tick() below.
 /proc/_start_travel_spool_pulses(turf/origin, turf/destination, duration, datum/callback/still_valid)
 	_travel_spool_pulse(origin, destination, still_valid)
+	var/obj/effect/temp_visual/phase/spool/origin_fx = origin ? new(origin) : null
+	var/obj/effect/temp_visual/phase/spool/destination_fx = destination ? new(destination) : null
+	_travel_spool_visual_tick(origin_fx, destination_fx, still_valid, duration)
 	var/t = 5 SECONDS
 	while(t < duration)
 		addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_travel_spool_pulse), origin, destination, still_valid), t)
 		t += 5 SECONDS
+
+/// Keeps origin_fx/destination_fx (temp_visual/phase/spool instances, either
+/// of which may be null) alive for up to `remaining` more deciseconds,
+/// re-checking still_valid every second -- same still_valid contract
+/// _travel_spool_pulse() already uses -- so the visual disappears the moment
+/// its travel is aborted instead of lingering for the rest of the nominal
+/// channel. Also hard-capped at `remaining` reaching 0 as a backstop.
+/proc/_travel_spool_visual_tick(obj/effect/temp_visual/phase/spool/origin_fx, obj/effect/temp_visual/phase/spool/destination_fx, datum/callback/still_valid, remaining)
+	if(remaining <= 0 || (still_valid && !still_valid.Invoke()))
+		QDEL_NULL(origin_fx)
+		QDEL_NULL(destination_fx)
+		return
+	addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_travel_spool_visual_tick), origin_fx, destination_fx, still_valid, remaining - 1 SECONDS), 1 SECONDS)
 
 /// Generic still_valid callback target for callers with no existing sequence
 /// var of their own (drydock board/disembark, pod warp) -- token is a

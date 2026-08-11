@@ -16,6 +16,7 @@ type ShipShieldGeneratorData = {
   seconds_remaining: number | null;
   recovery_seconds_left: number;
   at_away_site: BooleanLike;
+  tractored: BooleanLike;
 };
 
 export const ShipShieldGenerator = (props) => {
@@ -33,6 +34,7 @@ export const ShipShieldGenerator = (props) => {
     seconds_remaining,
     recovery_seconds_left,
     at_away_site,
+    tractored,
   } = data;
 
   const fuelRatio = max_sheets > 0 ? sheets / max_sheets : 0;
@@ -52,6 +54,8 @@ export const ShipShieldGenerator = (props) => {
     disabledReason = `No ${sheet_name} loaded.`;
   } else if (!active && at_away_site) {
     disabledReason = "Shields can't be raised at an away site.";
+  } else if (!active && tractored) {
+    disabledReason = 'Held by an enemy tractor beam -- shields are locked out.';
   }
 
   return (
@@ -72,7 +76,8 @@ export const ShipShieldGenerator = (props) => {
               recovering ||
               !anchored ||
               (!active && sheets === 0) ||
-              (!active && !!at_away_site)
+              (!active && !!at_away_site) ||
+              (!active && !!tractored)
             }
             tooltip={recovering ? disabledReason : undefined}
             onClick={() => act('toggle')}

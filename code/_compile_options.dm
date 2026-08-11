@@ -80,6 +80,14 @@
 // out to strip revision/build info from what players can see entirely.
 #define SHOW_GIT_LOG
 
+// If defined, a connecting player who has certifiably spawned a character
+// at least once before hears WELCOME_BACK instead of
+// WELCOME_TO_FRONTIER_STATION when they reach the lobby (ss13_characters'
+// first_spawned_at column, via a new SQL COUNT query -- requires
+// GLOB.config.sql_saves). Off -- every connecting player always hears
+// WELCOME_TO_FRONTIER_STATION regardless of history, no DB query at all.
+//#define WELCOME_BACK_VOICE_LINES
+
 // If defined, the server automatically triggers a deployment sync
 // (scripts/deploy.sh / deploy.ps1, same as the "Sync Deployment Branch"
 // admin verb) the moment SSgithub detects a pull request merge into the
@@ -113,6 +121,19 @@
 // don't fire on each other. Off -- no faction is ever allied
 // with another.
 #define FACTION_ALLIANCES
+
+// If defined, every airlock plays a fixed custom open/close sound pair
+// (sound/machines/airlock/cargobayopen.ogg and cargobayclose.ogg) instead of
+// its own subtype's normal open_sound_powered/close_sound_powered -- the
+// forced/unpowered open sound is unaffected. Off by default -- leave
+// undefined to keep each airlock subtype's own sound flavor.
+#define CUSTOM_AIRLOCK_SOUNDS
+
+// If defined, clicking a button on a PDA/modular computer/laptop's TGUI
+// plays a random one of 6 short click sounds, audible to anyone standing
+// nearby (playsound()), throttled to once per 4.5 seconds per device so
+// rapid clicking doesn't spam it. Off -- no click sound.
+#define PADD_BUTTON_PRESS_SOUNDS
 
 // We want to use external resources. Kthx.
 #define PRELOAD_RSC 0
