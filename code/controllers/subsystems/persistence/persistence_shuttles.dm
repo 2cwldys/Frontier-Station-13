@@ -3139,6 +3139,28 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 	var/scope = "ship:d:[shuttle_id]"
 	var/stash_z = DS.z
+	// LAST LINE OF DEFENCE. Everything past this point saves stash_z and then
+	// destroys it, so if the hull is not physically on stash_z we would capture
+	// an empty z, tear it down, and leave the real ship orphaned wherever it
+	// actually is -- irrecoverably, since the saved interior is what a retrieve
+	// rebuilds from. That is exactly how a ship was lost: an undock whose
+	// translation came out empty reported success, so the bookkeeping said home
+	// while the hull never left the away site.
+	//
+	// Verified from the turfs themselves rather than from current_location,
+	// because current_location is precisely the var that lies in this scenario.
+	if(istype(stashing_shuttle_datum))
+		var/hull_present = FALSE
+		for(var/turf/T as anything in stashing_shuttle_datum.get_hull_turfs())
+			if(T.z == stash_z)
+				hull_present = TRUE
+				break
+		if(!hull_present)
+			if(user)
+				to_chat(user, SPAN_WARNING("Stash aborted -- this ship's hull isn't actually on its own z-level. An admin has been notified; nothing has been saved or torn down."))
+			log_drydock_error("drydockStash: ABORTED for shuttle_id=[shuttle_id] -- no hull turfs found on stash_z=[stash_z] (current_location='[stashing_shuttle_datum.current_location]'). Refusing to save an empty z and tear it down; the real hull is elsewhere and must be recovered first.")
+			log_and_message_admins("Drydock: stash of '[DS.display_name()]' (#[shuttle_id]) aborted -- its hull is not on z=[stash_z]. The ship is intact but mislocated; do not retry until it is recovered.", user)
+			return FALSE
 	var/datum/map_template/drydock_ship/save_template = SSmapping.drydock_ship_templates[DS.template_id]
 	// Drop the hangar waypoint registrations before the z goes away, so a
 	// stashed ship's hangar stops being offered as a destination to anything
@@ -3561,7 +3583,16 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	if(!DS || !DS.z || !istype(shuttle_datum) || !istype(shuttle_datum.current_location))
 		return FALSE
 	var/turf/here = get_turf(shuttle_datum.current_location)
-	return here && here.z == DS.z
+	if(!here || here.z != DS.z)
+		return FALSE
+	// The LANDMARK being home is not proof the HULL is. A move whose translation
+	// came out empty still updates current_location and reports success, so the
+	// bookkeeping can say "home" with the hull physically still at the away site
+	// it never left. Believing that is what let a stash save an empty z and tear
+	// it down while the real ship sat elsewhere. Require the hull to actually be
+	// present on this z -- get_hull_turfs() is already scoped to
+	// current_location's own z, so a non-empty result means it is genuinely here.
+	return length(shuttle_datum.get_hull_turfs()) > 0
 
 /proc/_drydock_resolve_home_landmark(obj/effect/overmap/visitable/ship/landable/marker, datum/shuttle/shuttle_datum)
 	if(!istype(marker))

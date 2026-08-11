@@ -219,56 +219,6 @@
 				continue
 			. += T
 
-/// Releases a leftover footprint our areas still cover away from the hull.
-///
-/// The timing is the entire safety argument. This runs only AFTER the move has
-/// completed, so the real hull is -- by definition -- on current_location's own
-/// z, and "ours, but on another z" identifies the leftover with nothing left to
-/// get wrong. An earlier attempt ran BEFORE the move and had to guess which of
-/// two footprints was real; it guessed wrong and wiped a crewed hull.
-///
-/// A turf with a living mob on it is skipped outright, clutter and all.
-///
-/// departed_z scopes this to the z we just LEFT, and that bound is essential,
-/// not tidiness: shuttle_area for a player-built hull is the shared singleton
-/// /area/drydock_ship/player_built_shuttle (commission only renames it), so
-/// A.contents spans EVERY deployed player-built ship. "Anything of ours not on
-/// our current z" would therefore delete other players' ships wholesale. Only
-/// the z this hull physically vacated can hold a footprint this hull left.
-/datum/shuttle/proc/_clear_stray_footprint(departed_z)
-	var/turf/here = get_turf(current_location)
-	if(!here || !departed_z || departed_z == here.z)
-		return
-	var/lowest_z = here.z - multiz
-	var/list/stray = list()
-	for(var/area/A in shuttle_area)
-		for(var/turf/T in A.contents)
-			if(T.z != departed_z)
-				continue //not the z we just vacated -- never ours to touch
-			if(T.z <= here.z && T.z >= lowest_z)
-				continue //the hull itself
-			stray += T
-
-	if(!length(stray))
-		return
-
-	var/area/space_area = locate(/area/space)
-	var/cleared = 0
-	for(var/turf/T as anything in stray)
-		if(locate(/mob/living) in T)
-			continue //never clear a turf someone is standing on
-		for(var/atom/movable/AM in T)
-			if(isliving(AM) || !AM.simulated)
-				continue
-			qdel(AM)
-		if(space_area)
-			T.change_area(T.loc, space_area)
-		T.ChangeTurf(get_base_turf_by_area(T))
-		cleared++
-
-	if(cleared)
-		log_world("SHUTTLE: '[name]' released [cleared] leftover turf(s) its areas still covered away from the hull.")
-
 /datum/shuttle/proc/attempt_move(var/obj/effect/shuttle_landmark/destination)
 	if(current_location == destination)
 		return FALSE
@@ -278,7 +228,23 @@
 	if(current_location.cannot_depart(src))
 		return FALSE
 	testing("[src] moving to [destination]. Areas are [english_list(shuttle_area)]")
-	var/list/translation = get_turf_translation(get_turf(current_location), get_turf(destination), get_hull_turfs())
+	var/list/hull = get_hull_turfs()
+	// A shuttle with no hull turfs is a BUG, never a valid move. Without this
+	// the failure is silent and catastrophic: an empty translation sails through
+	// check_collision() (its loop never runs, so it reports "no collision"),
+	// translate_turfs() moves nothing, and yet current_location is still updated
+	// and TRUE returned. The bookkeeping then claims the ship is home while the
+	// hull is physically still where it was -- a phantom move.
+	//
+	// Stashing on the back of that is unrecoverable: the ship reads as home, the
+	// recall is skipped, shipInteriorSave() captures an EMPTY z, and the teardown
+	// wipes it, leaving the real hull orphaned wherever it actually sits. Refuse
+	// loudly instead, so the ship simply doesn't move and stays recoverable.
+	if(!length(hull))
+		var/turf/hull_search_at = get_turf(current_location)
+		log_world("SHUTTLE: '[name]' refused a move to [destination] -- it has NO hull turfs (its areas [english_list(shuttle_area)] cover nothing at z=[hull_search_at ? hull_search_at.z : "?"]). Area membership has been lost; the ship must not be moved or stashed until this is resolved.")
+		return FALSE
+	var/list/translation = get_turf_translation(get_turf(current_location), get_turf(destination), hull)
 	// An OVERLAPPING move -- one where a turf is both a source and a target --
 	// is something translate_turfs() cannot perform safely under any
 	// circumstances. Such a turf has contents transported INTO it by one pair
@@ -298,11 +264,8 @@
 			log_world("SHUTTLE: '[name]' refused a move to [destination] -- the destination footprint overlaps the hull's own current position.")
 			return FALSE
 	var/old_location = current_location
-	var/turf/departed_from = get_turf(current_location)
-	var/departed_z = departed_from ? departed_from.z : 0
 	GLOB.shuttle_pre_move_event.raise_event(src, old_location, destination)
 	shuttle_moved(destination, translation)
-	_clear_stray_footprint(departed_z)
 	GLOB.shuttle_moved_event.raise_event(src, old_location, destination)
 	destination.shuttle_arrived(src)
 	return TRUE
