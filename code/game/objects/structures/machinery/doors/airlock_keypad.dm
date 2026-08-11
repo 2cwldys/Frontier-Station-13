@@ -167,6 +167,30 @@
 			if(!density)
 				close()
 			. = TRUE
+		if("force_open")
+			// Anyone may prop an ALREADY-OPEN door, or release it again.
+			// Deliberately looser than bolt_open below, which is admin/setter
+			// only: that one can force a CLOSED door open, which is real
+			// access. This grants nothing to anybody who is not already stood
+			// at a doorway that is standing open, and releasing it simply lets
+			// the door resume its normal auto-close-and-relock.
+			//
+			// Drives the same admin_forced_open the admin buttons do, so the
+			// two can never disagree and the restore path below covers
+			// whichever of them set it.
+			if(density)
+				. = TRUE
+				return
+			admin_forced_open = !admin_forced_open
+			if(admin_forced_open)
+				unlock(TRUE)
+				to_chat(user, SPAN_NOTICE("You prop 	he [src] open."))
+				log_game("[key_name(user)] propped keypad door [src] open at [COORD(src)].")
+			else
+				to_chat(user, SPAN_NOTICE("You release 	he [src] -- it will close on its own again."))
+				log_game("[key_name(user)] released the prop on keypad door [src] at [COORD(src)].")
+			update_icon()
+			. = TRUE
 		if("enter")
 			var/entered = entry_buffer
 			entry_buffer = ""
@@ -256,4 +280,27 @@
 	setter_name = content["setter_name"]
 	locked = content["locked"] || FALSE
 	admin_forced_open = content["admin_forced_open"] || FALSE
+
+	// Re-derive the PHYSICAL state from the flags just restored, instead of
+	// leaving the door however the template placed it.
+	//
+	// Restoring the vars alone was not enough and failed in the worst possible
+	// direction: a bolted-open door is admin_forced_open + UNLOCKED + open, so
+	// it came back with the flag and locked = FALSE but density = TRUE from the
+	// template -- and allowed() here is just `return !locked`, making it a
+	// closed, unlocked door anyone could walk through. The bolt state saved
+	// correctly; only what it implies was never applied.
+	//
+	// The real procs, not direct density/locked assignment, so icons, opacity,
+	// layer and the bolt overlay all follow -- update_icon() alone is exactly
+	// what made this look half-right.
+	if(admin_forced_open)
+		unlock(TRUE)
+		open()
+	else if(set_code)
+		// close() re-locks by itself on this subtype, but the door is already
+		// closed out of the template, so lock() has to be explicit.
+		if(!density)
+			close()
+		lock(TRUE)
 	update_icon()

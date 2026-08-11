@@ -102,6 +102,23 @@ export const KeypadDoor = (props) => {
               onClick={() => act('close_door')}
             />
           )}
+          {!!data.doorOpen && (
+            <Button
+              fluid
+              mt={0.5}
+              icon={data.adminForcedOpen ? 'unlock' : 'thumbtack'}
+              color={data.adminForcedOpen ? 'bad' : undefined}
+              content={
+                data.adminForcedOpen ? 'Release Forced Open' : 'Force Open'
+              }
+              tooltip={
+                data.adminForcedOpen
+                  ? 'Let the door close and re-lock on its own again.'
+                  : 'Hold the door open indefinitely.'
+              }
+              onClick={() => act('force_open')}
+            />
+          )}
         </Section>
 
         {(!!data.canReset || !!data.isAdmin || !!data.canHoldOpen) && (
