@@ -45,7 +45,22 @@
 	shuttle_area = list(/area/drydock_ship/player_built_shuttle)
 	current_location = "nav_drydock_ship_player_built_shuttle_space"
 	dock_target = "player_built_shuttle"
-	landmark_transition = "nav_drydock_ship_player_built_shuttle_transit"
+	// No landmark_transition, deliberately. This shell's mapped transit landmark
+	// sits at (5,4) -- ONE TILE from the home landmark at (4,4), inside the same
+	// 9x9 room, i.e. inside the hull itself. Hopping between them translates the
+	// whole hull by (-1,0), so eight of its nine columns land on turfs it is
+	// already standing on. check_collision() correctly refuses that as blocked
+	// by the ship's own walls ("the destination is obstructed"), and
+	// attempt_move()'s overlap guard refuses it too, because translate_turfs()
+	// would shred a hull moved onto itself.
+	//
+	// The hop is therefore impossible in both directions: docking only ever
+	// worked because long_jump() falls through to a direct move when the interim
+	// leg fails, while undocking had no such escape and stranded the ship at the
+	// transit landmark. Relocating the landmark can't help -- the ship's area is
+	// the entire room, so anywhere inside it overlaps the hull. With this unset,
+	// process_launch() (shuttle_autodock.dm) uses short_jump() and goes straight
+	// to the destination.
 	logging_home_tag = "nav_drydock_ship_player_built_shuttle_space"
 
 /// base_turf/base_area pinned to space, and SLANDMARK_FLAG_AUTOSET
