@@ -443,6 +443,16 @@ GLOBAL_VAR_INIT(persistence_interior_save_z, 0)
 	// 6. Release into the shared reuse pool.
 	poolReusableZ(z)
 
+/// Z-levels a teardown has positively reported as emptied by its own hand.
+///
+/// Eligibility used to be inferred at acquire time from a chain of negative
+/// guards -- "not pinned, not claimed, no players, looks empty" -- where any
+/// link could veto in silence and the only visible symptom was the z count
+/// climbing forever. This is the opposite: the code that actually wiped the z
+/// states so, once, and the acquire path trusts that statement instead of
+/// re-deriving it.
+GLOBAL_LIST_EMPTY(persistence_reusable_z_verified)
+
 /**
  * Marks a wiped, contentless Z as available for reuse by a future
  * load_into_z() call -- the shared release step for both ship teardown
@@ -452,14 +462,31 @@ GLOBAL_VAR_INIT(persistence_interior_save_z, 0)
  * matter for real -- a pinned site's z, or one still claimed by a deployed
  * ship, must never be handed out to something else.
  */
+/// Every refusal below is logged. This used to return silently on the guard
+/// chain, which meant a z that was never pooled left no trace anywhere -- the
+/// pool simply stayed empty and every retrieve loaded a brand-new z, with
+/// nothing to say why. "Reuse doesn't work" must never again be a question
+/// static reading has to guess at.
 /datum/controller/subsystem/persistence/proc/poolReusableZ(z)
 	if(!z)
 		return
 	if(!GLOB.persistence_allow_z_reuse)
-		return // reuse disabled server-wide -- don't pool it in the first place
-	if((z in GLOB.persistence_pinned_site_z) || GLOB.persistence_ship_z["[z]"] || is_station_level(z))
+		log_subsystem_persistence_info("Persistence: z=[z] NOT pooled -- ship Z reuse is disabled server-wide.")
+		return
+	if(z in GLOB.persistence_pinned_site_z)
+		log_subsystem_persistence_info("Persistence: z=[z] NOT pooled -- it is a pinned away site.")
+		return
+	if(GLOB.persistence_ship_z["[z]"])
+		log_subsystem_persistence_warning("Persistence: z=[z] NOT pooled -- still claimed by ship scope '[GLOB.persistence_ship_z["[z]"]]'. The claim must be released BEFORE teardown (see _drydockMarkerTeardown()).")
+		return
+	if(is_station_level(z))
+		log_subsystem_persistence_warning("Persistence: z=[z] NOT pooled -- flagged as a station level.")
 		return
 	GLOB.reusable_z_pool |= z
+	// Positive statement of fact from the code that actually emptied this z,
+	// rather than acquireReusableZ() having to re-derive "probably safe" from a
+	// chain of negative guards. See acquireReusableZ().
+	GLOB.persistence_reusable_z_verified |= z
 	log_subsystem_persistence_info("Persistence: z=[z] released into the reusable Z pool ([length(GLOB.reusable_z_pool)] pooled).")
 
 /**
@@ -473,22 +500,30 @@ GLOBAL_VAR_INIT(persistence_interior_save_z, 0)
 	while(length(GLOB.reusable_z_pool))
 		var/z = GLOB.reusable_z_pool[1]
 		GLOB.reusable_z_pool.Cut(1, 2)
+		GLOB.persistence_reusable_z_verified -= z
+		// The remaining guards are about CURRENT ownership -- has anything
+		// claimed this z since it was pooled -- not about whether the teardown
+		// worked. That question is already answered by the verified set below.
 		if(z < 1 || z > world.maxz)
+			log_subsystem_persistence_warning("Persistence: pooled z=[z] discarded -- outside 1..[world.maxz].")
 			continue
 		if(z in GLOB.persistence_pinned_site_z)
+			log_subsystem_persistence_warning("Persistence: pooled z=[z] discarded -- it became a pinned away site while pooled.")
 			continue
 		if(GLOB.persistence_ship_z["[z]"])
+			log_subsystem_persistence_warning("Persistence: pooled z=[z] discarded -- claimed by ship scope '[GLOB.persistence_ship_z["[z]"]]' while pooled.")
 			continue
 		if(zlevel_has_players(z))
+			log_subsystem_persistence_warning("Persistence: pooled z=[z] discarded -- players are present on it.")
 			continue
-		// Runs regardless of the reuse toggle above -- the cheap guards to
-		// this point only prove nobody has CLAIMED this z, not that it's
-		// actually empty. Anything still here means a teardown didn't
-		// complete, and handing it to a ship would materialize that hull on
-		// top of the leftovers.
+		// Retained as an ASSERTION, not as the primary test. A z in the pool
+		// was put there by a teardown that reported having emptied it, so a
+		// failure here means that report was wrong -- which is a teardown bug
+		// worth naming loudly, not a routine "try the next one".
 		if(!_z_is_verifiably_empty(z))
-			log_subsystem_persistence_warning("Persistence: z=[z] rejected from the reusable pool -- not verifiably empty (leftover content from an incomplete teardown). Dropped rather than reused.")
+			log_subsystem_persistence_error("Persistence: pooled z=[z] FAILED its emptiness assertion despite a teardown reporting it clean -- discarded. This is an incomplete teardown, not a reuse problem; investigate shipZTeardown() for this z.")
 			continue
+		log_subsystem_persistence_info("Persistence: reusing pooled z=[z] ([length(GLOB.reusable_z_pool)] still pooled).")
 		return z
 	return 0
 
