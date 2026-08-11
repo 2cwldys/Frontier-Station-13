@@ -251,7 +251,7 @@
 	name = "coolant tank"
 	supplier = "Hub"
 	description = "A tank of industrial coolant."
-	price = 10
+	price = 5000
 	items = list(
 		/obj/structure/reagent_dispensers/coolanttank
 	)
@@ -1332,6 +1332,62 @@
 	price = 10000
 	items = list(
 		/obj/structure/machinery/shieldgen
+	)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/blastdoorassembly
+	category = "engineering"
+	name = "blast door assembly"
+	supplier = "Hub"
+	description = "An unfinished blast door, ready to be anchored, wired, and welded into place."
+	price = 350
+	items = list(
+		/obj/structure/blast_door_assembly
+	)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/shutterassembly
+	category = "engineering"
+	name = "shutter assembly"
+	supplier = "Hub"
+	description = "An unfinished shutter, ready to be anchored, wired, and welded into place."
+	price = 300
+	items = list(
+		/obj/structure/blast_door_assembly/shutter
+	)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/blastdoorbuttonframe
+	category = "engineering"
+	name = "door button frame"
+	supplier = "Hub"
+	description = "A wall-mountable frame for a remote door button -- links to any mix of airlocks, blast doors, and shutters. Multitool a door (and vice versa) once built to link them."
+	price = 150
+	items = list(
+		/obj/item/frame/blast_door_button
+	)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/keypadairlockelectronics
+	category = "engineering"
+	name = "keypad airlock electronics"
+	supplier = "Hub"
+	description = "Configured for a numeric keypad lock instead of ID-based access."
+	price = 100
+	items = list(
+		/obj/item/airlock_electronics/keypad
 	)
 	access = ACCESS_ENGINE
 	container_type = "crate"

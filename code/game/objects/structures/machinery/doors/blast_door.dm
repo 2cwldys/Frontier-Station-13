@@ -162,6 +162,16 @@
  * * mob/user - Mob which clicked this object
  */
 /obj/structure/machinery/door/blast/attackby(obj/item/attacking_item, mob/user)
+	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
+		var/obj/item/multitool/MT = attacking_item
+		var/obj/structure/machinery/button/remote/blast_door/buildable/button = MT.get_buffer(/obj/structure/machinery/button/remote/blast_door/buildable)
+		if(!button)
+			MT.set_buffer(src)
+			to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
+			return TRUE
+		button._link_door(src, user)
+		MT.set_buffer(null)
+		return TRUE
 	if(!istype(attacking_item, /obj/item/forensics))
 		src.add_fingerprint(user)
 	if(istype(attacking_item, /obj/item/material/twohanded/fireaxe))

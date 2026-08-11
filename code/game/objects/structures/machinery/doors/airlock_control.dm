@@ -8,6 +8,14 @@
 	var/tmp/datum/radio_frequency/radio_connection
 	var/tmp/cur_command = null	//the command the door is currently attempting to complete
 	var/tmp/waiting_for_roundstart
+	/// Dedicated tag for the buildable, multitool-linked door button
+	/// (blast_door_button.dm) -- deliberately NOT id_tag, which is already
+	/// shared by the legacy remote button (door_control.dm) and the airlock
+	/// cycler system (_link_to_controller() below, which snapshots id_tag
+	/// into the controller's own tag_exterior_door/tag_interior_door
+	/// fields) -- reusing id_tag here would desync a cycler-managed door's
+	/// link the moment this button linked it too.
+	var/door_button_tag
 
 /obj/structure/machinery/door/airlock/receive_signal(datum/signal/signal)
 	if (!arePowerSystemsOn()) return //no power
@@ -142,6 +150,16 @@
 /obj/structure/machinery/door/airlock/attackby(obj/item/attacking_item, mob/user, params)
 	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
 		var/obj/item/multitool/MT = attacking_item
+		// Buffered door button (blast_door_button.dm) -- checked first, same
+		// non-invasive "extra consumer type" shape as the controller check
+		// right below, so buffering this door either applies just the same
+		// (whichever the multitool is used on second decides which link
+		// happens; neither check touches the other).
+		var/obj/structure/machinery/button/remote/blast_door/buildable/door_button = MT.get_buffer(/obj/structure/machinery/button/remote/blast_door/buildable)
+		if(door_button)
+			door_button._link_airlock(src, user)
+			MT.set_buffer(null)
+			return TRUE
 		var/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller = MT.get_buffer(/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller)
 		if(!controller)
 			MT.set_buffer(src)

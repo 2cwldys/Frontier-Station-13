@@ -350,6 +350,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		if(istype(marker))
 			marker.name = DS.display_name()
 			marker.class = DS.custom_class
+		// The z-level's own label, too -- otherwise it keeps the TEMPLATE name
+		// ("Player-Built Shuttle"), or for a rehomed ship the suffixed internal
+		// name frozen at the moment it was rehomed.
+		persistence_set_zlevel_label(DS.z, DS.display_name())
 	for(var/obj/item/ship_schematic/S in world)
 		if(S.shuttle_id == DS.shuttle_id && S.bound_purchased_at == DS.purchased_at && !S.repossessed)
 			S.refresh_name()
@@ -1877,6 +1881,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			to_chat(user, SPAN_WARNING("Failed to materialize shuttle."))
 		log_drydock_error("drydockCommission: template load failed for '[template_id]', shuttle_id=[new_id][pool_z ? " (pooled z=[pool_z])" : ""].")
 		return FALSE
+	// Parity with retrieve's own line -- says outright whether z reuse actually
+	// happened, so "the z count keeps climbing" is answerable from the log
+	// instead of by inspection.
+	log_drydock("drydockCommission: shuttle_id=[new_id] materialized at z=[new_z] ([pool_z ? "pooled" : "fresh"]) for template '[template_id]'.")
 
 	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[new_z]"]
 	if(!istype(marker))
@@ -1935,6 +1943,11 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	GLOB.persistence_ship_z["[new_z]"] = scope
 	GLOB.zone_security_by_z["[new_z]"] = DS.faction_uid ? ZONE_MEDSEC : ZONE_NULLSEC
 	zone_security_update_overmap()
+	// Every cached copy of this ship's name in one place -- marker, z-level
+	// label and any live schematic. Setting marker.name inline above is not
+	// enough on its own: the z-level would otherwise keep the TEMPLATE's name
+	// ("Player-Built Shuttle") for the ship's entire life.
+	_drydockRefreshDisplayedName(DS)
 
 	// The actual capture -- move the player's built envelope onto the fresh
 	// Z, then wipe the build site clean. The beacon and this console are
@@ -2610,6 +2623,12 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	DS.z         = new_z
 	DS.overmap_x = marker.x
 	DS.overmap_y = marker.y
+	// Only meaningful once DS.z points at the new level -- everything this
+	// refreshes is looked up BY DS.z. It sets the marker (already correct
+	// above, harmlessly re-set) and, the part that was missing, the z-level's
+	// own label, which otherwise stays whatever the template was called
+	// ("Player-Built Shuttle") rather than the player's ship name.
+	_drydockRefreshDisplayedName(DS)
 
 	if(!databaseCheckConnection("drydockRetrieve"))
 		log_drydock_error("drydockRetrieve: database connection failed updating shuttle_id=[shuttle_id] -- ledger row now disagrees with live state until next save.")

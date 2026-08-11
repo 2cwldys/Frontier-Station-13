@@ -503,7 +503,10 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		modcomp_restore_programs(json_decode(content["programs"]))
 
 /obj/structure/machinery/door/airlock
-	worldstate_vars = list("name", "welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access", "id_tag", "frequency", "crew_tagged", "emagged", "persistent_network")
+	// "door_button_tag" -- so a link made via the buildable door button
+	// (blast_door_button.dm) survives a restart, same as "id_tag" already
+	// does for the cycler/legacy button systems.
+	worldstate_vars = list("name", "welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access", "id_tag", "frequency", "crew_tagged", "emagged", "persistent_network", "door_button_tag")
 
 /obj/structure/machinery/door/airlock/worldstate_get_content()
 	var/list/content = ..()
@@ -526,7 +529,13 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		set_frequency(frequency)
 
 /obj/structure/machinery/door/blast
-	worldstate_vars = list("density", "persistent_network")
+	// "id" -- so a button link made via multitool (blast_door_button.dm's
+	// _link_door()) survives a restart; every other blast door still
+	// defaults to the class's own initial(id), unaffected.
+	worldstate_vars = list("density", "persistent_network", "id")
+
+/obj/structure/machinery/button/remote/blast_door/buildable
+	worldstate_vars = list("id")
 
 /obj/structure/machinery/power/smes
 	worldstate_vars = list("charge", "input_attempt", "input_level", "output_attempt", "output_level")

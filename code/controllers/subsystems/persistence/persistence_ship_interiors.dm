@@ -379,47 +379,8 @@ GLOBAL_VAR_INIT(persistence_interior_save_z, 0)
 		if(QDELETED(L) || L.z == z)
 			SSshuttle.registered_shuttle_landmarks -= tag
 
-	// 2. Movable wipe. Pass 1 is a type-indexed world scan (the safe pattern):
-	// qdel'ing an object can itself spawn/drop a new movable as a side effect
-	// (an APC ejecting its cell is normal APC behavior), which a one-shot
-	// turf/contents snapshot taken before that qdel would never catch.
-	// Passes 2+ mop up whatever pass 1's qdel cascade freshly ejected -- those
-	// land directly on a turf (never nested), so a Z-scoped turf/contents
-	// re-check is safe there and, critically, bounded to this Z's own turf
-	// count instead of a second full for(TYPE in world) sweep. Repeating the
-	// world-wide scan every pass was the actual hang: qdel() only calls
-	// Destroy() immediately (SSgarbage defers the real del()), so a just-qdel'd
-	// object with its .loc/.z untouched keeps matching on every subsequent
-	// pass, guaranteeing all 5 passes ran as full-world scans every time.
-	for(var/atom/movable/AM in world)
-		CHECK_TICK
-		if(AM.z != z)
-			continue
-		try
-			qdel(AM)
-		catch(var/exception/qdel_e)
-			log_subsystem_persistence_error("Ship interiors: shipZTeardown qdel failed for [AM] on z=[z]: [qdel_e]")
-
-	var/pass = 1
-	var/found_any = TRUE
-	while(found_any && pass < 5)
-		found_any = FALSE
-		pass++
-		for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
-			CHECK_TICK
-			var/list/contents_snapshot = T.contents.Copy()
-			for(var/atom/movable/AM in contents_snapshot)
-				try
-					qdel(AM)
-				catch(var/exception/qdel_e)
-					log_subsystem_persistence_error("Ship interiors: shipZTeardown mop-up qdel failed for [AM] on z=[z]: [qdel_e]")
-				found_any = TRUE
-
-	// 3. Turf wipe -- movables are actually gone now, safe to convert every
-	// turf to space unconditionally.
-	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
-		T.ChangeTurf(/turf/space)
-		CHECK_TICK
+	// 2/3. Movable + turf wipe.
+	_wipeZContents(z, "shipZTeardown")
 
 	// 4. Area reassignment back to the world default -- a smaller future
 	// template must not inherit a ring of turfs still claimed by the old
@@ -462,6 +423,52 @@ GLOBAL_LIST_EMPTY(persistence_reusable_z_verified)
  * matter for real -- a pinned site's z, or one still claimed by a deployed
  * ship, must never be handed out to something else.
  */
+/// Applies a display name to a z-level's own /datum/space_level label.
+///
+/// That label is set once when a template loads and nothing ever refreshed it,
+/// so a renamed ship's level kept reading as its TEMPLATE name ("Player-Built
+/// Shuttle") and a renamed away site's kept its own template default -- both
+/// permanently, for the life of the level. Admin/VV-facing rather than
+/// player-facing, which is why it went unnoticed, but it is still a stale
+/// reference to something that has been renamed.
+///
+/// Bounds-checked because get_level() CRASHes on an unmanaged z rather than
+/// returning null, and a cosmetic label refresh must never throw out of a
+/// rename that has already committed to the database.
+/proc/persistence_set_zlevel_label(z, new_name)
+	if(!z || z < 1 || z > world.maxz || !new_name)
+		return
+	var/datum/space_level/level = SSmapping.get_level(z)
+	if(istype(level))
+		level.name = new_name
+
+/// Z-levels that must never enter the reuse pool no matter what else says they
+/// look free.
+///
+/// is_station_level() reads ZTRAIT_STATION and is the general answer, but it is
+/// a cached macro keyed by z number and it is not the only thing worth being
+/// careful about here. These decks hold the primary map and persistent player
+/// content, and handing one to a ship or an away site would destroy a station
+/// rather than recycle a scratch level -- so they get an explicit, unconditional
+/// refusal that does not depend on a trait lookup being right.
+///
+/// DECK 4 is protected always.
+///
+/// DECKS 1-3 are protected unless persistence_disable_station is set. With that
+/// config option on, the station map is never loaded and those levels are wiped
+/// to open space at boot (persistence_world_ready.dm) while staying allocated --
+/// genuinely free space, and reusing them is the whole point of running with the
+/// station disabled. With it off (the normal case) they ARE the station.
+#define PERSISTENCE_PROTECTED_DECK_ALWAYS 4
+#define PERSISTENCE_PROTECTED_DECK_STATION_MAX 3
+
+/proc/persistence_z_is_protected_deck(z)
+	if(z == PERSISTENCE_PROTECTED_DECK_ALWAYS)
+		return TRUE
+	if(z >= 1 && z <= PERSISTENCE_PROTECTED_DECK_STATION_MAX && !GLOB.config.persistence_disable_station)
+		return TRUE
+	return FALSE
+
 /// Every refusal below is logged. This used to return silently on the guard
 /// chain, which meant a z that was never pooled left no trace anywhere -- the
 /// pool simply stayed empty and every retrieve loaded a brand-new z, with
@@ -482,6 +489,17 @@ GLOBAL_LIST_EMPTY(persistence_reusable_z_verified)
 	if(is_station_level(z))
 		log_subsystem_persistence_warning("Persistence: z=[z] NOT pooled -- flagged as a station level.")
 		return
+	if(persistence_z_is_protected_deck(z))
+		log_subsystem_persistence_warning("Persistence: z=[z] NOT pooled -- it is a protected deck (see persistence_z_is_protected_deck()).")
+		return
+	// Someone's claimed territory. A faction beacon marks a z as a faction's
+	// own station/site, and unlike a pinned site that claim is not recorded in
+	// GLOB.persistence_pinned_site_z -- so without this an unpinned but actively
+	// claimed station could be despawned into the pool and handed to another
+	// ship, taking the players' base with it.
+	if(GLOB.faction_beacon_by_z["[z]"])
+		log_subsystem_persistence_warning("Persistence: z=[z] NOT pooled -- it is claimed by a faction beacon (someone's station).")
+		return
 	GLOB.reusable_z_pool |= z
 	// Positive statement of fact from the code that actually emptied this z,
 	// rather than acquireReusableZ() having to re-derive "probably safe" from a
@@ -500,6 +518,7 @@ GLOBAL_LIST_EMPTY(persistence_reusable_z_verified)
 	while(length(GLOB.reusable_z_pool))
 		var/z = GLOB.reusable_z_pool[1]
 		GLOB.reusable_z_pool.Cut(1, 2)
+		var/was_verified = (z in GLOB.persistence_reusable_z_verified)
 		GLOB.persistence_reusable_z_verified -= z
 		// The remaining guards are about CURRENT ownership -- has anything
 		// claimed this z since it was pooled -- not about whether the teardown
@@ -516,35 +535,228 @@ GLOBAL_LIST_EMPTY(persistence_reusable_z_verified)
 		if(zlevel_has_players(z))
 			log_subsystem_persistence_warning("Persistence: pooled z=[z] discarded -- players are present on it.")
 			continue
+		// Both re-checked here as well as in poolReusableZ(), deliberately. A z
+		// can sit in the pool indefinitely, and a station level or a faction
+		// claim appearing in the meantime must not be handed out just because it
+		// was unclaimed at the moment it was pooled. Handing out someone's
+		// station is not a mistake worth being one guard away from.
+		if(is_station_level(z))
+			log_subsystem_persistence_warning("Persistence: pooled z=[z] discarded -- it became a station level while pooled.")
+			continue
+		if(persistence_z_is_protected_deck(z))
+			log_subsystem_persistence_error("Persistence: pooled z=[z] discarded -- it is a PROTECTED DECK and should never have been pooled. Investigate how it got in.")
+			continue
+		if(GLOB.faction_beacon_by_z["[z]"])
+			log_subsystem_persistence_warning("Persistence: pooled z=[z] discarded -- a faction beacon claimed it while pooled (someone's station).")
+			continue
+		// The verified flag is a positive statement from the teardown that
+		// actually emptied this z. A pooled z WITHOUT it was never confirmed
+		// clean by anything -- it must not be trusted, so it goes through the
+		// wipe-and-recheck path below rather than being handed straight out.
+		// (This set was previously written and cleared but never read, so it
+		// gated nothing at all.)
+		var/teardown_vouched = was_verified
+		if(!teardown_vouched)
+			log_subsystem_persistence_warning("Persistence: pooled z=[z] has no teardown verification on record -- treating it as unclean and re-wiping before reuse.")
+
 		// Retained as an ASSERTION, not as the primary test. A z in the pool
 		// was put there by a teardown that reported having emptied it, so a
 		// failure here means that report was wrong -- which is a teardown bug
 		// worth naming loudly, not a routine "try the next one".
-		if(!_z_is_verifiably_empty(z))
-			log_subsystem_persistence_error("Persistence: pooled z=[z] FAILED its emptiness assertion despite a teardown reporting it clean -- discarded. This is an incomplete teardown, not a reuse problem; investigate shipZTeardown() for this z.")
-			continue
+		var/list/leftovers = list()
+		if(!teardown_vouched || !_z_is_verifiably_empty(z, leftovers))
+			// Do NOT discard on the first failure. Discarding is what made the
+			// z count climb forever: the z was pooled, rejected, dropped, and
+			// every retrieve fell through to load_new_z(). This z has already
+			// cleared every ownership guard above -- unclaimed, unpinned, no
+			// players, not a station level -- so it belongs to nobody and
+			// re-running the wipe on it is exactly what the teardown was
+			// supposed to have achieved.
+			log_subsystem_persistence_warning("Persistence: pooled z=[z] failed its emptiness assertion -- leftovers: [english_list(leftovers)]. Re-wiping and retrying rather than discarding it.")
+			_wipeZContents(z, "acquireReusableZ retry")
+			var/list/still_there = list()
+			if(!_z_is_verifiably_empty(z, still_there))
+				log_subsystem_persistence_error("Persistence: pooled z=[z] STILL not empty after a second wipe -- leftovers: [english_list(still_there)]. Discarded. This is a teardown defect; these types survive shipZTeardown().")
+				continue
+			log_subsystem_persistence_info("Persistence: z=[z] cleaned up on retry and is now reusable.")
 		log_subsystem_persistence_info("Persistence: reusing pooled z=[z] ([length(GLOB.reusable_z_pool)] still pooled).")
 		return z
 	return 0
 
-/// TRUE only if z genuinely holds nothing a correct teardown should have
-/// left behind: no simulated turfs, no living mobs, no machinery. Bounded
-/// single-z scan with CHECK_TICK -- trivial next to the map-template load the
-/// caller is about to perform anyway, and the only thing standing between a
-/// half-torn-down z and a ship being rebuilt on top of its leftovers.
-/datum/controller/subsystem/persistence/proc/_z_is_verifiably_empty(z)
-	if(z < 1 || z > world.maxz)
-		return FALSE
+/// Strips every movable off z and converts every turf on it to space.
+///
+/// Shared by shipZTeardown() and acquireReusableZ()'s retry so both use one
+/// implementation -- a pooled z that fails its emptiness assertion gets exactly
+/// the same treatment the teardown was supposed to give it, rather than a
+/// second, subtly different hand-written copy.
+///
+/// Pass 1 is a type-indexed world scan (the safe pattern): qdel'ing an object
+/// can itself spawn/drop a new movable as a side effect (an APC ejecting its
+/// cell is normal APC behavior), which a one-shot turf/contents snapshot taken
+/// before that qdel would never catch. Passes 2+ mop up whatever pass 1's qdel
+/// cascade freshly ejected -- those land directly on a turf (never nested), so
+/// a Z-scoped turf/contents re-check is safe there and, critically, bounded to
+/// this Z's own turf count instead of a second full for(TYPE in world) sweep.
+/// Repeating the world-wide scan every pass was the actual hang: qdel() only
+/// calls Destroy() immediately (SSgarbage defers the real del()), so a
+/// just-qdel'd object with its .loc/.z untouched keeps matching on every
+/// subsequent pass, guaranteeing all 5 passes ran as full-world scans.
+/datum/controller/subsystem/persistence/proc/_wipeZContents(z, context = "wipeZ")
+	if(!z || z < 1 || z > world.maxz)
+		return
+	// HARD GUARANTEE: never touch a z a deployed ship still claims. The
+	// legitimate teardown path is unaffected -- _drydockMarkerTeardown() clears
+	// GLOB.persistence_ship_z on the line before it calls shipZTeardown() -- but
+	// this proc ends in an irreversible forced delete, and "whichever proc called
+	// us was well-behaved" is an assumption, not a guarantee. Any accidental or
+	// future call against a live ship's z stops here instead.
+	if(GLOB.persistence_ship_z["[z]"])
+		log_subsystem_persistence_error("Ship interiors: [context] REFUSED to wipe z=[z] -- it is still claimed by ship scope '[GLOB.persistence_ship_z["[z]"]]'. The claim must be released before a teardown. Nothing was deleted.")
+		return
+	// The same protected decks the reuse pool refuses. This proc ends in an
+	// irreversible forced delete, so it gets its own copy of the check rather
+	// than trusting every present and future caller to have made it first --
+	// wiping the station because something called this with the wrong z is not
+	// a recoverable mistake.
+	if(persistence_z_is_protected_deck(z))
+		log_subsystem_persistence_error("Ship interiors: [context] REFUSED to wipe z=[z] -- it is a protected deck (station/primary map). Nothing was deleted.")
+		return
+	if(GLOB.faction_beacon_by_z["[z]"])
+		log_subsystem_persistence_error("Ship interiors: [context] REFUSED to wipe z=[z] -- it is claimed by a faction beacon (someone's station). Nothing was deleted.")
+		return
+	for(var/atom/movable/AM in world)
+		CHECK_TICK
+		if(AM.z != z)
+			continue
+		try
+			qdel(AM)
+		catch(var/exception/qdel_e)
+			log_subsystem_persistence_error("Ship interiors: [context] qdel failed for [AM] on z=[z]: [qdel_e]")
+
+	var/pass = 1
+	var/found_any = TRUE
+	while(found_any && pass < 5)
+		found_any = FALSE
+		pass++
+		for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+			CHECK_TICK
+			var/list/contents_snapshot = T.contents.Copy()
+			for(var/atom/movable/AM in contents_snapshot)
+				try
+					qdel(AM)
+				catch(var/exception/qdel_e)
+					log_subsystem_persistence_error("Ship interiors: [context] mop-up qdel failed for [AM] on z=[z]: [qdel_e]")
+				found_any = TRUE
+	// The loop is capped at 4 mop-up passes, so it CAN give up with movables
+	// still present -- silently, until now. If that happens the z is not clean
+	// and whatever is left is about to be inherited by the next occupant.
+	if(found_any)
+		log_subsystem_persistence_warning("Ship interiors: [context] exhausted its mop-up passes on z=[z] with movables still present -- the z may not be fully clean.")
+
+	// Movables are gone, so converting every turf to space is safe.
+	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+		T.ChangeTurf(/turf/space)
+		CHECK_TICK
+
+	// FINAL sweep, after the turf conversion, and FORCED.
+	//
+	// Two things survive everything above. ChangeTurf() can itself produce
+	// movables -- a structure turf dropping debris, contents dumped onto the
+	// tile as it converts -- and nothing used to run after it, so whatever it
+	// created outlived the entire teardown. Separately, qdel() is cooperative:
+	// SSgarbage defers the real del(), and anything returning
+	// QDEL_HINT_LETMELIVE or holding a live reference (certain consoles and
+	// machines do exactly this) simply refuses to go and stays on the z.
+	//
+	// force = TRUE routes through garbage.dm's own del() path. On a z being
+	// recycled, "this object declines to be deleted" is not a state worth
+	// honouring -- nothing here has a future, the z is about to be handed to a
+	// different ship, and the alternative is what actually happens today: the
+	// pooled z fails its emptiness assertion, gets discarded, and every retrieve
+	// loads a brand-new z forever while the abandoned ones accumulate junk.
+	//
+	// Re-checked immediately before it runs, because everything above yields on
+	// CHECK_TICK: a force-delete is irreversible, so it must never fire on a z
+	// something has legitimately claimed while this proc was asleep. Drydock ops
+	// are serialised by GLOB.drydock_op_active, but away/mission-site generation
+	// also draws from the same pool without that lock, so "nothing else can be
+	// here" is an assumption rather than a guarantee. Bail rather than assume.
+	if(GLOB.persistence_ship_z["[z]"])
+		log_subsystem_persistence_warning("Ship interiors: [context] skipped its forced sweep on z=[z] -- the z was claimed by '[GLOB.persistence_ship_z["[z]"]]' while the wipe was running. Nothing force-deleted.")
+		return
+	if(zlevel_has_players(z))
+		log_subsystem_persistence_warning("Ship interiors: [context] skipped its forced sweep on z=[z] -- players are present. Nothing force-deleted.")
+		return
+	// An OCCUPIED neural lace is a person. It is an /obj/item/organ, not a mob,
+	// so isliving() below does not cover it and a forced delete would destroy
+	// someone with no body to fall back to. zlevel_has_players() is understood
+	// to catch laces too, but this is the irreversible step -- check it here
+	// directly rather than depending on another proc's definition holding.
+	for(var/obj/item/organ/internal/neural_lace/L in world)
+		CHECK_TICK
+		var/turf/lace_turf = get_turf(L)
+		if(lace_turf && lace_turf.z == z && L.lace_occupied)
+			log_subsystem_persistence_error("Ship interiors: [context] skipped its forced sweep on z=[z] -- an OCCUPIED neural lace ([L]) is present at ([lace_turf.x],[lace_turf.y]). Nothing force-deleted; that z is not free to recycle.")
+			return
+
+	var/forced = 0
 	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
 		CHECK_TICK
-		if(istype(T, /turf/simulated))
+		for(var/atom/movable/AM in T.contents.Copy())
+			if(isliving(AM))
+				continue //never force-delete a living mob, whatever it is doing here
+			if(istype(AM, /obj/item/organ/internal/neural_lace))
+				continue //someone's mind may live in here -- never forced, occupied or not
+			try
+				qdel(AM, force = TRUE)
+				forced++
+			catch(var/exception/qdel_e)
+				log_subsystem_persistence_error("Ship interiors: [context] forced delete failed for [AM] ([AM.type]) on z=[z]: [qdel_e]")
+	if(forced)
+		log_subsystem_persistence_info("Ship interiors: [context] force-deleted [forced] movable(s) that survived the cooperative passes on z=[z].")
+
+/// TRUE only if z genuinely holds nothing a correct teardown should have left
+/// behind: no simulated turfs, no living mobs, no machinery. Bounded single-z
+/// scan with CHECK_TICK -- trivial next to the map-template load the caller is
+/// about to perform anyway, and the only thing standing between a half-torn-down
+/// z and a ship being rebuilt on top of its leftovers.
+///
+/// found_out, when passed, is filled with human-readable descriptions of the
+/// first few offenders. Returning a bare FALSE meant the rejection log could
+/// only say "not empty", which is why a z silently failing this took a log dig
+/// and a round of guessing to even locate. Name the leftovers instead.
+/datum/controller/subsystem/persistence/proc/_z_is_verifiably_empty(z, list/found_out)
+	if(z < 1 || z > world.maxz)
+		return FALSE
+	. = TRUE
+	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
+		CHECK_TICK
+		// With found_out supplied, keep scanning long enough to characterise the
+		// leftovers rather than bailing on the first one -- one stray machine and
+		// a whole un-wiped room need different fixes, and the first hit alone
+		// cannot tell them apart. Capped so a fully-populated z can't spam.
+		if(!found_out && !.)
 			return FALSE
+		if(length(found_out) >= 8)
+			return FALSE
+		if(istype(T, /turf/simulated))
+			. = FALSE
+			LAZYADD(found_out, "[T.type] at ([T.x],[T.y],[T.z])")
+			continue
 		for(var/atom/movable/AM in T)
 			if(isliving(AM))
-				return FALSE
-			if(istype(AM, /obj/structure/machinery))
-				return FALSE
-	return TRUE
+				. = FALSE
+				LAZYADD(found_out, "living mob [AM] at ([T.x],[T.y],[T.z])")
+			else if(istype(AM, /obj/item/organ/internal/neural_lace))
+				// Reported whether occupied or not: an occupied one is a person
+				// and blocks reuse outright, and a loose one still belongs to
+				// somebody and should be vaulted, not recycled away silently.
+				var/obj/item/organ/internal/neural_lace/L = AM
+				. = FALSE
+				LAZYADD(found_out, "[L.lace_occupied ? "OCCUPIED " : ""]neural lace [L] at ([T.x],[T.y],[T.z])")
+			else if(istype(AM, /obj/structure/machinery))
+				. = FALSE
+				LAZYADD(found_out, "machinery [AM] ([AM.type]) at ([T.x],[T.y],[T.z])")
 
 /// Stamps interior_saved_at = NOW() on the ledger row the scope key encodes
 /// ("ship:d:<shuttle_id>").

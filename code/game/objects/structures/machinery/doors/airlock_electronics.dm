@@ -198,3 +198,7 @@
 /obj/item/airlock_electronics/secure/mechanics_hints(mob/user, distance, is_adjacent)
 	. += ..()
 	. += "Airlocks built with this board will have their wires uniquely randomized, and bolts will automatically drop if the airlock is broken."
+
+/obj/item/airlock_electronics/keypad
+	name = "keypad airlock electronics"
+	desc = "Configured for a numeric keypad lock instead of ID-based access."
