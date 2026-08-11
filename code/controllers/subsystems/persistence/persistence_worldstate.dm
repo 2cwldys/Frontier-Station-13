@@ -790,6 +790,16 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	// be moved onto the restored frequency. Same override vent_pump uses.
 	if(frequency)
 		set_frequency(frequency)
+	// LateInitialize() (alarm.dm) already called apply_mode() once, using
+	// whatever `mode` was BEFORE this restore ever touched it -- SSatoms
+	// (init_order 30) finishes every LateInitialize() well before
+	// SSpersistence (init_order -10) runs at all, so that first call always
+	// propagated the class default, not the saved mode, to the room's own
+	// vents/scrubbers. The generic apply above just fixed `mode` itself, but
+	// never re-sends the signal -- without this, the alarm reads as
+	// correctly restored (its own mode var is right) while the room it
+	// controls keeps acting on the stale default indefinitely.
+	apply_mode()
 
 /obj/structure/machinery/power/portgen/basic
 	worldstate_vars = list("active", "open", "power_output", "sheets", "sheet_left", "anchored", "emagged")
