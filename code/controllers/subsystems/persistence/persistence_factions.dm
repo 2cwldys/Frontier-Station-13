@@ -1385,6 +1385,30 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
  * target faction. Replaces the ad-hoc admin-or-rank checks that used to be
  * copy-pasted (and inconsistently applied) in each type's own verbs.
  */
+/// TRUE when a faction-tagger network value carries no ownership restriction.
+///
+/// Two distinct values mean "anyone may use and configure this": unassigned
+/// ("" or null -- never tagged), and the explicit "public" sentinel the faction
+/// tagger sets for deliberately shared equipment (faction_tagger.dm, which
+/// already recognises it for airlocks, comms, cryopods, autodocs, laces and
+/// turrets). Anything gating on faction membership must treat both as open, or
+/// tagging something public would lock it down instead of opening it up --
+/// exactly backwards.
+/proc/faction_network_is_open(network_uid)
+	return !network_uid || network_uid == "" || network_uid == "public"
+
+/// Whether user may rewire a device carrying this faction network tag.
+///
+/// The single rule behind every link/unlink gate on doors, door buttons and
+/// airlock cyclers, so they cannot drift apart. Open networks (untagged or
+/// "public") are free for all; a real faction tag needs MEMBERSHIP of that
+/// faction -- rank 0, not officer, since wiring a checkpoint is routine work
+/// rather than a command decision. Admins bypass, as everywhere else.
+/proc/can_rewire_faction_device(mob/user, network_uid)
+	if(faction_network_is_open(network_uid))
+		return TRUE
+	return can_configure_faction_shackle(user, network_uid, 0)
+
 /proc/can_configure_faction_shackle(mob/user, faction_uid, rank_required = 1)
 	if(check_rights(R_ADMIN, 0, user))
 		return TRUE

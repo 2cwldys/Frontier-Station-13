@@ -51,8 +51,48 @@
 	return persistent_network
 
 /obj/structure/machinery/embedded_controller/radio/airlock/faction_tagger_set(new_uid, mob/user)
+	var/old_uid = persistent_network
 	persistent_network = new_uid || ""
+	// Ownership changing hands drops every link. Otherwise links made while the
+	// cycler was untagged survive the tag: someone wires a chamber to their own
+	// doors and sensors, a faction then claims the cycler, and the original
+	// wiring keeps working from outside the faction entirely -- the guards only
+	// stop links being CHANGED, not ones that already exist. Releasing a tag
+	// clears them for the same reason in reverse.
+	if(old_uid != persistent_network)
+		_clear_links_on_faction_change(user, old_uid)
 	return TRUE
+
+/// Drops every door/sensor/button/pump link, because this cycler just changed
+/// hands. Separate from _reset_links() (the player-facing multitool action):
+/// this one is not refusable and reports itself as a consequence of the retag.
+/obj/structure/machinery/embedded_controller/radio/airlock/proc/_clear_links_on_faction_change(mob/user, old_uid)
+	var/cleared = 0
+	// Doors need no per-door clearing: an airlock has no master_tag of its own,
+	// so dropping this controller's own door slots below is what unlinks them.
+	for(var/obj/structure/machinery/airlock_sensor/S in SSmachinery.machinery)
+		if(S.master_tag == id_tag)
+			S.master_tag = null
+			cleared++
+	for(var/obj/structure/machinery/access_button/B in SSmachinery.machinery)
+		if(B.master_tag == id_tag)
+			B.master_tag = null
+			cleared++
+	if(tag_exterior_door || tag_interior_door || length(tag_exterior_doors) || length(tag_interior_doors) || tag_airpump || length(tag_airpumps) || tag_chamber_sensor || tag_exterior_sensor || tag_interior_sensor)
+		cleared++
+	tag_exterior_door = null
+	tag_interior_door = null
+	tag_exterior_doors = null
+	tag_interior_doors = null
+	tag_airpump = null
+	tag_airpumps = null
+	tag_chamber_sensor = null
+	tag_exterior_sensor = null
+	tag_interior_sensor = null
+	if(cleared && user)
+		to_chat(user, SPAN_WARNING("\The [src] changed hands -- its existing links have been cleared and must be set up again."))
+	if(cleared)
+		log_game("Airlock cycler at [COORD(src)] changed faction ('[old_uid || "unassigned"]' -> '[persistent_network || "unassigned"]'), clearing its links.")
 
 /// Whether user may change this controller's links.
 ///
@@ -61,9 +101,7 @@
 /// _can_link_faction_door(). Admins bypass, as everywhere else
 /// can_configure_faction_shackle() is used.
 /obj/structure/machinery/embedded_controller/radio/airlock/proc/can_modify_links(mob/user)
-	if(!persistent_network || persistent_network == "")
-		return TRUE
-	return can_configure_faction_shackle(user, persistent_network, 0)
+	return can_rewire_faction_device(user, persistent_network)
 
 /obj/structure/machinery/embedded_controller/radio/airlock/Initialize(mapload, given_id_tag, given_frequency, given_tag_exterior_door, given_tag_interior_door, given_tag_airpump, given_tag_chamber_sensor)
 	. = ..()

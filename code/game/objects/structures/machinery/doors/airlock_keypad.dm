@@ -88,7 +88,7 @@
 /obj/structure/machinery/door/airlock/keypad/ui_interact(mob/user, datum/tgui/ui)
 	ui = SStgui.try_update_ui(user, src, ui)
 	if(!ui)
-		ui = new(user, src, "KeypadDoor", "Keypad Door", 340, 420)
+		ui = new(user, src, "KeypadDoor", "Keypad Door", 380, 650)
 		ui.open()
 
 /obj/structure/machinery/door/airlock/keypad/ui_data(mob/user)
@@ -96,8 +96,15 @@
 	data["doorName"] = name
 	data["codeSet"] = !!set_code
 	data["locked"] = locked
+	data["doorOpen"] = !density
 	data["setterName"] = setter_name
-	var/isAdmin = isobserver(user) && check_rights(R_ADMIN, FALSE, user)
+	// NOT isobserver(user) -- that's specific to the base airlock's own
+	// "boltsOverride" ghost-debugging feature (airlock.dm), which only
+	// matters for an admin actively ghosted/observing. An admin playing
+	// embodied (the normal case) is never an observer, so gating on it here
+	// hid every admin action from any admin actually walking around as a
+	// character -- the actual root cause of "admin options don't show."
+	var/isAdmin = check_rights(R_ADMIN, FALSE, user)
 	var/isSetter = _is_setter(user)
 	data["canReset"] = set_code && isSetter
 	data["isAdmin"] = isAdmin
@@ -124,7 +131,7 @@
 /// fall through to the parent for everything else.
 /obj/structure/machinery/door/airlock/keypad/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
 	var/mob/user = usr
-	var/isAdmin = isobserver(user) && check_rights(R_ADMIN, FALSE, user)
+	var/isAdmin = check_rights(R_ADMIN, FALSE, user) // see the matching comment in ui_data() above
 
 	switch(action)
 		if("type")
@@ -138,6 +145,14 @@
 			. = TRUE
 		if("clear")
 			entry_buffer = ""
+			. = TRUE
+		if("close_door")
+			// Anyone can voluntarily close/re-lock it behind themselves --
+			// same as bumping through and letting it swing shut, just
+			// without waiting on the autoclose timer. close() (above)
+			// re-locks automatically, refuses outright if admin_forced_open.
+			if(!density)
+				close()
 			. = TRUE
 		if("enter")
 			var/entered = entry_buffer

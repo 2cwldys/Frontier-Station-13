@@ -2120,7 +2120,13 @@ About the new airlock wires panel:
 	return persistent_network
 
 /obj/structure/machinery/door/airlock/faction_tagger_set(new_uid, mob/user)
+	var/old_uid = persistent_network
 	persistent_network = new_uid || ""
+	// Ownership changing hands drops this door's remote links -- see
+	// _clear_links_on_faction_change() (airlock_control.dm) for why leaving
+	// them in place is an access hole rather than a convenience.
+	if(old_uid != persistent_network)
+		_clear_links_on_faction_change(user, old_uid)
 	return TRUE
 
 /obj/structure/machinery/door/airlock/proc/lock(var/forced=0)

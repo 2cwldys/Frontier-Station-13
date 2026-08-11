@@ -192,12 +192,56 @@
 		return TRUE
 	return FALSE
 
+/// Drops every remote link this door currently has, because it just changed
+/// hands. Without it, links made while the door was untagged outlive the tag:
+/// someone wires a door to their own button, a faction then claims the door,
+/// and that button still opens it from outside the faction. The link guards
+/// only stop links being CHANGED -- they cannot retroactively invalidate one
+/// that already exists, so the retag has to do it.
+///
+/// Covers both link systems a door can be part of: the remote door button
+/// (door_button_tag) and an airlock cycler (master_tag plus whichever of the
+/// controller's own door slots names this door's id_tag).
+/obj/structure/machinery/door/airlock/proc/_clear_links_on_faction_change(mob/user, old_uid)
+	var/cleared = 0
+	if(door_button_tag)
+		door_button_tag = null
+		cleared++
+	// An airlock has no master_tag of its own (unlike sensors and access
+	// buttons) -- its cycler membership lives entirely in the controller's own
+	// door slots, so that is the only place to clear it from.
+	if(id_tag)
+		for(var/obj/structure/machinery/embedded_controller/radio/airlock/C in SSmachinery.machinery)
+			if(C.tag_exterior_door == id_tag)
+				C.tag_exterior_door = null
+				cleared++
+			if(C.tag_interior_door == id_tag)
+				C.tag_interior_door = null
+				cleared++
+			if(id_tag in C.tag_exterior_doors)
+				C.tag_exterior_doors -= id_tag
+				cleared++
+			if(id_tag in C.tag_interior_doors)
+				C.tag_interior_doors -= id_tag
+				cleared++
+	if(cleared && user)
+		to_chat(user, SPAN_WARNING("\The [src] changed hands -- its remote button and cycler links have been cleared."))
+	if(cleared)
+		log_game("Airlock at [COORD(src)] changed faction ('[old_uid || "unassigned"]' -> '[persistent_network || "unassigned"]'), clearing [cleared] link(s).")
+
 /obj/structure/machinery/door/airlock/proc/_link_to_controller(obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller, mob/user)
 	// Reached from BOTH directions -- multitooling the controller with this
 	// door buffered, and multitooling this door with the controller buffered.
 	// The controller's own attackby() guards the first; this guards the second.
 	if(!controller.can_modify_links(user))
 		to_chat(user, SPAN_WARNING("\The [controller] is tagged to [get_faction_name(controller.persistent_network)] -- you have no standing there to link to it."))
+		return
+	// The DOOR's own tag matters too, not just the controller's. Otherwise a
+	// faction's exterior/interior airlock could be pulled into a cycler by
+	// someone outside that faction, handing them control of it through the
+	// cycler instead of directly.
+	if(!can_rewire_faction_device(user, persistent_network))
+		to_chat(user, SPAN_WARNING("\The [src] is tagged to [get_faction_name(persistent_network)] -- you have no standing there to wire it to a cycler."))
 		return
 	_ensure_id_tag()
 	controller._ensure_id_tag()

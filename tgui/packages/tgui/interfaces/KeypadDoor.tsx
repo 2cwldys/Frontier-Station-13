@@ -7,9 +7,11 @@ type KeypadDoorData = {
   doorName: string;
   codeSet: BooleanLike;
   locked: BooleanLike;
+  doorOpen: BooleanLike;
   setterName: string;
   canReset: BooleanLike;
   isAdmin: BooleanLike;
+  canHoldOpen: BooleanLike;
   entry: string;
   adminForcedOpen: BooleanLike;
 };
@@ -25,7 +27,7 @@ export const KeypadDoor = (props) => {
   const { act, data } = useBackend<KeypadDoorData>();
 
   return (
-    <Window width={340} height={420}>
+    <Window width={380} height={650}>
       <Window.Content>
         <Section title={data.doorName}>
           <LabeledList>
@@ -91,9 +93,18 @@ export const KeypadDoor = (props) => {
               ))}
             </Stack>
           ))}
+          {!!data.doorOpen && (
+            <Button
+              fluid
+              mt={0.5}
+              icon="door-closed"
+              content="Close Door"
+              onClick={() => act('close_door')}
+            />
+          )}
         </Section>
 
-        {(!!data.canReset || !!data.isAdmin) && (
+        {(!!data.canReset || !!data.isAdmin || !!data.canHoldOpen) && (
           <Section title="Administration">
             {!!data.canReset && (
               <Button
@@ -113,7 +124,7 @@ export const KeypadDoor = (props) => {
                 onClick={() => act('force_unlock')}
               />
             )}
-            {!!data.isAdmin && !data.adminForcedOpen && (
+            {!!data.canHoldOpen && !data.adminForcedOpen && (
               <Button
                 fluid
                 icon="door-open"
@@ -122,7 +133,7 @@ export const KeypadDoor = (props) => {
                 onClick={() => act('bolt_open')}
               />
             )}
-            {!!data.isAdmin && !!data.adminForcedOpen && (
+            {!!data.canHoldOpen && !!data.adminForcedOpen && (
               <Button
                 fluid
                 icon="undo"
