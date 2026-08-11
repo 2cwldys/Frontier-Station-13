@@ -193,6 +193,12 @@
 	return FALSE
 
 /obj/structure/machinery/door/airlock/proc/_link_to_controller(obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller, mob/user)
+	// Reached from BOTH directions -- multitooling the controller with this
+	// door buffered, and multitooling this door with the controller buffered.
+	// The controller's own attackby() guards the first; this guards the second.
+	if(!controller.can_modify_links(user))
+		to_chat(user, SPAN_WARNING("\The [controller] is tagged to [get_faction_name(controller.persistent_network)] -- you have no standing there to link to it."))
+		return
 	_ensure_id_tag()
 	controller._ensure_id_tag()
 	if(_unlink_from_controller(controller, user))
@@ -385,6 +391,9 @@
 /// subtype (see get_sensor_slot()) so the controller listens to this
 /// sensor's passive pressure reports.
 /obj/structure/machinery/airlock_sensor/proc/_link_to_controller(obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller, mob/user)
+	if(!controller.can_modify_links(user))
+		to_chat(user, SPAN_WARNING("\The [controller] is tagged to [get_faction_name(controller.persistent_network)] -- you have no standing there to link to it."))
+		return
 	_ensure_id_tag()
 	controller._ensure_id_tag()
 	var/linked = (master_tag == controller.id_tag) || (controller.tag_chamber_sensor == id_tag) || (controller.tag_exterior_sensor == id_tag) || (controller.tag_interior_sensor == id_tag)
@@ -655,6 +664,9 @@
 /// "cycle_interior"/"cycle_exterior" on the door-side preset subtypes below)
 /// is untouched by linking -- that's fixed by which subtype was built.
 /obj/structure/machinery/access_button/proc/_link_to_controller(obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller, mob/user)
+	if(!controller.can_modify_links(user))
+		to_chat(user, SPAN_WARNING("\The [controller] is tagged to [get_faction_name(controller.persistent_network)] -- you have no standing there to link to it."))
+		return
 	controller._ensure_id_tag()
 	if(master_tag == controller.id_tag)
 		master_tag = null

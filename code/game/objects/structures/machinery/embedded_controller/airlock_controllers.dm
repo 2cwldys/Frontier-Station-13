@@ -31,6 +31,39 @@
 	var/cycle_to_external_air = FALSE
 	var/has_interior_sensor
 	var/has_exterior_sensor
+	/// Faction tagger compatible var -- "" (untagged) or a real faction_uid.
+	/// Tagging a cycler controller locks its LINKS: only members of that
+	/// faction (or an admin) can add, remove or reset the doors, pumps and
+	/// sensors it drives. Without it, anyone with a multitool could rewire or
+	/// wipe a faction's airlock cycler -- which is both an access bypass (link
+	/// a chamber to doors you shouldn't control) and a griefing vector (clear
+	/// the links and strand the cycler mid-cycle). Untagged controllers behave
+	/// exactly as before, so ordinary construction is unaffected.
+	/// Persisted via worldstate_vars (persistence_worldstate.dm).
+	var/persistent_network = ""
+
+// ------- Faction tagger compatibility -------
+
+/obj/structure/machinery/embedded_controller/radio/airlock/faction_tagger_compatible()
+	return TRUE
+
+/obj/structure/machinery/embedded_controller/radio/airlock/faction_tagger_get_uid()
+	return persistent_network
+
+/obj/structure/machinery/embedded_controller/radio/airlock/faction_tagger_set(new_uid, mob/user)
+	persistent_network = new_uid || ""
+	return TRUE
+
+/// Whether user may change this controller's links.
+///
+/// Rank 0, deliberately not officer -- the bar is MEMBERSHIP of the owning
+/// faction, not seniority within it, matching the door button's own
+/// _can_link_faction_door(). Admins bypass, as everywhere else
+/// can_configure_faction_shackle() is used.
+/obj/structure/machinery/embedded_controller/radio/airlock/proc/can_modify_links(mob/user)
+	if(!persistent_network || persistent_network == "")
+		return TRUE
+	return can_configure_faction_shackle(user, persistent_network, 0)
 
 /obj/structure/machinery/embedded_controller/radio/airlock/Initialize(mapload, given_id_tag, given_frequency, given_tag_exterior_door, given_tag_interior_door, given_tag_airpump, given_tag_chamber_sensor)
 	. = ..()
@@ -137,6 +170,15 @@
 		return TRUE
 	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
 		var/obj/item/multitool/MT = attacking_item
+		// Covers every link change initiated FROM the controller -- doors,
+		// sensors, access buttons, pumps and the Reset Links wipe alike. The
+		// opposite direction (buffer this controller, then multitool the
+		// device) is gated separately inside each _link_to_controller()
+		// (airlock_control.dm); gating only one side would leave the other
+		// wide open.
+		if(!can_modify_links(user))
+			to_chat(user, SPAN_WARNING("\The [src] is tagged to [get_faction_name(persistent_network)] -- you have no standing there to change its links."))
+			return TRUE
 		var/obj/structure/machinery/door/airlock/door = MT.get_buffer(/obj/structure/machinery/door/airlock)
 		if(door)
 			door._link_to_controller(src, user)

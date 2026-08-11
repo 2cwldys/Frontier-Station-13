@@ -132,7 +132,28 @@
 /// unchanged) already matches purely on `id` equality. Generates this
 /// button's own id once, on first-ever link (not REF(), which isn't
 /// restart-stable -- both ends persist their `id` via worldstate_vars).
+/// Whether user may link/unlink a door carrying this faction tag.
+///
+/// Without this, buffer-linking is a clean access bypass: a faction-tagged door
+/// could be linked to a button anyone owns and then opened from that button,
+/// sidestepping the door's own access checks entirely. The same applies in
+/// reverse -- unlinking, or resetting a button, would let an outsider cut a
+/// faction's doors off from their own controls.
+///
+/// Untagged doors (persistent_network "") are unaffected: ordinary construction
+/// stays ordinary. Rank 0, deliberately not officer -- the bar is MEMBERSHIP of
+/// the owning faction, not seniority within it, since wiring a checkpoint is
+/// routine work rather than a command decision. Admins bypass, as everywhere
+/// else can_configure_faction_shackle() is used.
+/obj/structure/machinery/button/remote/blast_door/buildable/proc/_can_link_faction_door(mob/user, tagged_uid)
+	if(!tagged_uid || tagged_uid == "")
+		return TRUE
+	return can_configure_faction_shackle(user, tagged_uid, 0)
+
 /obj/structure/machinery/button/remote/blast_door/buildable/proc/_link_door(obj/structure/machinery/door/blast/D, mob/user)
+	if(!_can_link_faction_door(user, D.persistent_network))
+		to_chat(user, SPAN_WARNING("\The [D] is tagged to [get_faction_name(D.persistent_network)] -- you have no standing there to wire it to anything."))
+		return
 	if(!id)
 		id = "blastbtn_[rand(100000, 999999)]"
 	if(D.id == id)
@@ -147,6 +168,9 @@
 /// this file's own header comment for why that's a separate field from
 /// id_tag, not a reuse of it.
 /obj/structure/machinery/button/remote/blast_door/buildable/proc/_link_airlock(obj/structure/machinery/door/airlock/A, mob/user)
+	if(!_can_link_faction_door(user, A.persistent_network))
+		to_chat(user, SPAN_WARNING("\The [A] is tagged to [get_faction_name(A.persistent_network)] -- you have no standing there to wire it to anything."))
+		return
 	if(!id)
 		id = "blastbtn_[rand(100000, 999999)]"
 	if(A.door_button_tag == id)
@@ -178,6 +202,26 @@
 /// starts from a clean, freshly-generated tag instead of potentially
 /// missing a door somehow left stale.
 /obj/structure/machinery/button/remote/blast_door/buildable/proc/_reset_links(mob/user)
+	// Checked BEFORE anything is cleared. A reset unlinks every door at once,
+	// so without this an outsider could cut a faction's whole checkpoint off
+	// from its own controls in one click -- the same bypass _link_door() closes,
+	// just applied wholesale. Refuse the entire reset rather than partially
+	// clearing it: leaving a button half-linked is worse than leaving it alone.
+	var/list/blocked = list()
+	for(var/obj/structure/machinery/door/D in _get_linked_doors())
+		var/tagged_uid = ""
+		if(istype(D, /obj/structure/machinery/door/blast))
+			var/obj/structure/machinery/door/blast/BD = D
+			tagged_uid = BD.persistent_network
+		else if(istype(D, /obj/structure/machinery/door/airlock))
+			var/obj/structure/machinery/door/airlock/AL = D
+			tagged_uid = AL.persistent_network
+		if(!_can_link_faction_door(user, tagged_uid))
+			blocked |= get_faction_name(tagged_uid)
+	if(length(blocked))
+		to_chat(user, SPAN_WARNING("\The [src] controls doors tagged to [english_list(blocked)] -- you have no standing there, so it can't be reset."))
+		return
+
 	var/count = 0
 	for(var/obj/structure/machinery/door/D in _get_linked_doors())
 		if(istype(D, /obj/structure/machinery/door/blast))
