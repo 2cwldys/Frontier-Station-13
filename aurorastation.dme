@@ -2773,6 +2773,7 @@
 #include "code\modules\mining\mine_items.dm"
 #include "code\modules\mining\mine_turf_types.dm"
 #include "code\modules\mining\mine_turfs.dm"
+#include "code\modules\mining\mine_turfs_buildable.dm"
 #include "code\modules\mining\minebot.dm"
 #include "code\modules\mining\mineral_effect.dm"
 #include "code\modules\mining\mint.dm"

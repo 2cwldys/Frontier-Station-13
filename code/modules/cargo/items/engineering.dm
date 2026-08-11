@@ -1310,6 +1310,20 @@
 	groupable = TRUE
 	spawn_amount = 1
 
+/singleton/cargo_item/rfd_asteroid
+	category = "engineering"
+	name = "Rapid Fabrication Device A-Class"
+	supplier = "Hub"
+	description = "A RFD, modified to construct camouflaged asteroid rock formations."
+	price = 45
+	items = list(
+		/obj/item/rfd/asteroid
+	)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
 /singleton/cargo_item/rfd_ammo
 	category = "engineering"
 	name = "compressed matter cartridge"
