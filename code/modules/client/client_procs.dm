@@ -624,9 +624,14 @@ GLOBAL_VAR_INIT(log_player_connections, TRUE)
 	// bunker/young-account denial) already returns or del(src)s before
 	// reaching here, so this only ever fires for a connection that was
 	// genuinely let through -- once per real connect. log_admin() already
-	// mirrors to Discord on its own (EXPORT_ADMIN_LOG_TO_DISCORD, admin.dm).
+	// mirrors to Discord on its own (EXPORT_ADMIN_LOG_TO_DISCORD, admin.dm),
+	// but never pushes anything live -- message_admins() is the one that
+	// actually to_chat()s the blue "ADMIN LOG:" line to online admins/mods,
+	// so both are needed to get the persisted copy AND the live one.
 	if(GLOB.log_player_connections)
-		log_admin("Connected: [key_name_admin(src)]")
+		var/conn_msg = "Connected: [key_name_admin(src)]"
+		log_admin(conn_msg)
+		message_admins(conn_msg)
 
 //////////////
 //DISCONNECT//
@@ -646,9 +651,14 @@ GLOBAL_VAR_INIT(log_player_connections, TRUE)
 	// body swap (aghost reattach, ckey moved to a new mob) without the
 	// client ever disconnecting. Logged first, before any cleanup below
 	// touches key/ckey/address. log_admin() already mirrors to Discord on
-	// its own (EXPORT_ADMIN_LOG_TO_DISCORD, admin.dm).
+	// its own (EXPORT_ADMIN_LOG_TO_DISCORD, admin.dm), but never pushes
+	// anything live -- message_admins() is the one that actually
+	// to_chat()s the blue "ADMIN LOG:" line to online admins/mods, so both
+	// are needed to get the persisted copy AND the live one.
 	if(GLOB.log_player_connections)
-		log_admin("Disconnected: [key_name_admin(src)]")
+		var/disc_msg = "Disconnected: [key_name_admin(src)]"
+		log_admin(disc_msg)
+		message_admins(disc_msg)
 	GLOB.ticket_panels -= src
 	GLOB.staff -= src
 	GLOB.directory -= ckey

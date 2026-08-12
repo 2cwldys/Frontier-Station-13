@@ -192,6 +192,7 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/client/proc/cmd_ss_panic,
 	/client/proc/configure_access_control,
 	/datum/admins/proc/togglehubvisibility, //toggles visibility on the BYOND Hub
+	/client/proc/toggleconnectionlogging, //toggles admin-log/Discord lines for player connect/disconnect
 	/client/proc/force_away_mission,
 	/datum/admins/proc/force_persistence_save,
 	/datum/admins/proc/capture_world_template,
