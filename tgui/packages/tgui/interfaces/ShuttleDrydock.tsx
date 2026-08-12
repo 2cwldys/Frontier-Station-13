@@ -27,6 +27,7 @@ type DrydockData = {
   can_board: BooleanLike;
   board_cooldown: number;
   can_disembark: BooleanLike;
+  ship_retrieving: BooleanLike;
 };
 
 export const ShuttleDrydock = (props) => {
@@ -111,12 +112,19 @@ export const ShuttleDrydock = (props) => {
                 <Button
                   fluid
                   icon="street-view"
-                  disabled={!data.can_board}
+                  disabled={data.ship_retrieving || !data.can_board}
+                  tooltip={
+                    data.ship_retrieving
+                      ? 'That ship is still being retrieved -- wait until it is ready to board.'
+                      : undefined
+                  }
                   onClick={() => act('board')}
                 >
-                  {data.can_board
+                  {data.ship_retrieving
                     ? 'Enter Ship'
-                    : `Enter Ship (${data.board_cooldown}s)`}
+                    : data.can_board
+                      ? 'Enter Ship'
+                      : `Enter Ship (${data.board_cooldown}s)`}
                 </Button>
               )}
               <Button

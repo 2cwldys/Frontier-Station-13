@@ -1190,6 +1190,18 @@
 					else
 						var/atom/O = new path(target)
 						if(O)
+							// Stacks default to amount = 1 (stack.dm) unless
+							// New()'s optional amount arg is passed, which
+							// this admin spawner never does -- bump every
+							// spawned stack to a full one instead of a
+							// single-unit stack, same update_icon() call
+							// Initialize() itself already makes after
+							// setting amount.
+							if(istype(O, /obj/item/stack))
+								var/obj/item/stack/S = O
+								if(S.max_amount)
+									S.amount = S.max_amount
+									S.update_icon()
 							O.set_dir(obj_dir)
 							if(obj_name)
 								O.name = obj_name

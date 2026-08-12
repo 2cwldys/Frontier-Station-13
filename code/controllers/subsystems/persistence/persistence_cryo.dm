@@ -1002,16 +1002,23 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 
 /**
  * Teleport a list of atoms to the destination turf with a flash effect.
+ * skip_effects: TRUE when the caller already showed its own arrival cue
+ * (Travel Pad's _telepad_phase_arrival() + spark(), telepad_travel.dm) --
+ * skips this proc's own spark/transport.ogg so the destination doesn't get
+ * both. Defaults FALSE, unchanged for every other caller (cargo delivery,
+ * the supply beacon).
  */
-/proc/persistence_telepad_deliver(list/items, turf/destination)
+/proc/persistence_telepad_deliver(list/items, turf/destination, skip_effects = FALSE)
 	if(!destination || !length(items))
 		return
 	for(var/atom/movable/A in items)
 		if(QDELETED(A)) continue
 		A.forceMove(destination)
+	if(skip_effects)
+		return
 	// Visual/audio feedback at the destination
 	spark(destination, 5, GLOB.alldirs)
-	playsound(destination, 'sound/effects/phasein.ogg', 50, 1)
+	playsound(destination, 'sound/effects/transport.ogg', 50, 1)
 
 // ============================================================
 // NEURAL LACE ADMIN VERB

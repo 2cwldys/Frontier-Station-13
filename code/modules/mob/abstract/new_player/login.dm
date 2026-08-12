@@ -1,3 +1,9 @@
+/// Set the first time LateLogin() (below) handles the welcome line/music
+/// for this client -- lives on /client, not the new_player mob, so it
+/// survives a mob returning to character select mid-connection (cryo) and
+/// actually gates this to once per real connection.
+/client/var/welcomed_this_connection = FALSE
+
 /mob/abstract/new_player
 	var/datum/persistent_menu/persistent_menu_datum
 	/// Resolved by _resolve_welcome_line(), fired immediately from
@@ -36,12 +42,24 @@
 	// only once the welcome line has actually finished (see
 	// _play_welcome_line()) instead of racing it.
 	show_persistent_menu()
-	// Fired now, not deferred -- the WELCOME_BACK_VOICE_LINES DB lookup this
-	// does is pure server-side work, unrelated to the client's own
-	// bandwidth (unlike the sound file itself), so it gets the full second
-	// below to resolve instead of adding its own latency on top of it.
-	_resolve_welcome_line()
-	addtimer(CALLBACK(src, PROC_REF(_play_welcome_line)), 1 SECOND)
+	// LateLogin() fires again every time this client's mob becomes a FRESH
+	// /mob/abstract/new_player instance -- not just on the true first
+	// connect, but also e.g. returning to character select after cryo-ing
+	// mid-round. welcomed_this_connection (a /client var, so it survives
+	// that mob churn) makes this genuinely once-per-connection, matching
+	// what the rest of this system already assumes.
+	if(client && !client.welcomed_this_connection)
+		client.welcomed_this_connection = TRUE
+		// INVOKE_ASYNC, not a direct call -- _resolve_welcome_line() calls
+		// SSdbcore.Connect() first, which has no yield point of its own
+		// (one straight-line native call). A direct call, even with
+		// waitfor=FALSE on the callee, still runs synchronously up to ITS
+		// OWN first yield -- so without this, a slow/unreachable DB blocks
+		// LateLogin(), and with it the entire single-threaded world, for
+		// however long that connection attempt takes. INVOKE_ASYNC hands
+		// control back here immediately regardless.
+		INVOKE_ASYNC(src, PROC_REF(_resolve_welcome_line))
+		addtimer(CALLBACK(src, PROC_REF(_play_welcome_line)), 1 SECOND)
 
 /**
  * Resolves welcome_line ahead of _play_welcome_line() actually playing it --
@@ -85,7 +103,13 @@
 		return
 	if(client.prefs && (client.prefs.sfx_toggles & ASFX_ANNOUNCER))
 		play_announcer_sound(src, welcome_line)
-		addtimer(CALLBACK(client, /client/proc/playtitlemusic), GLOB.announcer_sound_durations[welcome_line] || 3 SECONDS)
+		// "[welcome_line]" -- welcome_line is a file (sound resource)
+		// value; the list is keyed by plain strings, same coercion
+		// play_announcer_sound() itself uses for this identical lookup
+		// (announce.dm). Without it this always misses and silently falls
+		// back to the 2-second default below, regardless of which line
+		// actually played.
+		addtimer(CALLBACK(client, /client/proc/playtitlemusic), GLOB.announcer_sound_durations["[welcome_line]"] || 2 SECONDS)
 	else
 		client.playtitlemusic()
 

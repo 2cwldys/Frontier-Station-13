@@ -41,6 +41,14 @@
 	flick(icon_state, src)
 	addtimer(CALLBACK(src, PROC_REF(_loop_animation)), PHASE_SPOOL_ANIM_LENGTH)
 
+/// One-shot arrival cue for instant-delivery telepads (no 15s spool-up
+/// channel) that used to show the old fading portal sprite + phasein.ogg --
+/// same phasein-blue sprite/loop as the spool variant above, just a fixed,
+/// short 2 seconds instead of a dead-man's-switch duration, and no
+/// forward/reverse alternation (see _telepad_phase_arrival(), telepad_travel.dm).
+/obj/effect/temp_visual/phase/spool/short
+	duration = 2 SECONDS
+
 /obj/effect/temp_visual/phase/rift
 	icon = 'icons/obj/rig_modules.dmi'
 	icon_state = "rift"

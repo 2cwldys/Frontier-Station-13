@@ -59,6 +59,7 @@
 		if(M == L)
 			continue
 		M.show_message(message, 1)
+	L.show_message(SPAN_NOTICE("You [materializing ? "materialize" : "dematerialize"]."), 1)
 
 /// Fires _travel_spool_pulse() immediately, then every 5 seconds until
 /// duration -- personal_travel.dm's original 15s/3-pulse cadence (t=0/5/10),
@@ -118,6 +119,18 @@
 			addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_travel_transport_pulse), origin, destination, still_valid, reverted), t)
 		reverted = !reverted
 		t += 5 SECONDS
+
+/// One-shot "someone's arriving via phase" cue at T -- the same phasein-blue
+/// sprite/loop as the spool variant above, but fixed at a short 2 seconds
+/// with no forward/reverse alternation, plus a single transport.ogg play.
+/// For instant-delivery telepads with no 15-second spool-up channel at all
+/// (Travel Pad, First Responder) that used to show the old fading portal
+/// sprite + phasein.ogg instead.
+/proc/_telepad_phase_arrival(turf/T)
+	if(!T)
+		return
+	new /obj/effect/temp_visual/phase/spool/short(T)
+	playsound(T, 'sound/effects/transport.ogg', 40, FALSE)
 
 /// Keeps origin_fx/destination_fx (temp_visual/phase/spool instances, either
 /// of which may be null) alive for up to `remaining` more deciseconds,
@@ -306,23 +319,22 @@
 		to_chat(L, SPAN_WARNING("The destination pad is obstructed."))
 		return FALSE
 
-	// Cosmetic-only portal + spark burst at both ends, matching First
+	// Cosmetic-only phase effect + spark burst at both ends, matching First
 	// Responder's own jump effect (first_responder.dm's first_responder_jump())
-	// -- null target/creator means this never actually teleports anything
-	// itself, the real move is still the forceMove() inside
-	// persistence_telepad_deliver() below.
+	// -- this never actually teleports anything itself, the real move is
+	// still the forceMove() inside persistence_telepad_deliver() below.
 	var/turf/origin = get_turf(L)
 	if(origin)
-		new /obj/effect/portal/decorative/fading(origin, null, null, 5 SECONDS, 0)
+		_telepad_phase_arrival(origin)
 		spark(origin, 3, GLOB.alldirs)
-	new /obj/effect/portal/decorative/fading(destination, null, null, 5 SECONDS, 0)
+	_telepad_phase_arrival(destination)
 	spark(destination, 3, GLOB.alldirs)
 
 	last_used_by_ckey[L.ckey] = world.time
 	var/list/payload = list(L)
 	if(L.pulling && !QDELETED(L.pulling))
 		payload += L.pulling
-	persistence_telepad_deliver(payload, destination)
+	persistence_telepad_deliver(payload, destination, skip_effects = TRUE)
 	to_chat(L, SPAN_GOOD("You step through the pad."))
 	return TRUE
 
@@ -380,14 +392,19 @@
 		to_chat(user, SPAN_WARNING("The pad is still recalibrating -- wait a moment."))
 		return FALSE
 
+	// Cargo-only transfer keeps the original decorative portal sprite (the
+	// blue phase effect is for people passing through, not crates/items) --
+	// only the sound changed, to transport.ogg.
 	var/turf/origin = get_turf(src)
 	new /obj/effect/portal/decorative/fading(origin, null, null, 5 SECONDS, 0)
 	spark(origin, 3, GLOB.alldirs)
+	playsound(origin, 'sound/effects/transport.ogg', 40, FALSE)
 	new /obj/effect/portal/decorative/fading(destination, null, null, 5 SECONDS, 0)
 	spark(destination, 3, GLOB.alldirs)
+	playsound(destination, 'sound/effects/transport.ogg', 40, FALSE)
 
 	last_used_by_ckey[user.ckey] = world.time
-	persistence_telepad_deliver(payload, destination)
+	persistence_telepad_deliver(payload, destination, skip_effects = TRUE)
 	to_chat(user, SPAN_GOOD("The pad hums and sends its contents through to the linked pad."))
 	return TRUE
 
