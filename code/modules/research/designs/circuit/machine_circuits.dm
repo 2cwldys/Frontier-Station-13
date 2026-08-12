@@ -237,6 +237,11 @@
 	req_tech = list(TECH_BLUESPACE = 3, TECH_DATA = 2, TECH_ENGINEERING = 2)
 	build_path = /obj/item/circuitboard/travel_pad
 
+/datum/design/circuit/machine/umbilical_pad
+	name = "Umbilical Pad"
+	req_tech = list(TECH_BLUESPACE = 3, TECH_DATA = 2, TECH_ENGINEERING = 2)
+	build_path = /obj/item/circuitboard/umbilical_pad
+
 /datum/design/circuit/machine/cargo_trolley
 	name = "Cargo Trolley"
 	req_tech = list(TECH_DATA = 1, TECH_ENGINEERING = 1)

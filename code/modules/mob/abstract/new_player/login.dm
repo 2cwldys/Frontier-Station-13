@@ -1,5 +1,16 @@
+/// Set the first time LateLogin() (below) handles the welcome line/music
+/// for this client -- lives on /client, not the new_player mob, so it
+/// survives a mob returning to character select mid-connection (cryo) and
+/// actually gates this to once per real connection.
+/client/var/welcomed_this_connection = FALSE
+
 /mob/abstract/new_player
 	var/datum/persistent_menu/persistent_menu_datum
+	/// Resolved by _resolve_welcome_line(), fired immediately from
+	/// LateLogin() rather than deferred, so its DB lookup has the full
+	/// 1-second head start to finish before _play_welcome_line() actually
+	/// plays it -- see both procs below.
+	var/welcome_line = 'sound/AI/announcements/welcome_to_frontier_station.ogg'
 
 /mob/abstract/new_player/LateLogin()
 	..()
@@ -24,11 +35,83 @@
 		to_chat(src, MATRIX_NOTICE("Running commit <a href='[commit_url]'>[copytext(GLOB.revdata.revision, 1, 8)]</a>"))
 #endif
 
-	// Open the Character Select UI first so it isn't competing with the lobby
-	// music download for the same connection right at first impression --
-	// music starts a moment later, once the UI has already had a head start.
+	// Open the Character Select UI first so it isn't competing with the
+	// welcome line's own download for the same connection right at first
+	// impression -- the welcome line starts a moment later, once the UI has
+	// already had a head start, and the lobby music is chained to start
+	// only once the welcome line has actually finished (see
+	// _play_welcome_line()) instead of racing it.
 	show_persistent_menu()
-	addtimer(CALLBACK(client, /client/proc/playtitlemusic), 1 SECOND)
+	// LateLogin() fires again every time this client's mob becomes a FRESH
+	// /mob/abstract/new_player instance -- not just on the true first
+	// connect, but also e.g. returning to character select after cryo-ing
+	// mid-round. welcomed_this_connection (a /client var, so it survives
+	// that mob churn) makes this genuinely once-per-connection, matching
+	// what the rest of this system already assumes.
+	if(client && !client.welcomed_this_connection)
+		client.welcomed_this_connection = TRUE
+		// INVOKE_ASYNC, not a direct call -- _resolve_welcome_line() calls
+		// SSdbcore.Connect() first, which has no yield point of its own
+		// (one straight-line native call). A direct call, even with
+		// waitfor=FALSE on the callee, still runs synchronously up to ITS
+		// OWN first yield -- so without this, a slow/unreachable DB blocks
+		// LateLogin(), and with it the entire single-threaded world, for
+		// however long that connection attempt takes. INVOKE_ASYNC hands
+		// control back here immediately regardless.
+		INVOKE_ASYNC(src, PROC_REF(_resolve_welcome_line))
+		addtimer(CALLBACK(src, PROC_REF(_play_welcome_line)), 1 SECOND)
+
+/**
+ * Resolves welcome_line ahead of _play_welcome_line() actually playing it --
+ * WELCOME_TO_FRONTIER_STATION by default, or WELCOME_BACK for a ckey that's
+ * certifiably spawned a character at least once before (SQL COUNT against
+ * ss13_characters' first_spawned_at column, the same "has this character
+ * actually been played" signal new_player.dm's own starter-PDA grant already
+ * uses) -- only under WELCOME_BACK_VOICE_LINES; leave that undefined to
+ * always play the plain welcome line with no DB query at all.
+ */
+/mob/abstract/new_player/proc/_resolve_welcome_line()
+	set waitfor = FALSE
+	if(!client)
+		return
+#ifdef WELCOME_BACK_VOICE_LINES
+	if(GLOB.config.sql_saves && SSdbcore.Connect())
+		var/datum/db_query/query = SSdbcore.NewQuery(
+			"SELECT COUNT(*) FROM ss13_characters WHERE ckey = :ckey AND first_spawned_at IS NOT NULL",
+			list("ckey" = client.ckey))
+		query.Execute()
+		if(query.NextRow())
+			if((text2num(query.item[1]) || 0) > 0)
+				welcome_line = 'sound/AI/announcements/welcome_back.ogg'
+		qdel(query)
+#endif
+
+/**
+ * Plays the one-time lobby-connect welcome voice line welcome_line already
+ * resolved to, then chains the lobby music to start right as it finishes --
+ * GLOB.announcer_sound_durations (_announcer_sound_durations.dm) is the
+ * same known-length table play_announcer_sound() itself already consumes
+ * for its own per-client queue, so this doesn't invent a second source of
+ * truth for how long the line runs. Gated the same way every other
+ * play_announcer_sound() call site gates itself (ASFX_ANNOUNCER,
+ * client.prefs already loaded by LateLogin() -- InitPrefs() runs before it
+ * in client/New()) -- if no line is going to play at all (sound disabled),
+ * the music starts immediately instead of waiting on nothing.
+ */
+/mob/abstract/new_player/proc/_play_welcome_line()
+	if(!client)
+		return
+	if(client.prefs && (client.prefs.sfx_toggles & ASFX_ANNOUNCER))
+		play_announcer_sound(src, welcome_line)
+		// "[welcome_line]" -- welcome_line is a file (sound resource)
+		// value; the list is keyed by plain strings, same coercion
+		// play_announcer_sound() itself uses for this identical lookup
+		// (announce.dm). Without it this always misses and silently falls
+		// back to the 2-second default below, regardless of which line
+		// actually played.
+		addtimer(CALLBACK(client, /client/proc/playtitlemusic), GLOB.announcer_sound_durations["[welcome_line]"] || 2 SECONDS)
+	else
+		client.playtitlemusic()
 
 /// A spawn attempt aborted after PersistentAutoSpawn() closed the menu and
 /// flagged spawning -- reset and give the menu back so the player isn't stranded.

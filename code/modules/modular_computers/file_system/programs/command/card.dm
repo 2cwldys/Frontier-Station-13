@@ -90,6 +90,10 @@ GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 		data["can_leave_faction"] = FALSE
 		data["clocked_in"] = FALSE
 
+	var/hub_cooldown_remaining = user.ckey ? get_hub_law_book_cooldown_remaining(user.ckey) : 0
+	data["can_print_hub_laws"] = hub_cooldown_remaining <= 0
+	data["hub_law_cooldown_text"] = hub_cooldown_remaining > 0 ? DisplayTimeText(hub_cooldown_remaining) : null
+
 	return data
 
 /datum/computer_file/program/card_mod/ui_static_data(mob/user)
@@ -254,7 +258,7 @@ GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 							assign_owner_ckey = H.ckey
 							break
 					if(assign_owner_ckey && !get_faction_member(assign_owner_ckey, assign_id_net))
-						SSpersistence.factionRegisterMember(assign_owner_ckey, id_card.registered_name, assign_id_net, id_card.assignment, 0)
+						SSpersistence.factionRegisterMember(assign_owner_ckey, id_card.registered_name, assign_id_net, id_card.assignment, FACTION_RANK_CIVILIAN)
 
 				SSrecords.reset_manifest()
 				callHook("reassign_employee", list(id_card))
@@ -317,7 +321,7 @@ GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 				// if they are, so an existing officer/command rank is never
 				// silently reset back to 0 by a routine card reprint.
 				if(!get_faction_member(user.ckey, repl_net))
-					SSpersistence.factionRegisterMember(user.ckey, user.real_name, repl_net, new_card.assignment, 0)
+					SSpersistence.factionRegisterMember(user.ckey, user.real_name, repl_net, new_card.assignment, FACTION_RANK_CIVILIAN)
 			new_card.update_name()
 
 			// Re-apply access for the job
@@ -468,10 +472,24 @@ GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 			// Dispense new blank faction ID
 			var/obj/item/card/id/new_card = new /obj/item/card/id(get_turf(computer))
 			new_card.registered_name      = user.real_name
-			new_card.assignment           = "Unassigned"
-			new_card.rank                 = "Unassigned"
+			// "Civilian", not "Unassigned" -- that exact string is what
+			// human_holds_any_job() (hostile_npc.dm) tests for, and it is what
+			// portable_turret.dm's assess_living() and hostile-NPC friend/foe
+			// already use to decide who is NOT exempt from their own faction's
+			// guns. Saying "Unassigned" made a self-printed card read as a job
+			// holder and quietly bought immunity from the faction whose console
+			// printed it.
+			new_card.assignment           = "Civilian"
+			new_card.rank                 = "Civilian"
 			new_card.employer_faction     = disp_net
 			new_card.associated_account_number = dispense_acct
+			// A self-printed card is a civilian one: general station movement
+			// only, nothing departmental. Same access the Assistant job gets
+			// (/datum/job/assistant/get_access(), ship_crew.dm) and gated on the
+			// same server toggle, so "what the bottom tier may open" stays one
+			// decision rather than two that can disagree. Real access comes with
+			// a real job assignment through Faction Management.
+			new_card.access = GLOB.config.assistant_maint ? list(ACCESS_MAINT_TUNNELS) : list()
 			new_card.update_name()
 			if(istype(user, /mob/living/carbon/human))
 				var/mob/living/carbon/human/H = user
@@ -481,8 +499,21 @@ GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 					H.employer_faction = disp_net
 				H.set_id_info(new_card)
 			user.put_in_hands(new_card)
-			// Register member record in DB and save account number for payroll
-			SSpersistence.factionRegisterMember(user.ckey, user.real_name, disp_net)
+			// Register member record in DB and save account number for payroll.
+			// CIVILIAN, not CREW: printing yourself a card is not employment.
+			// The row has to exist (payroll, account number, clock-in all key
+			// off it), but it must not confer the standing an actual rank-0 job
+			// does -- otherwise anyone who ever touched a faction console counts
+			// as crew of that faction. Only a real job assignment through
+			// Faction Management issues CREW or above.
+			//
+			// Guarded like the other registration sites in this file, and it
+			// matters more here: factionRegisterMember() is an upsert that
+			// overwrites rank, so an unguarded call would DEMOTE an existing
+			// employee to civilian every time they printed themselves a card.
+			// Someone already employed keeps whatever rank they earned.
+			if(!get_faction_member(user.ckey, disp_net))
+				SSpersistence.factionRegisterMember(user.ckey, user.real_name, disp_net, null, FACTION_RANK_CIVILIAN)
 			if(dispense_acct)
 				SSpersistence.factionUpdateMemberAccount(user.ckey, disp_net, dispense_acct)
 			// Resolve the live account datum regardless of which step above found
@@ -605,6 +636,21 @@ GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 			log_game("[key_name(user)] clocked [new_clock_state ? "in" : "out"] with faction '[clock_net]' via ID Card Modification.")
 			. = TRUE
 
+		// ── Print hub law book (self-service, 1 per 10 hours) ─────────────
+		if("print_hub_laws")
+			if(!computer || !user.ckey)
+				return
+			var/hub_cooldown_remaining = get_hub_law_book_cooldown_remaining(user.ckey)
+			if(hub_cooldown_remaining > 0)
+				to_chat(user, SPAN_WARNING("You can't print another hub law book yet -- try again in [DisplayTimeText(hub_cooldown_remaining)]."))
+				return
+			set_hub_law_book_print_time(user.ckey)
+			var/obj/item/book/hub_laws/new_book = new(get_turf(computer))
+			user.put_in_hands(new_book)
+			to_chat(user, SPAN_GOOD("You print a hub law book."))
+			log_game("[key_name(user)] printed a hub law book via [computer].")
+			. = TRUE
+
 		// ── Faction job assign ────────────────────────────────────────────
 		if("faction_assign")
 			if(!computer || !can_run(user, 1, ACCESS_CHANGE_IDS) || !id_card || !computer.persistent_network)
@@ -704,7 +750,7 @@ GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 		// as a non-member. Skip if already a member so a routine reprint
 		// never resets an existing officer/command rank back to 0.
 		if(!get_faction_member(user.ckey, verb_repl_net))
-			SSpersistence.factionRegisterMember(user.ckey, user.real_name, verb_repl_net, new_card.assignment, 0)
+			SSpersistence.factionRegisterMember(user.ckey, user.real_name, verb_repl_net, new_card.assignment, FACTION_RANK_CIVILIAN)
 	new_card.update_name()
 
 	var/datum/job/jobdatum
@@ -789,3 +835,48 @@ GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 	set src in view(2)
 
 	do_print_replacement(usr)
+
+/*
+ * Hub Law Book -- printed via the ID Card Modification program's own Hub
+ * Laws category (print_hub_laws above), 1 per ckey every
+ * HUB_LAW_BOOK_PRINT_COOLDOWN. Read-only (unique = TRUE blocks the base
+ * /obj/item/book's own pen-edit action) and always shows the CURRENT
+ * GLOB.hub_law_text (persistence.dm), not whatever it was at print time --
+ * every copy in circulation reflects the same live, admin-edited text.
+ */
+/obj/item/book/hub_laws
+	name = "hub law book"
+	desc = "A slim, blue-bound book listing the laws and regulations of the Hub."
+	color = "#2255aa"
+	unique = TRUE
+	title = "Hub Laws"
+	author = "The Hub Authority"
+	// Every copy in circulation shows the same live GLOB.hub_law_text, not
+	// content actually stored on this instance -- wearing/breaking it (or
+	// needing repair) would mean nothing anyway, so don't bother tracking it.
+	degrades_with_use = FALSE
+
+	// Mirrors /obj/effect/decal/cleanable's own claim-tracking vars, same as
+	// every other cleanbot litter type (shards.dm, cigs_lighters.dm,
+	// ammunition.dm) -- /obj/item has neither var declared generically, so
+	// without these, cleanbot.dm's I.vars["clean_marked"]/["being_cleaned"]
+	// writes silently no-op (you can't set an undeclared var through the
+	// vars[] accessor), every read back comes back null, and
+	// handle_target()'s very first check reads that null as "claimed by
+	// something else" and immediately abandons the target -- every time,
+	// before ever pathing to or cleaning one.
+	var/being_cleaned = FALSE
+	var/datum/weakref/clean_marked = null
+
+/obj/item/book/hub_laws/attack_self(mob/user)
+	if(!GLOB.hub_law_text)
+		to_chat(user, "This book is completely blank!")
+		return
+	// nl2br() (__HELPERS/text.dm) -- raw \n does nothing in HTML, it just
+	// collapses to whitespace, so admin-typed line breaks (modify_hub_laws(),
+	// persistence_factions.dm) were silently lost the instant this got
+	// dropped into the book's browse() window.
+	user << browse(HTML_SKELETON("<TT><I>Penned by [author].</I></TT> <BR>" + nl2br(GLOB.hub_law_text)), "window=book")
+	user.visible_message("[user] opens a book titled \"[title]\" and begins reading intently.")
+	playsound(loc, 'sound/items/bureaucracy/bookopen.ogg', 50, TRUE)
+	onclose(user, "book")

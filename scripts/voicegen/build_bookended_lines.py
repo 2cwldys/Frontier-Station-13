@@ -37,7 +37,38 @@ LINES = [
     "raiding_prohibited",
     "engines_powered_on",
     "engines_powered_off",
+    "shields_online",
+    "shields_maximum",
+    "shields_fifty_percent",
+    "shields_twenty_five_percent",
+    "shields_are_down",
+    "shields_are_offline",
+    "target_lock_acquired",
+    "firing_weapons",
+    "enemy_shields_at_max",
+    "enemy_shields_at_fifty_percent",
+    "enemy_shields_at_twenty_five_percent",
+    "enemy_shields_are_down",
+    "enemy_ship_no_shields",
+    "retrieving_ship_please_wait",
+    "stashing_ship_please_wait",
+    "ship_ready_to_board",
+    "ship_successfully_stashed",
+    "boarding_the_ship",
+    "exiting_ship",
+    "cloak_online",
+    "cloak_offline",
 ]
+# Tractor beam + lobby welcome lines are NOT included above -- their source
+# recording names (TRACTOR_BEAM_ENGAGED.mp3 etc.) don't match their
+# destination .ogg stems 1:1 (e.g. TRACTOR_BEAM_DISENGAGED.mp3 ->
+# tractor_beam_released.ogg), unlike every line above. Appending them here
+# with mismatched names would silently look for the wrong source file on a
+# future rebuild. See build_tractor_and_welcome_lines.py instead, which
+# has the real source->dest mapping and merges into the duration manifest
+# rather than overwriting it (most of the sources above are no longer in
+# SOURCE_DIR, so a full rebuild from this file alone isn't currently
+# possible anyway).
 
 # Pushed well past sound/AI/Voice how-to.txt's documented Audacity chain --
 # bigger room, more wet signal, and low damping so the tail rings out

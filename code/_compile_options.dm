@@ -31,6 +31,31 @@
 // players don't see internal tag/ref debug info in a normal console.
 //#define AIRLOCK_CYCLER_DIAGNOSTICS
 
+// If defined, a shuttle console that finds no valid landing sites also
+// reports WHY each nearby destination was refused -- in chat when Choose
+// Destination comes up empty, and as a section on the console itself. The
+// text names raw turf types and coordinates, so comment this out for a
+// live/production build; defined by default while docking geometry is still
+// being actively tested.
+//#define DOCKING_REFUSAL_DIAGNOSTICS
+
+// If defined, ship engines log their own ship-registration attempt (whether
+// the SSshuttle.ships scan ran, which area the engine is actually in, and
+// whether check_ownership() matched) plus every backup fuel draw, and the
+// commission capture logs what it captured. For chasing the "no engines
+// detected" / fuel port not reaching the engine terminal problem -- comment
+// out to strip it entirely.
+//#define DRYDOCK_ENGINE_DIAGNOSTICS
+
+// If defined, restoring a saved /turf/simulated/wall logs whether the row
+// carried a saved material, what material the turf actually ended up with,
+// and its icon var before/after the restore path's own guarantee step runs.
+// For chasing a restored wall showing icon=null despite ChangeTurf()'s own
+// Initialize() supposedly assigning a default material -- comment out to
+// strip it entirely. Defined by default while this is still being actively
+// chased.
+#define WALL_RESTORE_DIAGNOSTICS
+
 // If defined, the floor-item persistence path logs every decision it makes
 // for a faction-tagged clothing item: which branch dropped it (if any),
 // whether its extra state blob was built, and which restore branch ran on
@@ -49,7 +74,7 @@
 // hardcoded by uid, without actually making it Hub.
 #define FACTION_CARGO_CATEGORY_ALL "*all*"
 
-// If defined, world.visibility is toggled off then back on ~4 seconds after
+// If defined, world.visibility is toggled off then back on ~10 seconds after
 // the persistence world-ready gate finishes (persistence_world_ready.dm) --
 // works around BYOND's hub-announce apparently needing an explicit runtime
 // change to world.visibility rather than firing off its already-TRUE default
@@ -63,6 +88,14 @@
 // character wakes from cryo (new_player.dm). Defined by default -- comment
 // out to strip revision/build info from what players can see entirely.
 #define SHOW_GIT_LOG
+
+// If defined, a connecting player who has certifiably spawned a character
+// at least once before hears WELCOME_BACK instead of
+// WELCOME_TO_FRONTIER_STATION when they reach the lobby (ss13_characters'
+// first_spawned_at column, via a new SQL COUNT query -- requires
+// GLOB.config.sql_saves). Off -- every connecting player always hears
+// WELCOME_TO_FRONTIER_STATION regardless of history, no DB query at all.
+//#define WELCOME_BACK_VOICE_LINES
 
 // If defined, the server automatically triggers a deployment sync
 // (scripts/deploy.sh / deploy.ps1, same as the "Sync Deployment Branch"
@@ -82,6 +115,14 @@
 // leave undefined to keep admin logs server-local only.
 //#define EXPORT_ADMIN_LOG_TO_DISCORD
 
+// If defined, faction-tagged equipment can only be WORN by people employed by
+// that faction (can_use_faction_equipment(), persistence_factions.dm) -- gated
+// in mob_can_equip() (items.dm) so every equip route is covered at once.
+// Untagged and "public" gear is never affected, and carrying/storing/
+// confiscating tagged gear stays unrestricted either way: only wearing is.
+// Comment out to let anyone wear anything, as before this existed.
+//#define FACTION_EQUIPMENT_WEAR_LOCK
+
 // If defined, two factions can become allied via a Faction Management
 // propose/accept handshake -- either side can break it anytime. Allied
 // factions can access each other's station under the faction raiding gate,
@@ -89,6 +130,19 @@
 // don't fire on each other. Off -- no faction is ever allied
 // with another.
 #define FACTION_ALLIANCES
+
+// If defined, every airlock plays a fixed custom open/close sound pair
+// (sound/machines/airlock/cargobayopen.ogg and cargobayclose.ogg) instead of
+// its own subtype's normal open_sound_powered/close_sound_powered -- the
+// forced/unpowered open sound is unaffected. Off by default -- leave
+// undefined to keep each airlock subtype's own sound flavor.
+#define CUSTOM_AIRLOCK_SOUNDS
+
+// If defined, clicking a button on a PDA/modular computer/laptop's TGUI
+// plays a random one of 6 short click sounds, audible to anyone standing
+// nearby (playsound()), throttled to once per 4.5 seconds per device so
+// rapid clicking doesn't spam it. Off -- no click sound.
+#define PADD_BUTTON_PRESS_SOUNDS
 
 // We want to use external resources. Kthx.
 #define PRELOAD_RSC 0

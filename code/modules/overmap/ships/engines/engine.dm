@@ -17,7 +17,11 @@ GLOBAL_LIST_INIT_TYPED(ship_engines, /datum/ship_engine, list())
 /// Tries to fire the engine with power modifier (0..1). Returns thrust.
 /// Power modifier is intended to be used for maneuvers or the like,
 /// that should use less/more fuel/electricity than an actual burn.
-/datum/ship_engine/proc/burn(var/power_modifier = 1)
+/// play_sound = FALSE suppresses the engine's own burn sound -- used by ship
+/// actions (turn_ship(), decelerate()) that call burn() purely for the
+/// thrust/fuel math and already have their own distinct cue (or none),
+/// so the raw engine-burn noise doesn't leak into them.
+/datum/ship_engine/proc/burn(var/power_modifier = 1, play_sound = TRUE)
 	return 0
 
 /// Returns status string for this engine

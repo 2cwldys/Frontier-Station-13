@@ -774,6 +774,33 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 /proc/persistence_character_actively_imprisoned(ckey, char_name)
 	return !!_persistence_imprisonment_core(ckey, char_name)
 
+/// TRUE if ANY of this ckey's (non-deleted) characters is currently
+/// imprisoned per persistence_character_imprisonment_status() -- same
+/// frozen/parole-respecting semantics as the Play-button gate, so an admin
+/// paroling a character also lifts this. Used to block character-roster
+/// moves that would otherwise let a player sidestep an active sentence:
+/// deleting the imprisoned character itself (persistent_menu.dm's
+/// "delete_char"), or creating a fresh alt in another slot to play instead
+/// ("create") while the sentence keeps ticking untouched either way.
+/proc/persistence_ckey_has_imprisoned_character(ckey)
+	if(!GLOB.config.sql_enabled || !ckey)
+		return FALSE
+	if(!SSpersistence.databaseCheckConnection("persistence_ckey_has_imprisoned_character"))
+		return FALSE
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"SELECT name FROM ss13_characters WHERE ckey = :ckey AND deleted_at IS NULL",
+		list("ckey" = ckey)
+	)
+	q.Execute()
+	var/list/names = list()
+	while(q.NextRow())
+		names += q.item[1]
+	qdel(q)
+	for(var/char_name in names)
+		if(persistence_character_imprisonment_status(ckey, char_name))
+			return TRUE
+	return FALSE
+
 /**
  * Restore mob to their last saved position, or spawn at default landmark.
  */
@@ -1219,6 +1246,15 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		if(istype(HC) && HC != I)
 			data["device_cell_charge"] = HC.charge
 
+	// Visor/mask toggle state -- see persistent_toggle_vars' own doc comment
+	// (obj/item base vars, items.dm) for why this is a declared list instead
+	// of another istype() branch per helmet/goggle type.
+	if(length(I.persistent_toggle_vars))
+		var/list/toggle_data = list()
+		for(var/vname in I.persistent_toggle_vars)
+			toggle_data[vname] = I.vars[vname]
+		data["toggle_vars"] = toggle_data
+
 	// Ballistic guns: internal rounds, chambered state, fitted magazine
 	if(istype(I, /obj/item/gun/projectile))
 		var/obj/item/gun/projectile/G = I
@@ -1423,6 +1459,15 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	var/obj/item/I = new item_type(holder)
 	if(!I || QDELETED(I))
 		return null
+
+	// Visor/mask toggle state -- see persistent_toggle_vars' own doc comment
+	// (obj/item base vars, items.dm). Restored before the other blocks below
+	// purely for proximity to construction; order doesn't matter here since
+	// nothing else reads these vars during restore.
+	if(data["toggle_vars"])
+		var/list/toggle_data = data["toggle_vars"]
+		for(var/vname in toggle_data)
+			I.vars[vname] = toggle_data[vname]
 
 	// Storage contents. Keyed on PRESENCE, not truthiness -- a saved-empty
 	// container serializes "contents" as an empty list, and that still has to

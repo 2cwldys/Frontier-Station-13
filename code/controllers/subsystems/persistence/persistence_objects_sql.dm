@@ -59,6 +59,50 @@
 	return results
 
 /**
+ * Permanently forgets any tracked-object rows at the given turfs, right now.
+ *
+ * Object counterpart to turfsForget() (persistence_turfs.dm) and used
+ * alongside it wherever a block of space is being deliberately cleared and
+ * must not reconstruct itself on the next boot -- the commission build-site
+ * wipe, and the docking-beacon landing-envelope sweeps
+ * (drydockForgetBeaconEnvelopes()/clear_docking_beacons(),
+ * persistence_shuttles.dm).
+ *
+ * Buckets by persistence_scope_for_z() exactly as the add/update entry procs
+ * below do, so a deployed ship Z's rows are deleted under that ship's own
+ * scope rather than the map's.
+ */
+/datum/controller/subsystem/persistence/proc/objectsForget(list/turfs)
+	if(!length(turfs))
+		return
+	if(!databaseCheckConnection("objectsForget"))
+		return
+
+	var/list/delete_by_scope = list()
+	for(var/turf/T in turfs)
+		var/scope_escaped = replacetext(persistence_scope_for_z(T.z), "'", "''")
+		if(!(scope_escaped in delete_by_scope))
+			delete_by_scope[scope_escaped] = list()
+		delete_by_scope[scope_escaped] += "([T.x],[T.y],[T.z])"
+		CHECK_TICK
+
+	var/forgotten = 0
+	for(var/scope_escaped in delete_by_scope)
+		var/list/coords = delete_by_scope[scope_escaped]
+		if(!length(coords))
+			continue
+		var/datum/db_query/wipe = SSdbcore.NewQuery(
+			"DELETE FROM ss13_persistent_objects WHERE map_path = '[scope_escaped]' AND (x,y,z) IN ([coords.Join(",")])"
+		)
+		wipe.Execute()
+		databaseCheckQueryResult(wipe, "objectsForget delete")
+		qdel(wipe)
+		forgotten += length(coords)
+		CHECK_TICK
+
+	log_subsystem_persistence_info("Objects: Forgot rows across [forgotten] coordinate(s) in [length(delete_by_scope)] scope(s).")
+
+/**
  * Adds a persistent data record to the database.
  */
 /datum/controller/subsystem/persistence/proc/objectsDatabaseAddEntry(obj/track)
@@ -68,6 +112,13 @@
 
 	var/turf/T = get_turf(track)
 	if(!T)
+		return
+	// A ship's own tracked objects, while it's genuinely docked away from its
+	// own home z, are excluded rather than written under either scope here --
+	// see persistence_docked_turf_scope's doc comment (persistence_ship_interiors.dm)
+	// for why redirecting to the ship's own scope instead would silently
+	// accumulate stale, wrongly-positioned rows.
+	if(persistence_turf_docked_elsewhere(T))
 		return
 
 	var/datum/db_query/insert_query = SSdbcore.NewQuery(
@@ -101,6 +152,11 @@
 
 	var/turf/T = get_turf(track)
 	if(!T)
+		return
+	// See objectsDatabaseAddEntry()'s matching check just above -- same
+	// reasoning, excluded rather than redirected while genuinely docked away
+	// from home.
+	if(persistence_turf_docked_elsewhere(T))
 		return
 
 	var/datum/db_query/update_query = SSdbcore.NewQuery(

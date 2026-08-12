@@ -108,6 +108,9 @@ This saves us from having to call add_fingerprint() any time something is put in
 		var/update_uniform = 0
 		if (wear_suit.flags_inv & HIDEJUMPSUIT)
 			update_uniform = 1
+		var/update_gloves = wear_suit.flags_inv & HIDEGLOVES
+		var/update_shoes = wear_suit.flags_inv & HIDESHOES
+		var/update_wrists = wear_suit.flags_inv & HIDEWRISTS
 		if(s_store)
 			var/can_keep_s_store = FALSE
 			if(s_store.slot_flags & SLOT_S_STORE)
@@ -127,6 +130,12 @@ This saves us from having to call add_fingerprint() any time something is put in
 		update_inv_wear_suit()
 		if (update_uniform)
 			update_inv_w_uniform(0)
+		if (update_gloves)
+			update_inv_gloves(0)
+		if (update_shoes)
+			update_inv_shoes(0)
+		if (update_wrists)
+			update_inv_wrists(0)
 	else if (W == w_uniform)
 		if (r_store)
 			drop_from_inventory(r_store)

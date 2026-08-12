@@ -16,6 +16,7 @@ GLOBAL_LIST_INIT_TYPED(cleanbot_litter_types, /obj/item, list(
 	/obj/item/ammo_casing,
 	/obj/item/trash/cigbutt,
 	/obj/item/material/shard,
+	/obj/item/book/hub_laws,
 ))
 
 /obj/effect/decal/cleanable
@@ -100,6 +101,24 @@ GLOBAL_LIST_INIT_TYPED(cleanbot_litter_types, /obj/item, list(
 	if(src in GLOB.janitorial_supplies)
 		GLOB.janitorial_supplies -= src
 	return ..()
+
+/// Extra per-type eligibility gate for litter targets, layered on top of
+/// plain GLOB.cleanbot_litter_types membership -- returns FALSE to exclude a
+/// candidate that's the right type but not eligible for cleanup right now.
+/// Currently just hub law books, confirmed with the user to only ever be
+/// swept up bare on a floor turf: never off a table (in this codebase
+/// tables are purely visual -- an item resting on one still has
+/// loc == the turf underneath, so isturf(loc) alone wouldn't exclude
+/// tables, hence the explicit table check below) and never out of a bag/
+/// box/crate/any other container (isturf(loc) alone already rules that out,
+/// since a contained item's loc is the container, not a turf).
+/mob/living/bot/cleanbot/proc/_litter_target_eligible(obj/item/I)
+	if(istype(I, /obj/item/book/hub_laws))
+		if(!isturf(I.loc))
+			return FALSE
+		if(locate(/obj/structure/table) in I.loc)
+			return FALSE
+	return TRUE
 
 /mob/living/bot/cleanbot/proc/handle_target()
 	//Get the actual cleanable decal (or ammo casing) to target
@@ -264,6 +283,8 @@ GLOBAL_LIST_INIT_TYPED(cleanbot_litter_types, /obj/item, list(
 			for(var/obj/item/I in view(maximum_search_range, src))
 				if(!is_type_in_list(I, GLOB.cleanbot_litter_types))
 					continue
+				if(!_litter_target_eligible(I))
+					continue
 
 				var/datum/weakref/litter_weakref = WEAKREF(I)
 
@@ -334,10 +355,10 @@ GLOBAL_LIST_INIT_TYPED(cleanbot_litter_types, /obj/item, list(
 		var/turf/T = D
 		D = null
 		for(var/atom/movable/possible in T)
-			if(istype(possible, /obj/effect/decal/cleanable) || is_type_in_list(possible, GLOB.cleanbot_litter_types))
+			if(istype(possible, /obj/effect/decal/cleanable) || (is_type_in_list(possible, GLOB.cleanbot_litter_types) && _litter_target_eligible(possible)))
 				D = possible
 				break
-	if(!istype(D, /obj/effect/decal/cleanable) && !is_type_in_list(D, GLOB.cleanbot_litter_types))
+	if(!istype(D, /obj/effect/decal/cleanable) && !(is_type_in_list(D, GLOB.cleanbot_litter_types) && _litter_target_eligible(D)))
 		return
 
 	if(!src.Adjacent(D))
@@ -426,6 +447,7 @@ GLOBAL_LIST_INIT_TYPED(cleanbot_litter_types, /obj/item, list(
 	// initial(name) the way decals do (e.g. shard and shrapnel would both
 	// just show "Shard") -- list them explicitly instead.
 	cleanables_names |= "Bullet Casings"
+	cleanables_names |= "Hub Law Books"
 	cleanables_names |= "Glass Shards"
 	cleanables_names |= "Shrapnel"
 	cleanables_names |= "Cigarette/Cigar Butts"

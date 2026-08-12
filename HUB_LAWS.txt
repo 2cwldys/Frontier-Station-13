@@ -1,0 +1,584 @@
+HUB LAW REGISTRY:
+(These laws may be subjected to be changed at any time.)
+OOC LAST CHANGE:
+1:04 AM (EST) 8-9-2026
+
+ 
+ 
+
+YOU HAVE A CERTAIN UNALIENABLE RIGHTS IN HUB TERRITORY AS A HUB CITIZEN:
+- You may not be harassed by Hub Lancers or any authority without probable cause.
+- You may reserve the right to remain silent when presented with arrest or investigation, until brought before Council.
+- No Hub Lancer, Store Owner, or Hub Official may discriminate against you to solicit for a crime or tresspass.
+- It is your right to be informed that ALL goods bought and traded in high security, and medium security zones: have a 10% tax to the SECTOR HOLDER.
+- YOU HAVE THE RIGHT TO EMPLOY SOMEONE TO SPEAK ON YOUR BEHALF.
+- YOU HAVE THE RIGHT TO YOUR MINING CLAIMS IF YOU REACHED THEM FIRST IN HIGH SEC.
+- THERE IS AN IMMENSE, MUTUAL RESPECT FOR PERSONAL PROPERTY AND PRIVACY.
+- YOU MAY REQUEST TOTAL AMNESTY.
+
+These rights only apply in high security zones.
+
+ 
+
+Any and all hostile actions are tracked by an extensive sensor grid.
+
+Those unable to afford their fines may be faced with threat of CRYOGENIC SUSPENSION.
+
+VIOLENT REOFFENDERS MAY BE PLACED IN INDEFINITE CRYOGENIC SUSPENSION!
+
+ALL BONDLESS PRISONERS ARE NOT TO BE RELEASED UNTIL CONSULTED BY COMMAND STAFF AND COUNCIL.
+
+The HUB attempts to maintain a modest presence of business and public decorum, and others are expected to follow this decorum.
+
+Verdicts and judgements may be capital and extremely punishing, to preserve peace here in an otherwise chaotic sector.
+
+ 
+ 
+
+1. No violence, threat, or harm to yourself or another.
+(DOES NOT APPLY TO BOUNTY HOLDERS.)
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: TWENTY FOUR HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: NO
+FINE: 5000-10000 C
+
+2. No theft of any kind, large or small.
+(THIS INCLUDES STEALING FROM UNCONSCIOUS, SSD, OR CRYOD PERSONS.)
+
+GRAND THEFT-
+(STARSHIPS, SHUTTLES, PODS)
+(INCLUDING ENTIRE CARGO HOLDS)
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: SEVENTY TWO HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 150000 C
+
+EXTREME THEFT-
+(25K VALUE OR MORE)
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: FOURTY EIGHT HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: VALUE OF THEFT + 50000 C
+
+EXCESSIVE THEFT-
+(UNDER 10K OR LESS)
+
+JAILED: YES
+CRYOGENIC SUSPENSION: NO
+DURATION: THIRTY MINUTES TO AN HOUR
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: NO
+FINE: VALUE OF THEFT + 5000 C
+
+PETTY THEFT-
+(UNDER 2500K OR LESS)
+
+JAILED: YES
+CRYOGENIC SUSPENSION: NO
+DURATION: THIRTY MINUTES
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: NO
+FINE: VALUE OF THEFT + 1000 C
+
+3. No instigating riots, public disruptions, or scenes.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: NO
+DURATION: THIRTY MINUTES
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: NO
+FINE: 10000 C
+
+4. Instigating fights with passive HUB LANCER clones.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: NO
+DURATION: THIRTY MINUTES TO AN HOUR
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: NO
+FINE: 1500 C
+
+5. Tampering with Hub Property.
+(AIRLOCKS, WINDOWS, MACHINERY, BEACONS, POWER SOURCES, TRAVEL PADS)
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: FOUR HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: YES
+FINE: 50000 C
+
+6. Deliberate Decompression.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: FOURTY EIGHT HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 25000 C
+
+7. Assault of a PEACE OFFICER or HUB COMMAND STAFF.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: TWENTY FOUR HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 50000 C
+
+8. Intentional Concealed Death of Another.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: SEVENTY TWO HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: YES
+FINE: 50000 C
+
+9. Attempted Murder.
+(DOES NOT APPLY TO BOUNTY HOLDERS.)
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: SEVENTY TWO HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: YES
+FINE: 75000 C
+
+10. First Degree MURDER or MANSLAUGHTER.
+(DOES NOT APPLY TO BOUNTY HOLDERS.)
+(INTENTIONAL and METHODICAL.)
+
+DEATH by LANCER FIRING SQUAD and your lace becomes VAULTED.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: NO
+LACE VAULTING: YES
+DURATION: INDEFINITE (until interim with Council.)
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 150000 C
+
+11. Second Degree MURDER or MANSLAUGHTER.
+(DOES NOT APPLY TO BOUNTY HOLDERS.)
+(Without MEDITATION or PRETENSE, and/or potentially ACCIDENTAL.)
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: EIGHTY FOUR HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: YES
+FINE: 125000 C
+
+12. Publicly brandishing, and firing weapons in areas of business.
+
+JAILED: NO
+CRYOGENIC SUSPENSION: NO
+DURATION: -
+ABLE TO BOND FROM COMMAND: -
+REPOSSESSION: NO
+FINE: 10000 C
+
+13. Rape or Sexual Assault.
+
+DEATH by LANCER FIRING SQUAD and your lace becomes VAULTED.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: NO
+LACE VAULTING: YES
+DURATION: INDEFINITE (until interim with Council.)
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 150000 C
+
+14. Interfering or Obstructing a PEACE OFFICER or HUB COMMAND STAFF.
+(This can also be applied in double to cases of RESISTING ARREST.)
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: FOUR HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: NO
+FINE: 15000 C
+
+15. Fugitive by counts of more than TWO other faction territories.
+(The HUB will assist in MANHUNTS of those that hold warrants or offenses against MULTIPLE factions territories.)
+
+JAILED: YES
+CRYOGENIC SUSPENSION: NO
+DURATION: DELIVERED FOR FACTION SENTENCING
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 100000 C
+
+16. Refusal to Vacate, after becoming TRESSPASSED from a business or company.
+(Entering personal or faction ships or territories while in high sec, despite being formally tresspassed by Hub Authority.)
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: SIX HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: NO
+FINE: 50000 C
+
+17. Refusal to pay after being given a service or fine.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: FOUR HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: NO
+FINE: 50000 C
+
+18. Demolition and/or Destructive Violence.
+(Exploding canisters with welders, setting off explosives, causing mass damage.)
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: EIGHTY FOUR HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: NO
+FINE: 75000 C
+
+19. Issuing tactical commands to fire on another ship.
+(THE person/faction officer who gave the order, or if alone, DECIDED to shoot.)
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: TWELVE HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: YES
+FINE: 100000 C
+
+20. Possessing, or using prohibited technologies on board your ship or in HUB territory.
+
+THIS INVOLVES:
+(so far)
+- Cloaking Devices
+- Heavy Ship Weapons and Ordinance
+- Commander Beacons
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: FOURTY EIGHT HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 250000 C
+
+21. Refusal to lower shields for INSPECTION, BOARDING, or DEMAND by PORT AUTHORITIES, HUB LANCERS, or HUB COMMAND STAFF.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: FOUR HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: YES
+FINE: 20000 C
+
+22. Smuggling ILLICIT or PROHIBITED GOODS, SUBSTANCES, or harboring FUGITIVES.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: FOURTY EIGHT HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 150000 C
+
+23. Illicting Self for Prostitution.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: NO
+DURATION: TWO HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: YES
+FINE: 75000 C
+
+24. Committing KNOWN acts of PIRACY.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: INDEFINITE (until interim with Council.)
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 125000 C
+
+25. Spying, bugging, or installing surveillance in PERSONAL, BUSINESS, or HUB property.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: FOURTY EIGHT HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 100000 C
+
+26. Tresspassing or Encroaching on Private Property.
+(Involving boarding of personal ships, shuttles.)
+(AND illegally entering hub business storefronts.)
+
+JAILED: YES
+CRYOGENIC SUSPENSION: NO
+DURATION: ONE HOUR
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: NO
+FINE: 25000 C
+
+27. KIDNAPPING and WRONGFUL Imprisonment of Another.
+(This also involves refusing them the access to leave.)
+(Including blackmail using personal objects or belongings.)
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: FOURTY EIGHT HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 100000 C
+
+28. Misusing First Responder services.
+(Setting traps, ambushes, and/or excessively wasting responders time using the First Responder program.)
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: SIX HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: NO
+FINE: 75000 C
+
+29. Mutiny or Sabotage against your CAPTAIN.
+(This involves HUB COMMAND, HUB LANCERS or even CIVILIAN or FACTION CREWS.)
+(Any mutiny in this sector is CONDEMNED upon by the directors of the Frontier Beacon Council.)
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: CAPTAINS PREFERENCE BUT NOT INDEFINITE
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: NO
+FINE: 100000 C
+
+30. In possession of ILLICIT SYNDICATE armaments, EMAG cards, uplinks, or PIRACY BEACONS.
+
+DEATH by LANCER FIRING SQUAD and your lace becomes VAULTED.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+LACE VAULTED: YES
+DURATION: INDEFINITE (until interim by Council.)
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 200000 C
+
+31. Continuing acts of war, despite HUB COMMAND demanding cessation of hostilities.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: TWENTY FOUR HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: NO
+FINE: 75000 C (FACTION)
+
+32. Propagating, or formally declaring WAR on the HUB as a faction.
+(All members of said faction fall under this crime.)
+
+The Hub controls the Frontier Beacon and controls the route of automated trade, and goods into this sector.
+It is unwise to bite the hand that feeds.
+
+DEATH by LANCER FIRING SQUAD and your lace becomes VAULTED.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: NO
+LACE VAULTED: YES
+DURATION: INDEFINITE (until Interim by Council.)
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: NO
+FINE: 1000000 C (FACTION)
+FINE: 150000 C (PER PERSON)
+
+33. Littering public HUB locations.
+(PICK UP YOUR TRASH.)
+
+JAILED: NO
+CRYOGENIC SUSPENSION: NO
+DURATION: -
+ABLE TO BOND FROM COMMAND: -
+REPOSSESSION: NO
+FINE: 5000 C
+
+34. Attempting to SOLICIT a BRIBE to HUB LANCER OR COMMAND STAFF.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: FOUR HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: NO
+FINE: 15000 C
+
+35. Excessive loitering in businesses where no transactions are being made.
+(Buy things, talk business, be productive or get out.)
+
+JAILED: NO
+CRYOGENIC SUSPENSION: NO
+DURATION: -
+ABLE TO BOND FROM COMMAND: -
+REPOSSESSION: NO
+FINE: 10000 C
+
+36. ALL SHIP and SHUTTLE owners that possess a drydock vessel title, MUST pay an initial ad valoriam according to value TAX.
+
+This applies to all ships, but most especially for manually constructed hulls.
+
+You must at the time of commission or purchase of a drydock ship, inform the Hub Port Authority to have it inspected and cleared, and then pay a fixed percentage of the assessed monetary worth of the vessel.
+
+If the initial tax is not found to be paid to the Port Authority or Frontier Beacon Council, you will be held in violation of this crime and statute.
+
+Violation of this results in the following-
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: FOUR HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: YES
+FINE: 25000 C
+
+37. TERRORISM.
+(Attempting to incite terrorism in high-security areas.)
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: SEVENTY TWO HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 125000 C
+
+38. Messing with other-faction beacons.
+
+The Frontier Beacon Council and Command Authority will issue the warrant for seizure of vessels and arrests of those attempting to mess with solidified factions and their territory holdings. Attempting to disable, misplace, move or, or sabotage faction beacons that claim ownership to sectors will result in punishment. This is held in exception TO WAR between parties.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: TWENTY FOUR HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: NO
+FINE: 75000 C
+
+39. Recruiting others for terrorist organizations.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: FOURTY EIGHT HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: NO
+FINE: 100000 C
+
+40. Vigilantism, and/or Impersonating a PEACE OFFICER, PORT AUTHORITY, or HUB COMMAND STAFF.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: FOURTY EIGHT HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 125000 C
+
+
+41. Neglecting PRISONERS of WAR.
+
+In any conflict, all individuals are still considered civilians of the hub, and despite the conflicts that can brew naturally in the frontier beyond our grasp, it is encouraged that your captured enemies are treated with dignity.
+
+JAILED: YES (COMMAND STAFF)
+CRYOGENIC SUSPENSION: YES
+DURATION: TWENTY FOUR HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 250000 C (FACTION)
+
+
+42. EXCESSIVE and UNLAWFUL Cryogenic Suspension, or Lace Vaulting
+
+If you are in possession of falsely imprisoned neural laces, or repeatedly enforced cryogenic suspension on HUB civilians beyond the extent of their CRIMES, you are liable for extensive punishment.
+
+While the Hub permits factions to enforce their own laws, there eventually is an excess ceiling that the hub cannot even tolerate.
+
+JAILED: YES (COMMAND STAFF)
+CRYOGENIC SUSPENSION: YES
+DURATION: TWENTY FOUR HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 250000 C (FACTION)
+
+
+43. Illegal Docking, and Abandoned Vehicles
+
+Leaving your ships and pods intentionally and deliberately docked for as long as possible on PUBLIC HUB installations, robs others of the convenience you are offered, and will result in liability and punishment... including the eventual search and potential repossessive seizure of your VESSEL.
+
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: TWO HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: YES
+FINE: 50000 C
+
+
+44. Illegal Monopolization, Pyramid Schemes, and Fraud
+
+Forming illicit pyramid schemes, illiciting fraud, false investment funds, false stocks, false shareholdings, as well as the INTENTIONAL monopolization of business in the HUB to deprive other businesses and cargo specializations from thriving will RESULT in liability and PUNISHMENT. This applies to HUB sector controlled territory ONLY.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: SEVENTY TWO HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 1000000 C (FACTION, CONSPIRATORS, OR COMPANY)
+
+
+45. VIOLATION of PROBATION
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: FOURTY EIGHT HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 75000 C
+
+
+46. ILLEGAL Salvage Operations
+
+If you are told to stop by Hub Authorities when conducting salvage operations in high security space, you may be held liable for extensive punishment. You may be impeding on an investigation and may be told to stop. Otherwise, assume all ordinary salvage operations are permitted. You have the RIGHT to the salvage YOU find, and it belongs to you outside of the contents of this statute.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: TWENTY FOUR HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: YES
+FINE: 100000 C
+
+
+47. Illiciting a Bounty on HUB LANCERS, HUB PERSONNEL (non civilians), or HUB COMMAND STAFF.
+
+Placing a bounty, or intending to fulfill a bounty against HUB personnel is prohibited, and will be enforced to the fullest extent of the law.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: SEVENTY TWO HOURS
+ABLE TO BOND FROM COMMAND: NO
+REPOSSESSION: YES
+FINE: 150000 C
+
+
+ 
+ 
+
+After release, depending on the severity of your crimes, you may be placed on probation by Hub Lancers.
+
+Being held in infraction of multiple domestic laws, as HUB civilians your time served in suspension may be only held to the highest of possible criminal sentencing. Only violent offenses may stack suspension time. Inability to pay fines hold you at liability for extended Cryogenic Suspension.
+
+THE HUB HAS A POLICY TO NOT BE INVOLVED IN THE AFFAIRS OF OTHER FACTIONS, EXCEPT FOR IN CASES OF ENFORCING THE RULE OF LAW AND JUSTICE IN ACCORDANCE TO THESE LAWS.
+
+Signed,
+The Frontier Beacon Council.

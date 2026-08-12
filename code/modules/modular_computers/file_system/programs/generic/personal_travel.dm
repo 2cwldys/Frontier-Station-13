@@ -278,6 +278,9 @@
 			if(!length(target_sector.map_z))
 				to_chat(user, SPAN_WARNING("That destination is no longer valid."))
 				return TRUE
+			if(ship_shields_block_travel(target_sector, user))
+				to_chat(user, SPAN_WARNING("That ship's shields are still up -- you cannot leap aboard."))
+				return TRUE
 			target_z = target_sector.map_z[1]
 			// Checked before the eye-view pick opens, same as the hardsuit
 			// check above -- a raid-blocked player gets an immediate refusal
@@ -327,7 +330,7 @@
 	var/seq = ++spool_seq
 	// Destination-side pulses too, not just the origin -- warns anyone
 	// already standing there that someone's about to jump in.
-	_start_travel_spool_pulses(spool_turf, destination, PERSONAL_TRAVEL_SPOOLUP, CALLBACK(src, PROC_REF(_spool_still_valid), seq))
+	_start_travel_spool_pulses(spool_turf, destination, PERSONAL_TRAVEL_SPOOLUP, CALLBACK(src, PROC_REF(_spool_still_valid), seq), show_phase_effect = TRUE, facing_dir = user.dir)
 	if(!do_after(user, PERSONAL_TRAVEL_SPOOLUP, user))
 		spool_seq++ // invalidate the pending spark pulses above
 		to_chat(user, SPAN_WARNING("Bluespace calibration interrupted."))
@@ -353,6 +356,9 @@
 		if(!istype(recheck_sector) || !istype(recheck_my_sector) || get_dist(recheck_my_sector, recheck_sector) > PERSONAL_TRAVEL_LEAP_RANGE)
 			to_chat(user, SPAN_WARNING("You're no longer close enough to leap there."))
 			return TRUE
+		if(ship_shields_block_travel(recheck_sector, user))
+			to_chat(user, SPAN_WARNING("That ship's shields came back up -- the jump is aborted."))
+			return TRUE
 		if(destination.density || !_drydock_pick_turf_valid(destination, user, target_z))
 			to_chat(user, SPAN_WARNING("The landing point is no longer available."))
 			return TRUE
@@ -374,16 +380,16 @@
 	var/turf/origin = get_turf(user)
 	var/atom/movable/pulled = user.pulling
 	if(origin)
-		new /obj/effect/portal/decorative/fading(origin, null, null, 5 SECONDS, 0)
 		spark(origin, 3, GLOB.alldirs)
-		playsound(origin, 'sound/effects/phasein.ogg', 30, 1)
-	new /obj/effect/portal/decorative/fading(dest, null, null, 5 SECONDS, 0)
+		// Must precede the forceMove below, while the bystanders who watched
+		// them leave are still the ones in view of this turf.
+		_travel_announce_phase(user, origin, FALSE)
 	spark(dest, 3, GLOB.alldirs)
 	user.forceMove(dest)
 	if(pulled && !QDELETED(pulled))
 		pulled.forceMove(dest)
-	playsound(dest, 'sound/effects/phasein.ogg', 30, 1)
-	to_chat(user, SPAN_GOOD("You leap through a bluespace rift."))
+	_travel_announce_phase(user, dest, TRUE)
+	to_chat(user, SPAN_GOOD("You transport through a bluespace rift."))
 	next_travel_time = world.time + PERSONAL_TRAVEL_COOLDOWN
 
 /// world.view is a "WxH" string in this fork (world.dm), not a bare
@@ -527,6 +533,15 @@
 		marker.invisibility = 0
 		marker.alpha = 255
 		marker.mouse_opacity = MOUSE_OPACITY_ICON
+		// The appearance copy above can't see the shield generator's
+		// overmap_bubble -- it's vis_contents-attached to O, not part of its
+		// .appearance (see get_shield_bubble_overlay()). Stamp a fresh copy of
+		// its current look onto this marker every refresh instead.
+		if(istype(O, /obj/effect/overmap/visitable/ship))
+			var/obj/effect/overmap/visitable/ship/S = O
+			var/bubble_overlay = S.get_shield_bubble_overlay()
+			if(bubble_overlay)
+				marker.AddOverlays(bubble_overlay)
 		user.client.images += marker
 		sensor_images += marker
 
@@ -556,6 +571,9 @@
 		return COMSIG_MOB_CANCEL_CLICKON
 	if(!my_sector || get_dist(my_sector, target) > PERSONAL_TRAVEL_LEAP_RANGE || !length(target.map_z))
 		to_chat(source, SPAN_WARNING("\The [target] is out of leap range."))
+		return COMSIG_MOB_CANCEL_CLICKON
+	if(ship_shields_block_travel(target, source))
+		to_chat(source, SPAN_WARNING("\The [target]'s shields are up -- it cannot be primed as a leap destination."))
 		return COMSIG_MOB_CANCEL_CLICKON
 	primed_ref = "\ref[target]"
 	to_chat(source, SPAN_GOOD("Primed [target.name] as the leap destination."))

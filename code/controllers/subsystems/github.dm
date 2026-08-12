@@ -26,6 +26,12 @@ SUBSYSTEM_DEF(github)
 	var/github_repo
 	/// Optional GitHub personal access token, read from .env (GITHUB_TOKEN) at the repo root -- never stored in config.txt
 	var/github_token
+	/// The most recently merged PR seen so far: list("number", "title", "url",
+	/// "author", "merged_at") -- kept up to date every poll (including the
+	/// silent first one) by _update_latest_merged_pr(), independent of the
+	/// open/merged/denied chat announcements below. Null until the first
+	/// successful poll with at least one merged PR in its window.
+	var/list/latest_merged_pr
 
 /datum/controller/subsystem/github/Initialize()
 	_parse_repo_path()
@@ -129,6 +135,8 @@ SUBSYSTEM_DEF(github)
 	if(!islist(prs))
 		return
 
+	_update_latest_merged_pr(prs)
+
 	for(var/list/pr in prs)
 		var/num = "[pr["number"]]"
 		var/merged = pr["merged_at"] ? TRUE : FALSE
@@ -149,6 +157,58 @@ SUBSYSTEM_DEF(github)
 		known_prs[num] = new_state
 
 	initial_poll_done = TRUE
+
+/**
+ * Scans this poll's results for the most recently merged PR and records it
+ * if it's newer than whatever was already known -- ISO8601 "merged_at"
+ * timestamps (always UTC, fixed-width, "Z"-suffixed) sort correctly as
+ * plain text, so no date parsing is needed. Runs on every successful poll,
+ * including the silent first one (unlike _announce_pr() below, which only
+ * fires for transitions seen AFTER that), so latest_merged_pr is populated
+ * as soon as possible after boot rather than waiting for a brand new merge.
+ * Never regresses: only ever replaced by something strictly more recent,
+ * even if an older entry briefly drops out of this poll's top-30-by-updated
+ * window.
+ */
+/datum/controller/subsystem/github/proc/_update_latest_merged_pr(list/prs)
+	PRIVATE_PROC(TRUE)
+
+	var/best_merged_at = latest_merged_pr ? latest_merged_pr["merged_at"] : ""
+	var/list/best
+
+	for(var/list/pr in prs)
+		var/merged_at = pr["merged_at"]
+		if(!merged_at || merged_at <= best_merged_at)
+			continue
+		best_merged_at = merged_at
+		best = pr
+
+	if(best)
+		latest_merged_pr = list(
+			"number"    = best["number"],
+			"title"     = best["title"],
+			"url"       = best["html_url"],
+			"author"    = best["user"] ? best["user"]["login"] : "unknown",
+			"merged_at" = best["merged_at"],
+		)
+
+/**
+ * Formatted "Latest merged PR" line, shared by the on-connect commit
+ * message (new_player/login.dm) and show_revision_info() (getrev.dm) so
+ * the two can never drift out of sync with each other's formatting. Null
+ * if nothing's been observed yet (polling disabled, or the first poll
+ * hasn't completed).
+ */
+/datum/controller/subsystem/github/proc/get_latest_merged_pr_line()
+	if(!islist(latest_merged_pr))
+		return null
+	var/line = "<b>Latest merged PR:</b> "
+	if(latest_merged_pr["url"])
+		line += "<a href='[latest_merged_pr["url"]]'>#[latest_merged_pr["number"]]: [html_encode(latest_merged_pr["title"])]</a>"
+	else
+		line += "#[latest_merged_pr["number"]]: [html_encode(latest_merged_pr["title"])]"
+	line += " by [html_encode(latest_merged_pr["author"])]"
+	return line
 
 /datum/controller/subsystem/github/proc/_announce_pr(list/pr, action)
 	PRIVATE_PROC(TRUE)

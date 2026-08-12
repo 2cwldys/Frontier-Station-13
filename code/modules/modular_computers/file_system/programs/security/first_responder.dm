@@ -417,22 +417,20 @@
 		return target
 	return null
 
-/// Teleports a mob with a brief fading bluespace portal, sparks, and sound
-/// at BOTH ends (the departure portal sells the "they've left" moment).
+/// Teleports a mob with a brief blue phase effect, sparks, and transport
+/// sound at BOTH ends (the departure cue sells the "they've left" moment).
 /// arm_cooldown is FALSE for prisoner transports riding a responder's jump.
 /datum/computer_file/program/security/first_responder/proc/first_responder_jump(mob/M, turf/dest, arm_cooldown = TRUE)
 	var/turf/origin = get_turf(M)
 	if(origin)
-		new /obj/effect/portal/decorative/fading(origin, null, null, 5 SECONDS, 0)
+		_telepad_phase_arrival(origin)
 		spark(origin, 3, GLOB.alldirs)
-		playsound(origin, 'sound/effects/phasein.ogg', 50, 1)
-	new /obj/effect/portal/decorative/fading(dest, null, null, 5 SECONDS, 0)
+	_telepad_phase_arrival(dest)
 	spark(dest, 3, GLOB.alldirs)
 	// forceMove, NOT do_teleport: the science teleport datum scatters anyone
 	// carrying a bag of holding up to 100 tiles (teleport.dm setPrecision) --
 	// responders would land in open space. We supply our own effects anyway.
 	M.forceMove(dest)
-	playsound(dest, 'sound/effects/phasein.ogg', 50, 1)
 	if(arm_cooldown)
 		next_jump_time = world.time + FIRST_RESPONDER_COOLDOWN
 

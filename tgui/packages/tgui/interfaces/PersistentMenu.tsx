@@ -14,6 +14,7 @@ type PersistentMenuData = {
   characters: Character[];
   slot_limit: number;
   can_create: BooleanLike;
+  any_imprisoned: BooleanLike;
   persistence_ready: BooleanLike;
   enter_allowed: BooleanLike;
   save_in_progress: BooleanLike;
@@ -35,6 +36,7 @@ export const PersistentMenu = (props) => {
   const {
     characters = [],
     slot_limit = 1,
+    any_imprisoned,
     persistence_ready,
     enter_allowed,
     save_in_progress,
@@ -85,7 +87,12 @@ export const PersistentMenu = (props) => {
                   <Button
                     icon="trash"
                     color="red"
-                    tooltip="Permanently delete this character and free the slot"
+                    disabled={!!char.imprisoned}
+                    tooltip={
+                      char.imprisoned
+                        ? 'You are imprisoned.'
+                        : 'Permanently delete this character and free the slot'
+                    }
                     onClick={() => act('delete_char', { name: char.name })}
                   >
                     Delete
@@ -107,7 +114,12 @@ export const PersistentMenu = (props) => {
             buttons={
               <Button
                 icon="user-plus"
-                tooltip="Create and configure a new character"
+                disabled={!!any_imprisoned}
+                tooltip={
+                  any_imprisoned
+                    ? 'You are imprisoned.'
+                    : 'Create and configure a new character'
+                }
                 onClick={() => act('create')}
               >
                 Create Character

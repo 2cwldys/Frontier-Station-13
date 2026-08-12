@@ -257,6 +257,23 @@
 	qdel(anchor)
 	return result
 
+/// TRUE when the ship at target_z is currently held by a tractor beam AND L
+/// is crew/owner/faction of the ship doing the tractoring (not the target) --
+/// _drydock_full_access_check() reused as-is, just evaluated against the
+/// TRACTORING ship's own Z instead of the target's. Lets a crew that's
+/// captured an enemy vessel actually board its real interior via Personal
+/// Travel/Pod Warp, instead of being stuck exterior-only like any other
+/// hostile boarding attempt -- deliberately scoped to the tractoring ship's
+/// own people, not literally anyone.
+/proc/_tractor_boarding_access_check(mob/L, target_z)
+	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[target_z]"]
+	if(!istype(marker, /obj/effect/overmap/visitable/ship))
+		return FALSE
+	var/obj/effect/overmap/visitable/ship/target_ship = marker
+	if(!target_ship.tractored_by || !istype(target_ship.tractored_by.linked))
+		return FALSE
+	return _drydock_full_access_check(L, target_ship.tractored_by.linked.z)
+
 /// The shared four-case access rule -- see the file header above.
 /proc/_drydock_pick_access_mode(mob/living/L, target_z)
 	for(var/sid in GLOB.drydock_ships)
@@ -265,11 +282,16 @@
 			continue
 		if(_drydock_full_access_check(L, target_z))
 			return DRYDOCK_PICK_MODE_OPEN
+		if(_tractor_boarding_access_check(L, target_z))
+			return DRYDOCK_PICK_MODE_OPEN
 		return DRYDOCK_PICK_MODE_EXTERIOR_ONLY
 	// Any other ship-type marker (non-drydock -- NPC/faction ships, the
-	// Horizon, etc.) has no ownership concept to open up -- always exterior.
+	// Horizon, etc.) has no ownership concept to open up -- always exterior,
+	// unless it's currently tractored by a ship this traveler crews.
 	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[target_z]"]
 	if(istype(marker, /obj/effect/overmap/visitable/ship))
+		if(_tractor_boarding_access_check(L, target_z))
+			return DRYDOCK_PICK_MODE_OPEN
 		return DRYDOCK_PICK_MODE_EXTERIOR_ONLY
 	// Explicit .powered check rather than trusting GLOB.faction_beacon_by_z
 	// presence alone -- a beacon comment states an unpowered beacon can
@@ -334,7 +356,23 @@
 /// so a blocked player gets an immediate message instead of clicking
 /// through an eye-view pick that can never succeed -- _drydock_pick_access_mode()
 /// above is still the authoritative check, re-verified on every click.
+/// Thin wrapper around _faction_raid_blocked_for() (shuttles/docking_beacon.dm
+/// consumes that shared proc directly for a docking ship's own faction_uid,
+/// which has no mob/ID card to resolve one from) -- resolves L's own faction
+/// from their ID card, same as before this was split out.
 /proc/_drydock_raid_blocked(mob/living/L, target_z)
+	var/obj/item/card/id/ID = L.GetIdCard()
+	var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+	return _faction_raid_blocked_for(target_z, own_faction)
+
+/// Shared core of the raiding gate: TRUE if acting_faction_uid should be
+/// refused entry to target_z because faction raiding is currently disabled,
+/// the Z is claimed by an ordinary (non-Hub) powered, non-public-territory
+/// faction beacon, and acting_faction_uid isn't a member of (or allied with,
+/// under FACTION_ALLIANCES) that faction. acting_faction_uid may be null
+/// (an unaffiliated player, or a personally-owned drydock ship) -- always
+/// blocked in that case, same as before this was split out.
+/proc/_faction_raid_blocked_for(target_z, acting_faction_uid)
 	if(GLOB.faction_raiding_enabled)
 		return FALSE
 	if(zone_security_get(target_z) == ZONE_HIGHSEC)
@@ -342,12 +380,10 @@
 	var/obj/structure/machinery/faction_beacon/B = GLOB.faction_beacon_by_z["[target_z]"]
 	if(!istype(B) || !B.powered || B.public_territory || istype(B, /obj/structure/machinery/faction_beacon/hub))
 		return FALSE
-	var/obj/item/card/id/ID = L.GetIdCard()
-	var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
 #ifdef FACTION_ALLIANCES
-	return !(B.faction_uid && own_faction && (B.faction_uid == own_faction || factions_are_allied(own_faction, B.faction_uid)))
+	return !(B.faction_uid && acting_faction_uid && (B.faction_uid == acting_faction_uid || factions_are_allied(acting_faction_uid, B.faction_uid)))
 #else
-	return !(B.faction_uid && own_faction && B.faction_uid == own_faction)
+	return !(B.faction_uid && acting_faction_uid && B.faction_uid == acting_faction_uid)
 #endif //FACTION_ALLIANCES
 
 /// Plays the raiding-prohibited announcer cue to L, gated by ASFX_ANNOUNCER
@@ -368,15 +404,15 @@
 	var/turf/origin = get_turf(L)
 	var/atom/movable/pulled = L.pulling
 	if(origin)
-		new /obj/effect/portal/decorative/fading(origin, null, null, 5 SECONDS, 0)
 		spark(origin, 3, GLOB.alldirs)
-		playsound(origin, 'sound/effects/phasein.ogg', 30, 1)
-	new /obj/effect/portal/decorative/fading(destination, null, null, 5 SECONDS, 0)
+		// Must precede the forceMove below, while the bystanders who watched
+		// them leave are still the ones in view of this turf.
+		_travel_announce_phase(L, origin, FALSE)
 	spark(destination, 3, GLOB.alldirs)
 	L.forceMove(destination)
 	if(pulled && !QDELETED(pulled))
 		pulled.forceMove(destination)
-	playsound(destination, 'sound/effects/phasein.ogg', 30, 1)
+	_travel_announce_phase(L, destination, TRUE)
 
 /// Resolves which ship L has boarding rights to nearby -- ownership/crew/
 /// faction check, DS.ready, and same/adjacent overmap sector proximity,
@@ -394,6 +430,12 @@
 
 	var/list/candidates = list()
 	var/found_not_ready = FALSE
+	// Every ship L genuinely owns/has crew access to, but got excluded from
+	// candidates anyway, with the SPECIFIC reason why -- shown directly to
+	// the player, not just logged, so "no ships nearby" (misleading when a
+	// ship the player owns actually exists) becomes an exact, actionable
+	// fact instead of a mystery.
+	var/list/exclusion_reasons = list()
 	for(var/sid in GLOB.drydock_ships)
 		var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
 		if(!DS || DS.stashed)
@@ -403,6 +445,8 @@
 				continue
 		else if(!_drydock_full_access_check(L, DS.z))
 			continue
+		// Everything below this point is a ship L genuinely has access to --
+		// worth naming exactly why it's excluded, not just silently skipped.
 		// Still mid-load (deferred atmos settle, persistence_ship_interiors.dm)
 		// -- not offered as a candidate at all yet, distinct from "no ships."
 		if(!DS.ready)
@@ -412,14 +456,31 @@
 		// still has to actually be nearby (same or an adjacent sector, or up
 		// to DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX if it got hazard-overflow-
 		// placed -- shipPlaceOvermapMarker(), persistence_shuttles.dm).
-		var/obj/effect/overmap/visitable/ship_sector = GLOB.map_sectors["[DS.z]"]
-		if(!istype(mob_sector) || !istype(ship_sector) || get_dist(mob_sector, ship_sector) > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
+		// _drydock_ship_sector(), not a bare GLOB.map_sectors["[DS.z]"] lookup
+		// -- DS's own marker may currently be nested (docked, on_landing(),
+		// landable.dm), which would give get_dist() a meaningless result.
+		var/obj/effect/overmap/visitable/ship_sector = _drydock_ship_sector(DS)
+		if(!istype(mob_sector))
+			exclusion_reasons += "[DS.display_name()]: your own position has no resolvable overmap sector (z=[GET_Z(L)])."
+			continue
+		if(!istype(ship_sector))
+			exclusion_reasons += "[DS.display_name()]: the ship's own position has no resolvable overmap sector (ship z=[DS.z])."
+			continue
+		var/board_dist = get_dist(mob_sector, ship_sector)
+		if(board_dist > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
+			exclusion_reasons += "[DS.display_name()]: too far -- you're at [mob_sector] ([mob_sector.x],[mob_sector.y]), it's at [ship_sector] ([ship_sector.x],[ship_sector.y]), distance [board_dist] > max [DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX]."
 			continue
 		candidates += DS
 
 	if(!length(candidates))
 		if(found_not_ready)
 			to_chat(L, SPAN_WARNING("Your ship is still initializing -- try again in a moment."))
+		else if(length(exclusion_reasons))
+			// A ship L has access to genuinely exists -- name exactly why
+			// each one was excluded instead of the generic "none nearby."
+			to_chat(L, SPAN_WARNING("Found [length(exclusion_reasons)] accessible ship(s), but none close enough to board:"))
+			for(var/reason in exclusion_reasons)
+				to_chat(L, SPAN_WARNING("- [reason]"))
 		else
 			to_chat(L, SPAN_WARNING(pad_network ? "[get_faction_name(pad_network)] has no drydock ships currently deployed nearby." : "You have no drydock ships currently deployed nearby."))
 		return null
@@ -468,6 +529,17 @@
 	if(cooldown[L.ckey] && (world.time - cooldown[L.ckey] < 30))
 		to_chat(L, SPAN_WARNING("Still recalibrating -- wait a moment."))
 		return FALSE
+	// Matches the schematic/console TGUIs' own greyed-out "Retrieving..."
+	// button state (ShipSchematic.tsx/ShuttleDrydock.tsx) -- enforced here
+	// too so the button and the server can't disagree, same as every other
+	// gate in this system. _drydock_board_resolve_ship() already skips a
+	// not-ready ship when resolving candidates for the generic program/pad
+	// flow, but ship_schematic.dm's own direct board/board_subship calls
+	// reach this proc straight from a known DS with no candidate search at
+	// all, so that check alone doesn't cover them.
+	if(!target.ready)
+		to_chat(L, SPAN_WARNING("That ship is still being retrieved -- wait until it's ready to board."))
+		return FALSE
 
 	var/use_picker = FALSE
 	var/turf/destination
@@ -497,12 +569,19 @@
 			if(!destination)
 				return FALSE
 
+	// Right here, not after the delivery below -- this is the moment
+	// boarding is actually committed and, for the picker path, exactly when
+	// the eye-view camera lets go and control returns to L's own body. The
+	// 15-second spool-up and portal still follow same as before; only the
+	// confirmation cue moved to mark "boarding started" instead of
+	// "boarding finished."
+	play_announcer_sound_priority(L, 'sound/AI/announcements/boarding_the_ship.ogg')
 	cooldown[L.ckey] = world.time
 	L.visible_message(SPAN_NOTICE("[L] begins boarding a ship."), SPAN_NOTICE("You begin boarding the ship..."))
 	// Sparks at both the boarder's own tile and the ship-side landing spot --
 	// warns anyone already aboard that someone's about to portal in.
 	var/list/spool_token = list(TRUE)
-	_start_travel_spool_pulses(get_turf(L), destination, DRYDOCK_BOARDING_SPOOLUP, CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_spool_token_valid), spool_token))
+	_start_travel_spool_pulses(get_turf(L), destination, DRYDOCK_BOARDING_SPOOLUP, CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_spool_token_valid), spool_token), show_phase_effect = TRUE, facing_dir = L.dir)
 	if(!do_after(L, DRYDOCK_BOARDING_SPOOLUP, L))
 		spool_token[1] = FALSE
 		to_chat(L, SPAN_WARNING("Boarding interrupted."))
@@ -524,7 +603,7 @@
 	if(QDELETED(L) || L.stat == DEAD || L.buckled_to)
 		return FALSE
 	var/obj/effect/overmap/visitable/recheck_mob_sector = _drydock_boarder_sector(L)
-	var/obj/effect/overmap/visitable/recheck_ship_sector = GLOB.map_sectors["[target.z]"]
+	var/obj/effect/overmap/visitable/recheck_ship_sector = _drydock_ship_sector(target)
 	if(!istype(recheck_mob_sector) || !istype(recheck_ship_sector) || get_dist(recheck_mob_sector, recheck_ship_sector) > DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX)
 		to_chat(L, SPAN_WARNING("You're no longer close enough to board."))
 		return FALSE
@@ -642,7 +721,11 @@
 	var/datum/drydock_ship/target_ship = _drydock_board_resolve_ship(inviter, null)
 	if(!target_ship)
 		return FALSE
-	var/obj/effect/overmap/visitable/ship_sector = GLOB.map_sectors["[target_ship.z]"]
+	// _drydock_ship_sector(), not a bare GLOB.map_sectors["[target_ship.z]"]
+	// lookup -- see _drydock_board_resolve_ship()'s own identical fix above.
+	// Derived once here and reused unchanged below (lines checking
+	// candidate/target proximity) rather than re-deriving each time.
+	var/obj/effect/overmap/visitable/ship_sector = _drydock_ship_sector(target_ship)
 
 	// "Nearby" is sector-adjacency to the ship, same rule self-boarding uses
 	// (_drydock_board_resolve_ship) -- not physical same-Z proximity to the
@@ -663,17 +746,16 @@
 		to_chat(inviter, SPAN_WARNING("There's no one nearby to invite aboard."))
 		return FALSE
 
-	var/mob/living/target
-	if(length(nearby) == 1)
-		target = nearby[1]
-	else
-		var/list/choices = list()
-		for(var/mob/living/candidate in nearby)
-			choices["[candidate.name]"] = candidate
-		var/pick = tgui_input_list(inviter, "Invite who aboard?", "Boarding Invitation", choices)
-		if(!pick)
-			return FALSE
-		target = choices[pick]
+	// Always shown, even for a single candidate -- the inviter should see
+	// (and confirm) exactly who's about to be invited rather than it
+	// happening silently the instant only one person happens to be nearby.
+	var/list/choices = list()
+	for(var/mob/living/candidate in nearby)
+		choices["[candidate.name]"] = candidate
+	var/pick = tgui_input_list(inviter, "Invite who aboard?", "Boarding Invitation", choices)
+	if(!pick)
+		return FALSE
+	var/mob/living/target = choices[pick]
 
 	// Recheck sector-adjacency (candidates may have moved during the picker
 	// delay above) instead of a same-Z physical distance, for the same
@@ -747,6 +829,20 @@
 			return get_turf(console)
 	return null
 
+/// Same idea as _drydock_console_turf() above, but keyed by shuttle_tag
+/// instead of z -- a sub-ship (sub_shuttle_tags, drydock_ship.dm) is its own
+/// /datum/shuttle mapped into the SAME hull's Z as its parent, so a plain
+/// z-based lookup can't tell the two consoles apart. Used by
+/// ship_schematic.dm's "Enter Sub-Ship" to land on the sub-ship's own
+/// console specifically, not the main hull's.
+/proc/_drydock_subship_console_turf(shuttle_tag)
+	var/datum/shuttle/sub = SSshuttle.shuttles[shuttle_tag]
+	if(!istype(sub))
+		return null
+	for(var/obj/structure/machinery/computer/shuttle_control/console in sub.shuttle_computers)
+		return get_turf(console)
+	return null
+
 /// Finds the deployed, non-stashed drydock ship whose interior L is
 /// currently standing on, or null if L isn't aboard one -- shared by the
 /// core disembark proc and the Drydock program's ui_data() "am I aboard a
@@ -785,6 +881,22 @@
 	var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
 	return DS.owned_by(L) || (DS.faction_uid && DS.faction_uid == own_faction) || ("[L.ckey]|[L.real_name]" in DS.crew_ckeys)
 
+/// TRUE if user has owner/faction/crew access to at least one currently
+/// deployed-but-not-yet-ready drydock ship -- used to grey out the Drydock
+/// program's own generic "Enter Ship" button (ShuttleDrydock.tsx), the same
+/// way ship_schematic.dm's own per-ship "ready" field already gates its
+/// board button. Best-effort UI hint only, same as every other greyed-out
+/// button in this system -- _drydock_board_deliver()'s own !target.ready
+/// check is the real, authoritative gate.
+/proc/_drydock_user_has_retrieving_ship(mob/user)
+	for(var/sid in GLOB.drydock_ships)
+		var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
+		if(!DS || DS.stashed || DS.ready || !DS.z)
+			continue
+		if(_drydock_full_access_check(user, DS.z))
+			return TRUE
+	return FALSE
+
 /// Ship-level counterpart to _drydock_full_access_check() for contexts with
 /// no specific mob to check -- e.g. a sensor console's own shared
 /// identification tick (contact_sensors.dm's process()), which runs once per
@@ -811,6 +923,22 @@
 	if(!DS)
 		return FALSE
 	return (DS.owner_ckey == ckey && DS.owner_char_name == char_name) || ("[ckey]|[char_name]" in DS.crew_ckeys)
+
+/// TRUE for the literal map-authored Hub home turf (is_centcom_level()) OR
+/// any z the Hub faction (uid "hub") currently claims via a faction_beacon
+/// (get_owning_faction_beacon(), faction_beacon.dm) -- the Hub can extend
+/// its territory beyond its own home Z the same way any other faction claims
+/// ground, and those claimed sectors are Hub territory too even though
+/// they're not centcom-tagged. Used by _drydock_disembark_core() to decide
+/// which candidates get a fixed-pad/no-eye-view landing instead of a normal
+/// away-site pick -- deliberately NOT used for the Hub-personnel access gate
+/// just below, which stays scoped to the literal home turf like every other
+/// is_centcom_level() caller (telepad_travel.dm, personal_travel.dm).
+/proc/_disembark_is_hub_z(z)
+	if(is_centcom_level(z))
+		return TRUE
+	var/obj/structure/machinery/faction_beacon/owner = get_owning_faction_beacon(z)
+	return owner && normalize_faction_uid(owner.faction_uid) == "hub"
 
 /// Core disembark delivery, shared by the mob verb below and the Drydock
 /// program's "Exit Ship" action -- only the trigger differs. Step off a
@@ -874,7 +1002,23 @@
 				continue
 			if(!length(nearby.map_z))
 				continue
-			var/turf/site_turf = personal_travel_find_space_landing(nearby.map_z[1])
+			var/turf/site_turf
+			if(_disembark_is_hub_z(nearby.map_z[1]))
+				// Hub territory (home turf, or anywhere the Hub faction
+				// claims via a beacon) is never a free eye-view landing spot
+				// ("people should enter the hub, just not anywhere") --
+				// anchor this candidate to its own dedicated travel pad
+				// instead of a random open turf on the same Z, same fixed
+				// arrival point Personal Travel's "Return to Hub" already
+				// uses. Falls back to a normal space-landing turf only if
+				// this specific Z genuinely has no pad of its own.
+				for(var/obj/structure/machinery/telepad_cargo/travel/hub/H in world)
+					if(QDELETED(H) || GET_Z(H) != nearby.map_z[1])
+						continue
+					site_turf = get_turf(H)
+					break
+			if(!site_turf)
+				site_turf = personal_travel_find_space_landing(nearby.map_z[1])
 			if(site_turf)
 				candidate_turfs["[nearby.name]"] = site_turf
 
@@ -906,28 +1050,11 @@
 		to_chat(L, SPAN_WARNING("That sector is restricted to Hub personnel."))
 		return FALSE
 	var/is_dock_target = (shuttle_datum && marker.status == SHIP_STATUS_LANDED && target_z == GET_Z(shuttle_datum.current_location))
-	var/is_hub_target = (zone_security_get(target_z) == ZONE_HIGHSEC)
 
 	var/turf/destination
 	var/use_picker = TRUE
 
-	if(is_hub_target)
-		// Highsec (the Hub) is never eye-view-pickable, even exterior-only --
-		// "people should enter the hub, just not anywhere." Route straight to
-		// the Hub's own dedicated travel telepad instead, the same fixed
-		// arrival point Personal Travel's "Return to Hub" already uses. Still
-		// goes through the same spool-up/combat-recheck/portal tail below --
-		// only the eye-view CLICKING step is skipped, not the safety window.
-		use_picker = FALSE
-		for(var/obj/structure/machinery/telepad_cargo/travel/hub/H in world)
-			if(QDELETED(H))
-				continue
-			destination = get_turf(H)
-			break
-		if(!destination)
-			to_chat(L, SPAN_WARNING("No Hub travel pad could be found."))
-			return FALSE
-	else if(is_dock_target)
+	if(is_dock_target)
 		// Only the actual dock target has an "instant" option -- a nearby
 		// away-site pick never had a fixed landmark turf to begin with, so it
 		// always goes straight to the eye view.
@@ -946,18 +1073,36 @@
 			// destination-only spark.
 			_drydock_deliver_with_portal(L, destination)
 			to_chat(L, SPAN_GOOD("You disembark the ship."))
+			play_announcer_sound_priority(L, 'sound/AI/announcements/exiting_ship.ogg')
 			log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id] at its docked beacon.")
 			return TRUE
+	else if(_disembark_is_hub_z(target_z) && get_effective_faction_rank(L, "hub") < 2)
+		// Hub territory is never a free eye-view landing spot for rank-and-
+		// file ("people should enter the hub, just not anywhere") --
+		// anchor_turf was already resolved to the Hub's own dedicated travel
+		// pad when this candidate was built (the loop above), not a random
+		// open turf, so deliver straight to exactly what the player picked.
+		// Command-rank Hub personnel (rank >= 2, same officer-tier gate as
+		// faction_manage.dm's own op_rank >= 2 checks) are trusted with the
+		// same free eye-view picker everyone else gets below.
+		use_picker = FALSE
+		destination = anchor_turf
 
 	if(use_picker)
 		destination = _drydock_pick_destination_turf(L, target_z, anchor_turf)
 		if(!destination)
 			return FALSE
 
+	// Right here, not after the delivery below -- see the matching comment
+	// in _drydock_board_deliver(). For the picker path this is exactly when
+	// the eye-view camera releases back to L; for the hub route there's no
+	// eye view step, but the destination is equally committed at this point.
+	play_announcer_sound_priority(L, 'sound/AI/announcements/exiting_ship.ogg')
+
 	// Sparks at both the disembarking player's own tile and the landing
 	// spot -- warns anyone already there that someone's about to portal in.
 	var/list/spool_token = list(TRUE)
-	_start_travel_spool_pulses(get_turf(L), destination, DRYDOCK_DISEMBARK_SPOOLUP, CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_spool_token_valid), spool_token))
+	_start_travel_spool_pulses(get_turf(L), destination, DRYDOCK_DISEMBARK_SPOOLUP, CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_spool_token_valid), spool_token), show_phase_effect = TRUE, facing_dir = L.dir)
 	if(!do_after(L, DRYDOCK_DISEMBARK_SPOOLUP, L))
 		spool_token[1] = FALSE
 		to_chat(L, SPAN_WARNING("Disembarking interrupted."))
@@ -987,7 +1132,7 @@
 
 	_drydock_deliver_with_portal(L, destination)
 	to_chat(L, SPAN_GOOD("You disembark the ship."))
-	log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id][is_hub_target ? " via the Hub telepad" : " choosing a landing spot"].")
+	log_drydock("_drydock_disembark_core: [key_name(L)] disembarked shuttle_id=[DS.shuttle_id][use_picker ? " choosing a landing spot" : " via the Hub telepad"].")
 	return TRUE
 
 /mob/living/verb/disembark_drydock_ship()

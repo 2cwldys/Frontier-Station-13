@@ -789,6 +789,56 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 /// entering any claimed (non-Hub) faction's own Z-level(s) -- see
 /// _drydock_pick_access_mode()/_drydock_pick_turf_valid()
 /// (telepad_drydock_boarding.dm) for the actual enforcement.
+/// Loads the current hub law text from ss13_hub_law_text at boot. Mirrors
+/// factionRaidingToggleInitialize() above.
+/datum/controller/subsystem/persistence/proc/hubLawTextInitialize()
+	if(!databaseCheckConnection("hubLawTextInitialize"))
+		return
+	try
+		var/datum/db_query/q = SSdbcore.NewQuery("SELECT law_text FROM ss13_hub_law_text WHERE id = 1", list())
+		q.Execute()
+		if(databaseCheckQueryResult(q, "hubLawTextInitialize") && q.NextRow())
+			GLOB.hub_law_text = q.item[1]
+		qdel(q)
+	catch(var/exception/hub_law_e)
+		log_subsystem_persistence_error("Factions: failed to load hub law text: [hub_law_e]")
+
+/datum/controller/subsystem/persistence/proc/setHubLawText(text)
+	GLOB.hub_law_text = text
+	if(!databaseCheckConnection("setHubLawText"))
+		return
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"INSERT INTO ss13_hub_law_text (id, law_text) VALUES (1, :law_text) ON DUPLICATE KEY UPDATE law_text = VALUES(law_text)",
+		list("law_text" = text)
+	)
+	q.Execute()
+	databaseCheckQueryResult(q, "setHubLawText")
+	qdel(q)
+
+/// Admin-editable content for every printed hub law book -- see
+/// GLOB.hub_law_text's own doc comment (persistence.dm).
+/datum/admins/proc/modify_hub_laws()
+	set name = "Modify Hub Laws"
+	set category = "Persistence"
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	// law_text (ss13_hub_law_text) is MEDIUMTEXT -- room for ~16MB, nowhere
+	// close to a real limiting factor here. 4096 was an arbitrary, needlessly
+	// tight cap for an admin-only lore/rules document; 20000 is still a real
+	// bound (this does get rendered whole in every printed book's browse()
+	// window) without being cramped for actual use.
+	// Explicit width/height -- the default dynamic sizing (TextInputModal.tsx)
+	// is tuned for short prompts, not a document that can now run to 20000
+	// characters.
+	var/new_text = tgui_input_text(usr, "Hub law book text:", "Modify Hub Laws", GLOB.hub_law_text, multiline = TRUE, max_length = 20000, width = 700, height = 600)
+	if(isnull(new_text))
+		return
+
+	SSpersistence.setHubLawText(new_text)
+	log_and_message_admins("modified the hub law book text.", usr)
+
 /datum/admins/proc/toggle_faction_raiding()
 	set name = "Toggle Faction Raiding"
 	set category = "Persistence"
@@ -1335,6 +1385,47 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
  * target faction. Replaces the ad-hoc admin-or-rank checks that used to be
  * copy-pasted (and inconsistently applied) in each type's own verbs.
  */
+/// TRUE when a faction-tagger network value carries no ownership restriction.
+///
+/// Two distinct values mean "anyone may use and configure this": unassigned
+/// ("" or null -- never tagged), and the explicit "public" sentinel the faction
+/// tagger sets for deliberately shared equipment (faction_tagger.dm, which
+/// already recognises it for airlocks, comms, cryopods, autodocs, laces and
+/// turrets). Anything gating on faction membership must treat both as open, or
+/// tagging something public would lock it down instead of opening it up --
+/// exactly backwards.
+/proc/faction_network_is_open(network_uid)
+	return !network_uid || network_uid == "" || network_uid == "public"
+
+/// Whether user may rewire a device carrying this faction network tag.
+///
+/// The single rule behind every link/unlink gate on doors, door buttons and
+/// airlock cyclers, so they cannot drift apart. Open networks (untagged or
+/// "public") are free for all; a real faction tag needs employment there.
+///
+/// FACTION_RANK_CREW, not OFFICER: wiring a checkpoint is routine work, so
+/// anyone actually employed by the faction can do it. That is only safe because
+/// merely printing an ID no longer counts as employment -- those registrations
+/// are FACTION_RANK_CIVILIAN (card.dm), below crew, so somebody who has only
+/// ever touched a faction console is correctly refused. Admins bypass, as
+/// everywhere else.
+/// Whether user may WEAR equipment tagged to this faction network.
+///
+/// Same standing as rewiring that faction's infrastructure, deliberately routed
+/// through the same proc so kit and hardware cannot drift apart on what
+/// "belongs to this faction" means. Untagged and "public" gear is unrestricted.
+///
+/// Scoped to wearing only -- picking up, carrying and storing tagged gear stay
+/// unrestricted, so confiscating an enemy uniform still works, it just cannot be
+/// put on.
+/proc/can_use_faction_equipment(mob/user, network_uid)
+	return can_rewire_faction_device(user, network_uid)
+
+/proc/can_rewire_faction_device(mob/user, network_uid)
+	if(faction_network_is_open(network_uid))
+		return TRUE
+	return can_configure_faction_shackle(user, network_uid, FACTION_RANK_CREW)
+
 /proc/can_configure_faction_shackle(mob/user, faction_uid, rank_required = 1)
 	if(check_rights(R_ADMIN, 0, user))
 		return TRUE
@@ -1722,6 +1813,9 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 		// only thing that emits COMSIG_BASENAME_SETNAME -- so dependents have
 		// to be refreshed explicitly.
 		refresh_site_blueprints(z)
+		// The z-level's own label as well, which nothing refreshed -- a renamed
+		// site otherwise keeps its template default there forever.
+		persistence_set_zlevel_label(z, marker.name)
 	return null
 
 /// Pin/unpin overmap away sites for persistence (ss13_persistent_away_sites).
@@ -1906,6 +2000,9 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 					// Direct assignment bypasses update_name(), the only thing
 					// that emits COMSIG_BASENAME_SETNAME -- refresh dependents.
 					refresh_site_blueprints(rename_row["last_z"])
+					// And the z-level's own label, same as the faction-facing
+					// wrapper above does.
+					persistence_set_zlevel_label(rename_row["last_z"], rename_marker.name)
 			to_chat(usr, SPAN_GOOD("'[rename_row["template"]]' [new_site_name != "" ? "renamed to '[new_site_name]'" : "name restored to template default"] -- persists across reboots."))
 			log_and_message_admins("[new_site_name != "" ? "renamed pinned overmap site '[rename_row["template"]]' to '[new_site_name]'" : "cleared custom name on pinned overmap site '[rename_row["template"]]'"]", usr)
 
@@ -2456,41 +2553,18 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 	GLOB.persistence_zlevel_skip -= z
 	GLOB.persistence_zlevel_allow -= z
 
-	// Delete every remaining atom/mob (caller already guaranteed player-free),
-	// wipe turfs to plain space, then remove the overmap marker. Pass 1 is a
-	// type-indexed world scan (the safe pattern): qdel'ing an object can
-	// itself spawn/drop a new movable as a side effect (an APC ejecting its
-	// cell is normal APC behavior), which a one-shot turf/contents snapshot
-	// taken before that qdel would never catch. Passes 2+ mop up whatever
-	// pass 1's qdel cascade freshly ejected -- those land directly on a turf
-	// (never nested), so a Z-scoped turf/contents re-check is safe there and,
-	// critically, bounded to this Z's own turf count instead of a second full
-	// for(TYPE in world) sweep. Repeating the world-wide scan every pass was
-	// a real hang: qdel() only calls Destroy() immediately (SSgarbage defers
-	// the real del()), so a just-qdel'd object with its .loc/.z untouched
-	// keeps matching on every subsequent pass, guaranteeing all 5 passes ran
-	// as full-world scans every time.
-	for(var/atom/movable/AM in world)
-		CHECK_TICK
-		if(AM.z != z)
-			continue
-		qdel(AM)
-
-	var/pass = 1
-	var/found_any = TRUE
-	while(found_any && pass < 5)
-		found_any = FALSE
-		pass++
-		for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
-			CHECK_TICK
-			var/list/contents_snapshot = T.contents.Copy()
-			for(var/atom/movable/AM in contents_snapshot)
-				qdel(AM)
-				found_any = TRUE
-
-	for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
-		T.ChangeTurf(/turf/space)
-		CHECK_TICK
+	// Delete every remaining atom/mob (caller already guaranteed player-free)
+	// and wipe turfs to plain space, then remove the overmap marker below.
+	//
+	// Shared with ship teardown rather than hand-copied. This proc used to carry
+	// its own duplicate of the wipe, which meant the fixes made to the ship one
+	// -- a sweep AFTER the turf conversion (ChangeTurf() can itself produce
+	// movables), and a forced final pass for objects that decline a cooperative
+	// qdel() -- never reached away sites. Away-site z-levels pool and reuse
+	// through the exact same GLOB.reusable_z_pool, so they hit the identical
+	// "failed its emptiness assertion, discarded" path and inflated the z count
+	// the same way.
+	SSpersistence._wipeZContents(z, "_despawn_away_site_z")
 
 	// Area reassignment back to the world default -- ChangeTurf() only
 	// touches the turf's type, not its area (a separate .loc assignment), so

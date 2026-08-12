@@ -162,7 +162,18 @@
 			// shipInteriorSave()/shipInteriorApply()) -- skip them here so a
 			// ship's blueprint areas never get written twice under the wrong
 			// (plain map) scope, which would misapply after Z-pool reuse.
-			if(GLOB.persistence_ship_z["[T.z]"])
+			// persistence_turf_docked_elsewhere() also catches a ship's own
+			// turfs while it's genuinely docked elsewhere -- attempt_move()/
+			// shuttle_moved() (shuttle.dm) physically relocates a docked
+			// ship's area membership onto the destination's real turfs, so
+			// those turfs sit on a foreign (often this very map's own) z at
+			// that point, not the ship's registered home z. Excluded here
+			// rather than redirected to the ship's own scope -- see
+			// persistence_docked_turf_scope's doc comment
+			// (persistence_ship_interiors.dm) for why a redirect would be
+			// unsafe (areasFinalizeZ() will correctly pick this back up once
+			// the ship is genuinely home again, at stash time).
+			if(GLOB.persistence_ship_z["[T.z]"] || persistence_turf_docked_elsewhere(T))
 				continue
 			if(!(T.z in GLOB.persistence_pinned_site_z) && ((T.z in GLOB.persistence_zlevel_skip) || is_mining_level(T.z) || persistence_z_manual_blocked(T.z)))
 				continue

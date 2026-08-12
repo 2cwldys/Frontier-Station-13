@@ -16,8 +16,8 @@
 /datum/ship_engine/maneuvering/get_thrust()
 	return thruster.get_thrust()
 
-/datum/ship_engine/maneuvering/burn(var/power_modifier = 1)
-	return thruster.burn(power_modifier)
+/datum/ship_engine/maneuvering/burn(var/power_modifier = 1, play_sound = TRUE)
+	return thruster.burn(power_modifier, play_sound)
 
 /datum/ship_engine/maneuvering/set_thrust_limit(new_limit)
 	thruster.thrust_limit = new_limit
@@ -77,8 +77,9 @@
 		"severity" = "info"
 	))
 
-/obj/structure/machinery/maneuvering_engine/proc/burn(var/power_modifier = 1)
-	playsound(loc, 'sound/machines/thruster.ogg', (50 * thrust_limit * power_modifier), FALSE, world.view * 4, 0.1)
+/obj/structure/machinery/maneuvering_engine/proc/burn(var/power_modifier = 1, play_sound = TRUE)
+	if(play_sound)
+		playsound(loc, 'sound/machines/thruster.ogg', (50 * thrust_limit * power_modifier), FALSE, world.view * 4, 0.1)
 	. = thrust_limit * generated_thrust * power_modifier
 
 /obj/structure/machinery/maneuvering_engine/proc/get_thrust()

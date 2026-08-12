@@ -47,6 +47,24 @@
 	can_pass_under = FALSE
 	light_power_on = 1
 
+/// Cargo-orderable variant a player can build into their own commissioned
+/// hull (ship_commissioning_console.dm) -- same anchored=FALSE + wrench-
+/// toggle shape as every other /buildable console this session added. No
+/// extra commission-capture wiring needed -- already a
+/// /obj/structure/machinery/computer/ship subtype, so it's already captured
+/// into captured_ship_computers and gets sync_linked() (which re-runs
+/// attempt_hook_up() -> find_sensors_and_iff()) and power_change() for free.
+/obj/structure/machinery/computer/ship/sensors/terminal/buildable
+	anchored = FALSE
+
+/obj/structure/machinery/computer/ship/sensors/terminal/buildable/attackby(obj/item/attacking_item, mob/user, params)
+	if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		attacking_item.play_tool_sound(get_turf(src), 50)
+		anchored = !anchored
+		to_chat(user, anchored ? SPAN_NOTICE("Sensors terminal secured in place.") : SPAN_NOTICE("Sensors terminal unsecured."))
+		return TRUE
+	return ..(attacking_item, user, params)
+
 /obj/structure/machinery/computer/ship/sensors/proc/get_sensors()
 	var/obj/structure/machinery/shipsensors/sensors = sensor_ref?.resolve()
 	if(!istype(sensors) || QDELETED(sensors))
@@ -173,7 +191,11 @@
 
 		// Effects that require contact are only added to the contacts if they have been identified.
 		// Allows for coord tracking out of range of the player's view.
-		for(var/obj/effect/overmap/visitable/identified_contact in contact_datums)
+		// Base /obj/effect/overmap, not /visitable -- a non-visitable marker
+		// like a Supply Beacon (deliberately not /visitable, see its own file
+		// header) can still be a valid, identified sensor contact; it was
+		// previously excluded here by declared loop-variable type alone.
+		for(var/obj/effect/overmap/identified_contact in contact_datums)
 			potential_contacts |= identified_contact
 
 		for(var/obj/effect/overmap/contact in potential_contacts)
@@ -308,6 +330,7 @@
 			linked.set_new_class(new_class)
 			playsound(src, 'sound/machines/twobeep.ogg', 50)
 			visible_message(SPAN_NOTICE("\The [src] beeps, <i>\"IFF change to ship class registered.\"</i>"))
+			log_and_message_admins("changed [linked]'s IFF class designation to '[new_class]' via [src].", usr)
 			return TRUE
 
 		if(action == "change_ship_name")
@@ -581,6 +604,22 @@
 		/obj/item/stock_parts/scanning_module,
 		/obj/item/stock_parts/manipulator = 3
 	)
+
+/// Cargo-orderable variant a player can build into their own commissioned
+/// hull -- same anchored=FALSE + wrench-toggle shape as every other
+/// /buildable this session added. Needs no capture-time wiring of its own --
+/// the sensors terminal console's own find_sensors_and_iff() scan (re-run
+/// via sync_linked() at capture) finds this by ownership on demand.
+/obj/structure/machinery/shipsensors/weak/buildable
+	anchored = FALSE
+
+/obj/structure/machinery/shipsensors/weak/buildable/attackby(obj/item/attacking_item, mob/user)
+	if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		attacking_item.play_tool_sound(get_turf(src), 50)
+		anchored = !anchored
+		to_chat(user, anchored ? SPAN_NOTICE("Sensor array secured in place.") : SPAN_NOTICE("Sensor array unsecured."))
+		return TRUE
+	return ..(attacking_item, user)
 
 /obj/structure/machinery/shipsensors/weak/scc_shuttle
 	icon_state = "sensors"

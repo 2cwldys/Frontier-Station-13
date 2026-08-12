@@ -18,6 +18,19 @@
 /// zone security, raiding toggle, engine power) -- see play_announcer_sound()
 /// (announce.dm), which queues on this channel so lines can't overlap.
 #define CHANNEL_ANNOUNCER 1009
+/// The shield generator's ambient hum loop (ship_shield_generator.dm) --
+/// separate from CHANNEL_MACHINERY so it doesn't cut off the ship's own
+/// engine hum loop when both are active on the same ship at once.
+#define CHANNEL_SHIP_SHIELD_HUM 1008
+/// The tractor beam's ambient loop (ship_tractor_beam.dm) -- same reasoning
+/// as CHANNEL_SHIP_SHIELD_HUM, its own channel so it doesn't cut off the
+/// engine/shield hum loops on either of the two ships it connects.
+#define CHANNEL_TRACTOR_BEAM 1006
+/// PADD_BUTTON_PRESS_SOUNDS' click sound (modular_computer/ui.dm) -- a
+/// fixed channel (rather than playsound()'s default random-allocated one)
+/// so shutdown_computer() can silence a still-ringing click the instant the
+/// device powers off, by pushing a null sound to this same channel.
+#define CHANNEL_PADD_CLICK 1005
 
 /// Default range of a sound.
 #define SOUND_RANGE 17
@@ -35,7 +48,7 @@
 //THIS SHOULD ALWAYS BE THE LOWEST ONE!
 //KEEP IT UPDATED
 
-#define CHANNEL_HIGHEST_AVAILABLE 1008
+#define CHANNEL_HIGHEST_AVAILABLE 1005
 
 #define MAX_INSTRUMENT_CHANNELS (128 * 6)
 

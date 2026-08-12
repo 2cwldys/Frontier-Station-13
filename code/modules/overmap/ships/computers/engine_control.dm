@@ -28,6 +28,24 @@
 	can_pass_under = FALSE
 	light_power_on = 1
 
+/// Cargo-orderable variant a player can build into their own commissioned
+/// hull (ship_commissioning_console.dm) -- unlike the mapped-in base type
+/// above (always pre-anchored), this one starts loose like every other kit
+/// part and needs a wrench first. Required at commission time
+/// (_drydockCommissionRun(), persistence_shuttles.dm) -- without one,
+/// engines_state has no way to ever become true, so a fuelled, helmed,
+/// propulsion-equipped hull still can't move at all.
+/obj/structure/machinery/computer/ship/engines/terminal/buildable
+	anchored = FALSE
+
+/obj/structure/machinery/computer/ship/engines/terminal/buildable/attackby(obj/item/attacking_item, mob/user, params)
+	if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		attacking_item.play_tool_sound(get_turf(src), 50)
+		anchored = !anchored
+		to_chat(user, anchored ? SPAN_NOTICE("Engine control terminal secured in place.") : SPAN_NOTICE("Engine control terminal unsecured."))
+		return TRUE
+	return ..(attacking_item, user, params)
+
 /obj/structure/machinery/computer/ship/engines/ui_interact(mob/user, datum/tgui/ui)
 	// `connected` is only ever set at Initialize() or a manual "sync" click and
 	// goes stale across stash/unstash/retrieval/redelivery -- resync fresh
@@ -52,6 +70,7 @@
 	data["state"] = display_state
 	data["global_state"] = !!connected.engines_state
 	data["global_limit"] = round(connected.thrust_limit * 100)
+	data["tractored"] = !!connected.tractored_by
 
 	var/total_thrust = 0
 	var/list/enginfo = list()
@@ -70,6 +89,35 @@
 	data["engines_info"] = enginfo
 	data["total_thrust"] = total_thrust
 
+	// Ship-level fuel reserve. The per-engine block above only ever reports
+	// what each engine's own get_status() says, so a loaded fuel port was
+	// invisible here: an ion engine has no fuel concept at all, and a gas
+	// nozzle only mentions its own internal reservoir, never the tanks it can
+	// draw from. Report the ship's fuel_ports directly instead
+	// (refresh_fuel_ports_list(), overmap_shuttle.dm), so the crew can see what
+	// is actually aboard regardless of which engine type is fitted.
+	var/list/port_info = list()
+	var/total_fuel = 0
+	if(istype(connected, /obj/effect/overmap/visitable/ship/landable))
+		var/obj/effect/overmap/visitable/ship/landable/landable_ship = connected
+		var/datum/shuttle/autodock/overmap/fuel_shuttle = SSshuttle.shuttles[landable_ship.shuttle]
+		if(istype(fuel_shuttle))
+			for(var/obj/structure/FP in fuel_shuttle.fuel_ports)
+				var/list/pdata = list()
+				pdata["port_area"] = "[get_area(FP)]"
+				var/obj/item/tank/FT = locate() in FP
+				if(FT)
+					var/moles = FT.air_contents.get_by_flag(XGM_GAS_FUEL)
+					pdata["tank"] = "[FT.name]"
+					pdata["fuel"] = round(moles, 0.01)
+					total_fuel += moles
+				else
+					pdata["tank"] = null
+					pdata["fuel"] = 0
+				port_info += list(pdata)
+	data["fuel_ports"] = port_info
+	data["total_fuel"] = round(total_fuel, 0.01)
+
 	return data
 
 /obj/structure/machinery/computer/ship/engines/ui_act(action, params)
@@ -81,6 +129,10 @@
 		return FALSE
 
 	if(use_check_and_message(usr))
+		return FALSE
+
+	if(connected.tractored_by)
+		to_chat(usr, SPAN_WARNING("The engine controls are locked out -- a tractor beam has this ship pinned in place."))
 		return FALSE
 
 	switch(action)

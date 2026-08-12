@@ -34,6 +34,14 @@
 	/// FALSE on a specific item to exempt it (e.g. an event/admin weapon).
 	var/degrades_with_use = TRUE
 	var/wear_durability = 100
+
+	/// Var names (strings) whose CURRENT values should be snapshotted verbatim
+	/// on save and restored verbatim on load -- for small clusters of vars a
+	/// visor/mask-style toggle mutates together with no shared base class or
+	/// var name to hook generically (see serializePersistentItem()/
+	/// deserializePersistentItem(), persistence_mobs.dm). Null for the vast
+	/// majority of items that don't need this.
+	var/list/persistent_toggle_vars
 	var/wear_max_durability = 100
 	/// How much durability a single successful use costs. Tune per item --
 	/// junk/improvised gear should burn through this much faster than
@@ -767,6 +775,25 @@ GLOBAL_LIST_INIT(slot_flags_enumeration, list(
 		if(!disable_warning)
 			to_chat(M, SPAN_WARNING("\The [src] is too worn out to wear -- it needs to be repaired first."))
 		return 0
+
+#ifdef FACTION_EQUIPMENT_WEAR_LOCK
+	// Faction-tagged equipment may only be WORN by that faction's own people.
+	// Gated here, in the one proc every equip route funnels through
+	// (equip_to_slot_if_possible(), quick-equip, stripping, drag-to-slot), so
+	// there is a single check rather than one per entry point.
+	//
+	// Same slot test as the wear_broken check above: real worn slots only, never
+	// hands. Carrying, storing and confiscating tagged gear all stay
+	// unrestricted -- taking an enemy's uniform off them should work, wearing it
+	// should not. Untagged and "public" items are unaffected, which is nearly
+	// everything, so the common path is one null check.
+	if(("[slot]" in GLOB.slot_flags_enumeration) && faction_tagger_compatible())
+		var/tag_uid = faction_tagger_get_uid()
+		if(tag_uid && !can_use_faction_equipment(M, tag_uid))
+			if(!disable_warning)
+				to_chat(M, SPAN_WARNING("\The [src] is [get_faction_name(tag_uid)] property -- you aren't one of theirs."))
+			return 0
+#endif //FACTION_EQUIPMENT_WEAR_LOCK
 
 	if(!ishuman(M)) return 0
 

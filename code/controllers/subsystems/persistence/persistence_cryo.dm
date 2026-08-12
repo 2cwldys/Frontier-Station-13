@@ -9,8 +9,6 @@
  */
 
 #define PERSISTENCE_CRYO_TIMEOUT (60 SECONDS)
-#define PERSISTENCE_BASE_SLOTS   1
-#define PERSISTENCE_ADMIN_SLOTS  3
 
 // Cryo state vars on the human mob
 /mob/living/carbon/human
@@ -1004,16 +1002,23 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 
 /**
  * Teleport a list of atoms to the destination turf with a flash effect.
+ * skip_effects: TRUE when the caller already showed its own arrival cue
+ * (Travel Pad's _telepad_phase_arrival() + spark(), telepad_travel.dm) --
+ * skips this proc's own spark/transport.ogg so the destination doesn't get
+ * both. Defaults FALSE, unchanged for every other caller (cargo delivery,
+ * the supply beacon).
  */
-/proc/persistence_telepad_deliver(list/items, turf/destination)
+/proc/persistence_telepad_deliver(list/items, turf/destination, skip_effects = FALSE)
 	if(!destination || !length(items))
 		return
 	for(var/atom/movable/A in items)
 		if(QDELETED(A)) continue
 		A.forceMove(destination)
+	if(skip_effects)
+		return
 	// Visual/audio feedback at the destination
 	spark(destination, 5, GLOB.alldirs)
-	playsound(destination, 'sound/effects/phasein.ogg', 50, 1)
+	playsound(destination, 'sound/effects/transport.ogg', 50, 1)
 
 // ============================================================
 // NEURAL LACE ADMIN VERB
@@ -1068,8 +1073,9 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 
 /**
  * Returns the number of character slots for a given ckey.
- * Admins get PERSISTENCE_ADMIN_SLOTS; players get PERSISTENCE_BASE_SLOTS
- * unless overridden in ss13_character_slots.
+ * Admins get GLOB.config.character_slots + GLOB.config.admin_character_slots
+ * (CHARACTER_SLOTS/ADMIN_CHARACTER_SLOTS, config.txt); players get just
+ * GLOB.config.character_slots -- unless overridden in ss13_character_slots.
  */
 /proc/persistence_get_character_slots(ckey)
 	// Check per-player override in DB
@@ -1088,9 +1094,9 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 	// Admin default
 	var/client/C = GLOB.directory[ckey]
 	if(C && C.holder && (C.holder.rights & R_ADMIN))
-		return PERSISTENCE_ADMIN_SLOTS
+		return GLOB.config.character_slots + GLOB.config.admin_character_slots
 
-	return PERSISTENCE_BASE_SLOTS
+	return GLOB.config.character_slots
 
 // ============================================================
 // ADMIN VERB  set slot limit
@@ -1188,5 +1194,3 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 	log_subsystem_persistence_info("LaceVault: Restored [restored] vaulted lace(s)[orphaned ? ", [orphaned] row(s) left pending (no vault at coords)" : ""].")
 
 #undef PERSISTENCE_CRYO_TIMEOUT
-#undef PERSISTENCE_BASE_SLOTS
-#undef PERSISTENCE_ADMIN_SLOTS

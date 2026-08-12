@@ -107,6 +107,21 @@
 							"/obj/item/stock_parts/console_screen" = 1,
 							"/obj/item/stack/cable_coil" = 2)
 
+/// Same tech tier as travel_pad above -- a standing, walk-through gangway
+/// between two matched pads instead of a one-shot teleport. Replaces the
+/// old automatic drydock docking umbilical with a player-built, player-coded
+/// equivalent.
+/obj/item/circuitboard/umbilical_pad
+	name = T_BOARD("Umbilical Pad")
+	build_path = /obj/structure/machinery/telepad_cargo/umbilical
+	board_type = BOARD_MACHINE
+	origin_tech = list(TECH_BLUESPACE = 3, TECH_DATA = 2, TECH_ENGINEERING = 2)
+	req_components = list(
+							"/obj/item/bluespace_crystal/artificial" = 1,
+							"/obj/item/stock_parts/capacitor" = 1,
+							"/obj/item/stock_parts/console_screen" = 1,
+							"/obj/item/stack/cable_coil" = 2)
+
 /obj/item/circuitboard/ntnet_relay
 	name = T_BOARD("NTNet Quantum Relay")
 	build_path = /obj/structure/machinery/ntnet_relay

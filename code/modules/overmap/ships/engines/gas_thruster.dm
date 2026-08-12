@@ -17,8 +17,8 @@
 /datum/ship_engine/gas_thruster/get_thrust()
 	return nozzle.get_thrust()
 
-/datum/ship_engine/gas_thruster/burn(var/power_modifier = 1)
-	return nozzle.burn(power_modifier)
+/datum/ship_engine/gas_thruster/burn(var/power_modifier = 1, play_sound = TRUE)
+	return nozzle.burn(power_modifier, play_sound)
 
 /datum/ship_engine/gas_thruster/set_thrust_limit(var/new_limit)
 	nozzle.thrust_limit = new_limit
@@ -80,6 +80,34 @@
 	var/blockage
 	var/exhaust_offset = 1 // for engines that are longer
 	var/exhaust_width = 1 //for engines that are wider
+	/// Cached by sync_ship_registration() below -- the shuttle datum owning
+	/// this nozzle, if any. Lets check_fuel() reach the ship's own fuel_ports
+	/// (a phoron tank backup source) without re-resolving it on every check.
+	var/datum/shuttle/autodock/overmap/my_shuttle
+
+/// Cargo-orderable variant a player can build into their own commissioned
+/// hull (ship_commissioning_console.dm) -- starts loose like every other
+/// kit part this session added (helm/navigation/engine-control terminals),
+/// needing only a wrench, instead of the full frame+circuit+cable+pipe
+/// assembly the mapped-in version goes through. Everything else (pipe
+/// connectivity, fuel burning, datum/ship_engine behavior) is completely
+/// unchanged -- this only skips the construction steps, it doesn't bypass
+/// needing a real piped fuel-gas source to actually work once placed.
+/// Required at commission time (_drydockCommissionRun(), persistence_shuttles.dm)
+/// alongside (not instead of) the existing decorative propulsion structure
+/// requirement -- without a real engine, engines_state has nothing to
+/// actually burn regardless of how many decorative propulsion units or fuel
+/// ports are present.
+/obj/structure/machinery/atmospherics/unary/engine/buildable
+	anchored = FALSE
+
+/obj/structure/machinery/atmospherics/unary/engine/buildable/attackby(obj/item/attacking_item, mob/user, params)
+	if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		attacking_item.play_tool_sound(get_turf(src), 50)
+		anchored = !anchored
+		to_chat(user, anchored ? SPAN_NOTICE("Engine nozzle secured in place.") : SPAN_NOTICE("Engine nozzle unsecured."))
+		return TRUE
+	return ..(attacking_item, user, params)
 
 /obj/structure/machinery/atmospherics/unary/engine/scc_shuttle
 	icon = 'icons/obj/spaceship/scc/ship_engine.dmi'
@@ -137,14 +165,51 @@
 	. = ..()
 	controller = new(src)
 	update_nearby_tiles(need_rebuild=1)
+	sync_ship_registration()
 
-	if(length(SSshuttle.shuttle_areas) && !length(SSshuttle.shuttles_to_initialize) && SSshuttle.initialized)
-		for(var/obj/effect/overmap/visitable/ship/S as anything in SSshuttle.ships)
-			if(S.check_ownership(src))
-				S.engines |= controller
-				if(dir != S.fore_dir)
-					stat |= BROKEN
-				break
+/// Finds this nozzle's own ship (if any) and registers its controller into
+/// S.engines -- split out of Initialize() so a captured nozzle (built
+/// station-side before its ship existed, then forceMove()'d onto the ship's
+/// own z at commission) can be re-run through this again afterward, the
+/// same "built before the ship existed, SSshuttle.ships didn't contain it
+/// yet, silently never links" gap helm/navigation consoles already needed
+/// fixing for (persistence_shuttles.dm's captured_ship_computers loop).
+/// `S.engines |= controller` is safe to repeat -- list OR-assign is already
+/// add-if-not-present.
+/obj/structure/machinery/atmospherics/unary/engine/proc/sync_ship_registration()
+	if(!(length(SSshuttle.shuttle_areas) && !length(SSshuttle.shuttles_to_initialize) && SSshuttle.initialized))
+#ifdef DRYDOCK_ENGINE_DIAGNOSTICS
+		log_debug("ENGINE DIAG: [src] at [get_area(src)] ([x],[y],[z]) -- registration SKIPPED, SSshuttle not ready (shuttle_areas=[length(SSshuttle.shuttle_areas)], pending=[length(SSshuttle.shuttles_to_initialize)], initialized=[SSshuttle.initialized]).")
+#endif
+		return
+#ifdef DRYDOCK_ENGINE_DIAGNOSTICS
+	log_debug("ENGINE DIAG: [src] at [get_area(src)] ([x],[y],[z]) -- scanning [length(SSshuttle.ships)] ship(s) for ownership.")
+#endif
+	for(var/obj/effect/overmap/visitable/ship/S as anything in SSshuttle.ships)
+		if(S.check_ownership(src))
+			S.engines |= controller
+#ifdef DRYDOCK_ENGINE_DIAGNOSTICS
+			log_debug("ENGINE DIAG: [src] MATCHED ship '[S]' -- registered, [S.name] now has [length(S.engines)] engine(s).")
+#endif
+			// .shuttle (the registry name string) only exists on the
+			// landable subtype, not the base ship type this loop iterates.
+			if(istype(S, /obj/effect/overmap/visitable/ship/landable))
+				var/obj/effect/overmap/visitable/ship/landable/landable_S = S
+				my_shuttle = SSshuttle.shuttles[landable_S.shuttle]
+#ifdef DRYDOCK_ENGINE_DIAGNOSTICS
+				log_debug("ENGINE DIAG: [src] resolved my_shuttle=[my_shuttle ? "[my_shuttle.name]" : "NULL"] (shuttle tag '[landable_S.shuttle]'), fuel_ports=[my_shuttle ? length(my_shuttle.fuel_ports) : "n/a"].")
+#endif
+			if(dir != S.fore_dir)
+				stat |= BROKEN
+			return
+#ifdef DRYDOCK_ENGINE_DIAGNOSTICS
+	// Fell through every ship without a single check_ownership() match. For a
+	// landable ship that check is "is this engine's AREA one of the shuttle
+	// datum's own areas" (check_ownership(), landable.dm) -- so an engine
+	// sitting on hull that was captured OUTSIDE the template's own mapped area
+	// can never register, no matter how many times this runs.
+	log_debug("ENGINE DIAG: [src] at [get_area(src)] ([x],[y],[z]) -- NO ship claimed ownership. Engine will not appear in any engine control terminal.")
+#endif
 
 /obj/structure/machinery/atmospherics/unary/engine/Destroy()
 	QDEL_NULL(controller)
@@ -199,7 +264,50 @@
 	return use_power && operable() && (next_on < world.time)
 
 /obj/structure/machinery/atmospherics/unary/engine/proc/check_fuel()
+	if(air_contents.total_moles <= 5)
+		_draw_backup_fuel()
 	return air_contents.total_moles > 5 // minimum fuel usage is five moles, for EXTREMELY hot mix or super low pressure
+
+/// Backup/emergency fuel source: tops up this engine's own internal gas
+/// reservoir from any loaded phoron tank in the ship's own fuel_ports
+/// (overmap_shuttle.dm) once the piped network alone isn't enough to burn.
+/// Mirrors try_consume_fuel()'s own tank-draining pattern
+/// (overmap_shuttle.dm) -- merges the drawn gas into air_contents instead
+/// of comparing it against fuel_consumption directly, so get_thrust()/
+/// burn()'s own mole-based thrust math never needs to know about a second
+/// fuel source at all, only a topped-up reservoir. Applies to every ship
+/// with both a fuel port and a real engine, template or player-built --
+/// nothing here is player-built-specific.
+/obj/structure/machinery/atmospherics/unary/engine/proc/_draw_backup_fuel()
+	if(!my_shuttle || !my_shuttle.fuel_ports)
+#ifdef DRYDOCK_ENGINE_DIAGNOSTICS
+		log_debug("ENGINE DIAG: [src] backup fuel draw ABORTED -- my_shuttle=[my_shuttle ? "[my_shuttle.name]" : "NULL"], fuel_ports=[my_shuttle ? "[length(my_shuttle.fuel_ports)]" : "n/a"]. (my_shuttle is only ever set by a SUCCESSFUL sync_ship_registration().)")
+#endif
+		return
+#ifdef DRYDOCK_ENGINE_DIAGNOSTICS
+	log_debug("ENGINE DIAG: [src] backup fuel draw -- shuttle '[my_shuttle.name]' has [length(my_shuttle.fuel_ports)] fuel port(s).")
+#endif
+	for(var/obj/structure/FP in my_shuttle.fuel_ports)
+		var/obj/item/tank/FT = locate() in FP
+		if(!FT)
+#ifdef DRYDOCK_ENGINE_DIAGNOSTICS
+			log_debug("ENGINE DIAG: [src] fuel port [FP] holds no tank.")
+#endif
+			continue
+		var/available = FT.air_contents.get_by_flag(XGM_GAS_FUEL)
+#ifdef DRYDOCK_ENGINE_DIAGNOSTICS
+		log_debug("ENGINE DIAG: [src] fuel port [FP] tank [FT] has [available] fuel-flagged mole(s).")
+#endif
+		if(available <= 0)
+			continue
+		var/to_draw = min(available, volume_per_burn * 2)
+		var/datum/gas_mixture/drawn = FT.remove_air_by_flag(XGM_GAS_FUEL, to_draw)
+		if(drawn)
+			air_contents.merge(drawn)
+#ifdef DRYDOCK_ENGINE_DIAGNOSTICS
+			log_debug("ENGINE DIAG: [src] drew [to_draw] mole(s) from [FT]; air_contents now [air_contents.total_moles] total.")
+#endif
+		return
 
 /obj/structure/machinery/atmospherics/unary/engine/proc/get_thrust()
 	if(!is_on() || !check_fuel())
@@ -223,7 +331,7 @@
 		A = get_step(A, exhaust_dir)
 	return blockage
 
-/obj/structure/machinery/atmospherics/unary/engine/proc/burn(var/power_modifier = 1)
+/obj/structure/machinery/atmospherics/unary/engine/proc/burn(var/power_modifier = 1, play_sound = TRUE)
 	if(!is_on())
 		return 0
 	if(!check_fuel() || (0 < use_power_oneoff(charge_per_burn)) || check_blockage())
@@ -236,15 +344,15 @@
 		return 0
 	. = calculate_thrust(removed)
 
-	var/volume_adjustment = 1
+	if(play_sound)
+		var/volume_adjustment = 1
+		var/obj/effect/overmap/visitable/ship/my_ship = GLOB.map_sectors["[z]"]
+		if(!my_ship)
+			stack_trace("No ship found for gas thruster at z-level [z].")
+		else
+			volume_adjustment = length(my_ship.engines)
+		playsound(loc, 'sound/machines/thruster.ogg', ((50 * thrust_limit * power_modifier) / volume_adjustment ), FALSE, world.view * 4, 0.1)
 
-	var/obj/effect/overmap/visitable/ship/my_ship = GLOB.map_sectors["[z]"]
-	if(!my_ship)
-		stack_trace("No ship found for gas thruster at z-level [z].")
-	else
-		volume_adjustment = length(my_ship.engines)
-
-	playsound(loc, 'sound/machines/thruster.ogg', ((50 * thrust_limit * power_modifier) / volume_adjustment ), FALSE, world.view * 4, 0.1)
 	if(network)
 		network.update = 1
 

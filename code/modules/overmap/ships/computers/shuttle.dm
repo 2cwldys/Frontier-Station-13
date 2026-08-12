@@ -58,7 +58,19 @@
 		if(length(possible_d))
 			D = tgui_input_list(usr, "Choose shuttle destination.", "Shuttle Destination", possible_d)
 		else
-			to_chat(usr, SPAN_WARNING("No valid landing sites in range."))
+			// Always states WHICH failure this was. "No valid landing sites"
+			// alone covered an unresolvable own sector, nothing in range, and
+			// everything-refused identically, so the player had no way to tell
+			// a broken ship from one parked too far away.
+			to_chat(usr, SPAN_WARNING(shuttle.empty_destination_reason || "No valid landing sites in range."))
+#ifdef DOCKING_REFUSAL_DIAGNOSTICS
+			// Name exactly why each nearby landmark was excluded instead of
+			// leaving "no valid landing sites" as an unexplained dead end --
+			// is_valid() already produces a specific reason for every refusal
+			// branch (landmarks.dm), it was simply being discarded until now.
+			for(var/refusal in shuttle.last_destination_refusals)
+				to_chat(usr, SPAN_WARNING("  [refusal]"))
+#endif
 		if(CanInteract(user, GLOB.physical_state) && (D in possible_d))
 			shuttle.set_destination(possible_d[D])
 		return TRUE

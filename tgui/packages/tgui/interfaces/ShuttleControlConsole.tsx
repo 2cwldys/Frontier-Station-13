@@ -13,6 +13,7 @@ export type ShuttleControlConsoleData = {
   can_force: boolean;
   can_rename_ship: boolean;
   ship_name: string;
+  destination_refusals: string[];
 };
 
 export const ShuttleControlConsole = (props) => {
@@ -85,6 +86,18 @@ export const ShuttleControlConsole = (props) => {
             onClick={() => act('force')}
           />
         </Section>
+        {!!data.destination_refusals?.length && (
+          <Section title="Unavailable Destinations">
+            <Box color="label" mb={1}>
+              These nearby destinations exist but were refused:
+            </Box>
+            {data.destination_refusals.map((refusal) => (
+              <Box key={refusal} color="bad">
+                {refusal}
+              </Box>
+            ))}
+          </Section>
+        )}
       </Window.Content>
     </Window>
   );

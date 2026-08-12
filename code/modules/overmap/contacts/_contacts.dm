@@ -44,6 +44,18 @@
 	marker.transform = effect.transform
 	marker.dir = effect.dir
 	marker.overlays.Cut()
+	// Cut() above deliberately wipes everything (e.g. the targeting-lock
+	// overlay, overmap_object.dm) so sensor-console observers can't see
+	// things that should stay hidden -- but the shield bubble should always
+	// be visible on sensor contact, so re-stamp just that one overlay back
+	// on. marker.appearance = effect (above) can't see it directly since
+	// it's vis_contents-attached to the ship, not part of its .appearance --
+	// see get_shield_bubble_overlay().
+	if(istype(effect, /obj/effect/overmap/visitable/ship))
+		var/obj/effect/overmap/visitable/ship/S = effect
+		var/bubble_overlay = S.get_shield_bubble_overlay()
+		if(bubble_overlay)
+			marker.AddOverlays(bubble_overlay)
 
 /datum/overmap_contact/proc/ping_radar(var/range = 0)
 

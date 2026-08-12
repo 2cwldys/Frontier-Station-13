@@ -148,6 +148,9 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 		// traps the welder in the REPAIR branch, which returns before it can
 		// ever reach the dismantle code -- a wall that simply can't be taken
 		// apart. Mirrors /turf/simulated/wall/Initialize()'s own ordering.
+#ifdef WALL_RESTORE_DIAGNOSTICS
+		log_subsystem_persistence_info("Turfs: wall restore at ([W.x],[W.y],[W.z]) -- saved_material=[content["material"] || "MISSING"] W.material(pre)=[W.material ? W.material.name : "NULL"] W.icon(pre)=[W.icon || "NULL"]")
+#endif
 		if(content["material"])
 			var/material/restored_mat = SSmaterials.get_material_by_name(content["material"])
 			var/material/restored_reinf = !isnull(content["reinf_material"]) ? SSmaterials.get_material_by_name(content["reinf_material"]) : null
@@ -155,6 +158,27 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 				W.set_material(restored_mat, restored_reinf)
 				W.hitsound = W.material.hitsound
 				W.set_maxhealth(W.material.integrity + (W.reinf_material ? W.reinf_material.integrity : 0), TRUE)
+		// Guarantee a real material and a freshly (re-)picked icon variant
+		// regardless of whether a saved material was found above.
+		// ChangeTurf() (called just before this proc) SHOULD already have run
+		// Initialize() -> update_material() and set a default steel material +
+		// icon on this turf -- but a restored wall has been observed showing
+		// icon=null via VV despite that, meaning that chain isn't reliable
+		// here. This re-derives both explicitly rather than trusting it: safe
+		// and a no-op when set_material() above already ran correctly (same
+		// x/y/z + same material always picks the same deterministic variant),
+		// and the only thing that actually fixes the case where it didn't.
+		if(!W.material)
+			W.material = SSmaterials.get_material_by_name(DEFAULT_WALL_MATERIAL)
+		if(W.material)
+			var/picked_variant = pick_wall_icon_variant(W.x, W.y, W.z, W.material.wall_icon_variants)
+			if(picked_variant)
+				W.icon = picked_variant
+			else if(W.material.wall_icon)
+				W.icon = W.material.wall_icon
+#ifdef WALL_RESTORE_DIAGNOSTICS
+		log_subsystem_persistence_info("Turfs: wall restore at ([W.x],[W.y],[W.z]) -- W.icon(post)=[W.icon || "STILL NULL"]")
+#endif
 		// under_turf is what a wall reverts to when dismantled, and is neither
 		// carried by ChangeTurf() nor derived from anything -- without it a
 		// restored player/RFD-built wall comes apart into plating instead of
@@ -187,6 +211,8 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 	if(!(T.z in GLOB.persistence_pinned_site_z) && ((T.z in GLOB.persistence_zlevel_skip) || is_mining_level(T.z) || persistence_z_manual_blocked(T.z)))
 		return
 	if(persistence_area_excluded(T))
+		return
+	if(persistence_turf_docked_elsewhere(T))
 		return
 	var/scope_escaped = replacetext(persistence_scope_for_z(T.z), "'", "''")
 
@@ -262,6 +288,56 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 			qdel(bulk)
 			CHECK_TICK
 	return saved
+
+/**
+ * Permanently forgets any saved rows for the given turfs, right now.
+ *
+ * Exists because both save sweeps below iterate `/turf/simulated` ONLY -- a
+ * turf that reverts from simulated to UNSIMULATED (space, most commonly) is
+ * never visited by the collector at all, so it can never emit the
+ * "reverted to default, delete its row" coordinate that _turfsCollectOne()
+ * produces for an ordinary reversion. Its stale row would otherwise survive
+ * every future save and get faithfully restored by turfsInitialize() on the
+ * next boot -- resurrecting floors and walls at a site that was deliberately
+ * cleared (the commission build-site wipe, _drydockCommissionRun(),
+ * persistence_shuttles.dm, being the case that does this at scale).
+ *
+ * Takes live turfs and buckets by persistence_scope_for_z() exactly as
+ * _turfsCollectOne() does, so a deployed ship Z's rows are deleted under the
+ * ship's own scope rather than the map's.
+ */
+/datum/controller/subsystem/persistence/proc/turfsForget(list/turfs)
+	if(!length(turfs))
+		return
+	if(!databaseCheckConnection("turfsForget"))
+		return
+
+	var/list/delete_by_scope = list()
+	for(var/turf/T in turfs)
+		var/scope_escaped = replacetext(persistence_scope_for_z(T.z), "'", "''")
+		if(!(scope_escaped in delete_by_scope))
+			delete_by_scope[scope_escaped] = list()
+		delete_by_scope[scope_escaped] += "([T.x],[T.y],[T.z])"
+		// Drop the in-memory copy too, so nothing in this same session can
+		// re-derive the row from cache before the next real save.
+		GLOB.persistence_turfs_cache -= "[T.x]|[T.y]|[T.z]"
+		CHECK_TICK
+
+	var/forgotten = 0
+	for(var/scope_escaped in delete_by_scope)
+		var/list/coords = delete_by_scope[scope_escaped]
+		if(!length(coords))
+			continue
+		var/datum/db_query/wipe = SSdbcore.NewQuery(
+			"DELETE FROM ss13_worldstate_turfs WHERE map_path = '[scope_escaped]' AND (x,y,z) IN ([coords.Join(",")])"
+		)
+		wipe.Execute()
+		databaseCheckQueryResult(wipe, "turfsForget delete")
+		qdel(wipe)
+		forgotten += length(coords)
+		CHECK_TICK
+
+	log_subsystem_persistence_info("Turfs: Forgot [forgotten] turf row(s) across [length(delete_by_scope)] scope(s).")
 
 /**
  * Save all structurally changed turfs to the database at round end.

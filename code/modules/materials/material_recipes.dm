@@ -98,6 +98,9 @@
 			new /datum/stack_recipe("maintenance hatch assembly", /obj/structure/door_assembly/door_assembly_mhatch, BUILD_AMT, time = 50, one_per_turf = 1, on_floor = 1, required_skills_soft = alist(MECHANICAL_ENGINEERING_SKILL_COMPONENT = SKILL_LEVEL_TRAINED)),
 			new /datum/stack_recipe("high security airlock assembly", /obj/structure/door_assembly/door_assembly_highsecurity, BUILD_AMT, time = 50, one_per_turf = 1, on_floor = 1), required_skills_soft = alist(MECHANICAL_ENGINEERING_SKILL_COMPONENT = SKILL_LEVEL_TRAINED),
 			new /datum/stack_recipe("emergency shutter", /obj/structure/firedoor_assembly, BUILD_AMT, time = 50, one_per_turf = 1, on_floor = 1, required_skills_soft = alist(MECHANICAL_ENGINEERING_SKILL_COMPONENT = SKILL_LEVEL_TRAINED)),
+			new /datum/stack_recipe("blast door assembly", /obj/structure/blast_door_assembly, BUILD_AMT, time = 50, one_per_turf = 1, on_floor = 1, required_skills_soft = alist(MECHANICAL_ENGINEERING_SKILL_COMPONENT = SKILL_LEVEL_TRAINED)),
+			new /datum/stack_recipe("shutter assembly", /obj/structure/blast_door_assembly/shutter, BUILD_AMT, time = 50, one_per_turf = 1, on_floor = 1, required_skills_soft = alist(MECHANICAL_ENGINEERING_SKILL_COMPONENT = SKILL_LEVEL_TRAINED)),
+			new /datum/stack_recipe("keypad airlock assembly", /obj/structure/door_assembly/door_assembly_keyp, BUILD_AMT, time = 50, one_per_turf = 1, on_floor = 1, required_skills_soft = alist(MECHANICAL_ENGINEERING_SKILL_COMPONENT = SKILL_LEVEL_TRAINED)),
 			new /datum/stack_recipe("multi-tile airlock assembly", /obj/structure/door_assembly/multi_tile, BUILD_AMT, time = 50, one_per_turf = 1, on_floor = 1, required_skills_soft = alist(MECHANICAL_ENGINEERING_SKILL_COMPONENT = SKILL_LEVEL_TRAINED))
 		))
 

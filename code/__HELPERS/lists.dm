@@ -352,7 +352,13 @@
 	var/list/output = list()
 	if(L)
 		for(var/i = L.len; i >= 1; i--)
-			output += L[i]
+			// The list() wrap is load-bearing -- do NOT "simplify" it back to
+			// `output += L[i]`. In DM, `list += list` CONCATENATES (merges the
+			// right side's elements in) rather than appending it as one
+			// element, so reversing a list OF LISTS silently flattened it.
+			// Wrapping merges a one-element list instead, appending L[i]
+			// itself. Identical result for non-list elements.
+			output += list(L[i])
 	return output
 
 /**

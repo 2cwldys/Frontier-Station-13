@@ -44,6 +44,12 @@
 	/// If the blast door should close when power goes out.
 	var/fail_secure = FALSE
 
+	/// Faction tagger compatible var -- "" (untagged) or a real faction_uid.
+	/// Lets a faction's Commander's Beacon find and remotely operate this
+	/// door (commander_beacon.dm's "remote_door_control") -- untagged doors
+	/// never show up there. Persisted via worldstate_vars below.
+	var/persistent_network = ""
+
 /obj/structure/machinery/door/blast/Initialize()
 	. = ..()
 	if(_wifi_id)
@@ -56,6 +62,18 @@
 /obj/structure/machinery/door/blast/Destroy()
 	QDEL_NULL(wifi_receiver)
 	return ..()
+
+// ------- Faction tagger compatibility -------
+
+/obj/structure/machinery/door/blast/faction_tagger_compatible()
+	return TRUE
+
+/obj/structure/machinery/door/blast/faction_tagger_get_uid()
+	return persistent_network
+
+/obj/structure/machinery/door/blast/faction_tagger_set(new_uid, mob/user)
+	persistent_network = new_uid || ""
+	return TRUE
 
 /**
  * If are open, return zero. Otherwise return result of parent function.
@@ -144,6 +162,16 @@
  * * mob/user - Mob which clicked this object
  */
 /obj/structure/machinery/door/blast/attackby(obj/item/attacking_item, mob/user)
+	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
+		var/obj/item/multitool/MT = attacking_item
+		var/obj/structure/machinery/button/remote/blast_door/buildable/button = MT.get_buffer(/obj/structure/machinery/button/remote/blast_door/buildable)
+		if(!button)
+			MT.set_buffer(src)
+			to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
+			return TRUE
+		button._link_door(src, user)
+		MT.set_buffer(null)
+		return TRUE
 	if(!istype(attacking_item, /obj/item/forensics))
 		src.add_fingerprint(user)
 	if(istype(attacking_item, /obj/item/material/twohanded/fireaxe))

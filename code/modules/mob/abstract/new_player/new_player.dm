@@ -961,6 +961,24 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 	if(character.client)
 		addtimer(CALLBACK(character.client, /client/proc/start_ambient_playlist), 5 SECONDS)
 
+	// Second, final pass at closing the Character Select window.
+	//
+	// The close near the top of this proc runs BEFORE two things that move the
+	// ground under it: create_character() hands the key -- and the client --
+	// to `character`, and the character is then forceMove()d into its cryopod.
+	// close_uis() walks the menu datum's OWN open_uis list at that earlier
+	// point; anything that survives it never gets another chance, and the
+	// window is left sitting on screen in tgui's walked-away state.
+	//
+	// close_user_uis() walks the MOB's list instead, so it catches a window the
+	// earlier pass missed, and it is aimed at the mob that actually holds the
+	// client now. Scoped to the menu datum so nothing else the new character
+	// legitimately has open is touched. A no-op when the first close worked,
+	// and it cannot trigger a reopen -- ui_close()'s timer stays gated on
+	// persistent_menu_datum.spawning, which is still TRUE.
+	if(persistent_menu_datum)
+		SStgui.close_user_uis(character, persistent_menu_datum)
+
 	qdel(src)
 
 /mob/abstract/new_player/proc/ViewManifest()

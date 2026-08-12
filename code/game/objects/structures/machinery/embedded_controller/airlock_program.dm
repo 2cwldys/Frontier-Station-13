@@ -28,6 +28,11 @@
 /datum/computer/file/embedded_program/airlock
 	var/tag_exterior_door
 	var/tag_interior_door
+	/// Every linked exterior/interior door tag (primary plus any extras),
+	/// synced from the controller each tick -- mirrors tag_airpumps below.
+	/// See get_exterior_door_tags()/get_interior_door_tags() (airlock_controllers.dm).
+	var/list/tag_exterior_doors = list()
+	var/list/tag_interior_doors = list()
 	var/tag_airpump
 	var/tag_chamber_sensor
 	var/tag_exterior_sensor
@@ -61,6 +66,12 @@
 	memory["internal_sensor_pressure"] = ONE_ATMOSPHERE
 	memory["exterior_status"] = list(state = "closed", lock = "locked")		//assume closed and locked in case the doors dont report in
 	memory["interior_status"] = list(state = "closed", lock = "locked")
+	/// Per-door status, keyed by door tag -- memory["exterior_status"]/
+	/// ["interior_status"] above are the AGGREGATE across every door on that
+	/// side, recomputed from this each time one of them reports in (see
+	/// _aggregate_door_status()).
+	memory["exterior_door_status"] = list()
+	memory["interior_door_status"] = list()
 	memory["pump_status"] = "unknown"
 	memory["target_pressure"] = ONE_ATMOSPHERE
 	memory["purge"] = 0
@@ -97,6 +108,15 @@
 	id_tag = controller.id_tag
 	tag_exterior_door = controller.tag_exterior_door? controller.tag_exterior_door : "[id_tag]_outer"
 	tag_interior_door = controller.tag_interior_door? controller.tag_interior_door : "[id_tag]_inner"
+	// Every linked exterior/interior door, not just the primary -- a chamber
+	// with more than one door on a side has to open/close/lock as a unit or
+	// it never actually seals.
+	tag_exterior_doors = controller.get_exterior_door_tags()
+	if(!length(tag_exterior_doors))
+		tag_exterior_doors = list(tag_exterior_door)
+	tag_interior_doors = controller.get_interior_door_tags()
+	if(!length(tag_interior_doors))
+		tag_interior_doors = list(tag_interior_door)
 	tag_airpump = controller.tag_airpump? controller.tag_airpump : "[id_tag]_pump"
 	// Every linked pump, not just the primary -- a chamber with more than one
 	// vent has to pressurise/depressurise as a unit or it never reaches target.
@@ -124,13 +144,13 @@
 	else if(receive_tag==tag_interior_sensor)
 		memory["internal_sensor_pressure"] = text2num(signal.data["pressure"])
 
-	else if(receive_tag==tag_exterior_door)
-		memory["exterior_status"]["state"] = signal.data["door_status"]
-		memory["exterior_status"]["lock"] = signal.data["lock_status"]
+	else if(receive_tag in tag_exterior_doors)
+		memory["exterior_door_status"][receive_tag] = list("state" = signal.data["door_status"], "lock" = signal.data["lock_status"])
+		memory["exterior_status"] = _aggregate_door_status(memory["exterior_door_status"], tag_exterior_doors)
 
-	else if(receive_tag==tag_interior_door)
-		memory["interior_status"]["state"] = signal.data["door_status"]
-		memory["interior_status"]["lock"] = signal.data["lock_status"]
+	else if(receive_tag in tag_interior_doors)
+		memory["interior_door_status"][receive_tag] = list("state" = signal.data["door_status"], "lock" = signal.data["lock_status"])
+		memory["interior_status"] = _aggregate_door_status(memory["interior_door_status"], tag_interior_doors)
 
 	else if(receive_tag==tag_airpump || receive_tag==tag_pump_out_internal)
 		if(signal.data["power"])
@@ -170,7 +190,7 @@
 		if("cycle_ext")
 			//If airlock is already cycled in this direction, just toggle the doors.
 			if(!memory["purge"] && IsInRange(memory["external_sensor_pressure"], memory["chamber_sensor_pressure"] - SENSOR_TOLERANCE, memory["chamber_sensor_pressure"] + SENSOR_TOLERANCE))
-				toggleDoor(memory["exterior_status"], tag_exterior_door, memory["secure"], "toggle")
+				toggleDoors(memory["exterior_status"], tag_exterior_doors, memory["secure"], "toggle")
 			//only respond to these commands if the airlock isn't already doing something
 			//prevents the controller from getting confused and doing strange things
 			else if(state == target_state)
@@ -178,7 +198,7 @@
 
 		if("cycle_int")
 			if(!memory["purge"] && IsInRange(memory["internal_sensor_pressure"], memory["chamber_sensor_pressure"] - SENSOR_TOLERANCE, memory["chamber_sensor_pressure"] + SENSOR_TOLERANCE))
-				toggleDoor(memory["interior_status"], tag_interior_door, memory["secure"], "toggle")
+				toggleDoors(memory["interior_status"], tag_interior_doors, memory["secure"], "toggle")
 			else if(state == target_state)
 				begin_cycle_in()
 
@@ -192,10 +212,10 @@
 			stop_cycling()
 
 		if("force_ext")
-			toggleDoor(memory["exterior_status"], tag_exterior_door, memory["secure"], "toggle")
+			toggleDoors(memory["exterior_status"], tag_exterior_doors, memory["secure"], "toggle")
 
 		if("force_int")
-			toggleDoor(memory["interior_status"], tag_interior_door, memory["secure"], "toggle")
+			toggleDoors(memory["interior_status"], tag_interior_doors, memory["secure"], "toggle")
 
 		if("purge")
 			memory["purge"] = !memory["purge"]
@@ -514,6 +534,24 @@
 
 //these are here so that other types don't have to make so many assumptions about our implementation
 
+/// Combines every currently-linked door on one side into the single
+/// "state"/"lock" pair the rest of this program's state machine (and
+/// access_controller/ui_data()) already reads -- a side only counts as
+/// closed/locked once EVERY door on it is, matching how a real chamber can
+/// only hold pressure if every door sealing it is actually sealed. A door
+/// tag that hasn't reported in yet defaults to closed/locked, mirroring this
+/// list's own New()-time default.
+/datum/computer/file/embedded_program/airlock/proc/_aggregate_door_status(var/list/per_door_status, var/list/tags)
+	var/state = "closed"
+	var/lock = "locked"
+	for(var/tag in tags)
+		var/list/door = per_door_status[tag]
+		if(door && door["state"] != "closed")
+			state = "open"
+		if(door && door["lock"] != "locked")
+			lock = "unlocked"
+	return list("state" = state, "lock" = lock)
+
 /datum/computer/file/embedded_program/airlock/proc/begin_cycle_in()
 	state = STATE_IDLE
 	target_state = TARGET_INOPEN
@@ -529,8 +567,8 @@
 	memory["purge"] = cycle_to_external_air
 
 /datum/computer/file/embedded_program/airlock/proc/close_doors()
-	toggleDoor(memory["interior_status"], tag_interior_door, 1, "close")
-	toggleDoor(memory["exterior_status"], tag_exterior_door, 1, "close")
+	toggleDoors(memory["interior_status"], tag_interior_doors, 1, "close")
+	toggleDoors(memory["exterior_status"], tag_exterior_doors, 1, "close")
 
 /datum/computer/file/embedded_program/airlock/proc/stop_cycling()
 	state = STATE_IDLE
@@ -689,18 +727,20 @@
 /datum/computer/file/embedded_program/airlock/proc/cycleDoors(var/target)
 	switch(target)
 		if(TARGET_OUTOPEN)
-			toggleDoor(memory["interior_status"], tag_interior_door, memory["secure"], "close")
-			toggleDoor(memory["exterior_status"], tag_exterior_door, memory["secure"], "open")
+			toggleDoors(memory["interior_status"], tag_interior_doors, memory["secure"], "close")
+			toggleDoors(memory["exterior_status"], tag_exterior_doors, memory["secure"], "open")
 
 		if(TARGET_INOPEN)
-			toggleDoor(memory["exterior_status"], tag_exterior_door, memory["secure"], "close")
-			toggleDoor(memory["interior_status"], tag_interior_door, memory["secure"], "open")
+			toggleDoors(memory["exterior_status"], tag_exterior_doors, memory["secure"], "close")
+			toggleDoors(memory["interior_status"], tag_interior_doors, memory["secure"], "open")
 		if(TARGET_NONE)
 			var/command = "unlock"
 			if(memory["secure"])
 				command = "lock"
-			signalDoor(tag_exterior_door, command)
-			signalDoor(tag_interior_door, command)
+			for(var/tag in tag_exterior_doors)
+				signalDoor(tag, command)
+			for(var/tag in tag_interior_doors)
+				signalDoor(tag, command)
 
 /datum/computer/file/embedded_program/airlock/proc/signal_mech_sensor(var/command, var/sensor)
 	var/datum/signal/signal = new
@@ -717,19 +757,26 @@
 	signal_mech_sensor("disable", tag_airlock_mech_sensor)
 
 /*----------------------------------------------------------
-toggleDoor()
+toggleDoor() / toggleDoors()
 
-Sends a radio command to a door to either open or close. If
-the command is 'toggle' the door will be sent a command that
-reverses it's current state.
+Sends a radio command to a door (or every door on one side, for
+toggleDoors()) to either open or close. If the command is 'toggle' the
+door will be sent a command that reverses it's current state.
 Can also toggle whether the door bolts are locked or not,
 depending on the state of the 'secure' flag.
 Only sends a command if it is needed, i.e. if the door is
 already open, passing an open command to this proc will not
 send an additional command to open the door again.
 ----------------------------------------------------------*/
-/datum/computer/file/embedded_program/airlock/proc/toggleDoor(var/list/doorStatus, var/doorTag, var/secure, var/command)
-	var/doorCommand = null
+/// Decides the ORDERED sequence of door commands a single shared status/
+/// secure/command triple implies -- almost always one command, except the
+/// non-secure open/close branches below, which can need an "unlock" issued
+/// before the "open"/"close" itself. Pure decision logic, no signalling --
+/// shared by toggleDoor() (one tag) and toggleDoors() (every tag on a side),
+/// so a multi-door side gets the exact same command sequence a single door
+/// would have, replayed identically to each one.
+/datum/computer/file/embedded_program/airlock/proc/_resolve_door_commands(var/list/doorStatus, var/secure, var/command)
+	var/list/commands = list()
 
 	if(command == "toggle")
 		if(doorStatus["state"] == "open")
@@ -741,33 +788,47 @@ send an additional command to open the door again.
 		if("close")
 			if(secure)
 				if(doorStatus["state"] == "open")
-					doorCommand = "secure_close"
+					commands += "secure_close"
 				else if(doorStatus["lock"] == "unlocked")
-					doorCommand = "lock"
+					commands += "lock"
 			else
 				if(doorStatus["state"] == "open")
 					if(doorStatus["lock"] == "locked")
-						signalDoor(doorTag, "unlock")
-					doorCommand = "close"
+						commands += "unlock"
+					commands += "close"
 				else if(doorStatus["lock"] == "locked")
-					doorCommand = "unlock"
+					commands += "unlock"
 
 		if("open")
 			if(secure)
 				if(doorStatus["state"] == "closed")
-					doorCommand = "secure_open"
+					commands += "secure_open"
 				else if(doorStatus["lock"] == "unlocked")
-					doorCommand = "lock"
+					commands += "lock"
 			else
 				if(doorStatus["state"] == "closed")
 					if(doorStatus["lock"] == "locked")
-						signalDoor(doorTag,"unlock")
-					doorCommand = "open"
+						commands += "unlock"
+					commands += "open"
 				else if(doorStatus["lock"] == "locked")
-					doorCommand = "unlock"
+					commands += "unlock"
 
-	if(doorCommand)
+	return commands
+
+/datum/computer/file/embedded_program/airlock/proc/toggleDoor(var/list/doorStatus, var/doorTag, var/secure, var/command)
+	for(var/doorCommand in _resolve_door_commands(doorStatus, secure, command))
 		signalDoor(doorTag, doorCommand)
+
+/// Same decision as toggleDoor(), issued to every tag in doorTags -- a side
+/// with more than one door has to move as a unit, mirroring signalAirpumps()'
+/// own multi-pump broadcast.
+/datum/computer/file/embedded_program/airlock/proc/toggleDoors(var/list/doorStatus, var/list/doorTags, var/secure, var/command)
+	var/list/commands = _resolve_door_commands(doorStatus, secure, command)
+	if(!length(commands))
+		return
+	for(var/doorTag in doorTags)
+		for(var/doorCommand in commands)
+			signalDoor(doorTag, doorCommand)
 
 
 #undef STATE_IDLE

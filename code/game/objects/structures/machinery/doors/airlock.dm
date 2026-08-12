@@ -50,6 +50,12 @@
 	var/ai_disabled_id_scanner = FALSE
 	/// Boolean. Whether or not the AI is currently hacking the door.
 	var/ai_hacking = FALSE
+	/// Faction tagger compatible var -- "" (untagged) or a real faction_uid.
+	/// Lets a faction's Commander's Beacon find and remotely operate this
+	/// door (commander_beacon.dm's "remote_door_control") -- untagged doors,
+	/// and any door managed by an airlock cycler controller regardless of
+	/// tag, never show up there. Persisted via worldstate_vars below.
+	var/persistent_network = ""
 	/// Boolean. Whether or not the AI can bolt the door.
 	var/ai_bolting = TRUE
 	/// Integer. How long it takes AIs to drop bolts (in seconds).
@@ -1972,7 +1978,11 @@ About the new airlock wires panel:
 
 	//if the door is unpowered then it doesn't make sense to hear the woosh of a pneumatic actuator
 	if(!forced && arePowerSystemsOn())
+#ifdef CUSTOM_AIRLOCK_SOUNDS
+		playsound(src.loc, 'sound/machines/airlock/cargobayopen.ogg', 50, FALSE, extrarange = SHORT_RANGE_SOUND_EXTRARANGE)
+#else
 		playsound(src.loc, open_sound_powered, 50, FALSE, extrarange = SHORT_RANGE_SOUND_EXTRARANGE)
+#endif
 	else
 		playsound(src.loc, open_sound_unpowered, 70, FALSE, extrarange = SHORT_RANGE_SOUND_EXTRARANGE)
 
@@ -2096,7 +2106,11 @@ About the new airlock wires panel:
 				add_damage(DOOR_CRUSH_DAMAGE)
 	use_power_oneoff(360)	//360 W seems much more appropriate for an actuator moving an industrial door capable of crushing people
 	if(arePowerSystemsOn())
+#ifdef CUSTOM_AIRLOCK_SOUNDS
+		playsound(src.loc, 'sound/machines/airlock/cargobayclose.ogg', 100, TRUE, extrarange = SHORT_RANGE_SOUND_EXTRARANGE)
+#else
 		playsound(src.loc, close_sound_powered, 100, TRUE, extrarange = SHORT_RANGE_SOUND_EXTRARANGE)
+#endif
 	else
 		playsound(src.loc, close_sound_unpowered, 100, TRUE, extrarange = SHORT_RANGE_SOUND_EXTRARANGE)
 
@@ -2104,6 +2118,24 @@ About the new airlock wires panel:
 		send_status()
 
 	..()
+
+// ------- Faction tagger compatibility -------
+
+/obj/structure/machinery/door/airlock/faction_tagger_compatible()
+	return TRUE
+
+/obj/structure/machinery/door/airlock/faction_tagger_get_uid()
+	return persistent_network
+
+/obj/structure/machinery/door/airlock/faction_tagger_set(new_uid, mob/user)
+	var/old_uid = persistent_network
+	persistent_network = new_uid || ""
+	// Ownership changing hands drops this door's remote links -- see
+	// _clear_links_on_faction_change() (airlock_control.dm) for why leaving
+	// them in place is an access hole rather than a convenience.
+	if(old_uid != persistent_network)
+		_clear_links_on_faction_change(user, old_uid)
+	return TRUE
 
 /obj/structure/machinery/door/airlock/proc/lock(var/forced=0)
 	if(!isnull(src.ai_action_timer)) // reset AI action timer no matter if it finished

@@ -40,8 +40,12 @@
 
 /obj/structure/machinery/computer/shuttle_control/Destroy()
 	SSshuttle.lonely_shuttle_computers -= src
+	// istype(), not a bare truthiness check -- shuttle_tag can point at
+	// nothing resolvable (unset, or a shuttle that's since gone away), same
+	// guard Initialize() above already uses before touching this list.
 	var/datum/shuttle/shuttle = SSshuttle.shuttles[shuttle_tag]
-	shuttle.shuttle_computers -= src
+	if(istype(shuttle))
+		shuttle.shuttle_computers -= src
 	for(var/obj/item/clothing/head/helmet/pilot/PH as anything in linked_helmets)
 		PH.linked_console = null
 	return ..()
@@ -144,8 +148,13 @@
 	if(cannot_depart)
 		to_chat(user, SPAN_WARNING(cannot_depart))
 		return FALSE
-	if(!shuttle.next_location.is_valid(shuttle))
-		to_chat(user, SPAN_WARNING("Destination zone is invalid or obstructed."))
+	// reason_out -- see is_valid()'s own doc comment (landmarks.dm). Same
+	// treatment as the commission dock_at_beacon failure message -- this is
+	// the actual "move" button players use to fly to a picked destination,
+	// so a generic "invalid or obstructed" here was just as unhelpful.
+	var/list/move_refusal_reason = list()
+	if(!shuttle.next_location.is_valid(shuttle, move_refusal_reason))
+		to_chat(user, SPAN_WARNING("Destination zone is invalid or obstructed: [length(move_refusal_reason) ? jointext(move_refusal_reason, "; ") : "unlogged reason"]."))
 		return FALSE
 	if(GET_Z(shuttle.next_location) in SSodyssey.scenario_zlevels)
 		if(SSodyssey.site_landing_restricted)
@@ -153,19 +162,60 @@
 			return FALSE
 	return TRUE
 
-/obj/structure/machinery/computer/shuttle_control/ui_interact(mob/user, datum/tgui/ui)
+/// The clean, player-facing name for this console's own ship -- resolves
+/// back to the owning datum/drydock_ship's own display_name() (never a raw
+/// "#N" number) when this console sits on a drydock ship, same as the
+/// overmap sector's own marker.name already does. shuttle_tag/shuttle.name
+/// themselves stay suffixed and untouched -- they're the internal
+/// SSshuttle.shuttles[] registry key (has to be unique across ships sharing
+/// a template-derived name), never meant to be shown directly. Falls back
+/// to the raw shuttle name for any shuttle_control not tied to a drydock
+/// ship at all (e.g. a mining shuttle template).
+/obj/structure/machinery/computer/shuttle_control/proc/_display_ship_name(datum/shuttle/autodock/shuttle)
+	var/datum/drydock_ship/DS = _drydock_ship_at(GET_Z(src))
+	return DS ? DS.display_name() : shuttle.name
+
+/// Self-heals a stale shuttle_tag by re-resolving through the drydock ship
+/// actually sitting at this console's own z, same lazy on-demand-resolve
+/// shape sync_linked() (ship.dm) already uses for helm/navigation consoles
+/// -- this console has no equivalent self-heal today, so a shuttle_tag that
+/// falls out of sync with SSshuttle.shuttles[] (e.g. a stash/retrieve cycle
+/// renaming the shuttle datum, persistence_shuttles.dm:2425-2433, while this
+/// specific console instance's own tag didn't get updated in lockstep)
+/// leaves it permanently broken instead of recovering the next time someone
+/// opens it. Returns the resolved shuttle datum, or null if it still can't
+/// be found.
+/obj/structure/machinery/computer/shuttle_control/proc/_resolve_shuttle()
 	var/datum/shuttle/autodock/shuttle = SSshuttle.shuttles[shuttle_tag]
+	if(istype(shuttle))
+		return shuttle
+	var/datum/drydock_ship/DS = _drydock_ship_at(GET_Z(src))
+	if(!DS)
+		return null
+	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
+	if(!istype(marker))
+		return null
+	shuttle = SSshuttle.shuttles[marker.shuttle]
+	if(istype(shuttle))
+		shuttle_tag = marker.shuttle
+		return shuttle
+	return null
+
+/obj/structure/machinery/computer/shuttle_control/ui_interact(mob/user, datum/tgui/ui)
+	var/datum/shuttle/autodock/shuttle = _resolve_shuttle()
 	if(!istype(shuttle))
 		to_chat(user, SPAN_WARNING("Unable to establish link with the shuttle."))
 		return
 
 	ui = SStgui.try_update_ui(user, src, ui)
 	if(!ui)
-		ui = new(user, src, ui_template, "[shuttle_tag] Shuttle Control", ui_x=470, ui_y=450)
+		ui = new(user, src, ui_template, "[_display_ship_name(shuttle)] Shuttle Control", ui_x=470, ui_y=450)
 		ui.open()
 
 /obj/structure/machinery/computer/shuttle_control/ui_data(mob/user)
-	var/datum/shuttle/autodock/shuttle = SSshuttle.shuttles[shuttle_tag]
+	var/datum/shuttle/autodock/shuttle = _resolve_shuttle()
+	if(!istype(shuttle))
+		return list()
 
 	var/shuttle_state
 	switch(shuttle.moving_status)
@@ -173,7 +223,19 @@
 		if(SHUTTLE_WARMUP) shuttle_state = "warmup"
 		if(SHUTTLE_INTRANSIT) shuttle_state = "in_transit"
 
-	return list(
+#ifdef DOCKING_REFUSAL_DIAGNOSTICS
+	// Why each nearby landmark was excluded from the destination picker --
+	// see last_destination_refusals (overmap_shuttle.dm). Only meaningful for
+	// an overmap shuttle (the type that has a destination picker at all), and
+	// only populated once get_possible_destinations() has actually run for
+	// this shuttle, so an empty/missing list is normal rather than an error.
+	var/list/refusals = list()
+	if(istype(shuttle, /datum/shuttle/autodock/overmap))
+		var/datum/shuttle/autodock/overmap/overmap_shuttle = shuttle
+		refusals = overmap_shuttle.last_destination_refusals || list()
+#endif
+
+	. = list(
 		"shuttle_status" = get_shuttle_status(shuttle),
 		"shuttle_state" = shuttle_state,
 		"has_docking" = shuttle.active_docking_controller? 1 : 0,
@@ -183,16 +245,23 @@
 		"can_cancel" = shuttle.can_cancel(),
 		"can_force" = shuttle.can_force(),
 		"can_rename_ship" = can_rename_ship,
-		"ship_name" = shuttle.name,
+		"ship_name" = _display_ship_name(shuttle),
 		"current_location" = shuttle.get_location_name(),
 	)
+#ifdef DOCKING_REFUSAL_DIAGNOSTICS
+	// Both TGUI templates already render their refusal section behind
+	// `!!data.destination_refusals?.length`, so simply omitting the field
+	// here is all that's needed to strip it from a production build.
+	.["destination_refusals"] = refusals
+#endif
+	return .
 
 /obj/structure/machinery/computer/shuttle_control/ui_act(action, params)
 	. = ..()
 	if(.)
 		return
 
-	return handle_topic_href(usr, SSshuttle.shuttles[shuttle_tag], action, params)
+	return handle_topic_href(usr, _resolve_shuttle(), action, params)
 
 /obj/structure/machinery/computer/shuttle_control/proc/handle_topic_href(var/mob/user, var/datum/shuttle/autodock/shuttle, var/action, var/list/params)
 	if(!istype(shuttle))
