@@ -931,9 +931,13 @@
 /// ground, and those claimed sectors are Hub territory too even though
 /// they're not centcom-tagged. Used by _drydock_disembark_core() to decide
 /// which candidates get a fixed-pad/no-eye-view landing instead of a normal
-/// away-site pick -- deliberately NOT used for the Hub-personnel access gate
-/// just below, which stays scoped to the literal home turf like every other
-/// is_centcom_level() caller (telepad_travel.dm, personal_travel.dm).
+/// away-site pick -- a UI/landing-flow decision, genuinely separate from
+/// whether entry is actually access-gated. That gate is
+/// _hub_personnel_restricted() (faction_beacon.dm), which no longer reduces
+/// to is_centcom_level() the way it used to -- it's keyed off a hub beacon's
+/// own toggle now, so this proc and that gate can legitimately disagree
+/// (e.g. a hub-claimed Z with restrict_to_hub_personnel off still lands here
+/// via the fixed pad, just without being access-restricted to get there).
 /proc/_disembark_is_hub_z(z)
 	if(is_centcom_level(z))
 		return TRUE
@@ -1046,7 +1050,7 @@
 		to_chat(L, SPAN_WARNING("Faction raiding is currently disabled -- you cannot disembark into that territory."))
 		play_raid_blocked_sound(L)
 		return FALSE
-	if(is_centcom_level(target_z) && !can_access_hub_depot(L))
+	if(_hub_personnel_restricted(target_z) && !can_access_hub_depot(L))
 		to_chat(L, SPAN_WARNING("That sector is restricted to Hub personnel."))
 		return FALSE
 	var/is_dock_target = (shuttle_datum && marker.status == SHIP_STATUS_LANDED && target_z == GET_Z(shuttle_datum.current_location))

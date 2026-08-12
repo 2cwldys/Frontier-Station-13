@@ -757,7 +757,8 @@
 	return uid && islist(GLOB.persistence_faction_cache) && (uid in GLOB.persistence_faction_cache)
 
 /// TRUE if user is standing in a HIGHSEC area without holding an actual
-/// post (rank > 0) in the Hub faction -- HIGHSEC is Hub jurisdiction, so a
+/// job (FACTION_RANK_CREW/0 or above -- only FACTION_RANK_CIVILIAN/-1 is
+/// excluded) in the Hub faction -- HIGHSEC is Hub jurisdiction, so a
 /// commander beacon shouldn't be usable there by anyone else, same
 /// get_effective_faction_rank() threshold zone_engineering_exempt()/
 /// airlock.dm's allowed()/RFD.dm already use for "trusted Hub personnel."
@@ -765,7 +766,7 @@
 	var/turf/T = get_turf(user)
 	if(!T || zone_security_get(T.z) != ZONE_HIGHSEC)
 		return FALSE
-	return get_effective_faction_rank(user, "hub") <= 0
+	return get_effective_faction_rank(user, "hub") <= FACTION_RANK_CIVILIAN
 
 /// fauna_spawner.start_spawning()'s exact shape (mob_spawner.dm), capped at
 /// 2 instead of 5 -- see faction_barracks.dm's identical loop for the

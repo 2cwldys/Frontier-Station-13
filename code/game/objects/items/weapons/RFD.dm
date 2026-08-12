@@ -256,11 +256,12 @@ ABSTRACT_TYPE(/obj/item/rfd)
 		if(!target_turf || !GLOB.persistence_ship_z["[target_turf.z]"])
 			to_chat(user, SPAN_NOTICE("\The [src] can't be used here."))
 			return FALSE
-	// CentCom is otherwise off-limits, but a Hub faction member above the
-	// base/Civilian rank tier (get_effective_faction_rank(), same carve-out
+	// CentCom is otherwise off-limits, but a Hub faction member holding a
+	// real job -- FACTION_RANK_CREW (0) or above, only FACTION_RANK_CIVILIAN
+	// (-1) excluded (get_effective_faction_rank(), same carve-out
 	// airlock.dm's allowed() already grants for CentCom access codes) is
 	// trusted to use it here.
-	if(Area.centcomm_area && get_effective_faction_rank(user, "hub") <= 0)
+	if(Area.centcomm_area && get_effective_faction_rank(user, "hub") <= FACTION_RANK_CIVILIAN)
 		to_chat(user, SPAN_NOTICE("\The [src] can't be used here."))
 		return FALSE
 	if(is_type_in_list(A, valid_atoms))
@@ -958,7 +959,9 @@ ABSTRACT_TYPE(/obj/item/rfd)
 		if(!target_turf || !GLOB.persistence_ship_z["[target_turf.z]"])
 			to_chat(user, SPAN_NOTICE("\The [src] can't be used here."))
 			return FALSE
-	if(Area.centcomm_area && get_effective_faction_rank(user, "hub") <= 0)
+	// Same carve-out as the other alter_atom() gate above -- FACTION_RANK_CREW
+	// (0) or above qualifies, only FACTION_RANK_CIVILIAN (-1) is excluded.
+	if(Area.centcomm_area && get_effective_faction_rank(user, "hub") <= FACTION_RANK_CIVILIAN)
 		to_chat(user, SPAN_NOTICE("\The [src] can't be used here."))
 		return FALSE
 	return alter_atom(get_turf(A), user, (mode == RFD_DECONSTRUCT))

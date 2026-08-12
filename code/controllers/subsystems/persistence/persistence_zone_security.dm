@@ -441,8 +441,10 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
  * Two independent ways to qualify:
  *  - Hub faction membership PLUS engineering access on the ID (the original
  *    rule -- an actual Hub engineer).
- *  - Any Hub member above the base/Civilian rank tier, regardless of what
- *    access their ID happens to carry. Same get_effective_faction_rank()
+ *  - Any Hub member holding a real job -- FACTION_RANK_CREW (0) or above
+ *    (__DEFINES/persistence.dm: CIVILIAN -1, CREW 0, OFFICER 1, COMMAND 2),
+ *    regardless of what access their ID happens to carry. Only
+ *    FACTION_RANK_CIVILIAN is excluded. Same get_effective_faction_rank()
  *    threshold airlock.dm and RFD.dm already use for exactly this "trusted
  *    Hub personnel" concept, so the rule stays consistent codebase-wide.
  *
@@ -453,7 +455,7 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 	if(!M || !ishuman(M) || !M.ckey)
 		return FALSE
 	var/mob/living/carbon/human/H = M
-	if(get_effective_faction_rank(H, "hub") > 0)
+	if(get_effective_faction_rank(H, "hub") > FACTION_RANK_CIVILIAN)
 		return TRUE
 	var/obj/item/card/id/I = H.GetIdCard()
 	if(!I || !(ACCESS_ENGINE in I.access))

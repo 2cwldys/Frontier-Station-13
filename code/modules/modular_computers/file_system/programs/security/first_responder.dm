@@ -423,9 +423,9 @@
 /datum/computer_file/program/security/first_responder/proc/first_responder_jump(mob/M, turf/dest, arm_cooldown = TRUE)
 	var/turf/origin = get_turf(M)
 	if(origin)
-		_telepad_phase_arrival(origin)
+		_telepad_phase_arrival(origin, M.dir)
 		spark(origin, 3, GLOB.alldirs)
-	_telepad_phase_arrival(dest)
+	_telepad_phase_arrival(dest, M.dir)
 	spark(dest, 3, GLOB.alldirs)
 	// forceMove, NOT do_teleport: the science teleport datum scatters anyone
 	// carrying a bag of holding up to 100 tiles (teleport.dm setPrecision) --

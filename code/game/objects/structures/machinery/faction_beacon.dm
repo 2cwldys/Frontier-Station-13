@@ -147,6 +147,30 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 				return B
 	return null
 
+/// TRUE when z should be gated to Hub personnel (can_access_hub_depot()) --
+/// checked alongside that proc at every travel/warp/disembark entry point.
+///
+/// Previously this was simply is_centcom_level(z): the literal map-authored
+/// CentCom ("Frontier Beacon Depot") Z was ALWAYS restricted, unconditionally,
+/// with no hub beacon or any other object involved -- no map currently places
+/// a hub beacon there at all. Per direct decision that hardcoding is gone:
+/// restriction now comes ONLY from whichever hub beacon (if any) actually
+/// governs z, via its own restrict_to_hub_personnel toggle. A Z with no
+/// governing hub beacon is open to everyone -- including the home Z today,
+/// unless and until an admin places one there (its own default is TRUE, so
+/// placing one and leaving the toggle alone reproduces the old behavior
+/// exactly for that Z specifically).
+///
+/// get_owning_faction_beacon() already resolves "whichever beacon (any
+/// faction) currently governs z, direct claim or security_radius reach" --
+/// this just adds the hub-subtype check and reads its toggle.
+/proc/_hub_personnel_restricted(z)
+	var/obj/structure/machinery/faction_beacon/owner = get_owning_faction_beacon(z)
+	if(!istype(owner, /obj/structure/machinery/faction_beacon/hub))
+		return FALSE
+	var/obj/structure/machinery/faction_beacon/hub/H = owner
+	return H.restrict_to_hub_personnel
+
 /// Powers off every active faction beacon belonging to faction_uid -- called
 /// only when that faction is force-delisted from the stock exchange due to
 /// insolvency (stockMarketRevokeFaction(), user null), never on an admin-
@@ -259,7 +283,11 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 /obj/structure/machinery/faction_beacon/worldstate_get_content()
 	if(!faction_uid)
 		return list()
-	return list("faction_uid" = faction_uid, "powered" = powered, "locked" = locked, "security_radius" = security_radius, "fuel_credits" = fuel_credits, "public_territory" = public_territory)
+	var/list/content = list("faction_uid" = faction_uid, "powered" = powered, "locked" = locked, "security_radius" = security_radius, "fuel_credits" = fuel_credits, "public_territory" = public_territory)
+	if(istype(src, /obj/structure/machinery/faction_beacon/hub))
+		var/obj/structure/machinery/faction_beacon/hub/H = src
+		content["restrict_to_hub_personnel"] = H.restrict_to_hub_personnel
+	return content
 
 /obj/structure/machinery/faction_beacon/worldstate_apply_content(list/content)
 	faction_uid = content["faction_uid"] || ""
@@ -268,6 +296,9 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	security_radius = isnull(content["security_radius"]) ? 1 : text2num(content["security_radius"])
 	fuel_credits = isnull(content["fuel_credits"]) ? 0 : between(0, text2num(content["fuel_credits"]), max_fuel_credits)
 	public_territory = isnull(content["public_territory"]) ? FALSE : !!content["public_territory"]
+	if(istype(src, /obj/structure/machinery/faction_beacon/hub))
+		var/obj/structure/machinery/faction_beacon/hub/H = src
+		H.restrict_to_hub_personnel = isnull(content["restrict_to_hub_personnel"]) ? TRUE : !!content["restrict_to_hub_personnel"]
 	if(!requires_fuel)
 		powered = TRUE // admin/no-maintenance beacons (e.g. hub) never legitimately save powered-off
 	if(faction_uid && powered && (!requires_fuel || fuel_credits > 0))
@@ -291,6 +322,9 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	content["security_radius"] = security_radius
 	content["fuel_credits"] = fuel_credits
 	content["public_territory"] = public_territory
+	if(istype(src, /obj/structure/machinery/faction_beacon/hub))
+		var/obj/structure/machinery/faction_beacon/hub/H = src
+		content["restrict_to_hub_personnel"] = H.restrict_to_hub_personnel
 	return content
 
 /obj/structure/machinery/faction_beacon/persistent_objects_apply_content(content, x, y, z)
@@ -303,6 +337,9 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	if(!isnull(content["security_radius"])) security_radius = text2num(content["security_radius"])
 	if(!isnull(content["fuel_credits"]))    fuel_credits    = between(0, text2num(content["fuel_credits"]), max_fuel_credits)
 	if(!isnull(content["public_territory"])) public_territory = !!content["public_territory"]
+	if(istype(src, /obj/structure/machinery/faction_beacon/hub) && !isnull(content["restrict_to_hub_personnel"]))
+		var/obj/structure/machinery/faction_beacon/hub/H = src
+		H.restrict_to_hub_personnel = !!content["restrict_to_hub_personnel"]
 	if(!requires_fuel)
 		powered = TRUE // admin/no-maintenance beacons (e.g. hub) never legitimately save powered-off
 	if(faction_uid && powered && (!requires_fuel || fuel_credits > 0))
@@ -1098,6 +1135,10 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	data["max_fuel_credits"] = max_fuel_credits
 	data["requires_fuel"] = requires_fuel
 	data["public_territory"] = public_territory
+	data["is_hub"] = istype(src, /obj/structure/machinery/faction_beacon/hub)
+	if(data["is_hub"])
+		var/obj/structure/machinery/faction_beacon/hub/H = src
+		data["restrict_to_hub_personnel"] = H.restrict_to_hub_personnel
 	// Private only actually restricts entry while raiding is globally
 	// disabled -- with it enabled server-wide, every claimed Z is already
 	// exterior-accessible by default regardless of this setting. Surfaced so
@@ -1181,6 +1222,17 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 			public_territory = !public_territory
 			to_chat(user, SPAN_GOOD("Territory set to [public_territory ? "PUBLIC" : "PRIVATE"] -- [public_territory ? "non-members may enter regardless of the faction raiding toggle." : "subject to the faction raiding toggle like any other claimed territory."]"))
 			log_game("[key_name(user)] set faction beacon at ([x],[y],[z]) territory to [public_territory ? "PUBLIC" : "PRIVATE"].")
+			. = TRUE
+		if("toggle_hub_personnel_restriction")
+			if(!istype(src, /obj/structure/machinery/faction_beacon/hub))
+				return
+			if(!can_configure_faction_shackle(user, faction_uid, 1))
+				to_chat(user, SPAN_WARNING("You need command access in [faction_uid ? get_faction_name(faction_uid) : "this beacon's faction"] to toggle this."))
+				return
+			var/obj/structure/machinery/faction_beacon/hub/H = src
+			H.restrict_to_hub_personnel = !H.restrict_to_hub_personnel
+			to_chat(user, SPAN_GOOD("Access set to [H.restrict_to_hub_personnel ? "HUB PERSONNEL ONLY" : "OPEN"] -- [H.restrict_to_hub_personnel ? "only Hub-affiliated personnel actually holding a job (or admins) may travel/warp/disembark here; a civilian-rank Hub ID doesn't qualify." : "anyone may travel/warp/disembark here, same as any unrestricted sector."]"))
+			log_game("[key_name(user)] set hub beacon at ([x],[y],[z]) access to [H.restrict_to_hub_personnel ? "HUB PERSONNEL ONLY" : "OPEN"].")
 			. = TRUE
 		if("rename_site")
 			if(!can_configure_faction_shackle(user, faction_uid, 1))
@@ -1303,6 +1355,17 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	security_radius = 2 // reaches further than a standard faction beacon's default of 1
 	requires_fuel = FALSE // admin-spawned, immune to the credit maintenance mechanic
 	powered = TRUE // admin-spawned, already active -- doesn't need a manual power-on step like a normal beacon
+	/// Whether THIS hub beacon's claimed Z(s) are gated to Hub personnel
+	/// (can_access_hub_depot()) -- see _hub_personnel_restricted() below for
+	/// the full read on what replaced. TRUE by default: a newly-placed hub
+	/// beacon behaves like Hub sovereign territory until command says
+	/// otherwise, matching what every hub beacon has always implied. Only
+	/// meaningful on this subtype -- an ordinary faction has no "Hub
+	/// personnel" concept to restrict by, so this var doesn't exist on the
+	/// base type at all. Command-toggleable via the TGUI
+	/// ("toggle_hub_personnel_restriction"), same can_configure_faction_shackle()
+	/// gate as toggle_public_territory.
+	var/restrict_to_hub_personnel = TRUE
 
 /obj/structure/machinery/faction_beacon/hub/ui_interact(mob/user, datum/tgui/ui)
 	ui = SStgui.try_update_ui(user, src, ui)

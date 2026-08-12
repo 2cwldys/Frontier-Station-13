@@ -126,10 +126,16 @@
 /// For instant-delivery telepads with no 15-second spool-up channel at all
 /// (Travel Pad, First Responder) that used to show the old fading portal
 /// sprite + phasein.ogg instead.
-/proc/_telepad_phase_arrival(turf/T)
+///
+/// facing_dir (optional): passed straight through to temp_visual/phase's own
+/// Initialize(mapload, new_dir), which set_dir()s to it when given -- omitting
+/// it doesn't leave the effect facing some neutral default, /obj/effect/
+/// temp_visual defaults randomdir = TRUE, so an unset facing_dir here means a
+/// RANDOM cardinal every time, unrelated to whoever is actually traveling.
+/proc/_telepad_phase_arrival(turf/T, facing_dir)
 	if(!T)
 		return
-	new /obj/effect/temp_visual/phase/spool/short(T)
+	new /obj/effect/temp_visual/phase/spool/short(T, facing_dir)
 	playsound(T, 'sound/effects/transport.ogg', 40, FALSE)
 
 /// Keeps origin_fx/destination_fx (temp_visual/phase/spool instances, either
@@ -300,7 +306,7 @@
 		to_chat(L, SPAN_WARNING("Select a destination pad first."))
 		return FALSE
 
-	if(is_centcom_level(target.z) && !can_access_hub_depot(L))
+	if(_hub_personnel_restricted(target.z) && !can_access_hub_depot(L))
 		to_chat(L, SPAN_WARNING("That pad's destination is restricted to Hub personnel."))
 		return FALSE
 
@@ -325,9 +331,9 @@
 	// still the forceMove() inside persistence_telepad_deliver() below.
 	var/turf/origin = get_turf(L)
 	if(origin)
-		_telepad_phase_arrival(origin)
+		_telepad_phase_arrival(origin, L.dir)
 		spark(origin, 3, GLOB.alldirs)
-	_telepad_phase_arrival(destination)
+	_telepad_phase_arrival(destination, L.dir)
 	spark(destination, 3, GLOB.alldirs)
 
 	last_used_by_ckey[L.ckey] = world.time

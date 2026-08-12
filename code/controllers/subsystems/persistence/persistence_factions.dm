@@ -1136,16 +1136,22 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 /proc/faction_cargo_unrestricted(uid)
 	return get_faction_allowed_cargo_category(uid) == FACTION_CARGO_CATEGORY_ALL
 
-/// Whether `user` is authorized to travel/warp/disembark into the CentCom
-/// ("Frontier Beacon Depot") sector -- Hub-affiliated personnel above
-/// baseline civilian rank (get_effective_faction_rank()'s own "0 = civilian
-/// member, no elevation" reading), or an admin (rank 99, same bypass every
-/// other faction-rank gate in this codebase already grants). Checked by
-/// every way of physically reaching that sector: Personal Travel's leap
+/// Whether `user` qualifies to bypass Hub-personnel-only access, wherever
+/// _hub_personnel_restricted(z) (faction_beacon.dm) says it applies -- no
+/// longer just the literal CentCom ("Frontier Beacon Depot") Z; any Z a hub
+/// beacon governs with its restrict_to_hub_personnel toggle on. Qualifies:
+/// any real Hub job holder -- FACTION_RANK_CREW (0) and above
+/// (__DEFINES/persistence.dm: CREW 0, OFFICER 1, COMMAND 2). Excludes only
+/// FACTION_RANK_CIVILIAN (-1, printed a Hub ID with no job), which is what
+/// `> FACTION_RANK_CIVILIAN` actually tests -- do not simplify this back to
+/// `> 0`, that would wrongly exclude ordinary rank-0 crew too. Or an admin
+/// (rank 99, same bypass every other faction-rank gate in this codebase
+/// already grants). Checked alongside _hub_personnel_restricted() by every
+/// way of physically reaching a restricted sector: Personal Travel's leap
 /// (personal_travel.dm), travel pad "pod warp" (telepad_travel.dm), and
 /// drydock disembark (telepad_drydock_boarding.dm).
 /proc/can_access_hub_depot(mob/user)
-	return get_effective_faction_rank(user, "hub") > 0
+	return get_effective_faction_rank(user, "hub") > FACTION_RANK_CIVILIAN
 
 /// Called right after a faction's stored display name changes (Rename
 /// Faction), so every physical item that baked the OLD name into its own
