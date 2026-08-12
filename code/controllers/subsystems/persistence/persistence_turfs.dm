@@ -148,6 +148,9 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 		// traps the welder in the REPAIR branch, which returns before it can
 		// ever reach the dismantle code -- a wall that simply can't be taken
 		// apart. Mirrors /turf/simulated/wall/Initialize()'s own ordering.
+#ifdef WALL_RESTORE_DIAGNOSTICS
+		log_subsystem_persistence_info("Turfs: wall restore at ([W.x],[W.y],[W.z]) -- saved_material=[content["material"] || "MISSING"] W.material(pre)=[W.material ? W.material.name : "NULL"] W.icon(pre)=[W.icon || "NULL"]")
+#endif
 		if(content["material"])
 			var/material/restored_mat = SSmaterials.get_material_by_name(content["material"])
 			var/material/restored_reinf = !isnull(content["reinf_material"]) ? SSmaterials.get_material_by_name(content["reinf_material"]) : null
@@ -155,6 +158,27 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 				W.set_material(restored_mat, restored_reinf)
 				W.hitsound = W.material.hitsound
 				W.set_maxhealth(W.material.integrity + (W.reinf_material ? W.reinf_material.integrity : 0), TRUE)
+		// Guarantee a real material and a freshly (re-)picked icon variant
+		// regardless of whether a saved material was found above.
+		// ChangeTurf() (called just before this proc) SHOULD already have run
+		// Initialize() -> update_material() and set a default steel material +
+		// icon on this turf -- but a restored wall has been observed showing
+		// icon=null via VV despite that, meaning that chain isn't reliable
+		// here. This re-derives both explicitly rather than trusting it: safe
+		// and a no-op when set_material() above already ran correctly (same
+		// x/y/z + same material always picks the same deterministic variant),
+		// and the only thing that actually fixes the case where it didn't.
+		if(!W.material)
+			W.material = SSmaterials.get_material_by_name(DEFAULT_WALL_MATERIAL)
+		if(W.material)
+			var/picked_variant = pick_wall_icon_variant(W.x, W.y, W.z, W.material.wall_icon_variants)
+			if(picked_variant)
+				W.icon = picked_variant
+			else if(W.material.wall_icon)
+				W.icon = W.material.wall_icon
+#ifdef WALL_RESTORE_DIAGNOSTICS
+		log_subsystem_persistence_info("Turfs: wall restore at ([W.x],[W.y],[W.z]) -- W.icon(post)=[W.icon || "STILL NULL"]")
+#endif
 		// under_turf is what a wall reverts to when dismantled, and is neither
 		// carried by ChangeTurf() nor derived from anything -- without it a
 		// restored player/RFD-built wall comes apart into plating instead of

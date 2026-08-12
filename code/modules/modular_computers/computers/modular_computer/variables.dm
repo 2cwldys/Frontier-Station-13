@@ -31,6 +31,9 @@
 	var/looping_sound = TRUE
 	/// Whether the computer is emagged.
 	var/computer_emagged = FALSE
+	/// world.time this device may next play a PADD_BUTTON_PRESS_SOUNDS click
+	/// sound -- see ui_act() (ui.dm). Unused/harmless when that define is off.
+	var/next_button_sound_at = 0
 	/// Set automatically. Whether the computer used APC power last tick.
 	var/apc_powered = FALSE
 	/// Power usage when the computer is open (screen is active) and can be interacted with. Remember hardware can use power too.

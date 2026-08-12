@@ -32,5 +32,15 @@ GLOBAL_LIST_INIT(announcer_sound_durations, list(
 	"sound/AI/announcements/boarding_the_ship.ogg" = 3.9 SECONDS,
 	"sound/AI/announcements/exiting_ship.ogg" = 3.9 SECONDS,
 	"sound/AI/announcements/cloak_online.ogg" = 4.5 SECONDS,
-	"sound/AI/announcements/cloak_offline.ogg" = 4.2 SECONDS
+	"sound/AI/announcements/cloak_offline.ogg" = 4.2 SECONDS,
+	"sound/AI/announcements/tractor_beam_engaged.ogg" = 4.4 SECONDS,
+	"sound/AI/announcements/enemy_tractor_beam_engaged.ogg" = 5.0 SECONDS,
+	"sound/AI/announcements/tractor_beam_released.ogg" = 4.7 SECONDS,
+	"sound/AI/announcements/enemy_tractor_beam_released.ogg" = 4.9 SECONDS,
+	"sound/AI/announcements/tractor_beam_escape_success.ogg" = 5.2 SECONDS,
+	"sound/AI/announcements/tractor_beam_escape_failed.ogg" = 5.4 SECONDS,
+	"sound/AI/announcements/enemy_escape_success.ogg" = 4.5 SECONDS,
+	"sound/AI/announcements/enemy_escape_failed.ogg" = 4.6 SECONDS,
+	"sound/AI/announcements/welcome_to_frontier_station.ogg" = 4.6 SECONDS,
+	"sound/AI/announcements/welcome_back.ogg" = 3.8 SECONDS
 ))

@@ -200,6 +200,13 @@
 		data["own_shields"] = get_shield_data(own_ship.shield_generator)
 		data["own_shield_control"] = get_shield_control_data(own_ship.shield_generator)
 		data["own_cloak_control"] = get_cloak_control_data(_find_own_cloak(own_ship))
+		data["own_tractor_control"] = get_tractor_control_data(own_ship.tractor_beam)
+		// Target-side state -- independent of whatever THIS console currently
+		// has locked (or nothing at all), same as own_shields/own_shield_control
+		// above. Lets a held ship's own crew see it and attempt to break free
+		// from their own console, not just the ship doing the holding.
+		data["held_by_tractor"] = !!own_ship.tractored_by
+		data["break_free_seconds_left"] = (world.time < own_ship.tractor_break_attempt_at) ? round((own_ship.tractor_break_attempt_at - world.time) / 10) : 0
 	if(linked?.targeting)
 		for(var/obj/structure/machinery/ship_weapon/SW in linked.ship_weapons)
 			if(!SW.special_firing_mechanism)
@@ -314,6 +321,8 @@
 						visible_message(SPAN_WARNING("The console shows a positive message: firing sequence successful!"))
 					if(istype(linked))
 						announce_to_ship_z(linked.map_z, 'sound/AI/announcements/firing_weapons.ogg', 50, TRUE)
+						if(istype(linked.targeting, /obj/effect/overmap/visitable/ship))
+							broadcast_combat_sensor_contact(linked, linked.targeting, "[linked.name] has opened fire on [linked.targeting.name].")
 
 		if("viewing")
 			if(usr)
@@ -366,6 +375,19 @@
 					CD.toggle_cloak(usr)
 			. = TRUE
 
+		if("toggle_tractor")
+			if(istype(linked, /obj/effect/overmap/visitable/ship))
+				var/obj/effect/overmap/visitable/ship/own_ship = linked
+				if(istype(own_ship.tractor_beam))
+					own_ship.tractor_beam.toggle_tractor(usr)
+			. = TRUE
+
+		if("attempt_break_free")
+			if(istype(linked, /obj/effect/overmap/visitable/ship))
+				var/obj/effect/overmap/visitable/ship/own_ship = linked
+				_attempt_break_free(own_ship, usr)
+			. = TRUE
+
 /obj/structure/machinery/computer/ship/targeting/proc/get_gun_data(var/obj/structure/machinery/ship_weapon/SW)
 	var/ammo_status = length(SW.ammunition) ? "Loaded, [length(SW.ammunition)] shots" : "Unloaded"
 	var/obj/item/ship_ammunition/SA
@@ -401,6 +423,7 @@
 		"has_fuel" = (gen.sheets > 0),
 		"at_away_site" = gen._currently_at_away_site(),
 		"recovery_seconds_left" = (world.time < gen.shield_recovery_at) ? round((gen.shield_recovery_at - world.time) / 10) : 0,
+		"tractored" = gen._currently_tractored(),
 	)
 
 /// No back-reference var exists from the ship to its own cloaking device
@@ -412,6 +435,61 @@
 		if(CD.linked == own_ship)
 			return CD
 	return null
+
+/// Own-ship tractor beam control data -- unlike get_cloak_control_data()
+/// below, no SSmachinery scan is needed since ship.dm's tractor_beam var is
+/// a direct backref (ship_tractor_beam.dm's _hook_up_to_ship()), same as
+/// shield_generator.
+/obj/structure/machinery/computer/ship/targeting/proc/get_tractor_control_data(obj/structure/machinery/ship_tractor_beam/beam)
+	if(!istype(beam))
+		return list("exists" = FALSE)
+	return list(
+		"exists" = TRUE,
+		"active" = beam.active,
+		"anchored" = beam.anchored,
+		"has_fuel" = (beam.sheets > 0),
+		"at_away_site" = beam._currently_at_away_site(),
+		"locked_target_name" = istype(beam.locked_target) ? beam.locked_target.name : null,
+	)
+
+/// Handles the "attempt_break_free" ui_act() case -- own_ship is whichever
+/// ship THIS console is mounted on (not whatever it has locked), since a
+/// held ship needs to be able to try this from its own console regardless
+/// of what it's currently targeting, same as own_shields/own_shield_control
+/// are independent of the current lock.
+/obj/structure/machinery/computer/ship/targeting/proc/_attempt_break_free(obj/effect/overmap/visitable/ship/own_ship, mob/user)
+	if(!own_ship.tractored_by)
+		to_chat(user, SPAN_WARNING("This ship isn't held by anything to break free from."))
+		return
+	if(world.time < own_ship.tractor_break_attempt_at)
+		to_chat(user, SPAN_WARNING("The engines aren't ready to attempt another overload -- [round((own_ship.tractor_break_attempt_at - world.time) / 10)] second\s left."))
+		return
+	var/obj/structure/machinery/ship_tractor_beam/holder = own_ship.tractored_by
+	var/list/holder_z = istype(holder.linked) ? holder.linked.map_z : null
+
+	if(prob(TRACTOR_BREAK_FREE_CHANCE))
+		visible_message(SPAN_NOTICE("\The [src] shows a successful engine overload -- the tractor beam's lock shatters!"))
+		// Two distinct lines -- the escaping ship hears its own "you broke
+		// free" confirmation, the ship that was holding them hears the
+		// "the enemy escaped" version, framed from their side.
+		announce_to_ship_z(own_ship.map_z, 'sound/AI/announcements/tractor_beam_escape_success.ogg', 50, TRUE)
+		if(length(holder_z))
+			announce_to_ship_z(holder_z, 'sound/AI/announcements/enemy_escape_success.ogg', 50, TRUE)
+		holder._release_lock()
+		return
+
+	own_ship.tractor_break_attempt_at = world.time + TRACTOR_BREAK_FREE_COOLDOWN
+	visible_message(SPAN_WARNING("\The [src] shows a failed engine overload -- the strain is tearing at the hull!"))
+	announce_to_ship_z(own_ship.map_z, 'sound/AI/announcements/tractor_beam_escape_failed.ogg', 50, TRUE)
+	if(length(holder_z))
+		announce_to_ship_z(holder_z, 'sound/AI/announcements/enemy_escape_failed.ogg', 50, TRUE)
+	// Same unshielded-impact mechanic meteor_wave/send_wave() (meteors.dm)
+	// already uses when a ship without active shields takes an asteroid hit --
+	// not a new damage system, just a small controlled burst instead of a
+	// full storm.
+	var/list/wave_meteors = SSatlas.current_sector?.meteors_minor
+	if(length(wave_meteors) && length(own_ship.map_z))
+		spawn_meteors(rand(2, 4), wave_meteors, pick(GLOB.cardinals), pick(own_ship.map_z))
 
 /obj/structure/machinery/computer/ship/targeting/proc/get_cloak_control_data(obj/structure/machinery/ship_cloaking_device/CD)
 	if(!istype(CD))

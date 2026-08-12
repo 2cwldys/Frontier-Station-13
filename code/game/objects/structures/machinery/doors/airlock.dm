@@ -1978,7 +1978,11 @@ About the new airlock wires panel:
 
 	//if the door is unpowered then it doesn't make sense to hear the woosh of a pneumatic actuator
 	if(!forced && arePowerSystemsOn())
+#ifdef CUSTOM_AIRLOCK_SOUNDS
+		playsound(src.loc, 'sound/machines/airlock/cargobayopen.ogg', 50, FALSE, extrarange = SHORT_RANGE_SOUND_EXTRARANGE)
+#else
 		playsound(src.loc, open_sound_powered, 50, FALSE, extrarange = SHORT_RANGE_SOUND_EXTRARANGE)
+#endif
 	else
 		playsound(src.loc, open_sound_unpowered, 70, FALSE, extrarange = SHORT_RANGE_SOUND_EXTRARANGE)
 
@@ -2102,7 +2106,11 @@ About the new airlock wires panel:
 				add_damage(DOOR_CRUSH_DAMAGE)
 	use_power_oneoff(360)	//360 W seems much more appropriate for an actuator moving an industrial door capable of crushing people
 	if(arePowerSystemsOn())
+#ifdef CUSTOM_AIRLOCK_SOUNDS
+		playsound(src.loc, 'sound/machines/airlock/cargobayclose.ogg', 100, TRUE, extrarange = SHORT_RANGE_SOUND_EXTRARANGE)
+#else
 		playsound(src.loc, close_sound_powered, 100, TRUE, extrarange = SHORT_RANGE_SOUND_EXTRARANGE)
+#endif
 	else
 		playsound(src.loc, close_sound_unpowered, 100, TRUE, extrarange = SHORT_RANGE_SOUND_EXTRARANGE)
 
@@ -2120,7 +2128,13 @@ About the new airlock wires panel:
 	return persistent_network
 
 /obj/structure/machinery/door/airlock/faction_tagger_set(new_uid, mob/user)
+	var/old_uid = persistent_network
 	persistent_network = new_uid || ""
+	// Ownership changing hands drops this door's remote links -- see
+	// _clear_links_on_faction_change() (airlock_control.dm) for why leaving
+	// them in place is an access hole rather than a convenience.
+	if(old_uid != persistent_network)
+		_clear_links_on_faction_change(user, old_uid)
 	return TRUE
 
 /obj/structure/machinery/door/airlock/proc/lock(var/forced=0)

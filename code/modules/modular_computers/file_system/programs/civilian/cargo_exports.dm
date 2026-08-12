@@ -343,6 +343,6 @@
 			// instead of vanishing abruptly, for a "goods just left through
 			// here" send-off.
 			spark(pad_turf, 5, GLOB.alldirs)
-			playsound(pad_turf, 'sound/effects/phasein.ogg', 50, 1)
+			playsound(pad_turf, 'sound/effects/transport.ogg', 50, 1)
 			new /obj/effect/portal/decorative/fading(pad_turf)
 			return TRUE

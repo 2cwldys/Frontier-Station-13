@@ -47,6 +47,15 @@
 // out to strip it entirely.
 //#define DRYDOCK_ENGINE_DIAGNOSTICS
 
+// If defined, restoring a saved /turf/simulated/wall logs whether the row
+// carried a saved material, what material the turf actually ended up with,
+// and its icon var before/after the restore path's own guarantee step runs.
+// For chasing a restored wall showing icon=null despite ChangeTurf()'s own
+// Initialize() supposedly assigning a default material -- comment out to
+// strip it entirely. Defined by default while this is still being actively
+// chased.
+#define WALL_RESTORE_DIAGNOSTICS
+
 // If defined, the floor-item persistence path logs every decision it makes
 // for a faction-tagged clothing item: which branch dropped it (if any),
 // whether its extra state blob was built, and which restore branch ran on
@@ -80,6 +89,14 @@
 // out to strip revision/build info from what players can see entirely.
 #define SHOW_GIT_LOG
 
+// If defined, a connecting player who has certifiably spawned a character
+// at least once before hears WELCOME_BACK instead of
+// WELCOME_TO_FRONTIER_STATION when they reach the lobby (ss13_characters'
+// first_spawned_at column, via a new SQL COUNT query -- requires
+// GLOB.config.sql_saves). Off -- every connecting player always hears
+// WELCOME_TO_FRONTIER_STATION regardless of history, no DB query at all.
+//#define WELCOME_BACK_VOICE_LINES
+
 // If defined, the server automatically triggers a deployment sync
 // (scripts/deploy.sh / deploy.ps1, same as the "Sync Deployment Branch"
 // admin verb) the moment SSgithub detects a pull request merge into the
@@ -98,6 +115,14 @@
 // leave undefined to keep admin logs server-local only.
 //#define EXPORT_ADMIN_LOG_TO_DISCORD
 
+// If defined, faction-tagged equipment can only be WORN by people employed by
+// that faction (can_use_faction_equipment(), persistence_factions.dm) -- gated
+// in mob_can_equip() (items.dm) so every equip route is covered at once.
+// Untagged and "public" gear is never affected, and carrying/storing/
+// confiscating tagged gear stays unrestricted either way: only wearing is.
+// Comment out to let anyone wear anything, as before this existed.
+//#define FACTION_EQUIPMENT_WEAR_LOCK
+
 // If defined, two factions can become allied via a Faction Management
 // propose/accept handshake -- either side can break it anytime. Allied
 // factions can access each other's station under the faction raiding gate,
@@ -105,6 +130,19 @@
 // don't fire on each other. Off -- no faction is ever allied
 // with another.
 #define FACTION_ALLIANCES
+
+// If defined, every airlock plays a fixed custom open/close sound pair
+// (sound/machines/airlock/cargobayopen.ogg and cargobayclose.ogg) instead of
+// its own subtype's normal open_sound_powered/close_sound_powered -- the
+// forced/unpowered open sound is unaffected. Off by default -- leave
+// undefined to keep each airlock subtype's own sound flavor.
+#define CUSTOM_AIRLOCK_SOUNDS
+
+// If defined, clicking a button on a PDA/modular computer/laptop's TGUI
+// plays a random one of 6 short click sounds, audible to anyone standing
+// nearby (playsound()), throttled to once per 4.5 seconds per device so
+// rapid clicking doesn't spam it. Off -- no click sound.
+#define PADD_BUTTON_PRESS_SOUNDS
 
 // We want to use external resources. Kthx.
 #define PRELOAD_RSC 0

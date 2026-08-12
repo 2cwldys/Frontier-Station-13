@@ -40,8 +40,12 @@
 
 /obj/structure/machinery/computer/shuttle_control/Destroy()
 	SSshuttle.lonely_shuttle_computers -= src
+	// istype(), not a bare truthiness check -- shuttle_tag can point at
+	// nothing resolvable (unset, or a shuttle that's since gone away), same
+	// guard Initialize() above already uses before touching this list.
 	var/datum/shuttle/shuttle = SSshuttle.shuttles[shuttle_tag]
-	shuttle.shuttle_computers -= src
+	if(istype(shuttle))
+		shuttle.shuttle_computers -= src
 	for(var/obj/item/clothing/head/helmet/pilot/PH as anything in linked_helmets)
 		PH.linked_console = null
 	return ..()

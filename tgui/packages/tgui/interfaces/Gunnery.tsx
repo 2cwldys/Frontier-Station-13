@@ -41,6 +41,15 @@ type CloakControlData = {
   lockout_seconds_left: number;
 };
 
+type TractorControlData = {
+  exists: BooleanLike;
+  active: BooleanLike;
+  anchored: BooleanLike;
+  has_fuel: BooleanLike;
+  at_away_site: BooleanLike;
+  locked_target_name: string | null;
+};
+
 export type GunneryData = {
   guns: ShipGun[];
   cannon: ShipGun;
@@ -60,6 +69,9 @@ export type GunneryData = {
   target_shields: ShieldData | null;
   own_shield_control: ShieldControlData;
   own_cloak_control: CloakControlData;
+  own_tractor_control: TractorControlData;
+  held_by_tractor: BooleanLike;
+  break_free_seconds_left: number;
 };
 
 const ShieldListItem = (props: { label: string; shields: ShieldData | null }) => {
@@ -153,6 +165,75 @@ const CloakControlItem = (props: { control: CloakControlData }) => {
   );
 };
 
+const TractorControlItem = (props: { control: TractorControlData }) => {
+  const { act } = useBackend<GunneryData>();
+  const { control } = props;
+  if (!control?.exists) {
+    return null;
+  }
+  const disabled =
+    !control.active &&
+    (!control.anchored || !control.has_fuel || !!control.at_away_site);
+  let reason = '';
+  if (!control.anchored) {
+    reason = 'Tractor beam projector is not anchored.';
+  } else if (!control.has_fuel) {
+    reason = 'Tractor beam projector has no fuel loaded.';
+  } else if (control.at_away_site) {
+    reason = "Can't lock onto anything at an away site.";
+  } else if (!control.active) {
+    reason = 'Requires a locked ship target within 1 tile.';
+  }
+  return (
+    <LabeledList.Item label="Tractor Beam">
+      <Button
+        icon={control.active ? 'anchor' : 'crosshairs'}
+        content={
+          control.active
+            ? `Release${control.locked_target_name ? ` (${control.locked_target_name})` : ''}`
+            : 'Lock On'
+        }
+        color={control.active ? 'good' : undefined}
+        disabled={disabled}
+        tooltip={reason || undefined}
+        onClick={() => act('toggle_tractor')}
+      />
+    </LabeledList.Item>
+  );
+};
+
+const HeldByTractorSection = (props) => {
+  const { act, data } = useBackend<GunneryData>();
+  if (!data.held_by_tractor) {
+    return null;
+  }
+  const onCooldown = data.break_free_seconds_left > 0;
+  return (
+    <Section title="Held by Tractor Beam">
+      <Box color="bad" mb={1}>
+        An enemy tractor beam has this ship pinned -- engines and shields are
+        locked out.
+      </Box>
+      <Button
+        icon="bolt"
+        content={
+          onCooldown
+            ? `Overload Engines (${data.break_free_seconds_left}s)`
+            : 'Attempt to Break Free'
+        }
+        color="bad"
+        disabled={onCooldown}
+        tooltip={
+          onCooldown
+            ? 'Recharging -- a failed attempt risks hull damage.'
+            : 'A failed attempt risks hull damage from the strain.'
+        }
+        onClick={() => act('attempt_break_free')}
+      />
+    </Section>
+  );
+};
+
 type Targeting = {
   name: string;
   shiptype: string;
@@ -180,17 +261,20 @@ export const GunneryWindow = (props) => {
   if (!data.targeting) {
     return (
       <Section title="Targeting Information">
+        <HeldByTractorSection />
         <Box bold>No target designated.</Box>
         <LabeledList>
           <ShieldListItem label="Own Shields" shields={data.own_shields} />
           <ShieldControlItem control={data.own_shield_control} />
           <CloakControlItem control={data.own_cloak_control} />
+          <TractorControlItem control={data.own_tractor_control} />
         </LabeledList>
       </Section>
     );
   } else {
     return (
       <Section>
+        <HeldByTractorSection />
         <Section title="Lock-On Information">
           <LabeledList>
             <LabeledList.Item label="Target">{target_name}</LabeledList.Item>
@@ -203,6 +287,7 @@ export const GunneryWindow = (props) => {
             <ShieldListItem label="Own Shields" shields={data.own_shields} />
             <ShieldControlItem control={data.own_shield_control} />
             <CloakControlItem control={data.own_cloak_control} />
+            <TractorControlItem control={data.own_tractor_control} />
             <ShieldListItem
               label="Target Shields"
               shields={data.target_shields}

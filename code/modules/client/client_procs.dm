@@ -3,6 +3,11 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 	"::1" = TRUE
 ))
 
+/// Gates the "Connected:"/"Disconnected:" admin log lines below (InitClient()/
+/// Destroy()) -- runtime-only, not config-file-backed, flipped via the
+/// "Toggle Connection Logging" admin verb (admin_verbs.dm). Starts TRUE.
+GLOBAL_VAR_INIT(log_player_connections, TRUE)
+
 	////////////
 	//SECURITY//
 	////////////
@@ -615,6 +620,13 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 	fetch_unacked_warning_count()
 
 	is_initialized = TRUE
+	// Every rejection path above this point (banned, outdated BYOND, panic-
+	// bunker/young-account denial) already returns or del(src)s before
+	// reaching here, so this only ever fires for a connection that was
+	// genuinely let through -- once per real connect. log_admin() already
+	// mirrors to Discord on its own (EXPORT_ADMIN_LOG_TO_DISCORD, admin.dm).
+	if(GLOB.log_player_connections)
+		log_admin("Connected: [key_name_admin(src)]")
 
 //////////////
 //DISCONNECT//
@@ -629,6 +641,14 @@ GLOBAL_LIST_INIT(localhost_addresses, list(
 	return ..()
 
 /client/Destroy(force)
+	// Fires exactly once, when the client itself is actually destroyed (a
+	// real disconnect) -- unlike mob/Logout(), which can also fire on a
+	// body swap (aghost reattach, ckey moved to a new mob) without the
+	// client ever disconnecting. Logged first, before any cleanup below
+	// touches key/ckey/address. log_admin() already mirrors to Discord on
+	// its own (EXPORT_ADMIN_LOG_TO_DISCORD, admin.dm).
+	if(GLOB.log_player_connections)
+		log_admin("Disconnected: [key_name_admin(src)]")
 	GLOB.ticket_panels -= src
 	GLOB.staff -= src
 	GLOB.directory -= ckey

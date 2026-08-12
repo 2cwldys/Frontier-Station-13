@@ -133,6 +133,15 @@
 /obj/effect/shuttle_landmark/ship/cannot_depart(datum/shuttle/shuttle)
 	if(LAZYLEN(visitors))
 		return "Grappled by other shuttle; cannot manouver."
+	// Same backref pattern this landmark type's own Destroy() already uses
+	// to reach its owning ship marker. Single choke point -- attempt_move()
+	// (shuttle.dm), process_launch() (shuttle_autodock.dm), and the
+	// console's own can_move() (shuttle_console.dm) all call cannot_depart()
+	// on this exact landmark, so one check here blocks every jump/dock path
+	// a tractored ship's own crew could otherwise use to escape.
+	var/obj/effect/overmap/visitable/ship/landable/ship = GLOB.map_sectors["[z]"]
+	if(istype(ship) && ship.tractored_by)
+		return "Held by an enemy tractor beam; cannot manouver."
 
 /obj/effect/shuttle_landmark/visiting_shuttle
 	landmark_flags = SLANDMARK_FLAG_AUTOSET | SLANDMARK_FLAG_ZERO_G
@@ -187,6 +196,14 @@
 	on_landing(from, into)
 
 /obj/effect/overmap/visitable/ship/landable/proc/on_landing(obj/effect/shuttle_landmark/from, obj/effect/shuttle_landmark/into)
+	// Safety net, not the real gate -- cannot_depart() (this file, the
+	// /ship landmark subtype above) is what actually stops a tractored ship
+	// from ever reaching a real dock/land in normal play. This just makes
+	// sure a lock can never survive one anyway, in case some unanticipated
+	// path lands here despite that.
+	if(tractored_by)
+		tractored_by._release_lock()
+
 	// Neither shields nor a cloak can be sustained at an away site -- silently
 	// switch both off rather than playing their usual offline sound/announcer,
 	// which would otherwise be heard by everyone else already on that site's
@@ -233,6 +250,12 @@
 			if(CD.linked != src || !CD.active)
 				continue
 			CD._set_active(FALSE, silent = TRUE)
+		// Same reasoning -- toggle_tractor() already refuses to ENGAGE the
+		// beam at an away site (ship_tractor_beam.dm), but doesn't cover
+		// flying there and landing while a lock from open space is still
+		// held; this is that other half.
+		if(tractor_beam && tractor_beam.active)
+			tractor_beam._release_lock(silent = TRUE)
 	var/obj/effect/overmap/visitable/target = GLOB.map_sectors["[into.z]"]
 	var/datum/shuttle/shuttle_datum = SSshuttle.shuttles[shuttle]
 	if(into.landmark_tag == shuttle_datum.motherdock) // If our motherdock is a landable ship, it won't be found properly here so we need to find it manually.

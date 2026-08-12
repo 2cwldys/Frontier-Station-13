@@ -257,6 +257,23 @@
 	qdel(anchor)
 	return result
 
+/// TRUE when the ship at target_z is currently held by a tractor beam AND L
+/// is crew/owner/faction of the ship doing the tractoring (not the target) --
+/// _drydock_full_access_check() reused as-is, just evaluated against the
+/// TRACTORING ship's own Z instead of the target's. Lets a crew that's
+/// captured an enemy vessel actually board its real interior via Personal
+/// Travel/Pod Warp, instead of being stuck exterior-only like any other
+/// hostile boarding attempt -- deliberately scoped to the tractoring ship's
+/// own people, not literally anyone.
+/proc/_tractor_boarding_access_check(mob/L, target_z)
+	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[target_z]"]
+	if(!istype(marker, /obj/effect/overmap/visitable/ship))
+		return FALSE
+	var/obj/effect/overmap/visitable/ship/target_ship = marker
+	if(!target_ship.tractored_by || !istype(target_ship.tractored_by.linked))
+		return FALSE
+	return _drydock_full_access_check(L, target_ship.tractored_by.linked.z)
+
 /// The shared four-case access rule -- see the file header above.
 /proc/_drydock_pick_access_mode(mob/living/L, target_z)
 	for(var/sid in GLOB.drydock_ships)
@@ -265,11 +282,16 @@
 			continue
 		if(_drydock_full_access_check(L, target_z))
 			return DRYDOCK_PICK_MODE_OPEN
+		if(_tractor_boarding_access_check(L, target_z))
+			return DRYDOCK_PICK_MODE_OPEN
 		return DRYDOCK_PICK_MODE_EXTERIOR_ONLY
 	// Any other ship-type marker (non-drydock -- NPC/faction ships, the
-	// Horizon, etc.) has no ownership concept to open up -- always exterior.
+	// Horizon, etc.) has no ownership concept to open up -- always exterior,
+	// unless it's currently tractored by a ship this traveler crews.
 	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[target_z]"]
 	if(istype(marker, /obj/effect/overmap/visitable/ship))
+		if(_tractor_boarding_access_check(L, target_z))
+			return DRYDOCK_PICK_MODE_OPEN
 		return DRYDOCK_PICK_MODE_EXTERIOR_ONLY
 	// Explicit .powered check rather than trusting GLOB.faction_beacon_by_z
 	// presence alone -- a beacon comment states an unpowered beacon can
@@ -382,15 +404,15 @@
 	var/turf/origin = get_turf(L)
 	var/atom/movable/pulled = L.pulling
 	if(origin)
-		new /obj/effect/portal/decorative/fading(origin, null, null, 5 SECONDS, 0)
 		spark(origin, 3, GLOB.alldirs)
-		playsound(origin, 'sound/effects/phasein.ogg', 30, 1)
-	new /obj/effect/portal/decorative/fading(destination, null, null, 5 SECONDS, 0)
+		// Must precede the forceMove below, while the bystanders who watched
+		// them leave are still the ones in view of this turf.
+		_travel_announce_phase(L, origin, FALSE)
 	spark(destination, 3, GLOB.alldirs)
 	L.forceMove(destination)
 	if(pulled && !QDELETED(pulled))
 		pulled.forceMove(destination)
-	playsound(destination, 'sound/effects/phasein.ogg', 30, 1)
+	_travel_announce_phase(L, destination, TRUE)
 
 /// Resolves which ship L has boarding rights to nearby -- ownership/crew/
 /// faction check, DS.ready, and same/adjacent overmap sector proximity,
@@ -507,6 +529,17 @@
 	if(cooldown[L.ckey] && (world.time - cooldown[L.ckey] < 30))
 		to_chat(L, SPAN_WARNING("Still recalibrating -- wait a moment."))
 		return FALSE
+	// Matches the schematic/console TGUIs' own greyed-out "Retrieving..."
+	// button state (ShipSchematic.tsx/ShuttleDrydock.tsx) -- enforced here
+	// too so the button and the server can't disagree, same as every other
+	// gate in this system. _drydock_board_resolve_ship() already skips a
+	// not-ready ship when resolving candidates for the generic program/pad
+	// flow, but ship_schematic.dm's own direct board/board_subship calls
+	// reach this proc straight from a known DS with no candidate search at
+	// all, so that check alone doesn't cover them.
+	if(!target.ready)
+		to_chat(L, SPAN_WARNING("That ship is still being retrieved -- wait until it's ready to board."))
+		return FALSE
 
 	var/use_picker = FALSE
 	var/turf/destination
@@ -548,7 +581,7 @@
 	// Sparks at both the boarder's own tile and the ship-side landing spot --
 	// warns anyone already aboard that someone's about to portal in.
 	var/list/spool_token = list(TRUE)
-	_start_travel_spool_pulses(get_turf(L), destination, DRYDOCK_BOARDING_SPOOLUP, CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_spool_token_valid), spool_token))
+	_start_travel_spool_pulses(get_turf(L), destination, DRYDOCK_BOARDING_SPOOLUP, CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_spool_token_valid), spool_token), show_phase_effect = TRUE, facing_dir = L.dir)
 	if(!do_after(L, DRYDOCK_BOARDING_SPOOLUP, L))
 		spool_token[1] = FALSE
 		to_chat(L, SPAN_WARNING("Boarding interrupted."))
@@ -713,17 +746,16 @@
 		to_chat(inviter, SPAN_WARNING("There's no one nearby to invite aboard."))
 		return FALSE
 
-	var/mob/living/target
-	if(length(nearby) == 1)
-		target = nearby[1]
-	else
-		var/list/choices = list()
-		for(var/mob/living/candidate in nearby)
-			choices["[candidate.name]"] = candidate
-		var/pick = tgui_input_list(inviter, "Invite who aboard?", "Boarding Invitation", choices)
-		if(!pick)
-			return FALSE
-		target = choices[pick]
+	// Always shown, even for a single candidate -- the inviter should see
+	// (and confirm) exactly who's about to be invited rather than it
+	// happening silently the instant only one person happens to be nearby.
+	var/list/choices = list()
+	for(var/mob/living/candidate in nearby)
+		choices["[candidate.name]"] = candidate
+	var/pick = tgui_input_list(inviter, "Invite who aboard?", "Boarding Invitation", choices)
+	if(!pick)
+		return FALSE
+	var/mob/living/target = choices[pick]
 
 	// Recheck sector-adjacency (candidates may have moved during the picker
 	// delay above) instead of a same-Z physical distance, for the same
@@ -848,6 +880,22 @@
 	var/obj/item/card/id/ID = L.GetIdCard()
 	var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
 	return DS.owned_by(L) || (DS.faction_uid && DS.faction_uid == own_faction) || ("[L.ckey]|[L.real_name]" in DS.crew_ckeys)
+
+/// TRUE if user has owner/faction/crew access to at least one currently
+/// deployed-but-not-yet-ready drydock ship -- used to grey out the Drydock
+/// program's own generic "Enter Ship" button (ShuttleDrydock.tsx), the same
+/// way ship_schematic.dm's own per-ship "ready" field already gates its
+/// board button. Best-effort UI hint only, same as every other greyed-out
+/// button in this system -- _drydock_board_deliver()'s own !target.ready
+/// check is the real, authoritative gate.
+/proc/_drydock_user_has_retrieving_ship(mob/user)
+	for(var/sid in GLOB.drydock_ships)
+		var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
+		if(!DS || DS.stashed || DS.ready || !DS.z)
+			continue
+		if(_drydock_full_access_check(user, DS.z))
+			return TRUE
+	return FALSE
 
 /// Ship-level counterpart to _drydock_full_access_check() for contexts with
 /// no specific mob to check -- e.g. a sensor console's own shared
@@ -1054,7 +1102,7 @@
 	// Sparks at both the disembarking player's own tile and the landing
 	// spot -- warns anyone already there that someone's about to portal in.
 	var/list/spool_token = list(TRUE)
-	_start_travel_spool_pulses(get_turf(L), destination, DRYDOCK_DISEMBARK_SPOOLUP, CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_spool_token_valid), spool_token))
+	_start_travel_spool_pulses(get_turf(L), destination, DRYDOCK_DISEMBARK_SPOOLUP, CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_spool_token_valid), spool_token), show_phase_effect = TRUE, facing_dir = L.dir)
 	if(!do_after(L, DRYDOCK_DISEMBARK_SPOOLUP, L))
 		spool_token[1] = FALSE
 		to_chat(L, SPAN_WARNING("Disembarking interrupted."))

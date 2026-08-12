@@ -136,12 +136,19 @@ export const ShipSchematic = (props) => {
                   fluid
                   mt={1}
                   icon="street-view"
-                  disabled={!can_board}
+                  disabled={!ready || !can_board}
+                  tooltip={
+                    !ready
+                      ? 'This ship is still being retrieved -- wait until it is ready to board.'
+                      : undefined
+                  }
                   onClick={() => act('board')}
                 >
-                  {can_board
+                  {!ready
                     ? 'Enter Ship'
-                    : `Enter Ship (${board_cooldown}s)`}
+                    : can_board
+                      ? 'Enter Ship'
+                      : `Enter Ship (${board_cooldown}s)`}
                 </Button>
               )}
               {sub_shuttle_tags.length > 0 && (
@@ -149,12 +156,19 @@ export const ShipSchematic = (props) => {
                   fluid
                   mt={1}
                   icon="street-view"
-                  disabled={!can_board}
+                  disabled={!ready || !can_board}
+                  tooltip={
+                    !ready
+                      ? 'This ship is still being retrieved -- wait until it is ready to board.'
+                      : undefined
+                  }
                   onClick={() => act('board_subship')}
                 >
-                  {can_board
+                  {!ready
                     ? 'Enter Sub-Ship'
-                    : `Enter Sub-Ship (${board_cooldown}s)`}
+                    : can_board
+                      ? 'Enter Sub-Ship'
+                      : `Enter Sub-Ship (${board_cooldown}s)`}
                 </Button>
               )}
               <Button

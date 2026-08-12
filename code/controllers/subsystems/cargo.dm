@@ -677,13 +677,40 @@ SUBSYSTEM_DEF(cargo)
 			continue
 		for(var/_ in 1 to coi.ci.spawn_amount)
 			for(var/item_typepath in coi.ci.items)
-				new item_typepath(crate)
+				var/atom/movable/spawned = new item_typepath(crate)
+				_applyCargoItemFactionFinish(spawned, coi.ci, co)
 
 	// Spawn the paper inside.
 	var/obj/item/paper/P = new(crate)
 	P.set_content_unsafe("[co.order_id] - [co.ordered_by]", co.get_report_delivery_order())
 
 	return crate
+
+/**
+ * Applies a cargo item's optional faction finish to one freshly spawned piece:
+ * tags it to the ordering faction, and/or recolours it.
+ *
+ * Tagging goes through the item's own faction_tagger_set() rather than writing
+ * any var directly -- that is the interface every taggable type already
+ * implements, and for clothing it also captures the original colour and applies
+ * the faction's accent, exactly as a hand tagger pass would. Types that are not
+ * taggable are skipped silently; a crate may legitimately mix taggable gear with
+ * plain consumables.
+ *
+ * Both behaviours are opt-in per cargo item, so every pre-existing item takes
+ * the identical path it always did.
+ */
+/datum/controller/subsystem/cargo/proc/_applyCargoItemFactionFinish(atom/movable/spawned, singleton/cargo_item/ci, datum/cargo_order/co)
+	if(!istype(spawned) || !ci)
+		return
+	if(ci.tag_spawned_to_faction)
+		// The faction that actually placed the order. delivery_network is what
+		// the rest of this subsystem already treats as "whose order is this".
+		var/order_uid = co ? normalize_faction_uid(co.delivery_network) : null
+		if(order_uid && spawned.faction_tagger_compatible())
+			spawned.faction_tagger_set(order_uid, null)
+	if(ci.spawned_color)
+		spawned.color = ci.spawned_color
 
 /**
  * Delivers a faction-tagged approved order via its faction's cargo telepad,

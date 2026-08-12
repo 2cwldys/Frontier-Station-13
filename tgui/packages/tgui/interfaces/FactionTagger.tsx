@@ -34,6 +34,8 @@ type FactionTaggerData = {
   is_public_lace: BooleanLike;
   is_airlock: BooleanLike;
   is_public_airlock: BooleanLike;
+  is_cycler: BooleanLike;
+  is_public_cycler: BooleanLike;
   is_turret: BooleanLike;
   turret_enabled: BooleanLike;
   turret_lethal: BooleanLike;
@@ -73,6 +75,8 @@ export const FactionTagger = (props) => {
     is_public_lace,
     is_airlock,
     is_public_airlock,
+    is_cycler,
+    is_public_cycler,
     is_turret,
     turret_enabled,
     turret_lethal,
@@ -316,6 +320,21 @@ export const FactionTagger = (props) => {
             >
               {is_public_airlock ? 'Clear Public Airlock' : 'Mark Public Airlock'}
             </Button>
+          </Section>
+        )}
+        {!!is_cycler && (
+          <Section title="Public Cycler">
+            <Button
+              icon={is_public_cycler ? 'times' : 'unlock'}
+              color={is_public_cycler ? 'bad' : 'good'}
+              onClick={() => act('toggle_public_cycler')}
+            >
+              {is_public_cycler ? 'Clear Public Cycler' : 'Mark Public Cycler'}
+            </Button>
+            <Box mt={0.5} fontSize="0.9em" color="label">
+              A public cycler&apos;s door, sensor and pump links can be changed
+              by anyone. Tagged to a faction, only its members can rewire it.
+            </Box>
           </Section>
         )}
       </Window.Content>

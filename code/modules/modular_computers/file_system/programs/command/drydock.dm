@@ -65,6 +65,12 @@
 	var/board_ready_at = last_boarded_by_ckey[user.ckey] ? (last_boarded_by_ckey[user.ckey] + 30) : 0
 	data["can_board"] = world.time >= board_ready_at
 	data["board_cooldown"] = max(0, round((board_ready_at - world.time) / 10))
+	// Grey out Enter Ship while the user's own ship is still mid-retrieve --
+	// this console isn't bound to one specific ship, so unlike
+	// ship_schematic.dm's own "ready" field this is a best-effort "is there
+	// one of yours still retrieving right now" hint, not a guarantee of
+	// which ship "board" will actually resolve to.
+	data["ship_retrieving"] = _drydock_user_has_retrieving_ship(user)
 	// Doubles as the "hide Enter Ship" signal too -- there's no single ship
 	// this console is bound to, so "already aboard some drydock ship" is the
 	// closest equivalent to the schematic's own per-ship aboard_this_ship.

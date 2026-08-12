@@ -145,6 +145,16 @@
 		data["external_pressure"] = round(controller.program.memory["external_sensor_pressure"])
 		data["has_interior_sensor"] = controller.has_interior_sensor
 		data["internal_pressure"] = round(controller.program.memory["internal_sensor_pressure"])
+
+	// Door button (blast_door_button.dm) -- covers both blast doors/shutters
+	// and airlocks, whatever mix is currently linked (_get_linked_doors()
+	// is the same shared scan trigger()/the multi-door picker use).
+	var/obj/structure/machinery/button/remote/blast_door/buildable/door_button = get_buffer(/obj/structure/machinery/button/remote/blast_door/buildable)
+	if(door_button)
+		var/list/checklist = list()
+		for(var/obj/structure/machinery/door/D in door_button._get_linked_doors())
+			checklist += list(list("label" = "[D.name] @ ([D.x],[D.y])", "linked" = TRUE))
+		data["blast_door_checklist"] = checklist
 	return data
 
 /obj/item/multitool/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
