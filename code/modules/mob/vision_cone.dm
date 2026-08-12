@@ -22,8 +22,15 @@
 // ── Screen object types ────────────────────────────────────────────────────
 
 // Main cone overlay — covers the area outside the player's FOV
+// hide_fov_darker.dmi is hide.dmi's own "combat" state (all 4 facings) with
+// its alpha channel scaled up -- measured at avg 22/255, max 89/255 in the
+// source, so even at fov.alpha = 255 (show_cone(), below) the rear arc never
+// got darker than ~35% opacity; that ceiling was baked into the art, not
+// anything tunable from code. Same silhouette, same RGB (already pure black,
+// tinted again below regardless) -- only the opacity changed. Point back at
+// hide.dmi to revert.
 /atom/movable/screen/fov
-	icon          = 'icons/mob/hide.dmi'
+	icon          = 'icons/mob/hide_fov_darker.dmi'
 	icon_state    = "combat"
 	name          = " "
 	screen_loc    = "1,1"
