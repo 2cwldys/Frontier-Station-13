@@ -11,6 +11,13 @@
 
 	ic_name = "a meteor storm"
 
+/// Unlike every other overmap hazard, an asteroid wave isn't nullified by
+/// active shields -- it costs shield charge instead (send_wave() below
+/// redirects into absorb_meteor_wave() rather than calling
+/// blocked_by_ship_shields()'s default block).
+/datum/event/meteor_wave/blocked_by_ship_shields()
+	return FALSE
+
 /datum/event/meteor_wave/get_skybox_image()
 	var/image/res = overlay_image('icons/skybox/rockbox.dmi', "rockbox", COLOR_ASTEROID_ROCK, RESET_COLOR)
 	res.blend_mode = BLEND_OVERLAY
@@ -53,7 +60,10 @@
 
 /datum/event/meteor_wave/proc/send_wave()
 	var/pick_side = prob(80) ? start_side : (prob(50) ? turn(start_side, 90) : turn(start_side, -90))
-	spawn() spawn_meteors(get_wave_size(), get_meteors(), pick_side, pick(affecting_z))
+	if(affected_ship?.shield_generator?.shields_up())
+		affected_ship.shield_generator.absorb_meteor_wave(get_wave_size())
+	else
+		spawn() spawn_meteors(get_wave_size(), get_meteors(), pick_side, pick(affecting_z))
 	next_meteor += rand(next_meteor_lower, next_meteor_upper) / severity
 	waves--
 	endWhen = worst_case_end()
@@ -104,6 +114,12 @@
 
 /datum/event/meteor_wave/dust
 	ic_name = "a dust belt"
+
+/// Re-inherits the default full block despite subclassing meteor_wave --
+/// "except asteroids" means dust stays nullified like every other
+/// non-asteroid hazard, it doesn't cost shield charge.
+/datum/event/meteor_wave/dust/blocked_by_ship_shields()
+	return TRUE
 
 /datum/event/meteor_wave/dust/announce()
 	command_announcement.Announce(SSatlas.current_map.dust_detected_message, "Dust Belt Alert", new_sound = 'sound/AI/dust_detected_message.ogg', zlevels = affecting_z)

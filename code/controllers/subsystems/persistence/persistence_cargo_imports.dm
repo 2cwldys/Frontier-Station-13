@@ -76,7 +76,7 @@ GLOBAL_LIST_EMPTY(cargo_import_prices)
 		return
 
 	var/datum/db_query/query = SSdbcore.NewQuery(
-		"SELECT type_path, price, item_name FROM ss13_cargo_imports WHERE map_path = :mp",
+		"SELECT type_path, price, item_name, restricted_to_faction FROM ss13_cargo_imports WHERE map_path = :mp",
 		list("mp" = "[SSatlas.current_map.path]")
 	)
 	query.Execute()
@@ -84,11 +84,19 @@ GLOBAL_LIST_EMPTY(cargo_import_prices)
 		qdel(query)
 		return
 	while(query.NextRow())
-		GLOB.cargo_import_prices[query.item[1]] = list("price" = text2num(query.item[2]), "name" = query.item[3])
+		// price is nullable now (V147) -- a row may exist purely to set a
+		// faction restriction. isnull() rather than text2num()'s own 0/null
+		// ambiguity, because 0 is a legitimate price.
+		var/raw_price = query.item[2]
+		GLOB.cargo_import_prices[query.item[1]] = list(
+			"price"   = isnull(raw_price) ? null : text2num(raw_price),
+			"name"    = query.item[3],
+			"faction" = query.item[4]
+		)
 	qdel(query)
 
 	if(!length(GLOB.cargo_import_prices))
-		log_subsystem_persistence_info("Cargo imports: no price overrides configured -- every item at its code default.")
+		log_subsystem_persistence_info("Cargo imports: no overrides configured -- every item at its code defaults.")
 		return
 
 	var/total = length(GLOB.cargo_import_prices)
@@ -96,6 +104,7 @@ GLOBAL_LIST_EMPTY(cargo_import_prices)
 	// One pass over the catalog rather than a lookup per row -- get_cargo_item_by_type()
 	// is a linear scan, so doing it per override would be quadratic at boot.
 	var/applied = 0
+	var/factions_applied = 0
 	var/list/matched = list()
 	var/list/to_prune = list()
 	for(var/item_name in SScargo.cargo_items)
@@ -111,11 +120,19 @@ GLOBAL_LIST_EMPTY(cargo_import_prices)
 		// Renamed in code since the override was set: the definition moved, so
 		// the override no longer describes a decision anyone actually made about
 		// this item. Hand it back to the code rather than applying a stale price.
+		// Covers BOTH columns -- the check keys on the row, not the field.
 		if(entry["name"] != I.name)
 			to_prune[tp] = "renamed in code ('[entry["name"]]' -> '[I.name]')"
 			continue
-		if(_apply_cargo_import_price(I, entry["price"]))
+		// Null price = faction-only row, leave the compile-time price alone.
+		if(!isnull(entry["price"]) && _apply_cargo_import_price(I, entry["price"]))
 			applied++
+		// Applied AFTER the compile-time value, so the override wins at runtime
+		// while the code default is what a pruned/absent row falls back to --
+		// identical to how the price column already behaves.
+		if(entry["faction"])
+			I.restricted_to_faction = entry["faction"]
+			factions_applied++
 
 	// Overrides whose item no longer exists in code at all.
 	for(var/tp in GLOB.cargo_import_prices)
@@ -133,7 +150,7 @@ GLOBAL_LIST_EMPTY(cargo_import_prices)
 		else
 			log_subsystem_persistence_error("Cargo imports: failed to prune override for '[tp]' ([to_prune[tp]]) -- database error. Row left in place and NOT applied; will retry next boot.")
 
-	log_subsystem_persistence_info("Cargo imports: applied [applied] of [total] price override(s)[pruned ? ", pruned [pruned] stale" : ""].")
+	log_subsystem_persistence_info("Cargo imports: applied [applied] price and [factions_applied] faction override(s) from [total] row(s)[pruned ? ", pruned [pruned] stale" : ""].")
 
 /// Drops an override row and its cache entry. Does not touch any singleton --
 /// callers decide whether the live item needs restoring (the boot-time pruner
@@ -171,8 +188,17 @@ GLOBAL_LIST_EMPTY(cargo_import_prices)
 	var/tp = "[type_path]"
 	var/singleton/cargo_item/I = get_cargo_item_by_type(tp)
 
+	var/list/existing = GLOB.cargo_import_prices[tp]
+	var/existing_faction = existing ? existing["faction"] : null
+
 	if(isnull(price))
-		if(!_prune_cargo_import_override(tp))
+		// Only drop the ROW when nothing else is riding on it. A row can now
+		// also carry a faction restriction (V147), and "restore the code price"
+		// must not silently take that with it.
+		if(existing_faction)
+			if(!_write_cargo_import_row(tp, null, existing_faction))
+				return FALSE
+		else if(!_prune_cargo_import_override(tp))
 			return FALSE
 		if(I)
 			_apply_cargo_import_price(I, initial(I.price))
@@ -182,19 +208,83 @@ GLOBAL_LIST_EMPTY(cargo_import_prices)
 	if(!I)
 		return FALSE
 
+	if(!_write_cargo_import_row(tp, price, existing_faction, I.name))
+		return FALSE
+	_apply_cargo_import_price(I, price)
+	return TRUE
+
+/**
+ * Writes (or updates) one override row and its cache entry, carrying BOTH
+ * columns every time.
+ *
+ * Shared by the price and faction setters so neither can clobber the other's
+ * column -- the failure mode being that repricing an item silently drops its
+ * faction restriction, or vice versa, since each setter only knows about its
+ * own field. item_name defaults to whatever the row already recorded, so a
+ * faction-only edit does not have to re-derive it.
+ */
+/proc/_write_cargo_import_row(type_path, price, faction_uid, item_name)
+	if(!SSpersistence.databaseCheckConnection("_write_cargo_import_row"))
+		return FALSE
+	var/tp = "[type_path]"
+	if(isnull(item_name))
+		var/list/existing = GLOB.cargo_import_prices[tp]
+		item_name = existing ? existing["name"] : null
+		if(isnull(item_name))
+			var/singleton/cargo_item/I = get_cargo_item_by_type(tp)
+			if(!I)
+				return FALSE
+			item_name = I.name
+
 	var/datum/db_query/q = SSdbcore.NewQuery(
-		{"INSERT INTO ss13_cargo_imports (map_path, type_path, price, item_name)
-		VALUES (:mp, :tp, :price, :nm)
-		ON DUPLICATE KEY UPDATE price = VALUES(price), item_name = VALUES(item_name)"},
-		list("mp" = "[SSatlas.current_map.path]", "tp" = tp, "price" = price, "nm" = I.name)
+		{"INSERT INTO ss13_cargo_imports (map_path, type_path, price, item_name, restricted_to_faction)
+		VALUES (:mp, :tp, :price, :nm, :faction)
+		ON DUPLICATE KEY UPDATE price = VALUES(price), item_name = VALUES(item_name), restricted_to_faction = VALUES(restricted_to_faction)"},
+		list("mp" = "[SSatlas.current_map.path]", "tp" = tp, "price" = price, "nm" = item_name, "faction" = faction_uid)
 	)
 	q.Execute()
-	var/update_ok = SSpersistence.databaseCheckQueryResult(q, "set_cargo_import_price")
+	var/update_ok = SSpersistence.databaseCheckQueryResult(q, "_write_cargo_import_row")
 	qdel(q)
 	if(!update_ok)
 		return FALSE
-	GLOB.cargo_import_prices[tp] = list("price" = price, "name" = I.name)
-	_apply_cargo_import_price(I, price)
+	GLOB.cargo_import_prices[tp] = list("price" = price, "name" = item_name, "faction" = faction_uid)
+	return TRUE
+
+/**
+ * Sets the faction restriction override for a cargo item type, or -- when
+ * faction_uid is null -- clears it and restores the item's compile-time
+ * restricted_to_faction.
+ *
+ * Mirrors set_cargo_import_price() exactly, including dropping the row entirely
+ * once neither column is overriding anything, so the table stays sparse and
+ * never accumulates no-op rows.
+ */
+/proc/set_cargo_item_faction(type_path, faction_uid)
+	if(!SSpersistence.databaseCheckConnection("set_cargo_item_faction"))
+		return FALSE
+	var/tp = "[type_path]"
+	var/singleton/cargo_item/I = get_cargo_item_by_type(tp)
+	if(!I)
+		return FALSE
+
+	var/list/existing = GLOB.cargo_import_prices[tp]
+	var/existing_price = existing ? existing["price"] : null
+
+	if(isnull(faction_uid) || faction_uid == "")
+		if(isnull(existing_price))
+			// Nothing left to override -- drop the row rather than keep an
+			// all-NULL one.
+			if(existing && !_prune_cargo_import_override(tp))
+				return FALSE
+		else if(!_write_cargo_import_row(tp, existing_price, null, I.name))
+			return FALSE
+		I.restricted_to_faction = initial(I.restricted_to_faction)
+		return TRUE
+
+	faction_uid = normalize_faction_uid(faction_uid)
+	if(!_write_cargo_import_row(tp, existing_price, faction_uid, I.name))
+		return FALSE
+	I.restricted_to_faction = faction_uid
 	return TRUE
 
 /// Clears every import price override for this map and puts the whole catalog
@@ -228,6 +318,123 @@ GLOBAL_LIST_EMPTY(cargo_import_prices)
 		return "[I.name] -- [I.price] cr (OVERRIDDEN, code default [initial(I.price)] cr)"
 	return "[I.name] -- [I.price] cr (default)"
 
+/// Label for the Factions menu -- shows the live restriction and, when an
+/// override is in play, what code would have said instead.
+/proc/_cargo_faction_label(var/singleton/cargo_item/I)
+	var/live = I.restricted_to_faction
+	var/coded = initial(I.restricted_to_faction)
+	if(!live)
+		return "[I.name] -- unrestricted"
+	var/live_name = islist(live) ? english_list(live) : get_faction_name(live)
+	if(live == coded)
+		return "[I.name] -- [live_name] (code)"
+	return "[I.name] -- [live_name] (OVERRIDE, code says [coded ? (islist(coded) ? english_list(coded) : get_faction_name(coded)) : "unrestricted"])"
+
+/**
+ * The "Factions" section of Modify Cargo Imports: which cargo items are
+ * exclusive to which faction, editable live.
+ *
+ * Sets the same restricted_to_faction that a compile-time declaration sets
+ * (cargo_items.dm), stored on the same override row as the price
+ * (ss13_cargo_imports) and subject to the same code-wins-on-change pruning, so
+ * there is exactly one mechanism rather than two that can disagree.
+ */
+/proc/_modify_cargo_faction_restrictions(mob/user)
+	while(user && user.client)
+		// Rebuilt each pass so edits show immediately.
+		var/list/restricted = list()
+		for(var/item_name in SScargo.cargo_items)
+			var/singleton/cargo_item/I = SScargo.cargo_items[item_name]
+			if(istype(I) && I.restricted_to_faction)
+				restricted += I
+
+		var/choice = tgui_input_list(user, "Faction-restricted cargo ([length(restricted)] item\s restricted):", "Cargo Factions", list("Restrict an Item to a Faction", "Clear an Item's Restriction", "View by Faction", "Back"))
+		if(!choice || choice == "Back")
+			return
+
+		if(choice == "View by Faction")
+			if(!length(restricted))
+				to_chat(user, SPAN_NOTICE("No cargo items are faction-restricted."))
+				continue
+			// Grouped by uid rather than listed per item -- the point of this
+			// view is seeing a faction's whole catalogue at once.
+			var/list/by_faction = list()
+			for(var/singleton/cargo_item/I as anything in restricted)
+				var/key = islist(I.restricted_to_faction) ? english_list(I.restricted_to_faction) : "[I.restricted_to_faction]"
+				LAZYADD(by_faction[key], _cargo_faction_label(I))
+			for(var/key in by_faction)
+				to_chat(user, SPAN_NOTICE("<b>[get_faction_name(key) || key]</b> ([key]):"))
+				for(var/line in by_faction[key])
+					to_chat(user, SPAN_NOTICE("&nbsp;&nbsp;[line]"))
+			continue
+
+		if(choice == "Clear an Item's Restriction")
+			if(!length(restricted))
+				to_chat(user, SPAN_NOTICE("No cargo items are faction-restricted."))
+				continue
+			var/list/clear_choices = list()
+			for(var/singleton/cargo_item/I as anything in restricted)
+				clear_choices[_cargo_faction_label(I)] = I
+			var/clear_pick = tgui_input_list(user, "Clear the restriction on which item?", "Cargo Factions", clear_choices)
+			if(!clear_pick)
+				continue
+			var/singleton/cargo_item/target = clear_choices[clear_pick]
+			if(!set_cargo_item_faction("[target.type]", null))
+				to_chat(user, SPAN_WARNING("Database error -- restriction not cleared."))
+				continue
+			to_chat(user, SPAN_GOOD("'[target.name]' is no longer faction-restricted[initial(target.restricted_to_faction) ? " by override -- it is back on its code default" : ""]."))
+			log_and_message_admins("cleared the cargo faction restriction on '[target.name]' ([target.type]).", user)
+			continue
+
+		// Restrict an Item to a Faction
+		var/list/cat_choices = list()
+		for(var/cat_name in SScargo.cargo_categories)
+			var/singleton/cargo_category/CC = SScargo.cargo_categories[cat_name]
+			if(!istype(CC) || !length(CC.items))
+				continue
+			cat_choices["[CC.display_name] ([length(CC.items)] items)"] = CC
+		if(!length(cat_choices))
+			to_chat(user, SPAN_WARNING("No cargo categories are loaded."))
+			continue
+		var/cat_pick = tgui_input_list(user, "Which category?", "Cargo Factions", cat_choices)
+		if(!cat_pick)
+			continue
+		var/singleton/cargo_category/chosen_cat = cat_choices[cat_pick]
+
+		var/list/item_choices = list()
+		for(var/singleton/cargo_item/I as anything in chosen_cat.items)
+			if(istype(I))
+				item_choices[_cargo_faction_label(I)] = I
+		if(!length(item_choices))
+			to_chat(user, SPAN_WARNING("'[chosen_cat.display_name]' has no items."))
+			continue
+		var/item_pick = tgui_input_list(user, "Restrict which item in [chosen_cat.display_name]?", "Cargo Factions", item_choices)
+		if(!item_pick)
+			continue
+		var/singleton/cargo_item/chosen = item_choices[item_pick]
+
+		// Live factions, plus a free-text option so an item can be pre-assigned
+		// to a uid that has not been founded yet (the Hub gear case: the code
+		// declares "hub" before any player faction exists).
+		var/list/faction_choices = list()
+		for(var/uid in GLOB.persistence_faction_cache)
+			faction_choices["[get_faction_name(uid)] ([uid])"] = uid
+		faction_choices["-- Enter a faction UID manually --"] = "__manual__"
+		var/faction_pick = tgui_input_list(user, "Restrict '[chosen.name]' to which faction?", "Cargo Factions", faction_choices)
+		if(!faction_pick)
+			continue
+		var/chosen_uid = faction_choices[faction_pick]
+		if(chosen_uid == "__manual__")
+			chosen_uid = tgui_input_text(user, "Faction UID to restrict '[chosen.name]' to:", "Cargo Factions", "", max_length = 64)
+			if(!chosen_uid)
+				continue
+
+		if(!set_cargo_item_faction("[chosen.type]", chosen_uid))
+			to_chat(user, SPAN_WARNING("Database error -- restriction not saved."))
+			continue
+		to_chat(user, SPAN_GOOD("'[chosen.name]' is now orderable only from [get_faction_name(chosen_uid) || chosen_uid] consoles."))
+		log_and_message_admins("restricted cargo item '[chosen.name]' ([chosen.type]) to faction '[chosen_uid]'.", user)
+
 // ============================================================
 // CARGO IMPORTS ADMIN VERB
 // ============================================================
@@ -245,9 +452,13 @@ GLOBAL_LIST_EMPTY(cargo_import_prices)
 		return
 
 	while(usr && usr.client)
-		var/choice = tgui_input_list(usr, "Cargo imports ([length(GLOB.cargo_import_prices)] override(s) active; every other item uses its code default):", "Modify Cargo Imports", list("Set Item Price", "Restore Item to Code Default", "Restore All to Code Defaults", "View Overrides", "Done"))
+		var/choice = tgui_input_list(usr, "Cargo imports ([length(GLOB.cargo_import_prices)] override(s) active; every other item uses its code default):", "Modify Cargo Imports", list("Set Item Price", "Restore Item to Code Default", "Restore All to Code Defaults", "View Overrides", "Factions", "Done"))
 		if(!choice || choice == "Done")
 			return
+
+		if(choice == "Factions")
+			_modify_cargo_faction_restrictions(usr)
+			continue
 
 		if(choice == "Set Item Price")
 			var/list/cat_choices = list()

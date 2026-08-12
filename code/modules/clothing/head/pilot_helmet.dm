@@ -17,6 +17,9 @@
 	siemens_coefficient = 0.35
 	action_button_name = "Toggle Visor"
 	var/visor_toggled = FALSE
+	// See persistent_toggle_vars' own doc comment (obj/item base vars,
+	// items.dm) -- visor_toggled() (below) mutates exactly this set together.
+	persistent_toggle_vars = list("visor_toggled", "icon_state", "item_state")
 	var/obj/structure/machinery/computer/shuttle_control/linked_console
 	var/obj/structure/machinery/computer/ship/helm/linked_helm
 

@@ -26,12 +26,21 @@ type StatusLine = {
   severity?: 'good' | 'average' | 'bad';
 };
 
+type FuelPortInfo = {
+  port_area: string;
+  tank: string | null;
+  fuel: number;
+};
+
 type Data = {
   state: 'status' | 'engines' | string;
   global_state: BooleanLike;
   global_limit: number; // percentage
   total_thrust: number;
   engines_info: EngineInfo[];
+  fuel_ports: FuelPortInfo[];
+  total_fuel: number;
+  tractored: BooleanLike;
 };
 
 export const EnginesControl = (_props) => {
@@ -39,6 +48,7 @@ export const EnginesControl = (_props) => {
 
   const engines = data.engines_info || [];
   const globalOn = !!data.global_state;
+  const tractored = !!data.tractored;
 
   const severityToColor = (sev?: StatusLine['severity']) => {
     switch (sev) {
@@ -73,12 +83,20 @@ export const EnginesControl = (_props) => {
           </Tabs>
         </Section>
 
+        {tractored && (
+          <NoticeBox danger>
+            Engines offline -- held by an enemy tractor beam.
+          </NoticeBox>
+        )}
+
         <Section>
           <LabeledList>
             <LabeledList.Item label="Global controls">
               <Button
                 icon="power-off"
                 selected={globalOn}
+                disabled={tractored}
+                tooltip={tractored ? 'Held by an enemy tractor beam.' : undefined}
                 onClick={() => act('global_toggle')}
               >
                 {globalOn ? 'Shut all down' : 'Power all up'}
@@ -88,13 +106,15 @@ export const EnginesControl = (_props) => {
             <LabeledList.Item label="Thrust limit">
               <Button
                 icon="minus-circle"
+                disabled={tractored}
                 onClick={() => act('global_limit_delta', { delta: -0.1 })}
               />
-              <Button onClick={() => act('set_global_limit')}>
+              <Button disabled={tractored} onClick={() => act('set_global_limit')}>
                 {round(data.global_limit, 1)}%
               </Button>
               <Button
                 icon="plus-circle"
+                disabled={tractored}
                 onClick={() => act('global_limit_delta', { delta: 0.1 })}
               />
             </LabeledList.Item>
@@ -103,6 +123,36 @@ export const EnginesControl = (_props) => {
               {round(data.total_thrust * 10, 0.1) / 10}
             </LabeledList.Item>
           </LabeledList>
+        </Section>
+
+        <Section title="Fuel Reserve">
+          {!data.fuel_ports?.length ? (
+            <Box color="label">
+              No fuel ports aboard. Nozzle engines draw from a piped gas
+              network, and fall back to a loaded fuel port when it runs dry.
+            </Box>
+          ) : (
+            <LabeledList>
+              {data.fuel_ports.map((P, i) => (
+                <LabeledList.Item key={i} label={P.port_area}>
+                  {P.tank ? (
+                    <Box inline color={P.fuel > 0 ? 'good' : 'bad'}>
+                      {P.tank}: {P.fuel} mole(s) of fuel
+                    </Box>
+                  ) : (
+                    <Box inline color="bad">
+                      Empty -- no tank loaded
+                    </Box>
+                  )}
+                </LabeledList.Item>
+              ))}
+              <LabeledList.Item label="Total fuel">
+                <Box inline bold color={data.total_fuel > 0 ? 'good' : 'bad'}>
+                  {data.total_fuel} mole(s)
+                </Box>
+              </LabeledList.Item>
+            </LabeledList>
+          )}
         </Section>
 
         {!engines.length && <NoticeBox>No engines detected.</NoticeBox>}
@@ -115,6 +165,8 @@ export const EnginesControl = (_props) => {
                   <Button
                     icon="power-off"
                     selected={!!E.eng_on}
+                    disabled={tractored}
+                    tooltip={tractored ? 'Held by an enemy tractor beam.' : undefined}
                     onClick={() =>
                       act('engine_toggle', { engine: E.eng_reference })
                     }
@@ -140,6 +192,8 @@ export const EnginesControl = (_props) => {
                   <Button
                     icon="power-off"
                     selected={!!E.eng_on}
+                    disabled={tractored}
+                    tooltip={tractored ? 'Held by an enemy tractor beam.' : undefined}
                     onClick={() =>
                       act('engine_toggle', { engine: E.eng_reference })
                     }
@@ -176,6 +230,7 @@ export const EnginesControl = (_props) => {
                     <Stack.Item>
                       <Button
                         icon="minus-circle"
+                        disabled={tractored}
                         onClick={() =>
                           act('engine_limit_delta', {
                             engine: E.eng_reference,
@@ -186,6 +241,7 @@ export const EnginesControl = (_props) => {
                     </Stack.Item>
                     <Stack.Item>
                       <Button
+                        disabled={tractored}
                         onClick={() =>
                           act('engine_set_limit', { engine: E.eng_reference })
                         }
@@ -196,6 +252,7 @@ export const EnginesControl = (_props) => {
                     <Stack.Item>
                       <Button
                         icon="plus-circle"
+                        disabled={tractored}
                         onClick={() =>
                           act('engine_limit_delta', {
                             engine: E.eng_reference,

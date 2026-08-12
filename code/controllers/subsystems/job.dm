@@ -319,6 +319,18 @@ SUBSYSTEM_DEF(jobs)
 		if(GLOB.config.sql_enabled)
 			H.applyPersistentHealthData()
 			H.applyPersistentInventory()
+			if(has_saved_inventory)
+				// applyPersistentInventory() equips every slot with redraw_mob = FALSE
+				// (persistence_mobs.dm) as a batch-equip optimization -- it computes each
+				// slot's overlay correctly but relies on the caller for one final repaint.
+				// PersistentAutoSpawn() (new_player.dm) already does this for its own
+				// persistence-restore call; this path (late-join/cryo-return) was missing
+				// it, which is why a restored belt (or uniform, mask, backpack, etc.)
+				// shows whatever the mob looked like before restore until any other
+				// action forces a real repaint.
+				H.force_update_limbs()
+				H.update_body()
+				H.regenerate_icons()
 	else
 		to_chat(H,"Your job is [rank] and the game just can't handle it! Please report this bug to an administrator.")
 

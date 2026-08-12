@@ -8,6 +8,12 @@ export type MultitoolData = {
   selected_io: SelectedIo;
   buffer_name: string;
   airlock_checklist: AirlockChecklistItem[];
+  chamber_pressure: number;
+  has_exterior_sensor: BooleanLike;
+  external_pressure: number;
+  has_interior_sensor: BooleanLike;
+  internal_pressure: number;
+  blast_door_checklist: BlastDoorChecklistItem[];
 };
 
 type SelectedIo = {
@@ -16,6 +22,11 @@ type SelectedIo = {
 };
 
 type AirlockChecklistItem = {
+  label: string;
+  linked: BooleanLike;
+};
+
+type BlastDoorChecklistItem = {
   label: string;
   linked: BooleanLike;
 };
@@ -53,6 +64,7 @@ export const Multitool = (props) => {
           />
         </Section>
         {data.airlock_checklist ? <AirlockChecklist /> : ''}
+        {data.blast_door_checklist ? <BlastDoorChecklist /> : ''}
         {data.selected_io ? <IoWindow /> : ''}
       </Window.Content>
     </Window>
@@ -71,6 +83,40 @@ export const AirlockChecklist = (props) => {
             </Box>
           </LabeledList.Item>
         ))}
+        <LabeledList.Item label="Chamber Pressure">
+          {data.chamber_pressure} kPa
+        </LabeledList.Item>
+        {!!data.has_exterior_sensor && (
+          <LabeledList.Item label="Exterior Pressure">
+            {data.external_pressure} kPa
+          </LabeledList.Item>
+        )}
+        {!!data.has_interior_sensor && (
+          <LabeledList.Item label="Interior Pressure">
+            {data.internal_pressure} kPa
+          </LabeledList.Item>
+        )}
+      </LabeledList>
+    </Section>
+  );
+};
+
+export const BlastDoorChecklist = (props) => {
+  const { data } = useBackend<MultitoolData>();
+  return (
+    <Section title="Door Button Links">
+      <LabeledList>
+        {data.blast_door_checklist.length ? (
+          data.blast_door_checklist.map((item) => (
+            <LabeledList.Item key={item.label} label={item.label}>
+              <Box color="good">Linked</Box>
+            </LabeledList.Item>
+          ))
+        ) : (
+          <LabeledList.Item label="Linked Doors">
+            <Box color="bad">None</Box>
+          </LabeledList.Item>
+        )}
       </LabeledList>
     </Section>
   );

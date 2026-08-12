@@ -26,6 +26,21 @@
 	/// If set, only ships belonging to this faction can dock here.
 	var/faction_restricted = ""
 	var/beacon_shackled    = FALSE
+	/// 0 = unrestricted. Otherwise the max hull footprint (tiles) a shuttle
+	/// may have to dock here -- see /datum/shuttle/proc/get_footprint(),
+	/// shuttle.dm. Lets a beacon placed at a player-built cycler's airlock
+	/// (or a mapped hangar berth, drydock_ship.dm) restrict itself to
+	/// SUBSHIP_FOOTPRINT_X/Y-sized craft so an oversized ship never sees it
+	/// as a valid destination in the first place.
+	var/max_footprint_x = 0
+	var/max_footprint_y = 0
+	/// 0 = unrestricted, and falls through to max_footprint_x/y above
+	/// unchanged. When set, REPLACES (not adds to) the generic check above
+	/// for a player-built ship specifically -- a template ship docking at
+	/// this same beacon is entirely unaffected by this pair either way.
+	/// Configured per-beacon via multitool (docking_beacon.dm's attackby()).
+	var/max_player_built_footprint_x = 0
+	var/max_player_built_footprint_y = 0
 
 /// Registered into a sector's generic_waypoints (see docking_beacon's
 /// _register_landmark()/_deregister_landmark()) so any ship's own
@@ -33,17 +48,120 @@
 /// faction gate lives here instead of restricted_waypoints (which is
 /// keyed by a single exact shuttle name, not a faction) so it applies to
 /// every ship of the right faction uniformly.
-/obj/effect/shuttle_landmark/player_dock/is_valid(datum/shuttle/shuttle)
-	. = ..()
+/// reason_out/check_objects -- see the base is_valid()'s own doc comment
+/// (landmarks.dm).
+/obj/effect/shuttle_landmark/player_dock/is_valid(datum/shuttle/shuttle, list/reason_out, check_objects = TRUE)
+	. = ..(shuttle, reason_out, check_objects)
 	if(!.)
 		return FALSE
-	if(!faction_restricted)
-		return
+	// A player-built ship checks against this beacon's own player-built-
+	// specific max instead of the generic one below, if one's been set --
+	// a template ship never looks at max_player_built_footprint_x/y at all,
+	// so configuring it here can never change how templates dock anywhere.
+	var/is_player_built = istype(shuttle, /datum/shuttle/autodock/overmap/drydock_ship) && shuttle:player_built
+	var/check_x = max_footprint_x
+	var/check_y = max_footprint_y
+	if(is_player_built && (max_player_built_footprint_x || max_player_built_footprint_y))
+		check_x = max_player_built_footprint_x
+		check_y = max_player_built_footprint_y
+	if(check_x || check_y)
+		var/list/footprint = shuttle.get_footprint()
+		if((check_x && footprint[1] > check_x) || (check_y && footprint[2] > check_y))
+			if(reason_out)
+				reason_out += is_player_built \
+					? "Your player built ship cannot dock due to being larger than acceptable parameters (hull [footprint[1]]x[footprint[2]], max [check_x]x[check_y])." \
+					: "hull footprint [footprint[1]]x[footprint[2]] exceeds this beacon's max [check_x]x[check_y]"
+			return FALSE
+	// Occupancy. Nothing reserves a docking destination: `in_use` locks the
+	// SHUTTLE, not the landmark, and the gap between validating and arriving
+	// spans the whole warmup + travel_time, so two ships can both pass every
+	// check and then race for the same pad. Today the loser is only caught
+	// incidentally, when the winner's dense hull WALLS trip check_collision() --
+	// a smaller craft landing entirely within a bigger ship's open floor is
+	// refused by nothing at all.
+	//
+	// Established two independent ways so this fails closed when either is
+	// unreliable: current_location (which closes the race, since the winner
+	// sets it the instant it lands) and physical shuttle-area coverage of the
+	// pad's own turf (which holds even when that bookkeeping has drifted --
+	// the exact drift that let the wipe verb delete a live ship, Parts 74/77).
+	for(var/other_name in SSshuttle.shuttles)
+		var/datum/shuttle/other = SSshuttle.shuttles[other_name]
+		if(!istype(other) || other == shuttle)
+			continue
+		if(other.current_location != src)
+			continue
+		if(reason_out)
+			reason_out += "another ship ([other.name]) is already docked here"
+		return FALSE
+	var/turf/pad_turf = get_turf(src)
+	var/area/pad_area = pad_turf ? get_area(pad_turf) : null
+	if(pad_area && (pad_area in SSshuttle.shuttle_areas) && !(pad_area in shuttle.shuttle_area))
+		if(reason_out)
+			reason_out += "another ship's hull is physically occupying this pad ([pad_area])"
+		return FALSE
+
+	// Entirely opt-in -- a ship carrying no docking_transponder at all skips
+	// this check completely and docks here exactly like it always could.
+	// One that DOES carry one must face the exact opposite direction from
+	// this beacon, same as two real airlocks meeting (docking_transponder.dm).
+	var/obj/structure/machinery/docking_transponder/transponder = shuttle.find_docking_transponder()
+	if(istype(transponder) && turn(transponder.dir, 180) != dir)
+		if(reason_out)
+			reason_out += "docking transponder faces [dir2text(transponder.dir)] (needs [dir2text(turn(dir, 180))] to meet this beacon's [dir2text(dir)] facing)"
+		return FALSE
 	var/shuttle_faction
 	if(istype(shuttle, /datum/shuttle/autodock/overmap/drydock_ship))
 		var/datum/shuttle/autodock/overmap/drydock_ship/DS = shuttle
 		shuttle_faction = DS.faction_uid
+	else
+		// A bound sub-ship (Xanu Fighter/Boarder, etc.) never carries its own
+		// faction_uid -- resolve it through whichever mothership currently
+		// claims it instead, or this would always read as "no faction" and
+		// get blocked below from docking anywhere claimed, even its own
+		// faction's own territory. See _drydock_sub_shuttle_owner_faction()'s
+		// own doc comment (persistence_shuttles.dm).
+		shuttle_faction = _drydock_sub_shuttle_owner_faction(shuttle.name)
+	// Independent of this beacon's own opt-in faction_restricted claim below
+	// -- this checks whether the Z it sits on is itself someone else's
+	// claimed territory (a real /obj/structure/machinery/faction_beacon,
+	// GLOB.faction_beacon_by_z) with raiding currently disabled, same gate
+	// telepad/personal travel already enforce for a mob walking in
+	// (_faction_raid_blocked_for(), telepad_drydock_boarding.dm) -- a
+	// public/unrestricted docking_beacon can still sit on claimed ground.
+	if(_faction_raid_blocked_for(z, shuttle_faction))
+		if(reason_out)
+			reason_out += "this z is claimed territory and faction raiding is currently disabled"
+		return FALSE
+	if(!faction_restricted)
+		return
 	if(faction_restricted != shuttle_faction)
+		if(reason_out)
+			reason_out += "beacon is restricted to [get_faction_name(faction_restricted)], this shuttle belongs to [shuttle_faction ? get_faction_name(shuttle_faction) : "no faction"]"
+		return FALSE
+
+/// A public, size-gated proxy standing in for a sub-ship's own mapped home
+/// landmark (Xanu Fighter's "xanufrigate_hangar", etc.) -- see
+/// _drydock_register_subship_waypoints() (persistence_shuttles.dm).
+/// The real home landmark stays exactly as it is (whatever type it was
+/// mapped as, still restricted to its own bound sub-ship's name for the
+/// "return to hangar" waypoint) -- this sits at the same turf and is
+/// registered as a normal generic waypoint instead, so any appropriately
+/// sized outside ship can find and dock there too, but only while the
+/// bound sub-ship isn't physically sitting there right now.
+/obj/effect/shuttle_landmark/player_dock/hangar_slot
+	/// The sub-ship this slot shadows.
+	var/datum/shuttle/bound_sub_shuttle
+	/// The real, mapped-in home landmark this slot sits on top of --
+	/// occupied (and therefore invalid) exactly when bound_sub_shuttle is
+	/// currently parked there.
+	var/obj/effect/shuttle_landmark/real_home
+
+/obj/effect/shuttle_landmark/player_dock/hangar_slot/is_valid(datum/shuttle/shuttle, list/reason_out, check_objects = TRUE)
+	. = ..(shuttle, reason_out, check_objects)
+	if(!.)
+		return FALSE
+	if(bound_sub_shuttle && real_home && bound_sub_shuttle.current_location == real_home)
 		return FALSE
 
 // ============================================================
@@ -52,21 +170,30 @@
 
 /obj/structure/machinery/docking_beacon
 	name = "docking beacon"
-	desc = "Wrench to secure, then use a screwdriver to activate the docking port. Shuttles can navigate to any active beacon."
-	icon = 'icons/obj/telescience.dmi'
-	icon_state = "pad-idle"
-	density = TRUE
+	desc = "Wrench to secure, then use a screwdriver to activate the docking port. Shuttle- and sub-ship-sized craft can navigate to any active beacon -- full-size drydock ships are too large to dock here."
+	// Same holopad sprite docking_transponder.dm reuses, tinted green instead
+	// of the transponder's dark blackish-orange -- visually pairs the two
+	// devices as "one system, two ends" at a glance.
+	icon = 'icons/obj/holopad.dmi'
+	icon_state = "holopad0"
+	color = "#008000"
+	// Flush with the floor, same as docking_transponder.dm -- meant to be
+	// mounted right at an airlock cycler's exterior door, and must not stop
+	// that door opening or closing over it.
+	density = FALSE
+	layer = ABOVE_TILE_LAYER
 	anchored = FALSE  // starts unanchored — won't register while in a crate or being carried
 	use_power = POWER_USE_IDLE
 	idle_power_usage = 10
-	// A ship's own hull can legally materialize directly on top of an active
-	// beacon's turf (check_collision(), landmarks.dm, only checks turf
-	// density, never object density) -- shuttle_moved() (shuttle.dm) then
-	// qdel()s any simulated, non-living object on that turf when the
-	// landing ship squishes (the default for every ship here). Matching
+	// A ship's own hull is meant to materialize directly on top of an active
+	// beacon's turf (that's the point of docking at one) -- density = FALSE
+	// means it never trips check_collision()'s dense/anchored-object refusal
+	// (landmarks.dm) either way, but shuttle_moved() (shuttle.dm) still
+	// qdel()s any simulated, non-living object on a landing turf regardless
+	// of density when the ship squishes onto it. Matching
 	// /obj/effect/shuttle_landmark's own simulated = 0 (landmarks.dm) is
-	// what keeps the landmark itself alive through the exact same pass --
-	// the beacon machine needs the same protection.
+	// what keeps the landmark itself alive through that same pass -- the
+	// beacon machine needs the same protection.
 	simulated = FALSE
 
 	var/landmark_tag  = ""
@@ -75,6 +202,11 @@
 	var/beacon_active = FALSE       // TRUE only after screwdriver activation
 	var/faction_restricted = ""     // "" = public; faction UID = restricted
 	var/beacon_shackled    = FALSE  // TRUE when claimed by a faction
+	/// Source of truth for the registered landmark's own
+	/// max_player_built_footprint_x/y (see _sync_landmark_player_built_footprint()
+	/// below) -- set via multitool. 0 = unrestricted.
+	var/max_player_built_footprint_x = 0
+	var/max_player_built_footprint_y = 0
 
 /obj/structure/machinery/docking_beacon/Initialize()
 	. = ..()
@@ -92,6 +224,8 @@
 	content["beacon_active"]     = beacon_active
 	content["faction_restricted"] = faction_restricted
 	content["beacon_shackled"]   = beacon_shackled
+	content["max_player_built_footprint_x"] = max_player_built_footprint_x
+	content["max_player_built_footprint_y"] = max_player_built_footprint_y
 	return content
 
 /obj/structure/machinery/docking_beacon/persistent_objects_apply_content(content, x, y, z)
@@ -100,6 +234,8 @@
 	if(!isnull(content["beacon_active"]))      beacon_active      = !!content["beacon_active"]
 	if(!isnull(content["faction_restricted"])) faction_restricted = content["faction_restricted"]
 	if(!isnull(content["beacon_shackled"]))    beacon_shackled    = !!content["beacon_shackled"]
+	if(!isnull(content["max_player_built_footprint_x"])) max_player_built_footprint_x = content["max_player_built_footprint_x"]
+	if(!isnull(content["max_player_built_footprint_y"])) max_player_built_footprint_y = content["max_player_built_footprint_y"]
 	// Initialize() already ran and decided against registering a landmark
 	// (beacon_active was still the default FALSE at that point) -- this is
 	// the only remaining chance to do it, now that the real saved value has
@@ -112,8 +248,55 @@
 	if(L)
 		if(dock_label) L.name = dock_label
 		_sync_landmark_faction()
+		// dir itself is restored generically (the __dir/__anchored handling
+		// in objectsApplyTrackContent(), persistence_objects.dm) by the time
+		// this runs -- push the now-correct value onto the landmark too, in
+		// case _register_landmark() above created it before that happened.
+		_sync_landmark_facing()
+		_sync_landmark_player_built_footprint()
 
 /obj/structure/machinery/docking_beacon/attackby(obj/item/attacking_item, mob/user, params)
+	// Buffer (link this specific beacon into the multitool's own existing
+	// device-buffer, multitool.dm -- the same mechanism airlock controller
+	// wiring already uses) or Rotate its facing (and, live, its registered
+	// landmark's -- _sync_landmark_facing() below) -- what
+	// player_dock/is_valid() actually compares a docking_transponder's
+	// facing against. Rotate only while unsecured -- wrench it down to lock
+	// the facing in, same as the transponder's own multitool rotate
+	// (docking_transponder.dm).
+	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
+		var/choice = tgui_alert(user, "Buffer this beacon into the multitool, rotate its facing, or set its max player-built ship size?", "Docking Beacon", list("Buffer", "Rotate", "Set Max Player-Built Size"))
+		if(QDELETED(src) || QDELETED(user) || !user.Adjacent(src))
+			return TRUE
+		if(choice == "Buffer")
+			if(!istype(attacking_item, /obj/item/multitool))
+				to_chat(user, SPAN_WARNING("\The [attacking_item] can't hold a buffer."))
+				return TRUE
+			var/obj/item/multitool/tool = attacking_item
+			tool.set_buffer(src)
+			to_chat(user, SPAN_NOTICE("You buffer \the [src] into \the [tool]."))
+			return TRUE
+		if(choice == "Rotate")
+			if(anchored)
+				to_chat(user, SPAN_WARNING("\The [src] is secured in place -- unwrench it before changing its facing."))
+				return TRUE
+			dir = turn(dir, -90)
+			_sync_landmark_facing()
+			to_chat(user, SPAN_NOTICE("You rotate \the [src] -- it now faces [dir2text(dir)]."))
+			return TRUE
+		if(choice == "Set Max Player-Built Size")
+			var/new_x = tgui_input_number(user, "Max player-built ship width (X), 0 = unrestricted:", "Docking Beacon", max_player_built_footprint_x, 100, 0)
+			if(isnull(new_x))
+				return TRUE
+			var/new_y = tgui_input_number(user, "Max player-built ship height (Y), 0 = unrestricted:", "Docking Beacon", max_player_built_footprint_y, 100, 0)
+			if(isnull(new_y))
+				return TRUE
+			max_player_built_footprint_x = new_x
+			max_player_built_footprint_y = new_y
+			_sync_landmark_player_built_footprint()
+			to_chat(user, SPAN_NOTICE("Max player-built ship size set to [new_x ? "[new_x]" : "unrestricted"]x[new_y ? "[new_y]" : "unrestricted"]."))
+			return TRUE
+		return TRUE
 	// Faction ID swipe — claim or release beacon (same pattern as cryopods/telepads)
 	if(istype(attacking_item, /obj/item/card/id) && beacon_active)
 		var/obj/item/card/id/I = attacking_item
@@ -194,6 +377,50 @@
 
 	return ..(attacking_item, user, params)
 
+/// Bottom-left corner of the size_x by size_y block extending out from this
+/// beacon in whichever direction it currently faces, starting one tile clear
+/// of the beacon itself (so the beacon always sits just OUTSIDE the block it
+/// defines, like a real dock marker standing clear of the airlock it serves).
+///
+/// Shared geometry -- the commissioning console's build envelope
+/// (_get_envelope_corner(), ship_commissioning_console.dm) and the
+/// save-time/admin pad cleanup sweeps (drydockForgetBeaconEnvelopes(),
+/// clear_docking_beacons(), persistence_shuttles.dm) all resolve a beacon's
+/// footprint through this one proc, so they can never disagree about which
+/// tiles belong to a given pad.
+/proc/docking_beacon_envelope_corner(obj/structure/machinery/docking_beacon/beacon, size_x, size_y)
+	var/turf/center = beacon ? get_turf(beacon) : null
+	if(!center)
+		return null
+	var/half_x = round((size_x - 1) / 2)
+	var/half_y = round((size_y - 1) / 2)
+	switch(beacon.dir)
+		if(WEST)
+			return locate(center.x - size_x, center.y - half_y, center.z)
+		if(EAST)
+			return locate(center.x + 1, center.y - half_y, center.z)
+		if(SOUTH)
+			return locate(center.x - half_x, center.y - size_y, center.z)
+		if(NORTH)
+			return locate(center.x - half_x, center.y + 1, center.z)
+	// Non-cardinal dir shouldn't be reachable (rotate only ever turns by
+	// 90 degrees from a cardinal start) -- fall back to centered rather
+	// than error.
+	return locate(center.x - half_x, center.y - half_y, center.z)
+
+/// Every turf in this beacon's own landing envelope, sized to the LARGEST
+/// hull that could legally dock here (the generic subship cap, or this
+/// beacon's own player-built override if it's been configured larger) --
+/// so a cleanup sweep over this block always covers whatever actually landed.
+/// Null if the beacon isn't on a real turf.
+/obj/structure/machinery/docking_beacon/proc/get_envelope_turfs()
+	var/size_x = max(SUBSHIP_FOOTPRINT_X, max_player_built_footprint_x)
+	var/size_y = max(SUBSHIP_FOOTPRINT_Y, max_player_built_footprint_y)
+	var/turf/corner = docking_beacon_envelope_corner(src, size_x, size_y)
+	if(!corner)
+		return null
+	return block(corner, locate(corner.x + size_x - 1, corner.y + size_y - 1, corner.z))
+
 /// Pushes faction_restricted/beacon_shackled from the beacon machine onto
 /// its live registered landmark (if any) -- used by both the ID-swipe
 /// claim/release flow above and the faction tagger hooks (see
@@ -204,7 +431,34 @@
 		L.faction_restricted = faction_restricted
 		L.beacon_shackled    = beacon_shackled
 
+/// Pushes max_player_built_footprint_x/y from the beacon machine onto its
+/// live registered landmark -- same pattern as _sync_landmark_faction()
+/// above, needed because player_dock/is_valid() (the actual check) reads
+/// these off the landmark, not the machine.
+/obj/structure/machinery/docking_beacon/proc/_sync_landmark_player_built_footprint()
+	var/obj/effect/shuttle_landmark/player_dock/L = SSshuttle.registered_shuttle_landmarks[landmark_tag]
+	if(L)
+		L.max_player_built_footprint_x = max_player_built_footprint_x
+		L.max_player_built_footprint_y = max_player_built_footprint_y
+
+/// Pushes this beacon's own dir onto its live registered landmark -- the
+/// landmark (not the beacon machine) is what player_dock/is_valid() actually
+/// checks a docking_transponder's facing against, so a multitool rotation
+/// has to propagate here to have any effect. Same pattern as
+/// _sync_landmark_faction() above.
+/obj/structure/machinery/docking_beacon/proc/_sync_landmark_facing()
+	var/obj/effect/shuttle_landmark/player_dock/L = SSshuttle.registered_shuttle_landmarks[landmark_tag]
+	if(L)
+		L.dir = dir
+
 /obj/structure/machinery/docking_beacon/proc/_register_landmark()
+	// Registers the beacon MACHINE itself (not its landmark, which is a
+	// separate object) under its own stable landmark_tag -- lets
+	// ship_commissioning's saved linked_beacon_tag (ship_commissioning_console.dm)
+	// be resolved back to this specific beacon after a restart re-creates it
+	// fresh from the DB. Idempotent, safe to repeat on the "already
+	// registered" early-return path below too.
+	GLOB.drydock_linkable_devices_by_tag[landmark_tag] = src
 	if(landmark_registered) return
 	// If shuttleStateRestore already created this landmark, just claim it
 	if(SSshuttle.registered_shuttle_landmarks[landmark_tag])
@@ -217,9 +471,25 @@
 	var/obj/effect/shuttle_landmark/player_dock/L = new /obj/effect/shuttle_landmark/player_dock(get_turf(src))
 	L.landmark_tag       = landmark_tag
 	L.name               = dock_label ? dock_label : "Docking Port ([x],[y],[z])"
-	L.base_turf          = /turf/simulated/floor/plating
+	// base_turf is deliberately left unset so get_base_turf_by_area()
+	// (translate_turfs(), __HELPERS/turfs.dm) resolves it against the area the
+	// pad is actually returned to. This landmark declares no
+	// SLANDMARK_FLAG_AUTOSET, so LateInitialize() resolves its base_area to the
+	// space area -- hardcoding plating here put the vacated envelope into a
+	// space AREA while forcing its turfs to floor, leaving a departing ship's
+	// pad as floors hanging in open space instead of the space that was there
+	// before it landed.
 	L.faction_restricted = faction_restricted
 	L.beacon_shackled    = beacon_shackled
+	L.dir                = dir
+	// Unconditional -- a docking beacon is reserved for shuttle/sub-ship
+	// sized craft only (SUBSHIP_FOOTPRINT_X/Y, overmap.dm), not a general-
+	// purpose dock for full-size drydock ships. Docking is real physical
+	// relocation (attempt_move()/shuttle_moved(), shuttle.dm), not an
+	// abstract marker visit, so a full-size hull's real turfs simply can't
+	// fit materializing at a small cycler pad.
+	L.max_footprint_x    = SUBSHIP_FOOTPRINT_X
+	L.max_footprint_y    = SUBSHIP_FOOTPRINT_Y
 	landmark_registered = TRUE
 	_add_to_sector_waypoints(L)
 	log_drydock("docking_beacon/_register_landmark: '[landmark_tag]' created new landmark at ([x],[y],[z]), faction_restricted=[faction_restricted || "none"].")
@@ -285,6 +555,8 @@
 	// Remove landmark (deregistering from its sector's waypoints first) and
 	// DB entry when beacon is deconstructed
 	_deregister_landmark()
+	if(landmark_tag)
+		GLOB.drydock_linkable_devices_by_tag -= landmark_tag
 	if(GLOB.config.sql_enabled && SSdbcore.Connect())
 		var/datum/db_query/q = SSdbcore.NewQuery(
 			"DELETE FROM ss13_player_docking_beacons WHERE landmark_tag = :tag",

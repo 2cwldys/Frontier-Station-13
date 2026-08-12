@@ -1,10 +1,14 @@
 /obj/structure/window_frame
 	name = "steel window frame"
 	desc = "A steel window frame."
-	icon = 'icons/obj/smooth/window/full_window_frame_color.dmi'
+	// Weathered copy of full_window_frame_color.dmi -- identical state table and
+	// alpha, only the pixels differ. The colour matches /material/steel's
+	// wall_colour so a frame and the wall it smooths into read as one surface.
+	// Subtypes declaring their own icon (shuttle, urban) never see this.
+	icon = 'icons/obj/smooth/window/full_window_frame_rust.dmi'
 	icon_state = "window_frame"
 	maxhealth = OBJECT_HEALTH_MEDIUM
-	color = COLOR_GRAY20
+	color = "#262c40"
 	build_amt = 4
 	pass_flags_self = PASSRAILING
 	layer = WINDOW_FRAME_LAYER
@@ -186,6 +190,7 @@
 
 /obj/structure/window_frame/wood
 	maxhealth = OBJECT_HEALTH_LOW
+	icon = 'icons/obj/smooth/window/full_window_frame_color.dmi' // Restated, not inherited -- wood doesn't corrode.
 	color = "#8f5847"
 
 /obj/structure/window_frame/unanchored // Used during in-game construction.

@@ -307,12 +307,23 @@
 				if(istype(SH, /obj/structure/machinery/computer/ship/sensors))
 					playsound(SH, 'sound/effects/ship_weapons/locked_on.ogg', 70)
 					SH.visible_message(SPAN_DANGER("<font size=4>\The [SH] beeps alarmingly, signaling an enemy lock-on!</font>"))
+		// Ship-wide confirmation for the locking ship's own crew, and kicks
+		// off the targeting console's continuous enemy-shield readout
+		// (check_processing()/process(), _targeting_console.dm) immediately
+		// instead of waiting for a stray tick to notice the new lock.
+		announce_to_ship_z(map_z, 'sound/AI/announcements/target_lock_acquired.ogg', 50, TRUE)
+		if(istype(C, /obj/structure/machinery/computer/ship/targeting))
+			var/obj/structure/machinery/computer/ship/targeting/TC = C
+			TC.check_processing()
 	else
 		C.targeting = FALSE
 
 /obj/effect/overmap/visitable/proc/detarget(var/obj/effect/overmap/O,  var/obj/structure/machinery/computer/C)
 	if(C)
 		playsound(C, 'sound/items/rfd_interrupt.ogg', 70)
+		if(istype(C, /obj/structure/machinery/computer/ship/targeting))
+			var/obj/structure/machinery/computer/ship/targeting/TC = C
+			TC.check_processing()
 	if(O)
 		O.CutOverlays(O.targeted_overlay)
 		O.maptext = null

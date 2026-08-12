@@ -140,6 +140,10 @@
 		data["is_airlock"] = TRUE
 		data["is_public_airlock"] = (current_uid == "public")
 
+	if(istype(current_target, /obj/structure/machinery/embedded_controller/radio/airlock))
+		data["is_cycler"] = TRUE
+		data["is_public_cycler"] = (current_uid == "public")
+
 	if(istype(current_target, /obj/structure/machinery/porta_turret))
 		var/obj/structure/machinery/porta_turret/PT = current_target
 		data["is_turret"] = TRUE
@@ -388,6 +392,31 @@
 				AL.req_access_faction = "public"
 				to_chat(user, SPAN_GOOD("Airlock marked public -- open to anyone."))
 				log_admin("[key_name(user)] marked an airlock at [get_turf(AL)] public via faction tagger.")
+			. = TRUE
+		if("toggle_public_cycler")
+			if(!istype(current_target, /obj/structure/machinery/embedded_controller/radio/airlock))
+				return
+			var/obj/structure/machinery/embedded_controller/radio/airlock/AC = current_target
+			// Admin, OR an officer of whoever currently owns it -- unlike the
+			// admin-only public-airlock toggle, opening up a cycler you already
+			// own is an ordinary operational decision about your own equipment,
+			// not a station-wide access change. An UNOWNED cycler is already
+			// open to everyone, so there is nothing to grant.
+			if(!check_rights(R_ADMIN, 0, user))
+				if(faction_network_is_open(AC.persistent_network))
+					to_chat(user, SPAN_WARNING("\The [AC] isn't tagged to anyone -- its links are already open to all."))
+					return
+				if(!can_configure_faction_shackle(user, AC.persistent_network, 1))
+					to_chat(user, SPAN_WARNING("You need officer access in [get_faction_name(AC.persistent_network)] to change that."))
+					return
+			if(AC.persistent_network == "public")
+				AC.persistent_network = ""
+				to_chat(user, SPAN_GOOD("Cycler cleared -- no longer public."))
+				log_game("[key_name(user)] cleared the public designation on an airlock cycler at [get_turf(AC)] via faction tagger.")
+			else
+				AC.persistent_network = "public"
+				to_chat(user, SPAN_GOOD("Cycler marked public -- its links are open to anyone."))
+				log_game("[key_name(user)] marked an airlock cycler at [get_turf(AC)] public via faction tagger.")
 			. = TRUE
 		if("toggle_turret_power")
 			if(!istype(current_target, /obj/structure/machinery/porta_turret))

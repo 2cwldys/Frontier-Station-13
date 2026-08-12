@@ -12,6 +12,7 @@ type ShipCloakingDeviceData = {
   sheet_name: string;
   seconds_per_sheet: number;
   seconds_remaining: number | null;
+  at_away_site: BooleanLike;
 };
 
 export const ShipCloakingDevice = (props) => {
@@ -25,6 +26,7 @@ export const ShipCloakingDevice = (props) => {
     sheet_name,
     seconds_per_sheet,
     seconds_remaining,
+    at_away_site,
   } = data;
 
   const fuelRatio = max_sheets > 0 ? sheets / max_sheets : 0;
@@ -38,6 +40,8 @@ export const ShipCloakingDevice = (props) => {
     disabledReason = "Can't locate this ship on the overmap.";
   } else if (!active && sheets === 0) {
     disabledReason = `No ${sheet_name} loaded.`;
+  } else if (!active && at_away_site) {
+    disabledReason = "Can't cloak the ship at an away site.";
   }
 
   return (
@@ -54,7 +58,11 @@ export const ShipCloakingDevice = (props) => {
             fluid
             icon={active ? 'eye-slash' : 'eye'}
             content={active ? 'Deactivate' : 'Activate'}
-            disabled={!anchored || (!active && sheets === 0)}
+            disabled={
+              !anchored ||
+              (!active && sheets === 0) ||
+              (!active && !!at_away_site)
+            }
             onClick={() => act('toggle')}
           />
           {!!disabledReason && (

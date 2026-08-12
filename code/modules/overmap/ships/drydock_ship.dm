@@ -15,6 +15,12 @@
  */
 
 /datum/map_template/drydock_ship
+	// The base /datum/map_template default (ZTRAITS_AWAY) tags a hull's own
+	// interior Z as an away site -- wrong for a ship's own home Z, and the
+	// reason shield/cloak generators (is_away_level(), ship_shield_generator.dm/
+	// ship_cloaking_device.dm) refused to activate while genuinely docked at
+	// the ship's own drydock, not an actual away site.
+	traits = list(list())
 	/// Credits charged by drydockBuy() (persistence_shuttles.dm). 0 = free.
 	var/price = 0
 	/// Area type identifying this hull's bridge/CIC/command room, for hulls
@@ -31,25 +37,33 @@
 	/// the rename UI, the stash-time docked guard, and missing-sub-ship
 	/// detection (persistence_shuttles.dm).
 	var/list/sub_shuttle_tags
+	/// TRUE for the shared blank-canvas shell every player-commissioned
+	/// shuttle deploys onto (ship_commissioning_console.dm) -- every
+	/// subtypesof()-discovered /datum/map_template/drydock_ship auto-registers
+	/// into SSmapping.drydock_ship_templates (mapping.dm) and would otherwise
+	/// show up as a normal purchasable hull in the Drydock program's own
+	/// listing (drydock.dm) alongside real ships, which it isn't: it has no
+	/// price and no pre-authored interior of its own, only whatever a player
+	/// actually built and commissioned. Filtered out there by this flag.
+	var/hidden_from_catalog = FALSE
 
 /**
  * Docking creates a real, physical problem this class alone needs to solve:
  * on_landing()/on_takeoff() (landable.dm) only ever move the overmap MARKER
  * -- the ship's actual interior turfs never leave its own dedicated Z, so a
- * "docked" ship still has zero walkable connection to wherever it landed.
- * ship_side_link/target_side_link are a paired /obj/effect/portal/dock_link
- * (portals.dm) opened the instant landing happens and closed the instant it
- * ends, bridging the ship's own console turf to the landmark's turf --
- * deliberately public/unrestricted, unlike the ownership-gated boarding
- * telepad (telepad_drydock_boarding.dm). Scoped to this subtype only, not
- * the shared landable.dm base, so every other landable ship's existing
- * boarding convention is completely untouched.
+ * "docked" ship still has zero walkable connection to wherever it landed
+ * unless someone builds one. That connection used to open automatically (a
+ * paired /obj/effect/portal/dock_link, portals.dm) the instant landing
+ * happened -- an invisible-until-you-walk-into-it gangway with no player
+ * action or awareness involved, which is exactly what made it possible to
+ * blindly step through one. Docking connections are now player-built
+ * instead: an umbilical pad (telepad_umbilical.dm) on each end, tethered by
+ * a shared access code. _sweep_stray_umbilicals() below just cleans up any
+ * dock_link portal left over from before that change (or any other stray).
  */
 /obj/effect/overmap/visitable/ship/landable/drydock_ship
 	use_mapped_z_levels = TRUE
 	invisible_until_ghostrole_spawn = FALSE
-	var/obj/effect/portal/dock_link/ship_side_link
-	var/obj/effect/portal/dock_link/target_side_link
 
 /// Sanctioned removal (drydockStash()/drydockScuttle(), both via
 /// _drydockMarkerTeardown(), persistence_shuttles.dm) always flips the
@@ -89,41 +103,20 @@
 	if(found_deployed_row)
 		var/datum/shuttle/shuttle_datum = SSshuttle.shuttles[shuttle]
 		SSpersistence.shipZTeardown(GET_Z(src), shuttle_datum?.name)
-	_close_dock_link()
 	. = ..()
 
 /obj/effect/overmap/visitable/ship/landable/drydock_ship/on_landing(obj/effect/shuttle_landmark/from, obj/effect/shuttle_landmark/into)
 	. = ..()
-	_open_dock_link(into)
+	_sweep_stray_umbilicals()
 
-/obj/effect/overmap/visitable/ship/landable/drydock_ship/on_takeoff(obj/effect/shuttle_landmark/from, obj/effect/shuttle_landmark/into)
-	_close_dock_link()
-	. = ..()
-
-/// The ship-side end of the dock link always anchors at the shuttle's own
-/// navigation console turf -- the one piece of map content every ship
-/// template is already guaranteed to have (mirrors
-/// _drydock_console_turf(), telepad_drydock_boarding.dm).
-/obj/effect/overmap/visitable/ship/landable/drydock_ship/proc/_dock_link_ship_turf()
-	var/datum/shuttle/shuttle_datum = SSshuttle.shuttles[shuttle]
-	if(!istype(shuttle_datum))
-		return null
-	for(var/obj/structure/machinery/computer/shuttle_control/console in shuttle_datum.shuttle_computers)
-		return get_turf(console)
-	return null
-
-/obj/effect/overmap/visitable/ship/landable/drydock_ship/proc/_open_dock_link(obj/effect/shuttle_landmark/into)
-	_close_dock_link()
-	var/turf/ship_turf = _dock_link_ship_turf()
-	var/turf/target_turf = get_turf(into)
-	if(!ship_turf || !target_turf || ship_turf == target_turf)
-		return
-	ship_side_link = new /obj/effect/portal/dock_link(ship_turf, target_turf, src)
-	target_side_link = new /obj/effect/portal/dock_link(target_turf, ship_turf, src)
-
-/obj/effect/overmap/visitable/ship/landable/drydock_ship/proc/_close_dock_link()
-	QDEL_NULL(ship_side_link)
-	QDEL_NULL(target_side_link)
+/// Cleans up any dock_link portal left on this ship's Z-level -- a leftover
+/// from before docking connections became player-built (telepad_umbilical.dm),
+/// or any other stray. Umbilical pads are unaffected: their own dock_link
+/// pairs self-heal via _reconcile_link() if one half is swept.
+/obj/effect/overmap/visitable/ship/landable/drydock_ship/proc/_sweep_stray_umbilicals()
+	for(var/obj/effect/portal/dock_link/L in world)
+		if(GET_Z(L) in map_z)
+			qdel(L)
 
 /datum/shuttle/autodock/overmap/drydock_ship
 	defer_initialisation = TRUE
@@ -134,9 +127,102 @@
 	/// beacon's faction restriction. Null for a personally-owned ship,
 	/// same as an unrestricted beacon -- both compare as "no faction".
 	var/faction_uid
+	/// TRUE for a ship materialized via drydockCommission() -- never set for
+	/// a template-bought ship (drydockBuy()/drydockRetrieve() never touch
+	/// this, staying FALSE). Read by player_dock/is_valid() (docking_beacon.dm)
+	/// to decide whether a beacon's own player-built-specific max footprint
+	/// applies to this ship instead of its generic one.
+	var/player_built = FALSE
 
 /obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship
 	name = "shuttle control console"
+
+/// Cargo-orderable variant a player can build into their own commissioned
+/// hull (ship_commissioning_console.dm) -- unlike the mapped-in base
+/// type above (always pre-anchored, spawned pre-anchored by
+/// drydockAutoFurnish() too), this one starts loose like every other kit
+/// machine and needs a wrench first. shuttle_tag starts unset here --
+/// drydockCommission() (persistence_shuttles.dm) assigns it once the built
+/// hull is captured onto its new dedicated Z, the same way
+/// drydockAutoFurnish() already does for its own auto-spawned console. From
+/// then on it's persisted (get/apply_content below), since a stash tears
+/// this object down and recreates it fresh on every retrieve.
+/obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable
+	anchored = FALSE
+	circuit = /obj/item/circuitboard/ship/shuttle_control
+	/// Stable identity tag, lazily minted once -- lets a ship_commissioning
+	/// console's saved link to this specific console survive a restart. See
+	/// GLOB.drydock_linkable_devices_by_tag's own doc comment
+	/// (ship_commissioning_console.dm).
+	var/id_tag
+
+/obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable/Initialize()
+	. = ..()
+	// Survives normally as a station-side object for however long it sits
+	// there before being built into a hull and captured (drydockCommission(),
+	// persistence_shuttles.dm) -- same registration every other player-placed
+	// kit machine does in its own Initialize() (docking_beacon.dm, etc.).
+	if(!id_tag)
+		id_tag = "shuttle_console_[REF(src)]"
+	GLOB.drydock_linkable_devices_by_tag[id_tag] = src
+	if(GLOB.config.sql_enabled && GLOB.persistence_ready)
+		SSpersistence.objectsRegisterTrack(src)
+
+/obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable/Destroy()
+	GLOB.drydock_linkable_devices_by_tag -= id_tag
+	return ..()
+
+/obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable/persistent_objects_get_content()
+	var/list/content = list()
+	content["id_tag"] = id_tag
+	content["shuttle_tag"] = shuttle_tag
+	return content
+
+/**
+ * shuttle_tag is restored here, but Initialize() (shuttle_console.dm) has
+ * ALREADY run by this point -- objectsInstantiateRows() (persistence_objects.dm)
+ * calls new typepath(spawn_turf), which runs Initialize() synchronously,
+ * before ever applying saved content -- so the object's own Initialize()
+ * saw shuttle_tag still unset and already filed it into
+ * SSshuttle.lonely_shuttle_computers instead of the real ship's own
+ * shuttle_computers list. Restoring the var alone doesn't undo that
+ * bookkeeping, so redo the hookup here explicitly -- the exact same shape
+ * drydockCommission()'s own capture step uses
+ * (persistence_shuttles.dm:2060-2063) -- instead of relying on someone
+ * happening to open the console's UI first to lazily self-heal via
+ * _resolve_shuttle() (shuttle_console.dm).
+ */
+/obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(content["id_tag"])
+		GLOB.drydock_linkable_devices_by_tag -= id_tag
+		id_tag = content["id_tag"]
+		GLOB.drydock_linkable_devices_by_tag[id_tag] = src
+	if(content["shuttle_tag"])
+		shuttle_tag = content["shuttle_tag"]
+		var/datum/shuttle/shuttle = SSshuttle.shuttles[shuttle_tag]
+		if(istype(shuttle))
+			SSshuttle.lonely_shuttle_computers -= src
+			shuttle.shuttle_computers += src
+
+/obj/structure/machinery/computer/shuttle_control/explore/terminal/drydock_ship/buildable/attackby(obj/item/attacking_item, mob/user, params)
+	if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		attacking_item.play_tool_sound(get_turf(src), 50)
+		anchored = !anchored
+		to_chat(user, anchored ? SPAN_NOTICE("Shuttle control console secured in place.") : SPAN_NOTICE("Shuttle control console unsecured."))
+		return TRUE
+	// No facing concept for a console -- multitool just buffers it directly
+	// (same multitool.dm buffer airlock controller wiring already uses), for
+	// linking to a ship_commissioning console (ship_commissioning_console.dm).
+	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
+		if(!istype(attacking_item, /obj/item/multitool))
+			to_chat(user, SPAN_WARNING("\The [attacking_item] can't hold a buffer."))
+			return TRUE
+		var/obj/item/multitool/tool = attacking_item
+		tool.set_buffer(src)
+		to_chat(user, SPAN_NOTICE("You buffer \the [src] into \the [tool]."))
+		return TRUE
+	return ..(attacking_item, user, params)
 
 /area/drydock_ship
 	name = "Drydock Ship"

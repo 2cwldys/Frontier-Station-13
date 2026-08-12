@@ -539,3 +539,14 @@
 				playsound(get_turf(src), 'sound/machines/synth_no.ogg', 50, 0)
 		return
 	..()
+
+/// Cargo-orderable variant a player can build into their own commissioned
+/// hull -- the only override needed is starting unanchored, since the base
+/// portgen/basic/attackby() already implements wrench-toggle
+/// (connect_to_network()/disconnect_from_network()) unconditionally; every
+/// other mechanic (fuel hopper, coolant, overheat/explode) is untouched.
+/// Gives player-built ships local electrical power without needing a full
+/// station-style grid build-out -- not required at commission, purely
+/// optional infrastructure.
+/obj/structure/machinery/power/portgen/basic/fusion/buildable
+	anchored = FALSE

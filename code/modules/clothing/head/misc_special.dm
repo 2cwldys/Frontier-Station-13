@@ -31,6 +31,9 @@
 	siemens_coefficient = 0.75 // what? it's steel.
 	w_class = WEIGHT_CLASS_NORMAL
 	var/base_state
+	// See persistent_toggle_vars' own doc comment (obj/item base vars,
+	// items.dm) -- toggle() (below) mutates exactly this set together.
+	persistent_toggle_vars = list("up", "base_state", "icon_state", "item_state", "flags_inv", "body_parts_covered", "tint", "flash_protection")
 	flash_protection = FLASH_PROTECTION_MAJOR
 	tint = TINT_HEAVY
 	sprite_sheets = list(

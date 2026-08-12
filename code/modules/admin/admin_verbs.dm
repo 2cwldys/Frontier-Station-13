@@ -207,6 +207,7 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/give_faction_id,
 	/datum/admins/proc/toggle_faction_creation,
 	/datum/admins/proc/toggle_faction_raiding,
+	/datum/admins/proc/modify_hub_laws,
 	/client/proc/sync_deployment_branch,
 	/datum/admins/proc/manage_stock_market,
 	/datum/admins/proc/toggle_zlevel_persistence,
@@ -214,11 +215,15 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/manage_persistent_overmap_sites,
 	/datum/admins/proc/force_stash_ship,
 	/datum/admins/proc/force_stash_all_ships,
+	/datum/admins/proc/clear_docking_beacons,
+	/datum/admins/proc/toggle_ship_z_reuse,
 	/datum/admins/proc/restore_ship_backup,
 	/datum/admins/proc/set_drydock_ship_cap,
+	/datum/admins/proc/free_drydock_ship_name,
 	/datum/admins/proc/generate_away_site,
 	/datum/admins/proc/remove_away_site,
 	/datum/admins/proc/manage_away_site_mob_presets,
+	/datum/admins/proc/trigger_database_backup,
 	/datum/admins/proc/manage_cargo_exports,
 	/datum/admins/proc/modify_cargo_imports,
 	/datum/admins/proc/modify_cargo_beacons,
@@ -1158,6 +1163,18 @@ GLOBAL_LIST_INIT(admin_verbs_storyteller, list(
 			GLOB.config.cult_ghostwriter = 1
 			to_chat(src, "<b>Enabled ghost writers.</b>")
 			message_admins("Admin [key_name_admin(usr)] has enabled ghost writers.", 1)
+
+/client/proc/toggleconnectionlogging()
+	set name = "Toggle Connection Logging"
+	set category = "Server"
+	if(!holder)	return
+	GLOB.log_player_connections = !GLOB.log_player_connections
+	if(GLOB.log_player_connections)
+		to_chat(src, "<b>Enabled connection logging.</b>")
+		message_admins("Admin [key_name_admin(usr)] has enabled connection logging.", 1)
+	else
+		to_chat(src, "<b>Disabled connection logging.</b>")
+		message_admins("Admin [key_name_admin(usr)] has disabled connection logging.", 1)
 
 /client/proc/toggledrones()
 	set name = "Toggle maintenance drones"

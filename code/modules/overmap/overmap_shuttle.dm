@@ -4,6 +4,25 @@
 	var/range = 0	//how many overmap tiles can shuttle go, for picking destinations and returning.
 	var/fuel_consumption = 0 //Amount of moles of gas consumed per trip; If zero, then shuttle is magic and does not need fuel
 	var/list/obj/structure/fuel_port/fuel_ports //the fuel ports of the shuttle (but usually just one)
+#ifdef DOCKING_REFUSAL_DIAGNOSTICS
+	/// Human-readable "why this nearby landmark wasn't offered" strings from
+	/// the LAST get_possible_destinations() call -- rebuilt wholesale every
+	/// call, never appended across calls. Surfaced by the shuttle console
+	/// (shuttle_console.dm) so an empty destination list explains itself
+	/// instead of just being silently empty. Populated from is_valid()'s own
+	/// reason_out mechanism, which every refusal branch already fills in.
+	var/list/last_destination_refusals = list()
+#endif
+
+	/// Why the LAST get_possible_destinations() call came back empty, or null if
+	/// it didn't. Deliberately NOT gated behind DOCKING_REFUSAL_DIAGNOSTICS: that
+	/// flag keeps raw turf types and coordinates out of a production build, but
+	/// "this ship cannot resolve its own sector" is corrupt state a player must
+	/// be told about, not debug spew. Without it, three unrelated failures --
+	/// unresolvable own sector, nothing in range, and everything refused -- all
+	/// printed the same "No valid landing sites in range." and were
+	/// indistinguishable.
+	var/empty_destination_reason
 
 	category = /datum/shuttle/autodock/overmap
 
@@ -54,13 +73,101 @@
 
 /datum/shuttle/autodock/overmap/proc/get_possible_destinations(mob/user)
 	var/list/res = list()
-	for (var/obj/effect/overmap/visitable/S in range(get_turf(waypoint_sector(current_location)), range))
+#ifdef DOCKING_REFUSAL_DIAGNOSTICS
+	last_destination_refusals = list()
+#endif
+	// An empty result used to be a dead end: the console printed the same
+	// "No valid landing sites in range." whether nothing was nearby, everything
+	// nearby was refused, or -- worst and least obvious -- this ship could not
+	// resolve its OWN sector, in which case the loop below never executed at
+	// all and proximity was never consulted. Record which it was.
+	empty_destination_reason = null
+	var/obj/effect/overmap/visitable/own_sector = waypoint_sector(current_location)
+	var/turf/own_sector_turf = get_turf(own_sector)
+	if(!own_sector_turf)
+		// waypoint_sector() is GLOB.map_sectors["[z]"] (__DEFINES/overmap.dm).
+		// A null here means no sector is registered for the z this shuttle
+		// believes it is on -- corrupt state, not a player mistake, so it is
+		// reported plainly rather than hidden behind a diagnostics flag.
+		var/turf/at_turf = get_turf(current_location)
+		empty_destination_reason = "This ship cannot determine its own position -- no sector is registered for z=[at_turf ? at_turf.z : "?"]. It cannot navigate until this is repaired."
+		log_world("SHUTTLE: '[name]' could not resolve its own sector (GLOB.map_sectors has no entry for z=[at_turf ? at_turf.z : "?"], current_location='[current_location]'). Destination listing aborted.")
+		return res
+
+	var/sectors_seen = 0
+	var/waypoints_seen = 0
+	var/refused = 0
+	for (var/obj/effect/overmap/visitable/S in range(own_sector_turf, range))
 		if(istype(S, /obj/effect/overmap/visitable/ship) && !S.is_detectable(user))
 			continue
+		sectors_seen++
 		var/list/waypoints = S.get_waypoints(name)
 		for(var/obj/effect/shuttle_landmark/LZ in waypoints)
-			if(LZ.is_valid(src))
+			waypoints_seen++
+			// check_objects = FALSE -- this is purely building a list of
+			// candidate destinations, not attempting a real move. Incidental
+			// clutter within the hull footprint shouldn't hide a destination
+			// from the list; check_collision()'s own doc comment (landmarks.dm)
+			// has the full reasoning. The real move attempt (attempt_move(),
+			// shuttle.dm) still checks strictly and will correctly refuse.
+			var/list/refusal = list()
+			if(LZ.is_valid(src, refusal, FALSE))
 				res["[waypoints[LZ]] - [LZ.name]"] = LZ
+				continue
+			refused++
+#ifdef DOCKING_REFUSAL_DIAGNOSTICS
+			if(length(refusal))
+				// "already at this destination" is the one refusal that's
+				// normal and expected every single call -- reporting it would
+				// just be noise on an otherwise-healthy console.
+				var/reason = refusal[1]
+				if(reason != "already at this destination")
+					last_destination_refusals += "[LZ.name]: [reason]"
+#endif
+
+	// A ship must ALWAYS be able to fly back to its own home landmark. Getting
+	// there via the sector waypoint lists depends on a long chain -- the
+	// landmark being registered under a tag that still matches, the sector's
+	// queued waypoints having been drained, the marker being enumerable while
+	// nested inside whatever it's docked with -- and any one link breaking
+	// strands the ship permanently with no way home. So offer it directly off
+	// the marker instead of looking it up, exactly as _drydock_recall_ship_home()
+	// (persistence_shuttles.dm) already does for the system-facing path.
+	// Still gated on is_valid(), so a genuinely blocked home is reported rather
+	// than silently offered.
+	for(var/obj/effect/overmap/visitable/ship/landable/own_marker as anything in SSshuttle.ships)
+		if(own_marker.shuttle != name)
+			continue
+		var/obj/effect/shuttle_landmark/home = _drydock_resolve_home_landmark(own_marker, src)
+		if(!istype(home) || home == current_location || (home in res))
+			continue
+		// Already parked on our own z -- our open space is where we ALREADY are.
+		// Offering it as a destination from here can only produce a translation
+		// that overlaps the hull with itself, which attempt_move() (shuttle.dm)
+		// refuses, so the player just gets "Launch aborted -- the destination is
+		// obstructed" for a trip they have already completed. There is nothing
+		// to travel to.
+		var/turf/here = get_turf(current_location)
+		var/turf/there = get_turf(home)
+		if(here && there && here.z == there.z)
+			continue
+		var/list/home_refusal = list()
+		if(home.is_valid(src, home_refusal, FALSE))
+			res["[own_marker.name] - [home.name]"] = home
+#ifdef DOCKING_REFUSAL_DIAGNOSTICS
+		else if(length(home_refusal))
+			last_destination_refusals += "[home.name] (own home): [home_refusal[1]]"
+#endif
+		break
+
+	// Distinguish "nothing is near me" from "things are near me and all of them
+	// refused" -- previously identical to the player, and the difference decides
+	// whether to fly somewhere else or investigate the destination.
+	if(!length(res) && !empty_destination_reason)
+		if(!waypoints_seen)
+			empty_destination_reason = "No landing sites within [range] tile\s of [own_sector]. ([sectors_seen] sector\s scanned.)"
+		else
+			empty_destination_reason = "[refused] nearby destination\s were found but every one was refused."
 	return res
 
 /datum/shuttle/autodock/overmap/get_location_name()

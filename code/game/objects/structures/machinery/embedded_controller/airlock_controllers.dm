@@ -5,6 +5,14 @@
 	radio_filter = RADIO_AIRLOCK
 	var/tag_exterior_door
 	var/tag_interior_door
+	/// Additional exterior/interior door tags beyond the primary singular
+	/// slot above -- mirrors tag_airpumps' own extra-tag pattern below. A
+	/// chamber wide enough to need more than one door on a side gets one
+	/// entry here per extra door; every open/close/lock/unlock command goes
+	/// to all of them together (see get_exterior_door_tags()/
+	/// get_interior_door_tags()).
+	var/list/tag_exterior_doors
+	var/list/tag_interior_doors
 	/// Primary chamber vent pump tag. Kept as a plain string for mapped-in
 	/// cyclers, which set it directly in their .dmm.
 	var/tag_airpump
@@ -23,6 +31,77 @@
 	var/cycle_to_external_air = FALSE
 	var/has_interior_sensor
 	var/has_exterior_sensor
+	/// Faction tagger compatible var -- "" (untagged) or a real faction_uid.
+	/// Tagging a cycler controller locks its LINKS: only people employed by
+	/// that faction (or an admin) can add, remove or reset the doors, pumps and
+	/// sensors it drives. Without it, anyone with a multitool could rewire or
+	/// wipe a faction's airlock cycler -- which is both an access bypass (link
+	/// a chamber to doors you shouldn't control) and a griefing vector (clear
+	/// the links and strand the cycler mid-cycle). Untagged controllers behave
+	/// exactly as before, so ordinary construction is unaffected.
+	/// Persisted via worldstate_vars (persistence_worldstate.dm).
+	var/persistent_network = ""
+
+// ------- Faction tagger compatibility -------
+
+/obj/structure/machinery/embedded_controller/radio/airlock/faction_tagger_compatible()
+	return TRUE
+
+/obj/structure/machinery/embedded_controller/radio/airlock/faction_tagger_get_uid()
+	return persistent_network
+
+/obj/structure/machinery/embedded_controller/radio/airlock/faction_tagger_set(new_uid, mob/user)
+	var/old_uid = persistent_network
+	persistent_network = new_uid || ""
+	// Ownership changing hands drops every link. Otherwise links made while the
+	// cycler was untagged survive the tag: someone wires a chamber to their own
+	// doors and sensors, a faction then claims the cycler, and the original
+	// wiring keeps working from outside the faction entirely -- the guards only
+	// stop links being CHANGED, not ones that already exist. Releasing a tag
+	// clears them for the same reason in reverse.
+	if(old_uid != persistent_network)
+		_clear_links_on_faction_change(user, old_uid)
+	return TRUE
+
+/// Drops every door/sensor/button/pump link, because this cycler just changed
+/// hands. Separate from _reset_links() (the player-facing multitool action):
+/// this one is not refusable and reports itself as a consequence of the retag.
+/obj/structure/machinery/embedded_controller/radio/airlock/proc/_clear_links_on_faction_change(mob/user, old_uid)
+	var/cleared = 0
+	// Doors need no per-door clearing: an airlock has no master_tag of its own,
+	// so dropping this controller's own door slots below is what unlinks them.
+	for(var/obj/structure/machinery/airlock_sensor/S in SSmachinery.machinery)
+		if(S.master_tag == id_tag)
+			S.master_tag = null
+			cleared++
+	for(var/obj/structure/machinery/access_button/B in SSmachinery.machinery)
+		if(B.master_tag == id_tag)
+			B.master_tag = null
+			cleared++
+	if(tag_exterior_door || tag_interior_door || length(tag_exterior_doors) || length(tag_interior_doors) || tag_airpump || length(tag_airpumps) || tag_chamber_sensor || tag_exterior_sensor || tag_interior_sensor)
+		cleared++
+	tag_exterior_door = null
+	tag_interior_door = null
+	tag_exterior_doors = null
+	tag_interior_doors = null
+	tag_airpump = null
+	tag_airpumps = null
+	tag_chamber_sensor = null
+	tag_exterior_sensor = null
+	tag_interior_sensor = null
+	if(cleared && user)
+		to_chat(user, SPAN_WARNING("\The [src] changed hands -- its existing links have been cleared and must be set up again."))
+	if(cleared)
+		log_game("Airlock cycler at [COORD(src)] changed faction ('[old_uid || "unassigned"]' -> '[persistent_network || "unassigned"]'), clearing its links.")
+
+/// Whether user may change this controller's links.
+///
+/// Untagged and "public" controllers stay open to everyone; a real faction tag
+/// needs EMPLOYMENT by that faction. See can_rewire_faction_device()
+/// (persistence_factions.dm) for the shared rule -- printing yourself an ID does
+/// not count, that registers as FACTION_RANK_CIVILIAN (card.dm).
+/obj/structure/machinery/embedded_controller/radio/airlock/proc/can_modify_links(mob/user)
+	return can_rewire_faction_device(user, persistent_network)
 
 /obj/structure/machinery/embedded_controller/radio/airlock/Initialize(mapload, given_id_tag, given_frequency, given_tag_exterior_door, given_tag_interior_door, given_tag_airpump, given_tag_chamber_sensor)
 	. = ..()
@@ -129,6 +208,15 @@
 		return TRUE
 	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
 		var/obj/item/multitool/MT = attacking_item
+		// Covers every link change initiated FROM the controller -- doors,
+		// sensors, access buttons, pumps and the Reset Links wipe alike. The
+		// opposite direction (buffer this controller, then multitool the
+		// device) is gated separately inside each _link_to_controller()
+		// (airlock_control.dm); gating only one side would leave the other
+		// wide open.
+		if(!can_modify_links(user))
+			to_chat(user, SPAN_WARNING("\The [src] is tagged to [get_faction_name(persistent_network)] -- you are not employed there, so you cannot change its links."))
+			return TRUE
 		var/obj/structure/machinery/door/airlock/door = MT.get_buffer(/obj/structure/machinery/door/airlock)
 		if(door)
 			door._link_to_controller(src, user)
@@ -149,10 +237,62 @@
 			_link_to_airpump(pump, user)
 			MT.set_buffer(null)
 			return TRUE
+		// Empty multitool on the controller itself -- ambiguous between "I
+		// want to buffer this controller to go link something to it" and "I
+		// want to wipe this controller's links and start over," so ask
+		// instead of always assuming the former.
+		var/choice = tgui_alert(user, "What would you like to do with \the [src]?", "Airlock Cycler", list("Buffer", "Reset Links"))
+		if(QDELETED(src) || QDELETED(user) || QDELETED(MT) || !user.Adjacent(src))
+			return TRUE
+		if(!choice)
+			return TRUE
+		if(choice == "Reset Links")
+			_reset_links(user)
+			return TRUE
 		MT.set_buffer(src)
 		to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
 		return TRUE
 	return ..()
+
+/// Wipes every door/sensor/pump/button link this controller has in one
+/// action -- the multitool-on-empty-buffer popup's "Reset Links" choice
+/// (attackby() above). Doors and pumps are entirely controller-side (no
+/// back-reference stored on the device itself), so clearing these fields
+/// alone fully unlinks them. Sensors and buttons carry their own back-
+/// reference (master_tag) to this controller for their manual cycle signal
+/// -- clearing only the controller's own fields would leave those stale
+/// (still believing they're linked here), so sweep and clear both
+/// directions at once. World-scoped scan, same shape as
+/// _sweep_stray_umbilicals() (drydock_ship.dm) -- a rare, deliberate player
+/// action, not a hot path.
+/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/proc/_reset_links(mob/user)
+	var/count = length(get_exterior_door_tags()) + length(get_interior_door_tags()) + length(get_airpump_tags())
+	tag_exterior_door = null
+	tag_exterior_doors = null
+	tag_interior_door = null
+	tag_interior_doors = null
+	tag_airpump = null
+	tag_airpumps = null
+	// Only bother scanning for sensors if this controller actually has one
+	// linked -- _link_to_controller() (airlock_control.dm) always sets a
+	// sensor's master_tag together with one of these three fields in the
+	// same operation, so if all three are already unset, no sensor can have
+	// master_tag pointing here either.
+	if(tag_chamber_sensor || tag_exterior_sensor || tag_interior_sensor)
+		for(var/obj/structure/machinery/airlock_sensor/S in world)
+			if(S.master_tag == id_tag)
+				S.master_tag = null
+				count++
+		tag_chamber_sensor = null
+		tag_exterior_sensor = null
+		tag_interior_sensor = null
+	// Buttons have no controller-side counterpart field at all to check
+	// first -- always scan.
+	for(var/obj/structure/machinery/access_button/B in world)
+		if(B.master_tag == id_tag)
+			B.master_tag = null
+			count++
+	to_chat(user, SPAN_NOTICE("You reset \the [src], clearing [count] link\s. Doors, sensors, pumps, and buttons are all unlinked -- relink them individually if needed."))
 
 /obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/proc/_handle_construction(obj/item/attacking_item, mob/user)
 	switch(buildstage)
@@ -275,6 +415,25 @@
 	if(tag_airpump)
 		. += tag_airpump
 	for(var/extra_tag in tag_airpumps)
+		if(extra_tag && !(extra_tag in .))
+			. += extra_tag
+
+/// Every linked exterior door tag (primary plus any extras) -- see
+/// get_airpump_tags()'s own doc comment above, same shape.
+/obj/structure/machinery/embedded_controller/radio/airlock/proc/get_exterior_door_tags()
+	. = list()
+	if(tag_exterior_door)
+		. += tag_exterior_door
+	for(var/extra_tag in tag_exterior_doors)
+		if(extra_tag && !(extra_tag in .))
+			. += extra_tag
+
+/// Every linked interior door tag (primary plus any extras).
+/obj/structure/machinery/embedded_controller/radio/airlock/proc/get_interior_door_tags()
+	. = list()
+	if(tag_interior_door)
+		. += tag_interior_door
+	for(var/extra_tag in tag_interior_doors)
 		if(extra_tag && !(extra_tag in .))
 			. += extra_tag
 

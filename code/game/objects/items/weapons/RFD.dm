@@ -914,6 +914,113 @@ ABSTRACT_TYPE(/obj/item/rfd)
 /obj/item/rfd/piping/borg/attackby()
 	return
 
+//
+// RFD - Asteroid Class
+//
+
+/obj/item/rfd/asteroid
+	name = "\improper Rapid Fabrication Device A-Class"
+	desc = "A RFD, modified to construct camouflaged asteroid rock formations."
+	color = "#8a7a5c"
+
+/obj/item/rfd/asteroid/Initialize()
+	. = ..()
+	radial_modes = list(
+		"Asteroid Terrain" = image(icon = 'icons/hud/mob/radial.dmi', icon_state = "wallfloor"),
+		"Deconstruct" = image(icon = 'icons/hud/mob/radial.dmi', icon_state = "delete")
+	)
+
+/obj/item/rfd/asteroid/attack_self(mob/user)
+	var/current_mode = RADIAL_INPUT(user, radial_modes)
+	switch(current_mode)
+		if("Asteroid Terrain")
+			mode = RFD_FLOORS_AND_WALL
+		if("Deconstruct")
+			mode = RFD_DECONSTRUCT
+	if(current_mode)
+		to_chat(user, SPAN_NOTICE("You switch the selection dial to <i>\"[current_mode]\"</i>."))
+		playsound(get_turf(src), 'sound/weapons/laser_safetyon.ogg', 50, FALSE)
+
+/obj/item/rfd/asteroid/afterattack(atom/A, mob/user, proximity)
+	if(!proximity)
+		return
+	if(!isturf(A) && !isturf(A.loc))
+		return
+	var/area/Area = get_area(A)
+	if(istype(Area, /turf/space/transit))
+		to_chat(user, SPAN_NOTICE("\The [src] can't be used here."))
+		return FALSE
+	// A deployed drydock ship's own piloting/helm area is /area/shuttle-typed
+	// (the shuttle-move system needs it to be), but it's the player's own
+	// vessel, not one of the station's round-critical shuttles.
+	if(istype(Area, /area/shuttle))
+		var/turf/target_turf = get_turf(A)
+		if(!target_turf || !GLOB.persistence_ship_z["[target_turf.z]"])
+			to_chat(user, SPAN_NOTICE("\The [src] can't be used here."))
+			return FALSE
+	if(Area.centcomm_area && get_effective_faction_rank(user, "hub") <= 0)
+		to_chat(user, SPAN_NOTICE("\The [src] can't be used here."))
+		return FALSE
+	return alter_atom(get_turf(A), user, (mode == RFD_DECONSTRUCT))
+
+/obj/item/rfd/asteroid/proc/alter_atom(var/turf/T, var/mob/user, var/deconstruct)
+	if(working)
+		return FALSE
+
+	build_type = null
+	build_atom = null
+
+	if(mode == RFD_FLOORS_AND_WALL)
+		if(istype(T, /turf/simulated/floor/exoplanet/asteroid/ash/rocky/buildable))
+			build_cost = 3
+			build_delay = 20
+			build_type = "asteroid wall"
+			build_atom = /turf/simulated/mineral/buildable
+		else if(istype(T, /turf/space) || istype(T, T.baseturf) || istype(T, /turf/simulated/open))
+			build_cost = 1
+			build_type = "asteroid floor"
+			build_atom = /turf/simulated/floor/exoplanet/asteroid/ash/rocky/buildable
+	else if(mode == RFD_DECONSTRUCT)
+		if(istype(T, /turf/simulated/mineral/buildable) || istype(T, /turf/simulated/floor/exoplanet/asteroid/ash/rocky/buildable))
+			build_cost = 3
+			build_delay = 20
+			build_type = "asteroid terrain"
+			build_atom = /turf/space
+
+	if(!build_type)
+		working = FALSE
+		return FALSE
+
+	if(stored_matter < build_cost)
+		to_chat(user, SPAN_NOTICE("The \"Matter Units Low\" light on the device blinks yellow."))
+		flick("[icon_state]-empty", src)
+		return FALSE
+
+	playsound(get_turf(src), 'sound/items/rfd_start.ogg', 50, FALSE)
+
+	working = TRUE
+	user.visible_message(SPAN_NOTICE("[user] holds \the [src] towards \the [T]."), SPAN_NOTICE("You start [deconstruct ? "deconstructing" : "constructing"] \a [build_type]..."))
+	var/obj/effect/constructing_effect/rfd_effect = new(T, src.build_delay, src.mode)
+
+	if((build_delay && !do_after(user, build_delay)) || (!useResource(build_cost, user)))
+		working = FALSE
+		rfd_effect.end_animation()
+		return FALSE
+
+	working = FALSE
+	if(build_delay && !can_use(user, T))
+		return FALSE
+
+	T.ChangeTurf(build_atom)
+
+	rfd_effect.end_animation()
+	playsound(get_turf(src), 'sound/items/rfd_end.ogg', 50, FALSE)
+	build_cost = null
+	build_delay = null
+	build_type = null
+	build_atom = null
+	return TRUE
+
 #undef STANDARD_PIPE
 #undef SUPPLY_PIPE
 #undef SCRUBBER_PIPE

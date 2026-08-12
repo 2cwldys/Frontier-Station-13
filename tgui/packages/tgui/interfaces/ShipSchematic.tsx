@@ -14,6 +14,7 @@ type ShipSchematicData = {
   title_holder_name?: string;
   reported_stolen?: BooleanLike;
   needs_rename?: BooleanLike;
+  away_from_home?: BooleanLike;
   shuttle_id?: number;
   save_in_progress?: BooleanLike;
   busy?: BooleanLike;
@@ -36,6 +37,7 @@ export const ShipSchematic = (props) => {
     title_holder_name,
     reported_stolen,
     needs_rename,
+    away_from_home,
     save_in_progress,
     busy,
     sub_shuttle_tags = [],
@@ -105,13 +107,23 @@ export const ShipSchematic = (props) => {
                 fluid
                 mt={1}
                 icon="box"
-                disabled={!!stashed || !!busy || !!save_in_progress}
+                disabled={
+                  !!stashed ||
+                  !!busy ||
+                  !!save_in_progress ||
+                  !!away_from_home ||
+                  !ready
+                }
                 tooltip={
                   busy
                     ? 'Retrieve/stash in progress -- please wait.'
                     : save_in_progress
                       ? 'World save in progress -- please wait.'
-                      : undefined
+                      : !ready
+                        ? 'This ship is still being retrieved -- wait until it is ready to board.'
+                        : away_from_home
+                          ? 'This ship is currently docked -- undock before stashing.'
+                          : undefined
                 }
                 onClick={() => act('stash')}
               >
@@ -124,12 +136,39 @@ export const ShipSchematic = (props) => {
                   fluid
                   mt={1}
                   icon="street-view"
-                  disabled={!can_board}
+                  disabled={!ready || !can_board}
+                  tooltip={
+                    !ready
+                      ? 'This ship is still being retrieved -- wait until it is ready to board.'
+                      : undefined
+                  }
                   onClick={() => act('board')}
                 >
-                  {can_board
+                  {!ready
                     ? 'Enter Ship'
-                    : `Enter Ship (${board_cooldown}s)`}
+                    : can_board
+                      ? 'Enter Ship'
+                      : `Enter Ship (${board_cooldown}s)`}
+                </Button>
+              )}
+              {sub_shuttle_tags.length > 0 && (
+                <Button
+                  fluid
+                  mt={1}
+                  icon="street-view"
+                  disabled={!ready || !can_board}
+                  tooltip={
+                    !ready
+                      ? 'This ship is still being retrieved -- wait until it is ready to board.'
+                      : undefined
+                  }
+                  onClick={() => act('board_subship')}
+                >
+                  {!ready
+                    ? 'Enter Sub-Ship'
+                    : can_board
+                      ? 'Enter Sub-Ship'
+                      : `Enter Sub-Ship (${board_cooldown}s)`}
                 </Button>
               )}
               <Button

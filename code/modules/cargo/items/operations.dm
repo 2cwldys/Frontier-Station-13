@@ -56,6 +56,20 @@
 	groupable = FALSE
 	spawn_amount = 1
 
+/singleton/cargo_item/shipshieldgenerator
+	category = "operations"
+	name = "shield generator"
+	supplier = "Hub"
+	description = "A reinforced generator that projects a deflector field around a ship's hull, absorbing incoming weapons fire until its capacity is exhausted. Requires a steady supply of phoron crystals to operate."
+	price = 500000
+	items = list(
+		/obj/structure/machinery/ship_shield_generator
+	)
+	access = 0
+	container_type = "crate"
+	groupable = FALSE
+	spawn_amount = 1
+
 /singleton/cargo_item/colonyradio
 	category = "operations"
 	name = "colony radio"

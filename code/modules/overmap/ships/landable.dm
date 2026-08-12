@@ -133,6 +133,15 @@
 /obj/effect/shuttle_landmark/ship/cannot_depart(datum/shuttle/shuttle)
 	if(LAZYLEN(visitors))
 		return "Grappled by other shuttle; cannot manouver."
+	// Same backref pattern this landmark type's own Destroy() already uses
+	// to reach its owning ship marker. Single choke point -- attempt_move()
+	// (shuttle.dm), process_launch() (shuttle_autodock.dm), and the
+	// console's own can_move() (shuttle_console.dm) all call cannot_depart()
+	// on this exact landmark, so one check here blocks every jump/dock path
+	// a tractored ship's own crew could otherwise use to escape.
+	var/obj/effect/overmap/visitable/ship/landable/ship = GLOB.map_sectors["[z]"]
+	if(istype(ship) && ship.tractored_by)
+		return "Held by an enemy tractor beam; cannot manouver."
 
 /obj/effect/shuttle_landmark/visiting_shuttle
 	landmark_flags = SLANDMARK_FLAG_AUTOSET | SLANDMARK_FLAG_ZERO_G
@@ -151,8 +160,8 @@
 	core_landmark = null
 	. = ..()
 
-/obj/effect/shuttle_landmark/visiting_shuttle/is_valid(datum/shuttle/shuttle)
-	. = ..()
+/obj/effect/shuttle_landmark/visiting_shuttle/is_valid(datum/shuttle/shuttle, list/reason_out, check_objects = TRUE)
+	. = ..(shuttle, reason_out, check_objects)
 	if(!.)
 		return
 	var/datum/shuttle/boss_shuttle = SSshuttle.shuttles[core_landmark.shuttle_name]
@@ -187,6 +196,66 @@
 	on_landing(from, into)
 
 /obj/effect/overmap/visitable/ship/landable/proc/on_landing(obj/effect/shuttle_landmark/from, obj/effect/shuttle_landmark/into)
+	// Safety net, not the real gate -- cannot_depart() (this file, the
+	// /ship landmark subtype above) is what actually stops a tractored ship
+	// from ever reaching a real dock/land in normal play. This just makes
+	// sure a lock can never survive one anyway, in case some unanticipated
+	// path lands here despite that.
+	if(tractored_by)
+		tractored_by._release_lock()
+
+	// Neither shields nor a cloak can be sustained at an away site -- silently
+	// switch both off rather than playing their usual offline sound/announcer,
+	// which would otherwise be heard by everyone else already on that site's
+	// own z. Covers pinned/persistent away sites too, since those are
+	// stamped with the same ZTRAIT_AWAY trait (is_away_level(),
+	// level_traits.dm). No back-reference var exists from the ship to its own
+	// cloak (unlike shield_generator, below) -- same SSmachinery.machinery
+	// scan _ship_gun.dm's own fire() already uses to force-uncloak a firing
+	// ship.
+	// Engines come off the moment we touch down anywhere -- a station pad or an
+	// away site alike -- rather than being left burning while parked. Clears
+	// the ship-wide toggle AND each engine individually: engines_state alone
+	// only gates new burns, and marker.engines (the datum/ship_engine registry)
+	// is not reliably populated, so the real machines are swept directly the
+	// same way _drydock_power_down_ship_systems() (persistence_shuttles.dm) has
+	// to.
+	engines_state = FALSE
+	for(var/datum/ship_engine/E as anything in engines)
+		if(E.is_on())
+			E.toggle()
+	for(var/zlevel in map_z)
+		for(var/obj/structure/machinery/atmospherics/unary/engine/nozzle in SSmachinery.machinery)
+			if(GET_Z(nozzle) == zlevel && nozzle.use_power)
+				nozzle.update_use_power(POWER_USE_OFF)
+		for(var/obj/structure/machinery/ion_engine/ion in SSmachinery.machinery)
+			if(GET_Z(ion) == zlevel && ion.on)
+				ion.on = FALSE
+	// Pre-sync the hum state so _update_engine_hum() (ship.dm) never sees this
+	// as an on->off TRANSITION, which is what queues the "engines powered off"
+	// voice line and the shutdown stinger. Docking is real turf relocation, so
+	// once landed the engine console is physically on the host site's own z --
+	// that announcer's GET_Z(M) != GET_Z(console) audience filter stops
+	// isolating our crew and broadcasts to everyone standing nearby. Same
+	// reasoning as the silent shield/cloak shutdown just below; a player
+	// toggling the engines by hand still gets the announcer normally.
+	// The hum loop is still stopped correctly -- that cleanup runs off
+	// engine_hum_listeners, outside the transition branch.
+	engine_hum_active = FALSE
+
+	if(is_away_level(into.z))
+		if(shield_generator && shield_generator.active)
+			shield_generator._set_active(FALSE, silent = TRUE)
+		for(var/obj/structure/machinery/ship_cloaking_device/CD in SSmachinery.machinery)
+			if(CD.linked != src || !CD.active)
+				continue
+			CD._set_active(FALSE, silent = TRUE)
+		// Same reasoning -- toggle_tractor() already refuses to ENGAGE the
+		// beam at an away site (ship_tractor_beam.dm), but doesn't cover
+		// flying there and landing while a lock from open space is still
+		// held; this is that other half.
+		if(tractor_beam && tractor_beam.active)
+			tractor_beam._release_lock(silent = TRUE)
 	var/obj/effect/overmap/visitable/target = GLOB.map_sectors["[into.z]"]
 	var/datum/shuttle/shuttle_datum = SSshuttle.shuttles[shuttle]
 	if(into.landmark_tag == shuttle_datum.motherdock) // If our motherdock is a landable ship, it won't be found properly here so we need to find it manually.

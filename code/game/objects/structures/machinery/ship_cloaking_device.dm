@@ -61,9 +61,18 @@
 	if(!SSatlas.current_map.use_overmap)
 		return FALSE
 	var/my_sector = GLOB.map_sectors["[GET_Z(src)]"]
-	if(istype(my_sector, /obj/effect/overmap/visitable))
-		return attempt_hook_up(my_sector)
-	return FALSE
+	if(!istype(my_sector, /obj/effect/overmap/visitable))
+		return FALSE
+	if(!attempt_hook_up(my_sector))
+		return FALSE
+	if(active)
+		// persistent_objects_apply_content() restores the raw `active` flag
+		// alone -- linked isn't guaranteed to exist yet at that point in the
+		// restore sequence, so the real effect (making the ship actually
+		// undetectable) couldn't be reapplied there. Do it now instead, the
+		// first time linked genuinely exists.
+		linked.set_cloaked(TRUE)
+	return TRUE
 
 /obj/structure/machinery/ship_cloaking_device/Destroy()
 	if(active && istype(linked))
@@ -118,14 +127,40 @@
 		if(!HasFuel())
 			to_chat(user, SPAN_WARNING("\The [src] has no phoron left to burn."))
 			return
+		if(_currently_at_away_site())
+			to_chat(user, SPAN_WARNING("\The [src] refuses to engage -- it can't cloak the ship at an away site."))
+			return
 	_set_active(!active)
+
+/// TRUE when this device's ship is genuinely, physically parked at an away
+/// site right now -- mirrors ship_shield_generator.dm's own
+/// _currently_at_away_site() exactly (see its doc comment for why
+/// current_location, not linked's own position, is the reliable source once
+/// a ship is actually docked, and why is_away_level() covers pinned sites
+/// too).
+/obj/structure/machinery/ship_cloaking_device/proc/_currently_at_away_site()
+	if(!istype(linked, /obj/effect/overmap/visitable/ship/landable))
+		return FALSE
+	var/obj/effect/overmap/visitable/ship/landable/VS = linked
+	var/datum/shuttle/shuttle_datum = SSshuttle.shuttles[VS.shuttle]
+	if(!istype(shuttle_datum) || !shuttle_datum.current_location)
+		return FALSE
+	return is_away_level(shuttle_datum.current_location.z)
 
 /obj/structure/machinery/ship_cloaking_device/proc/_set_active(new_state, silent = FALSE)
 	if(active == new_state)
 		return
 	active = new_state
+	if(active)
+		_disable_own_ship_shields()
 	if(istype(linked))
 		linked.set_cloaked(active)
+		// Z-scoped, not the whole world -- announce_to_ship_z() (ship_shield_generator.dm)
+		// is the same proc the shield generator uses for its own on/off lines. Deliberately
+		// NOT gated on `silent`: that flag only suppresses the generic text message above
+		// (fuel-out already prints its own more specific audible_message in process()), but
+		// the requested voice line should still play on every transition, fuel-out included.
+		announce_to_ship_z(linked.map_z, active ? 'sound/AI/announcements/cloak_online.ogg' : 'sound/AI/announcements/cloak_offline.ogg', 50, TRUE)
 	if(!silent)
 		visible_message(active \
 			? SPAN_NOTICE("\The [src] hums to life -- the air around the hull shimmers, then the ship seems to vanish.") \
@@ -134,6 +169,18 @@
 
 /obj/structure/machinery/ship_cloaking_device/update_icon()
 	set_light(active ? 2 : 0, 1, l_color = color)
+
+/// Symmetric with ship_shield_generator.dm's own _disable_own_ship_cloak() --
+/// a cloak and shields can't run at once, so activating the cloak
+/// force-drops any active shields on the same ship. linked here is generic
+/// (/obj/effect/overmap/visitable) since attempt_hook_up() isn't ship-typed;
+/// shield_generator only exists on the /ship subtype, hence the istype cast.
+/obj/structure/machinery/ship_cloaking_device/proc/_disable_own_ship_shields()
+	if(!istype(linked, /obj/effect/overmap/visitable/ship))
+		return
+	var/obj/effect/overmap/visitable/ship/VS = linked
+	if(istype(VS.shield_generator) && VS.shield_generator.active)
+		VS.shield_generator._set_active(FALSE)
 
 /obj/structure/machinery/ship_cloaking_device/attackby(obj/item/attacking_item, mob/user, params)
 	if(istype(attacking_item, sheet_path))
@@ -179,7 +226,35 @@
 	var/needed_sheets = power_output / time_per_sheet // fraction of a sheet burned per process() tick
 	data["seconds_per_sheet"] = time_per_sheet
 	data["seconds_remaining"] = (needed_sheets > 0) ? round((sheets + sheet_left) / needed_sheets) : null
+	data["at_away_site"] = _currently_at_away_site()
 	return data
+
+/**
+ * Persists the fuel hopper and on/off state across a ship's stash/retrieve
+ * cycle. objectsRegisterTrack() already happens for free (base
+ * /obj/structure/machinery/Initialize()) -- this was just never given any
+ * actual content to save, so every restore silently reset to the mapped
+ * defaults (0 fuel, off) regardless of what was actually loaded before
+ * stashing. cloak_lockout_until deliberately NOT persisted -- it's a
+ * world.time-relative cooldown that would be meaningless (or permanently
+ * stuck) after a real server restart.
+ */
+/obj/structure/machinery/ship_cloaking_device/persistent_objects_get_content()
+	var/list/content = ..()
+	content["active"] = active
+	content["sheets"] = sheets
+	content["sheet_left"] = sheet_left
+	return content
+
+/obj/structure/machinery/ship_cloaking_device/persistent_objects_apply_content(content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	sheets = content["sheets"] || 0
+	sheet_left = content["sheet_left"] || 0
+	// The raw flag only -- see _hook_up_to_ship() for why the actual cloak
+	// effect (linked.set_cloaked()) is reapplied there instead of here.
+	active = content["active"] || FALSE
 
 /obj/structure/machinery/ship_cloaking_device/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
 	. = ..()

@@ -680,6 +680,8 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 				continue
 			if(!(GET_Z(pod) in zs))
 				continue
+			if(persistence_turf_docked_elsewhere(get_turf(pod)))
+				continue
 			if(pod.persistent_network || pod.personal_ckey || pod.crew_tagged)
 				continue
 			pod.persistent_network = faction_uid
@@ -691,6 +693,8 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	try
 		for(var/obj/structure/machinery/telepad_cargo/pad in world)
 			if(!(GET_Z(pad) in zs))
+				continue
+			if(persistence_turf_docked_elsewhere(get_turf(pad)))
 				continue
 			if(pad.persistent_network || pad.personal_ckey || pad.crew_tagged)
 				continue
@@ -710,6 +714,8 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 				continue
 			if(istype(MC, /obj/item/modular_computer/handheld))
 				continue
+			if(persistence_turf_docked_elsewhere(get_turf(MC)))
+				continue
 			if(MC.persistent_network || MC.personal_ckey || MC.crew_tagged)
 				continue
 			MC.persistent_network = faction_uid
@@ -722,6 +728,8 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		for(var/obj/structure/machinery/telecomms/T in world)
 			if(!(GET_Z(T) in zs))
 				continue
+			if(persistence_turf_docked_elsewhere(get_turf(T)))
+				continue
 			if(T.persistent_network)
 				continue
 			T.persistent_network = faction_uid
@@ -732,6 +740,8 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	try
 		for(var/obj/structure/machinery/door/airlock/AL in world)
 			if(!(GET_Z(AL) in zs))
+				continue
+			if(persistence_turf_docked_elsewhere(get_turf(AL)))
 				continue
 			if(AL.req_access_faction || AL.crew_tagged)
 				continue
@@ -754,6 +764,8 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		for(var/obj/structure/machinery/autodoc/AD in world)
 			if(!(GET_Z(AD) in zs))
 				continue
+			if(persistence_turf_docked_elsewhere(get_turf(AD)))
+				continue
 			if(AD.persistent_network || AD.personal_ckey || AD.crew_tagged)
 				continue
 			AD.persistent_network = faction_uid
@@ -769,6 +781,8 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	try
 		for(var/obj/structure/machinery/r_n_d/server/RD in world)
 			if(!(GET_Z(RD) in zs))
+				continue
+			if(persistence_turf_docked_elsewhere(get_turf(RD)))
 				continue
 			if(RD.persistent_network)
 				continue
@@ -786,7 +800,12 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 				continue
 			var/on_z = FALSE
 			for(var/turf/AT in A.contents)
-				if(GET_Z(AT) in zs)
+				// A docked ship's own blueprint area gets its turfs reassigned
+				// onto the target Z for as long as it's parked there
+				// (translate_turfs(), shuttle.dm) -- exclude those so a docked-
+				// away ship's own area is never claimed for the station's
+				// faction just because it's temporarily sitting there.
+				if((GET_Z(AT) in zs) && !persistence_turf_docked_elsewhere(AT))
 					on_z = TRUE
 					break
 			if(!on_z)
@@ -799,6 +818,8 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	try
 		for(var/obj/structure/machinery/porta_turret/PT in world)
 			if(!(GET_Z(PT) in zs))
+				continue
+			if(persistence_turf_docked_elsewhere(get_turf(PT)))
 				continue
 			if(PT.persistent_network)
 				continue
@@ -829,6 +850,8 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 				continue
 			if(!(GET_Z(pod) in zs))
 				continue
+			if(persistence_turf_docked_elsewhere(get_turf(pod)))
+				continue
 			if(pod.persistent_network || pod.personal_ckey || pod.crew_tagged)
 				continue
 			pod.crew_tagged = TRUE
@@ -839,6 +862,8 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	try
 		for(var/obj/structure/machinery/telepad_cargo/pad in world)
 			if(!(GET_Z(pad) in zs))
+				continue
+			if(persistence_turf_docked_elsewhere(get_turf(pad)))
 				continue
 			if(pad.persistent_network || pad.personal_ckey || pad.crew_tagged)
 				continue
@@ -857,6 +882,8 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 				continue
 			if(istype(MC, /obj/item/modular_computer/handheld))
 				continue
+			if(persistence_turf_docked_elsewhere(get_turf(MC)))
+				continue
 			if(MC.persistent_network || MC.personal_ckey || MC.crew_tagged)
 				continue
 			MC.crew_tagged = TRUE
@@ -867,6 +894,8 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	try
 		for(var/obj/structure/machinery/door/airlock/AL in world)
 			if(!(GET_Z(AL) in zs))
+				continue
+			if(persistence_turf_docked_elsewhere(get_turf(AL)))
 				continue
 			if(AL.req_access_faction || AL.crew_tagged)
 				continue

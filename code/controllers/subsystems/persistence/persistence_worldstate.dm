@@ -503,7 +503,10 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		modcomp_restore_programs(json_decode(content["programs"]))
 
 /obj/structure/machinery/door/airlock
-	worldstate_vars = list("name", "welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access", "id_tag", "frequency", "crew_tagged", "emagged")
+	// "door_button_tag" -- so a link made via the buildable door button
+	// (blast_door_button.dm) survives a restart, same as "id_tag" already
+	// does for the cycler/legacy button systems.
+	worldstate_vars = list("name", "welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access", "id_tag", "frequency", "crew_tagged", "emagged", "persistent_network", "door_button_tag")
 
 /obj/structure/machinery/door/airlock/worldstate_get_content()
 	var/list/content = ..()
@@ -526,7 +529,13 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		set_frequency(frequency)
 
 /obj/structure/machinery/door/blast
-	worldstate_vars = list("density")
+	// "id" -- so a button link made via multitool (blast_door_button.dm's
+	// _link_door()) survives a restart; every other blast door still
+	// defaults to the class's own initial(id), unaffected.
+	worldstate_vars = list("density", "persistent_network", "id")
+
+/obj/structure/machinery/button/remote/blast_door/buildable
+	worldstate_vars = list("id")
 
 /obj/structure/machinery/power/smes
 	worldstate_vars = list("charge", "input_attempt", "input_level", "output_attempt", "output_level")
@@ -624,7 +633,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		set_frequency(frequency)
 
 /obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller
-	worldstate_vars = list("buildstage", "panel_open", "dir", "id_tag", "frequency", "tag_exterior_door", "tag_interior_door", "tag_airpump", "tag_airpumps", "tag_chamber_sensor", "tag_exterior_sensor", "tag_interior_sensor")
+	worldstate_vars = list("buildstage", "panel_open", "dir", "id_tag", "frequency", "tag_exterior_door", "tag_interior_door", "tag_exterior_doors", "tag_interior_doors", "tag_airpump", "tag_airpumps", "tag_chamber_sensor", "tag_exterior_sensor", "tag_interior_sensor", "persistent_network")
 
 /obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/worldstate_apply_content(list/content)
 	..()
@@ -781,6 +790,16 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	// be moved onto the restored frequency. Same override vent_pump uses.
 	if(frequency)
 		set_frequency(frequency)
+	// LateInitialize() (alarm.dm) already called apply_mode() once, using
+	// whatever `mode` was BEFORE this restore ever touched it -- SSatoms
+	// (init_order 30) finishes every LateInitialize() well before
+	// SSpersistence (init_order -10) runs at all, so that first call always
+	// propagated the class default, not the saved mode, to the room's own
+	// vents/scrubbers. The generic apply above just fixed `mode` itself, but
+	// never re-sends the signal -- without this, the alarm reads as
+	// correctly restored (its own mode var is right) while the room it
+	// controls keeps acting on the stale default indefinitely.
+	apply_mode()
 
 /obj/structure/machinery/power/portgen/basic
 	worldstate_vars = list("active", "open", "power_output", "sheets", "sheet_left", "anchored", "emagged")

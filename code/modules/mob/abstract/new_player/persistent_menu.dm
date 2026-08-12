@@ -40,6 +40,7 @@
 	var/ckey = user.client ? user.client.ckey : null
 
 	var/list/chars_out = list()
+	var/any_imprisoned = FALSE
 	if(ckey && GLOB.config.sql_saves && SSdbcore.Connect())
 		var/datum/db_query/cq = SSdbcore.NewQuery(
 			"SELECT name FROM ss13_characters WHERE ckey = :ckey AND deleted_at IS NULL ORDER BY id ASC",
@@ -52,13 +53,21 @@
 			entry["imprisoned"] = !!status
 			entry["indefinite"] = status ? !!status["indefinite"] : FALSE
 			entry["remaining_seconds"] = status ? status["remaining_seconds"] : 0
+			if(status)
+				any_imprisoned = TRUE
 			chars_out += list(entry)
 		qdel(cq)
 	data["characters"] = chars_out
+	// Blocks the empty-slot "Create Character" button while any of this
+	// ckey's characters is imprisoned -- otherwise a fresh alt in another
+	// slot is a trivial way to sidestep an active sentence entirely, same
+	// motivation as blocking Delete on the imprisoned character itself
+	// (see "delete_char"/"create" below).
+	data["any_imprisoned"] = any_imprisoned
 
 	var/slot_limit = ckey ? persistence_get_character_slots(ckey) : 1
 	data["slot_limit"]        = slot_limit
-	data["can_create"]        = length(chars_out) < slot_limit
+	data["can_create"]        = length(chars_out) < slot_limit && !any_imprisoned
 	data["persistence_ready"] = GLOB.persistence_ready
 	data["save_in_progress"]  = SSpersistence.save_in_progress ? TRUE : FALSE
 	// Whitelist gate mirrors enter_allowed: applies to non-admins only
@@ -126,6 +135,13 @@
 		if("create")
 			if(!NP.client) return
 			var/ckey = NP.client.ckey
+			// Defense-in-depth, same reasoning as "play"/"delete_char" below --
+			// the frontend already greys Create out for this, but never trust
+			// client-side disabling alone. A fresh alt in an empty slot would
+			// otherwise be a trivial way to sidestep an active sentence.
+			if(persistence_ckey_has_imprisoned_character(ckey))
+				to_chat(NP, SPAN_WARNING("You are imprisoned."))
+				return TRUE
 			var/slot_limit = persistence_get_character_slots(ckey)
 			var/char_count = 0
 			if(GLOB.config.sql_saves && SSdbcore.Connect())
@@ -175,6 +191,14 @@
 			if(!char_name) return
 			var/ckey = NP.client ? NP.client.ckey : null
 			if(!ckey) return
+			// Defense-in-depth, same reasoning as "play" above -- the frontend
+			// already greys Delete out for this, but never trust client-side
+			// disabling alone. Deleting the character outright would otherwise
+			// free the slot and dodge the sentence entirely, worse than just
+			// switching to an alt.
+			if(persistence_character_imprisonment_status(ckey, char_name))
+				to_chat(NP, SPAN_WARNING("You are imprisoned."))
+				return TRUE
 			var/confirm = tgui_alert(NP, "Permanently delete '[char_name]'? This cannot be undone.", "Delete Character", list("Delete", "Cancel"))
 			if(confirm != "Delete") return TRUE
 			if(GLOB.config.sql_saves && SSdbcore.Connect())

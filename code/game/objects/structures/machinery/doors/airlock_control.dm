@@ -8,6 +8,14 @@
 	var/tmp/datum/radio_frequency/radio_connection
 	var/tmp/cur_command = null	//the command the door is currently attempting to complete
 	var/tmp/waiting_for_roundstart
+	/// Dedicated tag for the buildable, multitool-linked door button
+	/// (blast_door_button.dm) -- deliberately NOT id_tag, which is already
+	/// shared by the legacy remote button (door_control.dm) and the airlock
+	/// cycler system (_link_to_controller() below, which snapshots id_tag
+	/// into the controller's own tag_exterior_door/tag_interior_door
+	/// fields) -- reusing id_tag here would desync a cycler-managed door's
+	/// link the moment this button linked it too.
+	var/door_button_tag
 
 /obj/structure/machinery/door/airlock/receive_signal(datum/signal/signal)
 	if (!arePowerSystemsOn()) return //no power
@@ -142,6 +150,16 @@
 /obj/structure/machinery/door/airlock/attackby(obj/item/attacking_item, mob/user, params)
 	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
 		var/obj/item/multitool/MT = attacking_item
+		// Buffered door button (blast_door_button.dm) -- checked first, same
+		// non-invasive "extra consumer type" shape as the controller check
+		// right below, so buffering this door either applies just the same
+		// (whichever the multitool is used on second decides which link
+		// happens; neither check touches the other).
+		var/obj/structure/machinery/button/remote/blast_door/buildable/door_button = MT.get_buffer(/obj/structure/machinery/button/remote/blast_door/buildable)
+		if(door_button)
+			door_button._link_airlock(src, user)
+			MT.set_buffer(null)
+			return TRUE
 		var/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller = MT.get_buffer(/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller)
 		if(!controller)
 			MT.set_buffer(src)
@@ -152,27 +170,107 @@
 		return TRUE
 	return ..()
 
+/// Unlinks src from controller if it's currently linked anywhere -- primary
+/// or extra slot, either side. Returns TRUE if it was linked (and has now
+/// been unlinked), FALSE if it wasn't linked at all.
+/obj/structure/machinery/door/airlock/proc/_unlink_from_controller(obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller, mob/user)
+	if(controller.tag_exterior_door == id_tag)
+		controller.tag_exterior_door = null
+		to_chat(user, SPAN_NOTICE("You unlink \the [src] from \the [controller] (was its primary exterior door)."))
+		return TRUE
+	if(controller.tag_interior_door == id_tag)
+		controller.tag_interior_door = null
+		to_chat(user, SPAN_NOTICE("You unlink \the [src] from \the [controller] (was its primary interior door)."))
+		return TRUE
+	if(id_tag in controller.tag_exterior_doors)
+		controller.tag_exterior_doors -= id_tag
+		to_chat(user, SPAN_NOTICE("You unlink \the [src] from \the [controller] (was an exterior door)."))
+		return TRUE
+	if(id_tag in controller.tag_interior_doors)
+		controller.tag_interior_doors -= id_tag
+		to_chat(user, SPAN_NOTICE("You unlink \the [src] from \the [controller] (was an interior door)."))
+		return TRUE
+	return FALSE
+
+/// Drops every remote link this door currently has, because it just changed
+/// hands. Without it, links made while the door was untagged outlive the tag:
+/// someone wires a door to their own button, a faction then claims the door,
+/// and that button still opens it from outside the faction. The link guards
+/// only stop links being CHANGED -- they cannot retroactively invalidate one
+/// that already exists, so the retag has to do it.
+///
+/// Covers both link systems a door can be part of: the remote door button
+/// (door_button_tag) and an airlock cycler (master_tag plus whichever of the
+/// controller's own door slots names this door's id_tag).
+/obj/structure/machinery/door/airlock/proc/_clear_links_on_faction_change(mob/user, old_uid)
+	var/cleared = 0
+	if(door_button_tag)
+		door_button_tag = null
+		cleared++
+	// An airlock has no master_tag of its own (unlike sensors and access
+	// buttons) -- its cycler membership lives entirely in the controller's own
+	// door slots, so that is the only place to clear it from.
+	if(id_tag)
+		for(var/obj/structure/machinery/embedded_controller/radio/airlock/C in SSmachinery.machinery)
+			if(C.tag_exterior_door == id_tag)
+				C.tag_exterior_door = null
+				cleared++
+			if(C.tag_interior_door == id_tag)
+				C.tag_interior_door = null
+				cleared++
+			if(id_tag in C.tag_exterior_doors)
+				C.tag_exterior_doors -= id_tag
+				cleared++
+			if(id_tag in C.tag_interior_doors)
+				C.tag_interior_doors -= id_tag
+				cleared++
+	if(cleared && user)
+		to_chat(user, SPAN_WARNING("\The [src] changed hands -- its remote button and cycler links have been cleared."))
+	if(cleared)
+		log_game("Airlock at [COORD(src)] changed faction ('[old_uid || "unassigned"]' -> '[persistent_network || "unassigned"]'), clearing [cleared] link(s).")
+
 /obj/structure/machinery/door/airlock/proc/_link_to_controller(obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller, mob/user)
+	// Reached from BOTH directions -- multitooling the controller with this
+	// door buffered, and multitooling this door with the controller buffered.
+	// The controller's own attackby() guards the first; this guards the second.
+	if(!controller.can_modify_links(user))
+		to_chat(user, SPAN_WARNING("\The [controller] is tagged to [get_faction_name(controller.persistent_network)] -- you are not employed there, so you cannot link to it."))
+		return
+	// The DOOR's own tag matters too, not just the controller's. Otherwise a
+	// faction's exterior/interior airlock could be pulled into a cycler by
+	// someone outside that faction, handing them control of it through the
+	// cycler instead of directly.
+	if(!can_rewire_faction_device(user, persistent_network))
+		to_chat(user, SPAN_WARNING("\The [src] is tagged to [get_faction_name(persistent_network)] -- you are not employed there, so you cannot wire it to a cycler."))
+		return
 	_ensure_id_tag()
 	controller._ensure_id_tag()
-	if(controller.tag_exterior_door == id_tag || controller.tag_interior_door == id_tag)
-		var/slot = (controller.tag_exterior_door == id_tag) ? "exterior" : "interior"
-		if(controller.tag_exterior_door == id_tag)
-			controller.tag_exterior_door = null
-		if(controller.tag_interior_door == id_tag)
-			controller.tag_interior_door = null
-		to_chat(user, SPAN_NOTICE("You unlink \the [src] from \the [controller] (was its [slot] door)."))
+	if(_unlink_from_controller(controller, user))
+		return
+
+	// A chamber can have more than one door on a side (see
+	// get_exterior_door_tags()/get_interior_door_tags(), airlock_controllers.dm)
+	// -- ask which side this one joins instead of auto-picking whichever
+	// singular slot happens to be empty, and append instead of refusing once
+	// the primary slot is already filled.
+	var/choice = tgui_alert(user, "Link \the [src] to \the [controller] as which door?", "Airlock Cycler", list("Exterior", "Interior"))
+	if(QDELETED(src) || QDELETED(user) || QDELETED(controller) || !user.Adjacent(src))
+		return
+	if(!choice)
 		return
 	var/slot
-	if(!controller.tag_exterior_door)
-		controller.tag_exterior_door = id_tag
+	if(choice == "Exterior")
 		slot = "exterior"
-	else if(!controller.tag_interior_door)
-		controller.tag_interior_door = id_tag
-		slot = "interior"
+		if(!controller.tag_exterior_door)
+			controller.tag_exterior_door = id_tag
+		else
+			LAZYDISTINCTADD(controller.tag_exterior_doors, id_tag)
 	else
-		to_chat(user, SPAN_WARNING("\The [controller] already has both an exterior and interior door assigned -- unlink one first."))
-		return
+		slot = "interior"
+		if(!controller.tag_interior_door)
+			controller.tag_interior_door = id_tag
+		else
+			LAZYDISTINCTADD(controller.tag_interior_doors, id_tag)
 	set_frequency(controller.frequency)
 	// Mapped cyclers lock() both doors as part of their marker-driven setup
 	// (map_effects/marker/airlock_.dm) -- the multitool link flow never did,
@@ -184,7 +282,7 @@
 	// assumption instead of reality, and close_doors() silently never
 	// corrects it. Lock for real here so cache and reality start in sync.
 	lock()
-	to_chat(user, SPAN_NOTICE("You link \the [src] to \the [controller] as its [slot] door and tune it to the controller's frequency."))
+	to_chat(user, SPAN_NOTICE("You link \the [src] to \the [controller] as an [slot] door and tune it to the controller's frequency."))
 
 /obj/structure/machinery/airlock_sensor
 	name = "airlock sensor"
@@ -337,6 +435,9 @@
 /// subtype (see get_sensor_slot()) so the controller listens to this
 /// sensor's passive pressure reports.
 /obj/structure/machinery/airlock_sensor/proc/_link_to_controller(obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller, mob/user)
+	if(!controller.can_modify_links(user))
+		to_chat(user, SPAN_WARNING("\The [controller] is tagged to [get_faction_name(controller.persistent_network)] -- you are not employed there, so you cannot link to it."))
+		return
 	_ensure_id_tag()
 	controller._ensure_id_tag()
 	var/linked = (master_tag == controller.id_tag) || (controller.tag_chamber_sensor == id_tag) || (controller.tag_exterior_sensor == id_tag) || (controller.tag_interior_sensor == id_tag)
@@ -607,6 +708,9 @@
 /// "cycle_interior"/"cycle_exterior" on the door-side preset subtypes below)
 /// is untouched by linking -- that's fixed by which subtype was built.
 /obj/structure/machinery/access_button/proc/_link_to_controller(obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller, mob/user)
+	if(!controller.can_modify_links(user))
+		to_chat(user, SPAN_WARNING("\The [controller] is tagged to [get_faction_name(controller.persistent_network)] -- you are not employed there, so you cannot link to it."))
+		return
 	controller._ensure_id_tag()
 	if(master_tag == controller.id_tag)
 		master_tag = null

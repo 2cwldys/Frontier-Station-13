@@ -36,6 +36,25 @@
 	can_pass_under = FALSE
 	light_power_on = 1
 
+/// Cargo-orderable variant a player can build into their own commissioned
+/// hull (ship_commissioning_console.dm) -- unlike the mapped-in base type
+/// above (always pre-anchored), this one starts loose like every other kit
+/// part and needs a wrench first. Required at commission time
+/// (_drydockCommissionRun(), persistence_shuttles.dm) -- without one, the
+/// hull has no way to actually pilot itself on the overmap once
+/// commissioned (shuttle_control alone only ever offers point-to-point
+/// docking, not real flight).
+/obj/structure/machinery/computer/ship/helm/terminal/buildable
+	anchored = FALSE
+
+/obj/structure/machinery/computer/ship/helm/terminal/buildable/attackby(obj/item/attacking_item, mob/user, params)
+	if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		attacking_item.play_tool_sound(get_turf(src), 50)
+		anchored = !anchored
+		to_chat(user, anchored ? SPAN_NOTICE("Helm console secured in place.") : SPAN_NOTICE("Helm console unsecured."))
+		return TRUE
+	return ..(attacking_item, user, params)
+
 /obj/structure/machinery/computer/ship/helm/Initialize()
 	. = ..()
 	get_known_sectors()
@@ -110,6 +129,20 @@
 			// All other cases, move toward direction
 			else if (speed + acceleration <= speedlimit)
 				connected.accelerate(direction, accellimit)
+			// accelerate()/decelerate() only ever touch the velocity vector,
+			// never dir -- combined with set_dir_on_move = FALSE
+			// (overmap_object.dm) that left an autopiloting ship's sprite
+			// frozen at whatever direction it was last manually turned to,
+			// visibly floating sideways/backwards toward its destination
+			// instead of facing it. get_heading() (ship.dm) is the same
+			// heading-from-velocity calc combat_turn() already uses for
+			// manual piloting; only apply it when it resolves to an actual
+			// direction (0 while functionally stationary, e.g. mid-brake) so
+			// a stopped ship keeps facing wherever it last pointed instead of
+			// snapping to an invalid dir.
+			var/new_heading = connected.get_heading()
+			if(new_heading)
+				connected.dir = new_heading
 	for(var/obj/item/clothing/head/helmet/pilot/PH as anything in linked_helmets)
 		PH.set_hud_maptext("| Ship Status | [connected.x]-[connected.y] |<br>Speed: [round(connected.get_speed()*1000, 0.01)] | Acceleration: [get_acceleration()]<br>ETA to Next Grid: [get_eta()]")
 		PH.check_ship_overlay(PH.loc, connected)
@@ -189,8 +222,12 @@
 	// instead of always requiring manual x/y entry (setx/sety/add) for a
 	// target already visible on-screen. Reuses the existing "xy" action
 	// (below) -- no new ui_act needed, just this extra data.
+	// Base /obj/effect/overmap, not /visitable -- see the matching comment in
+	// sensors.dm's ui_data() for why (a non-visitable marker like a Supply
+	// Beacon was previously excluded here by declared loop-variable type
+	// alone, despite being scannable/detectable).
 	var/list/nearby_contacts = list()
-	for(var/obj/effect/overmap/visitable/nearby in view(7, connected))
+	for(var/obj/effect/overmap/nearby in view(7, connected))
 		if(nearby == connected || !nearby.scannable || !nearby.is_detectable(user))
 			continue
 		nearby_contacts += list(list("name" = nearby.name, "x" = nearby.x, "y" = nearby.y))
@@ -374,6 +411,22 @@
 	has_off_keyboards = TRUE
 	can_pass_under = FALSE
 	light_power_on = 1
+
+/// Cargo-orderable variant a player can build into their own commissioned
+/// hull -- same convention as helm/terminal/buildable above. Purely
+/// optional -- not required at commission time (helm alone is), this is
+/// the display-only companion console some players may still want for its
+/// own sake.
+/obj/structure/machinery/computer/ship/navigation/terminal/buildable
+	anchored = FALSE
+
+/obj/structure/machinery/computer/ship/navigation/terminal/buildable/attackby(obj/item/attacking_item, mob/user, params)
+	if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		attacking_item.play_tool_sound(get_turf(src), 50)
+		anchored = !anchored
+		to_chat(user, anchored ? SPAN_NOTICE("Navigation console secured in place.") : SPAN_NOTICE("Navigation console unsecured."))
+		return TRUE
+	return ..(attacking_item, user, params)
 
 /obj/structure/machinery/computer/ship/navigation/attack_hand(mob/user)
 	if(stat & (NOPOWER|BROKEN))

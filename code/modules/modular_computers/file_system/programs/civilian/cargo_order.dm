@@ -26,6 +26,33 @@
 		return FALSE
 	return piracy_beacon_active_on_z(GET_Z(computer))
 
+/// TRUE if this console may see and order ci.
+///
+/// The single gate for faction-exclusive equipment (restricted_to_faction,
+/// cargo_items.dm). Unrestricted items always pass, so every pre-existing item
+/// is unaffected. A restricted item needs this console shackled to one of the
+/// factions named on it -- accepting either a single uid or a list, so a piece
+/// of kit can be shared between allied factions without duplicating the entry.
+///
+/// Called from BOTH the listing and the order path. Filtering the listing alone
+/// is a UI convenience, not a gate: the order action takes an item name straight
+/// from params and would otherwise honour a hand-crafted request for something
+/// the console was never shown.
+/datum/computer_file/program/civilian/cargoorder/proc/_can_order_faction_item(singleton/cargo_item/ci)
+	if(!ci || !ci.restricted_to_faction)
+		return TRUE
+	if(!computer || !computer.persistent_network)
+		return FALSE
+	var/console_uid = normalize_faction_uid(computer.persistent_network)
+	if(!console_uid)
+		return FALSE
+	if(islist(ci.restricted_to_faction))
+		for(var/allowed_uid in ci.restricted_to_faction)
+			if(console_uid == normalize_faction_uid(allowed_uid))
+				return TRUE
+		return FALSE
+	return console_uid == normalize_faction_uid(ci.restricted_to_faction)
+
 /datum/computer_file/program/civilian/cargoorder/ui_data(mob/user)	//Check if a cargo order exists. If not create a new one
 	if(!co)
 		var/datum/cargo_order/crord = new
@@ -137,11 +164,20 @@
 
 		//Pass a list of items in the selected category
 		data["category_items"] = selected_category ? SScargo.get_items_for_category(selected_category) : list()
-		if(!can_order_syndicate_uplink())
-			for(var/list/entry in data["category_items"])
-				var/singleton/cargo_item/ci = SScargo.cargo_items[entry["name"]]
-				if(ci?.requires_piracy_beacon)
-					data["category_items"] -= entry
+		// Resolved once, not per item: ui_data() polls continuously and
+		// piracy_beacon_active_on_z() walks GLOB.piracy_beacons every call.
+		var/uplink_ok = can_order_syndicate_uplink()
+		for(var/list/entry in data["category_items"])
+			var/singleton/cargo_item/ci = SScargo.cargo_items[entry["name"]]
+			if(!ci)
+				continue
+			if(ci.requires_piracy_beacon && !uplink_ok)
+				data["category_items"] -= entry
+				continue
+			// Faction-exclusive equipment stays invisible to every console but
+			// its owners' -- a rival should not even learn it exists.
+			if(!_can_order_faction_item(ci))
+				data["category_items"] -= entry
 
 	else if (page == "tracking")
 		data["tracking_id"] = user_tracking_id
@@ -292,6 +328,13 @@
 			if(ci?.requires_piracy_beacon && !can_order_syndicate_uplink())
 				status_message = "Unable to locate item in sales database - Internal Error 602."
 				LOG_DEBUG("Cargo Order: Warning - Attempted to order piracy-beacon-gated item [ci.name] without an eligible console.")
+				qdel(coi)
+				return TRUE
+			// Same wording as above deliberately: a rival console learns nothing
+			// about the item's existence from the refusal.
+			if(!_can_order_faction_item(ci))
+				status_message = "Unable to locate item in sales database - Internal Error 602."
+				LOG_DEBUG("Cargo Order: Warning - Attempted to order faction-restricted item [ci.name] from a console not shackled to an eligible faction.")
 				qdel(coi)
 				return TRUE
 #ifdef FACTION_CARGO_SPECIALIZATION

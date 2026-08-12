@@ -154,6 +154,16 @@
 				marker.invisibility = 0
 				marker.alpha = 255
 				marker.mouse_opacity = MOUSE_OPACITY_ICON
+				// The appearance copy above can't see the shield generator's
+				// overmap_bubble -- it's vis_contents-attached to O, not part
+				// of its .appearance (see get_shield_bubble_overlay()). Stamp
+				// a fresh copy of its current look onto this marker every
+				// refresh instead.
+				if(istype(O, /obj/effect/overmap/visitable/ship))
+					var/obj/effect/overmap/visitable/ship/S = O
+					var/bubble_overlay = S.get_shield_bubble_overlay()
+					if(bubble_overlay)
+						marker.AddOverlays(bubble_overlay)
 				viewing_user.client.images += marker
 				sensor_images += marker
 
@@ -185,6 +195,9 @@
 		return COMSIG_MOB_CANCEL_CLICKON
 	if(!current || get_dist(current, target) > POD_WARP_RANGE || !length(target.map_z))
 		to_chat(source, SPAN_WARNING("\The [target] is out of jump range."))
+		return COMSIG_MOB_CANCEL_CLICKON
+	if(ship_shields_block_travel(target, source))
+		to_chat(source, SPAN_WARNING("\The [target]'s shields are still up -- it cannot be primed as a jump destination."))
 		return COMSIG_MOB_CANCEL_CLICKON
 	primed_ref = "\ref[target]"
 	to_chat(source, SPAN_GOOD("Primed [target.name] as the jump destination."))

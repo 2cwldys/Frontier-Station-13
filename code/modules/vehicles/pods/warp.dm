@@ -45,6 +45,9 @@
 	if(!destination)
 		to_chat(user, SPAN_WARNING("No jump destination primed -- use Sector View to select one."))
 		return FALSE
+	if(ship_shields_block_travel(destination, user))
+		to_chat(user, SPAN_WARNING("\The [destination]'s shields are still up -- bluespace calibration cannot lock onto its interior."))
+		return FALSE
 	if(world.time < last_jump + POD_JUMP_COOLDOWN)
 		to_chat(user, SPAN_WARNING("\The [src] hasn't finished recharging."))
 		return FALSE
@@ -81,6 +84,10 @@
 	if(!destination)
 		qdel(blip)
 		to_chat(user, SPAN_WARNING("The jump destination is no longer valid."))
+		return FALSE
+	if(ship_shields_block_travel(destination, user))
+		qdel(blip)
+		to_chat(user, SPAN_WARNING("\The [destination]'s shields came back up -- the jump is aborted."))
 		return FALSE
 	// The specific landing turf picked before the spool can also go stale
 	// (something else may have moved onto/claimed it since) -- re-check it's

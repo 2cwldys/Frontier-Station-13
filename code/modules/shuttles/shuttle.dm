@@ -106,7 +106,14 @@
 			return
 
 		moving_status = SHUTTLE_INTRANSIT //shouldn't matter but just to be safe
-		attempt_move(destination)
+		// Return value was previously discarded entirely -- a refused move left
+		// the ship at home while the autodock state machine went on to report a
+		// successful arrival. Same defect long_jump() had.
+		var/list/jump_refusal = list()
+		if(!destination.is_valid(src, jump_refusal) || !attempt_move(destination))
+			var/datum/shuttle/autodock/failed = src
+			if(istype(failed))
+				failed._report_launch_abort(jump_refusal)
 		moving_status = SHUTTLE_IDLE
 
 /datum/shuttle/proc/long_jump(var/obj/effect/shuttle_landmark/destination, var/obj/effect/shuttle_landmark/interim, var/travel_time)
@@ -133,21 +140,45 @@
 
 		arrive_time = world.time + travel_time*10
 		moving_status = SHUTTLE_INTRANSIT
-		if(attempt_move(interim))
+		// The transit hop is a visual nicety, NOT a prerequisite. It used to
+		// wrap this entire block, so a failed hop silently skipped the whole
+		// jump and dropped straight to SHUTTLE_IDLE -- which the autodock
+		// state machine then read as a completed arrival, announcing "Arriving
+		// at destination" for a ship that never left home. Template sub-ships
+		// dodge this entirely by having no landmark_transition at all and
+		// short_jump()ing straight to the destination; if our transit hop
+		// can't happen, degrade to exactly that rather than abandoning the
+		// jump.
+		var/reached_interim = attempt_move(interim)
+		if(reached_interim)
 			on_move_interim()
-			var/fwooshed = 0
-			destination.deploy_landing_indicators(src)
-			while (world.time < arrive_time)
-				if(moving_status == SHUTTLE_IDLE)
-					destination.clear_landing_indicators()
-					return //someone force-recalled us mid-flight
-				if(!fwooshed && (arrive_time - world.time) < 100)
-					fwooshed = 1
-					playsound(destination, sound_landing, 50, 20)
-				sleep(5)
-			if(!attempt_move(destination))
+		var/fwooshed = 0
+		destination.deploy_landing_indicators(src)
+		while (world.time < arrive_time)
+			if(moving_status == SHUTTLE_IDLE)
 				destination.clear_landing_indicators()
-				attempt_move(start_location) //try to go back to where we started. If that fails, I guess we're stuck in the interim location
+				return //someone force-recalled us mid-flight
+			if(!fwooshed && (arrive_time - world.time) < 100)
+				fwooshed = 1
+				playsound(destination, sound_landing, 50, 20)
+			sleep(5)
+		var/list/jump_refusal = list()
+		if(!destination.is_valid(src, jump_refusal) || !attempt_move(destination))
+			destination.clear_landing_indicators()
+			var/datum/shuttle/autodock/failed = src
+			if(istype(failed))
+				failed._report_launch_abort(jump_refusal)
+			// Recovery is ONLY for being genuinely stranded at the interim
+			// landmark with nowhere to be -- never for undoing the player's
+			// own departure. Re-docking at start_location is what flew a ship
+			// straight back onto the beacon it had just undocked from, on
+			// every single attempt, with no way to escape.
+			//
+			// A ship left sitting in transit/open space is a recoverable
+			// situation the player can fly out of; a ship forcibly re-docked
+			// at the place it is trying to leave is a trap.
+			if(reached_interim && current_location == interim && istype(start_location, /obj/effect/shuttle_landmark/ship))
+				attempt_move(start_location) //only ever back to our OWN open space, never back onto a dock
 
 		moving_status = SHUTTLE_IDLE
 
@@ -159,6 +190,35 @@
 * Shuttle Pre Move Handling * (Observer Pattern Implementation: Shuttle Pre Move)
 *****************/
 
+/// The turfs that genuinely make up this hull right now.
+///
+/// shuttle_area holds area INSTANCES, and BYOND areas are singletons -- so if
+/// anything ever stamps one of our areas onto turfs somewhere else (a vacated
+/// home whose base_area resolved to the ship's own area, say), A.contents
+/// silently starts reporting two footprints as though both were the ship.
+///
+/// Feeding that straight into get_turf_translation() is catastrophic rather
+/// than merely wrong: both footprints get translated by the same offset, so the
+/// leftover's sources are the very turfs the real hull is arriving on.
+/// translate_turfs() then transports the newly-landed hull straight back out
+/// again and reverts those turfs -- its second loop reverts every source
+/// unconditionally -- leaving the contents loose on bare space with no hull
+/// around them.
+///
+/// The hull is always where current_location is, so anything of ours outside
+/// that z-range is leftover and must never enter a translation.
+/datum/shuttle/proc/get_hull_turfs()
+	. = list()
+	var/turf/here = get_turf(current_location)
+	if(!here)
+		return
+	var/lowest_z = here.z - multiz
+	for(var/area/A in shuttle_area)
+		for(var/turf/T in A.contents)
+			if(T.z > here.z || T.z < lowest_z)
+				continue
+			. += T
+
 /datum/shuttle/proc/attempt_move(var/obj/effect/shuttle_landmark/destination)
 	if(current_location == destination)
 		return FALSE
@@ -168,10 +228,41 @@
 	if(current_location.cannot_depart(src))
 		return FALSE
 	testing("[src] moving to [destination]. Areas are [english_list(shuttle_area)]")
-	var/list/translation = list()
-	for(var/area/A in shuttle_area)
-		testing("Moving [A]")
-		translation += get_turf_translation(get_turf(current_location), get_turf(destination), A.contents)
+	var/list/hull = get_hull_turfs()
+	// A shuttle with no hull turfs is a BUG, never a valid move. Without this
+	// the failure is silent and catastrophic: an empty translation sails through
+	// check_collision() (its loop never runs, so it reports "no collision"),
+	// translate_turfs() moves nothing, and yet current_location is still updated
+	// and TRUE returned. The bookkeeping then claims the ship is home while the
+	// hull is physically still where it was -- a phantom move.
+	//
+	// Stashing on the back of that is unrecoverable: the ship reads as home, the
+	// recall is skipped, shipInteriorSave() captures an EMPTY z, and the teardown
+	// wipes it, leaving the real hull orphaned wherever it actually sits. Refuse
+	// loudly instead, so the ship simply doesn't move and stays recoverable.
+	if(!length(hull))
+		var/turf/hull_search_at = get_turf(current_location)
+		log_world("SHUTTLE: '[name]' refused a move to [destination] -- it has NO hull turfs (its areas [english_list(shuttle_area)] cover nothing at z=[hull_search_at ? hull_search_at.z : "?"]). Area membership has been lost; the ship must not be moved or stashed until this is resolved.")
+		return FALSE
+	var/list/translation = get_turf_translation(get_turf(current_location), get_turf(destination), hull)
+	// An OVERLAPPING move -- one where a turf is both a source and a target --
+	// is something translate_turfs() cannot perform safely under any
+	// circumstances. Such a turf has contents transported INTO it by one pair
+	// and then transported back out (or reverted to base_turf by the second,
+	// unconditional loop) by another, with the outcome decided purely by
+	// iteration order. The hull is shredded rather than relocated.
+	//
+	// This is reachable in normal play: a landmark_transition mapped on the
+	// ship's OWN z (player_built_shuttle.dm) sits close enough to the home
+	// landmark that hopping between them overlaps the hull with itself. Refuse
+	// instead of attempting it -- and never "fix" that refusal by letting
+	// check_collision() ignore the mover's own hull, which is the change that
+	// destroyed a live crewed ship.
+	for(var/turf/source in translation)
+		var/turf/target = translation[source]
+		if(target && (target in translation))
+			log_world("SHUTTLE: '[name]' refused a move to [destination] -- the destination footprint overlaps the hull's own current position.")
+			return FALSE
 	var/old_location = current_location
 	GLOB.shuttle_pre_move_event.raise_event(src, old_location, destination)
 	shuttle_moved(destination, translation)
@@ -327,3 +418,39 @@
 	shuttle_area -= area_to_remove
 	if(!length(shuttle_area))
 		qdel(src)
+
+/// This shuttle's own hull footprint in tiles (width, height), spanning
+/// every turf across every area in shuttle_area -- used by size-gated
+/// docking landmarks (shuttle_landmark/player_dock's max_footprint_x/y,
+/// docking_beacon.dm) to reject an oversized ship before it's ever offered
+/// as a destination. Returns list(0, 0) for a shuttle with no area turfs at
+/// all (shouldn't normally happen, but a 0x0 footprint fails every size
+/// check safely rather than passing one it shouldn't).
+/datum/shuttle/proc/get_footprint()
+	var/min_x; var/max_x
+	var/min_y; var/max_y
+	for(var/area/A in shuttle_area)
+		for(var/turf/T in get_area_turfs(A))
+			if(isnull(min_x) || T.x < min_x)
+				min_x = T.x
+			if(isnull(max_x) || T.x > max_x)
+				max_x = T.x
+			if(isnull(min_y) || T.y < min_y)
+				min_y = T.y
+			if(isnull(max_y) || T.y > max_y)
+				max_y = T.y
+	if(isnull(min_x))
+		return list(0, 0)
+	return list(max_x - min_x + 1, max_y - min_y + 1)
+
+/// The first docking_transponder found anywhere across this shuttle's own
+/// shuttle_area, or null if it doesn't carry one -- used by
+/// player_dock/is_valid() (docking_beacon.dm) for the opt-in facing check.
+/// Same area/turf iteration shape as get_footprint() just above.
+/datum/shuttle/proc/find_docking_transponder()
+	for(var/area/A in shuttle_area)
+		for(var/turf/T in get_area_turfs(A))
+			var/obj/structure/machinery/docking_transponder/transponder = locate() in T
+			if(transponder)
+				return transponder
+	return null

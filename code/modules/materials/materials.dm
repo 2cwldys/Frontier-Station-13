@@ -61,6 +61,15 @@
 	var/icon/multipart_reinf_icon
 	var/list/stack_origin_tech = list(TECH_MATERIAL = 1) // Research level for stacks.
 	var/icon/wall_icon
+	/// Optional pool of alternate wall_icon sheets, all baked from the same
+	/// source with different wear fields. When set, update_material()
+	/// (wall_icon.dm) picks one per-turf, deterministically from that turf's
+	/// own coordinates -- so neighbouring walls of the same material don't all
+	/// show literally identical wear. Null (the default) falls back to plain
+	/// wall_icon exactly as before; nothing about wall_icon itself changes, and
+	/// no other reader needs to know this exists (wall_icon has exactly one
+	/// other reader in the codebase, and it isn't this list).
+	var/list/icon/wall_icon_variants
 	var/icon/table_icon
 
 	// Attributes
@@ -202,6 +211,33 @@
 		if (multipart_reinf_icon)
 			multipart_reinf_icon = new(multipart_reinf_icon)
 			multipart_reinf_icon.Blend(blend_colour, ICON_MULTIPLY)
+		// wall_icon_variants is a SEPARATE list of file paths, not aliases of
+		// wall_icon -- the Blend() above only ever touched the single
+		// wall_icon var, so every entry in this list was being drawn as the
+		// raw, untinted sheet (near-white, since composite_solid_color.dmi is
+		// designed to be tinted, not viewed directly). Each variant needs its
+		// own tinted copy the same way wall_icon just got one.
+		//
+		// Deliberately an UNTYPED for-in here, not `for(var/icon/variant in
+		// wall_icon_variants)`. A typed for-in filters by istype(), and a raw
+		// file literal ('x.dmi') sitting in an untyped list is not guaranteed
+		// to already be typed /icon at this point -- if it isn't, that loop
+		// silently iterates ZERO times, tinted_variants stays empty, and
+		// wall_icon_variants = tinted_variants WIPES THE WHOLE POOL TO EMPTY.
+		// That's exactly what was happening: pick_wall_icon_variant() returns
+		// null on an empty list (and logs nothing, since the log line sits
+		// after that early return), so every steel wall silently fell back to
+		// the single wall_icon, every time -- explaining "no variants, all
+		// the same wear" precisely. new(variant) below still coerces each raw
+		// entry into a real /icon fine; the bug was only ever in the FILTER,
+		// never in the conversion itself.
+		if (length(wall_icon_variants))
+			var/list/tinted_variants = list()
+			for (var/variant in wall_icon_variants)
+				var/icon/tinted = new(variant)
+				tinted.Blend(blend_colour, ICON_MULTIPLY)
+				tinted_variants += tinted
+			wall_icon_variants = tinted_variants
 
 /material/Destroy(force)
 	stack_trace("Someone tried to delete a /material.")
@@ -447,11 +483,40 @@
 	value = 4
 	conductivity = 11
 	protectiveness = 10 // 33%
-	wall_icon = 'icons/turf/smooth/composite_solid_color.dmi'
+	// Four independently-generated copies of composite_solid_color.dmi, each
+	// with its own wear pattern multiplied in, PLUS the plain unweathered
+	// source sheet as a fifth entry -- so a wall occasionally comes up clean,
+	// same as real wear wouldn't touch every panel evenly. All five share the
+	// same state table, cell layout and alpha channel; only the pixels differ.
+	// update_material() (wall_icon.dm) picks one per-turf from a stable hash of
+	// that turf's own coordinates, so neighbouring walls don't all show
+	// byte-identical wear. wall_icon itself stays pointed at variant 1 as an
+	// ordinary single-icon fallback for anything that might read it directly;
+	// wall_icon_variants is what update_material() actually uses when present.
+	//
+	// Clear wall_icon_variants (leave it null) to go back to a single sheet;
+	// point wall_icon at composite_solid_color.dmi to drop weathering entirely.
+	//
+	// New() copies wall_icon per material before tinting, so /material/concrete
+	// and /material/elevatorium -- the only others on the original sheet -- are
+	// unaffected.
+	wall_icon = 'icons/turf/smooth/composite_solid_color_rust_1.dmi'
+	wall_icon_variants = list(
+		'icons/turf/smooth/composite_solid_color_rust_1.dmi',
+		'icons/turf/smooth/composite_solid_color_rust_2.dmi',
+		'icons/turf/smooth/composite_solid_color_rust_3.dmi',
+		'icons/turf/smooth/composite_solid_color_rust_4.dmi',
+		'icons/turf/smooth/composite_solid_color.dmi', // clean -- no wear pass at all
+	)
 	table_icon = 'icons/obj/structure/tables/steel_table.dmi'
 	icon_base = "steel"
+	// icon_colour is deliberately left alone. It is read in roughly 25 places
+	// (sheets, stacks, tables, railings, beds, stools, doors, clothing, rings,
+	// shards, weapons, cooking containers, protolathe, fuel rods), so changing
+	// it would repaint every steel product. wall_colour has a single reader --
+	// blend_colour in New() -- which only ever feeds wall_icon.
 	icon_colour = COLOR_GRAY40
-	wall_colour = COLOR_GRAY20
+	wall_colour = "#262c40" // deep navy, walls only
 	golem = SPECIES_GOLEM_STEEL
 	hitsound = 'sound/weapons/smash.ogg'
 	weapon_hitsound = 'sound/weapons/metalhit.ogg'
@@ -486,15 +551,42 @@
 	stack_type = null
 	shard_type = SHARD_NONE
 	value = 0
+	// Restated rather than inherited: as a subtype of /material/steel this would
+	// otherwise pick up the weathered sheet (and variant pool) and the slate
+	// colour, aging holodeck walls along with real ones. wall_icon_variants
+	// must be cleared explicitly -- update_material() checks it BEFORE falling
+	// back to wall_icon, so leaving the inherited list in place would silently
+	// override this pinned single sheet.
+	wall_icon = 'icons/turf/smooth/composite_solid_color.dmi'
+	wall_icon_variants = null
+	wall_colour = COLOR_GRAY20
 
 /material/plasteel
 	name = MATERIAL_PLASTEEL
 	stack_type = /obj/item/stack/material/plasteel
 	integrity = 400
 	melting_point = 6000
-	wall_icon = 'icons/turf/smooth/composite_reinf.dmi'
+	// r_wall's Initialize() sets BOTH material and reinf_material to plasteel
+	// (wall_types.dm) -- so THIS wall_icon, not steel's, is what a reinforced
+	// wall's own base layer actually draws. Same 4-worn + 1-clean pool shape
+	// as steel, baked from composite_reinf.dmi's own geometry (160x160, 25
+	// cells -- different from the 192x160/30-cell steel sheet), with its own
+	// independent seeds so it isn't a copy of steel's field.
+	wall_icon = 'icons/turf/smooth/composite_reinf_rust_1.dmi'
+	wall_icon_variants = list(
+		'icons/turf/smooth/composite_reinf_rust_1.dmi',
+		'icons/turf/smooth/composite_reinf_rust_2.dmi',
+		'icons/turf/smooth/composite_reinf_rust_3.dmi',
+		'icons/turf/smooth/composite_reinf_rust_4.dmi',
+		'icons/turf/smooth/composite_reinf.dmi', // clean -- no wear pass at all
+	)
 	icon_colour = "#545c68"
-	wall_colour = COLOR_GRAY20
+	// Matches /material/steel's own wall_colour, so an r_wall's reinforcement
+	// overlay (drawn from reinf_icon, tinted by wall_colour as of the
+	// wall_icon.dm fallback above) reads as one surface with the base wall
+	// instead of the old grey standing out against it. icon_colour is
+	// untouched -- plasteel sheets/tables keep their existing colour.
+	wall_colour = "#262c40"
 	explosion_resistance = 25
 	hardness = 80
 	weight = 23

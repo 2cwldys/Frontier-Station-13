@@ -1,3 +1,41 @@
+/// Deterministic per-turf pick from a list of icon variants -- shared by
+/// anything that wants "not every wall looks byte-identical" without a real
+/// per-instance rendering mechanism: /turf/simulated/wall/update_material()
+/// (below) and the CentCom wall turfs (walls.dm) both call this rather than
+/// each keeping their own copy of the hash, so there is exactly one place
+/// this logic can drift.
+///
+/// Must return the same variant every time a given turf's icon is rebuilt
+/// (damage, save/load, admin edits, mapload) -- hence a hash of position, not
+/// random(). Small multipliers, then an xor-shift mixing step, rather than one
+/// big multiply-and-xor: DM numbers are 32-bit floats, exact only up to
+/// 2**24 -- x/y/z run through coordinates in the hundreds, and large
+/// multipliers like 73856093 would blow past that exact range before the
+/// bitwise op even ran, at which point the "hash" is really just float
+/// rounding error. Every value here stays under a few million, well inside
+/// exact-integer range, and the shift-xor step keeps the result from being a
+/// simple linear (and therefore visibly striped) function of x/y/z.
+///
+/// Returns null if variants is empty, so callers can tell "no pool" apart
+/// from "picked the one entry in a 1-length pool".
+/proc/pick_wall_icon_variant(x, y, z, list/variants)
+	if(!length(variants))
+		return null
+	var/wall_hash = x * 12 + y * 197 + z * 51
+	wall_hash = wall_hash ^ (wall_hash << 5)
+	wall_hash = wall_hash ^ (wall_hash >> 3)
+	var/variant_index = 1 + (abs(wall_hash) % length(variants))
+	var/picked = variants[variant_index]
+#ifdef WALL_RESTORE_DIAGNOSTICS
+	// /icon objects built via new()+Blend() (every entry here, post-New())
+	// stringify to the generic word "icon" -- useless for telling two
+	// variants apart. REF() gives each one's real identity instead, so this
+	// is the only way to confirm from a log alone whether two different
+	// tiles actually picked two different objects.
+	log_subsystem_persistence_info("pick_wall_icon_variant: pos=([x],[y],[z]) pool_size=[length(variants)] index=[variant_index] picked=[REF(picked)]")
+#endif
+	return picked
+
 /turf/simulated/wall/proc/update_material()
 	if(!material)
 		return
@@ -10,7 +48,10 @@
 		material = SSmaterials.get_material_by_name(DEFAULT_WALL_MATERIAL)
 	if(material)
 		explosion_resistance = material.explosion_resistance
-		if (material.wall_icon)
+		var/picked_variant = pick_wall_icon_variant(x, y, z, material.wall_icon_variants)
+		if(picked_variant)
+			icon = picked_variant
+		else if (material.wall_icon)
 			icon = material.wall_icon
 
 	if(reinf_material && reinf_material.explosion_resistance > explosion_resistance)
@@ -76,16 +117,23 @@
 
 	if(reinf_material)
 		var/image/I
+		// wall_colour, not icon_colour: icon_colour is the shared "every product
+		// of this material" tint (sheets, tables, stacks...) -- reinf_icon is a
+		// wall-only overlay, so it should follow the same walls-only knob the
+		// base wall_icon already blends with in /material/New(). Falls back to
+		// icon_colour for any material that never set wall_colour, so nothing
+		// existing changes unless it opts in.
+		var/reinf_colour = reinf_material.wall_colour || reinf_material.icon_colour
 		if(construction_stage != null && construction_stage < 6)
 			I = image('icons/turf/wall_masks.dmi', "reinf_construct-[construction_stage]")
-			I.color = reinf_material.icon_colour
+			I.color = reinf_colour
 			LAZYADD(reinforcement_images, I)
 		else
 			if (reinf_material.multipart_reinf_icon)
 				LAZYADD(reinforcement_images, cardinal_smooth_fromicon(reinf_material.multipart_reinf_icon, cached_adjacency))
 			else
 				I = image('icons/turf/wall_masks.dmi', reinf_material.reinf_icon)
-				I.color = reinf_material.icon_colour
+				I.color = reinf_colour
 				LAZYADD(reinforcement_images, I)
 
 		if (reinforcement_images)

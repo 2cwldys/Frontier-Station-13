@@ -31,6 +31,29 @@
 	var/list/known_ships = list()		//List of ships known at roundstart - put types here.
 	var/base_sensor_visibility
 
+	/// This ship's shield generator machine, if one is built/wrenched down
+	/// and linked (see ship_shield_generator.dm's _hook_up_to_ship()) --
+	/// null otherwise. Lets incoming-fire code (check_entry_ship(),
+	/// _overmap_projectiles.dm; on_hit(), _ship_ammunition.dm) and the
+	/// targeting console's own shield readout find this ship's generator
+	/// directly, without walking every machine aboard.
+	var/obj/structure/machinery/ship_shield_generator/shield_generator
+
+	/// This ship's own tractor beam projector, if one is built/wrenched down
+	/// and linked (see ship_tractor_beam.dm's _hook_up_to_ship()) -- null
+	/// otherwise. Mirrors shield_generator above.
+	var/obj/structure/machinery/ship_tractor_beam/tractor_beam
+	/// The ENEMY tractor beam projector currently holding this ship, null if
+	/// free -- the single source of truth can_burn() (below),
+	/// toggle_shield() (ship_shield_generator.dm), and the engine console
+	/// (engine_control.dm) all gate on. Set/cleared only by
+	/// ship_tractor_beam.dm's _acquire_lock()/_release_lock().
+	var/obj/structure/machinery/ship_tractor_beam/tractored_by
+	/// world.time this ship's own console may next attempt to break free of
+	/// tractored_by -- see the "attempt_break_free" ui_act() case,
+	/// _targeting_console.dm.
+	var/tractor_break_attempt_at = 0
+
 	/// Tonnes, arbitrary number, affects acceleration provided by engines. Will help determine the speed of the ship.
 	vessel_mass = 10000
 	/// Arbitrary number, affects how likely the ship is to evade meteors.
@@ -130,6 +153,22 @@
 /obj/effect/overmap/visitable/ship/proc/is_still()
 	return !MOVING(speed[1]) && !MOVING(speed[2])
 
+/// Snapshot accessor for remote/sensor overlay call sites -- personal_travel.dm's
+/// _refresh_sensor_view(), sector_view.dm's refresh_sector_view(), and _contacts.dm's
+/// update_marker_icon() all build their own transient marker /image by copying only
+/// O.appearance, since the real ship atom is requires_contact/INVISIBILITY_OVERMAP and
+/// never directly rendered to anyone. .appearance can't capture the generator's
+/// overmap_bubble (it's vis_contents-attached to us, a live atom relationship, not an
+/// encodable appearance value -- see ship_shield_generator.dm's
+/// show_bubble()/hide_bubble()), so those call sites instead pull its current appearance
+/// through here and stamp it onto their own marker each refresh cycle via
+/// marker.AddOverlays(...). Returns null only when there's no generator or the bubble has
+/// never been created/was torn down (Destroy()) -- when shields are down, overmap_bubble
+/// still exists but faded to alpha 0 (hide_bubble()), so the stamped overlay is correctly
+/// invisible rather than needing a separate visibility check here.
+/obj/effect/overmap/visitable/ship/proc/get_shield_bubble_overlay()
+	return shield_generator?.overmap_bubble
+
 /obj/effect/overmap/visitable/ship/get_scan_data(mob/user)
 	. = ..()
 	if (static_vessel) // full data already acquired from parent proc
@@ -170,8 +209,8 @@
 	return round(get_total_thrust()/get_vessel_mass(), SHIP_MOVE_RESOLUTION)
 
 //Does actual burn and returns the resulting acceleration
-/obj/effect/overmap/visitable/ship/proc/get_burn_acceleration()
-	return round(burn() / get_vessel_mass(), SHIP_MOVE_RESOLUTION)
+/obj/effect/overmap/visitable/ship/proc/get_burn_acceleration(play_sound = TRUE)
+	return round(burn(1, play_sound) / get_vessel_mass(), SHIP_MOVE_RESOLUTION)
 
 /obj/effect/overmap/visitable/ship/proc/get_vessel_mass()
 	. = vessel_mass
@@ -233,8 +272,10 @@
 	// This is also the mathematical definition for Vector.size
 	var/magnitude_velocity = ((speed[1] ** 2) + (speed[2] **2)) ** (1/2)
 
-	// Get the magnitude of our desired change in velocity
-	var/alpha = min(get_burn_acceleration(), magnitude_velocity)
+	// Get the magnitude of our desired change in velocity -- play_sound =
+	// FALSE, this is only here for the math; the Dampener already has its
+	// own dedicated cue above, not the raw engine-burn noise.
+	var/alpha = min(get_burn_acceleration(FALSE), magnitude_velocity)
 
 	// First we "Normalize" the current velocity to get the direction without a distance
 	// Then we take the exact negative of this direction to get its true opposite
@@ -290,7 +331,27 @@
 		if(newloc && loc != newloc)
 			Move(newloc)
 			handle_wraparound()
+			_drag_tractored_target()
 	sensor_visibility = min(round(base_sensor_visibility + get_speed_sensor_increase(), 1), 100)
+
+/// If this ship currently has an enemy ship tractored, keeps it at exactly
+/// the relative offset tractor_beam.lock_offset_x/y captured at lock time
+/// (ship_tractor_beam.dm's _acquire_lock()) -- called every time THIS
+/// ship's own position actually changes, never by the held ship itself
+/// (its own can_burn() already refuses to move it under its own power, so
+/// there's no risk of the two writes racing). forceMove(), not Move() --
+/// the held ship isn't "flying" here, it's just being towed along.
+/obj/effect/overmap/visitable/ship/proc/_drag_tractored_target()
+	if(!tractor_beam?.locked_target)
+		return
+	var/obj/effect/overmap/visitable/ship/T = tractor_beam.locked_target
+	var/turf/dest = locate(x + tractor_beam.lock_offset_x, y + tractor_beam.lock_offset_y, z)
+	if(!dest)
+		// Hit the edge of the map and can't maintain the hold -- sever
+		// rather than leave the target stranded out of range.
+		tractor_beam._release_lock()
+		return
+	T.forceMove(dest)
 
 /// How close (in tiles) a mob needs to be to the engine console to hear the
 /// ASFX_ANNOUNCER "engines powered on/off" voice line -- unlike the
@@ -387,9 +448,9 @@
 					M.client.pixel_y = pixel_y
 	..()
 
-/obj/effect/overmap/visitable/ship/proc/burn(var/power_modifier = 1)
+/obj/effect/overmap/visitable/ship/proc/burn(var/power_modifier = 1, play_sound = TRUE)
 	for(var/datum/ship_engine/E in engines)
-		. += E.burn(power_modifier)
+		. += E.burn(power_modifier, play_sound)
 
 /obj/effect/overmap/visitable/ship/proc/get_total_thrust()
 	for(var/datum/ship_engine/E in engines)
@@ -397,6 +458,8 @@
 
 /obj/effect/overmap/visitable/ship/proc/can_burn()
 	if(halted)
+		return 0
+	if(tractored_by)
 		return 0
 	if (world.time < last_burn + burn_delay)
 		return 0
@@ -464,7 +527,10 @@
 	return FALSE
 
 /obj/effect/overmap/visitable/ship/proc/turn_ship(var/new_dir)
-	burn(0.25)
+	// play_sound = FALSE -- this call is only here for the fuel/thrust math,
+	// not a deliberate burn; plain turning should stay quiet, not sound like
+	// an engine burn.
+	burn(0.25, FALSE)
 	var/angle = new_dir == WEST ? 45 : -45
 	dir = turn(dir, angle)
 	update_icon()

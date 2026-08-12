@@ -1,10 +1,16 @@
 #define MAX_AREA_SIZE 300
+/// Range (tiles) a blueprint eye scans around itself for in-progress
+/// construction to overlay -- see _refresh_construction_overlays().
+#define BLUEPRINT_CONSTRUCTION_SCAN_RANGE 9
 
 /mob/abstract/eye/blueprints
 	/// Associative list of turfs -> boolean validity that the player has selected for new area creation.
 	var/list/selected_turfs = list()
 	///The overlayed images of the user's selection.
 	var/list/selection_images = list()
+	///Overlays for nearby in-progress construction (girders, window frames)
+	///-- see _refresh_construction_overlays().
+	var/list/construction_images = list()
 	///The last turf selected.
 	var/turf/last_selected_turf
 	///The image overlayed on the last selected turf
@@ -110,7 +116,7 @@
 /// there's no way to do better than world.area for that case without a
 /// recorded prior area.
 /mob/abstract/eye/blueprints/proc/get_blueprint_background_area(area/A)
-	var/area/background_area = world.area
+	var/area/background_area = locate(world.area)
 	var/obj/effect/overmap/visitable/sector/sector = GLOB.map_sectors["[A.z]"]
 	var/obj/effect/overmap/visitable/sector/exoplanet/exoplanet = sector
 	if(istype(exoplanet))
@@ -495,11 +501,44 @@
 
 /mob/abstract/eye/blueprints/setLoc(T)
 	. = ..()
+	_refresh_construction_overlays()
 	var/style = "font-family: 'Fixedsys'; -dm-text-outline: 1 black; font-size: 11px;"
 	var/area/A = get_area(src)
 	if(!A)
 		return
 	area_name_effect.maptext = "<span style=\"[style]\">[area_prefix], [A.name]</span>"
+
+/// additional_sight_flags() below is SEE_TURFS|BLIND -- a FINISHED wall or
+/// window turf renders fine (it's a turf), but a wall/window still under
+/// construction is just a girder/window_frame OBJECT sitting on open floor,
+/// and BLIND hides every object regardless of SEE_TURFS. Client-bound
+/// images (the same technique highlight_area()/update_images() already use
+/// above to get selection/highlight markers past that same BLIND flag)
+/// bypass it entirely -- overlay the object's own live sprite wherever one
+/// is found nearby, so in-progress construction becomes visible on the
+/// blueprints the same way a finished wall already is.
+/mob/abstract/eye/blueprints/proc/_refresh_construction_overlays()
+	if(!owner?.client)
+		return
+	owner.client.images -= construction_images
+	QDEL_LIST(construction_images)
+	construction_images = list()
+	// Deliberately no NO_CLIENT_COLOR here (unlike highlight_area()'s own
+	// selection markers just above, which SHOULD pop) -- these are meant to
+	// read as an ordinary wall/window would, tinted by the same
+	// add_client_color(/datum/client_color/monochrome) (apply_visual())
+	// every other turf on screen already picks up, not standing out against
+	// it. client.images bypassing BLIND (the reason these render at all) is
+	// unrelated to and unaffected by client color -- still fully visible.
+	for(var/obj/structure/girder/G in range(BLUEPRINT_CONSTRUCTION_SCAN_RANGE, src))
+		var/image/I = image(G.icon, get_turf(G), G.icon_state)
+		I.plane = HUD_PLANE
+		construction_images += I
+	for(var/obj/structure/window_frame/F in range(BLUEPRINT_CONSTRUCTION_SCAN_RANGE, src))
+		var/image/I = image(F.icon, get_turf(F), F.icon_state)
+		I.plane = HUD_PLANE
+		construction_images += I
+	owner.client.images += construction_images
 
 /mob/abstract/eye/blueprints/additional_sight_flags()
 	return SEE_TURFS|BLIND
@@ -549,7 +588,7 @@
 		return
 	to_chat(owner, SPAN_NOTICE("You scrub [A.name] off the blueprints."))
 	log_and_message_admins("deleted area [A.name] from [our_shuttle.name] via shuttle blueprints.")
-	var/background_area = world.area
+	var/background_area = locate(world.area)
 	var/obj/effect/overmap/visitable/sector/sector = GLOB.map_sectors["[A.z]"]
 	var/obj/effect/overmap/visitable/sector/exoplanet/exoplanet = sector
 	if(istype(exoplanet))
@@ -570,3 +609,4 @@
 	return A
 
 #undef MAX_AREA_SIZE
+#undef BLUEPRINT_CONSTRUCTION_SCAN_RANGE

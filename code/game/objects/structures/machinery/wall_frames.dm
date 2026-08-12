@@ -133,3 +133,10 @@
 	icon = 'icons/obj/airlock_machines.dmi'
 	icon_state = "airlock_sensor_off"
 	build_machine_type = /obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller
+
+/obj/item/frame/blast_door_button
+	name = "blast door button frame"
+	desc = "Used for building blast door/shutter remote buttons."
+	icon = 'icons/obj/machinery/button.dmi'
+	icon_state = "launcherbtt"
+	build_machine_type = /obj/structure/machinery/button/remote/blast_door/buildable

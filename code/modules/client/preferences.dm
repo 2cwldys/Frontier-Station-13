@@ -270,9 +270,34 @@ GLOBAL_LIST_EMPTY_TYPED(preferences_datums, /datum/preferences)
 	var/datum/species/mob_species = GLOB.all_species[species]
 	return mob_species.species_height
 
+/**
+ * Scoped navy-blue override for this window only -- common.css (browser.dm's
+ * add_stylesheet(), shared by every /datum/browser popup: cryo, cult, misc,
+ * etc.) is left untouched so none of those other legacy HTML windows are
+ * affected. Each browser() popup is its own isolated document even though
+ * they share that base stylesheet, so a <style> block embedded directly in
+ * THIS window's own content only ever applies here. Colors match the
+ * "nanotrasen" TGUI theme (tgui/packages/tgui/styles/themes/nanotrasen.scss)
+ * already used elsewhere, so the character setup window's dark mode reads
+ * as the same navy palette instead of common.css's default neutral gray.
+ * !important on every rule -- inline <style> ordering after a <link>
+ * stylesheet should already win on source order alone, but BYOND's browser
+ * control isn't a real modern engine and isn't worth trusting on cascade
+ * order alone.
+ */
+/datum/preferences/proc/_navy_theme_override()
+	return {"<style>
+	body { background-color: #092437 !important; }
+	hr, a, a:link, a:visited, a:active, .linkOn, .linkOff, .progressFill { background: #295482 !important; }
+	a:hover { background: #ffffff !important; color: #295482 !important; }
+	.uiTitle { background: #051520 !important; }
+	.block, .statusDisplay { background-color: #06243a !important; border-color: #295482 !important; }
+	</style>"}
+
 /datum/preferences/proc/ShowChoices(mob/user)
 	if(!user || !user.client)	return
-	var/dat = "<center>"
+	var/dat = _navy_theme_override()
+	dat += "<center>"
 
 	dat += "<a href='byond://?src=[REF(src)];save=1'><b>Save Character</b></a>"
 
@@ -558,7 +583,7 @@ GLOBAL_LIST_EMPTY_TYPED(preferences_datums, /datum/preferences)
 
 /datum/preferences/proc/get_slot_limit(mob/user)
 	if(user?.client?.holder && (user.client.holder.rights & R_ADMIN))
-		return GLOB.config.admin_character_slots
+		return GLOB.config.character_slots + GLOB.config.admin_character_slots
 	return GLOB.config.character_slots
 
 /datum/preferences/proc/open_load_dialog_sql(mob/user)

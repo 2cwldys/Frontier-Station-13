@@ -222,6 +222,12 @@
 /// instance, since each program instance belongs to one PDA/holder, not a
 /// shared machine.
 #define PERSONAL_TRAVEL_COOLDOWN (2 MINUTES + 30 SECONDS)
+/// How often a single ckey may print a hub law book (card.dm, "Hub Laws"
+/// category of the ID Card Modification program) -- also needed by
+/// persistence_hub_law_book.dm, which loads earlier than card.dm, so this
+/// lives here rather than beside its GLOBAL_LIST like the codebase's other
+/// per-ckey session cooldowns (e.g. FACTION_CLOCK_TOGGLE_COOLDOWN).
+#define HUB_LAW_BOOK_PRINT_COOLDOWN (10 HOURS)
 /// How close (tiles) a Sector View eye/pod camera must be to a non-own ship
 /// before it's revealed -- see personal_travel.dm's _refresh_sensor_view()
 /// and sector_view.dm's refresh_sector_view(). Far-away ships stay hidden

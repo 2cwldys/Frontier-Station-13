@@ -146,23 +146,49 @@
 	if(!powernet)
 		connect_to_network()
 
-	dir_loop:
-		for(var/d in GLOB.cardinals)
-			var/turf/T = get_step(src, d)
-			for(var/obj/structure/machinery/power/terminal/term in T)
-				if(term && term.dir == turn(d, 180))
-					terminal = term
-					break dir_loop
+	if(!_find_and_hook_terminal())
+		// A ship Z being dynamically reloaded (stash/retrieve) gives no
+		// guarantee the terminal's own Initialize() has already run and
+		// placed it by this exact instant, unlike a normal map boot (where
+		// the whole map is fully placed before any Initialize() runs at
+		// all) -- one short retry covers that race instead of permanently
+		// misreporting a real terminal as missing. Mirrors the same
+		// deferred-retry idiom used elsewhere for this exact class of
+		// problem (populate_sector_objects(), landable.dm).
+		addtimer(CALLBACK(src, PROC_REF(_retry_find_terminal)), 2 SECONDS)
+
+	if(!should_be_mapped)
+		warning("Non-buildable or Non-magical SMES at [src.x]X [src.y]Y [src.z]Z")
+
+/// Searches all 4 adjacent turfs for a terminal facing this SMES and hooks
+/// it up if found. Returns TRUE if a terminal was found (whether newly
+/// hooked up or already linked), FALSE otherwise -- callers use this to
+/// decide whether a retry is needed.
+/obj/structure/machinery/power/smes/proc/_find_and_hook_terminal()
 	if(!terminal)
-		stat |= BROKEN
-		return
+		dir_loop:
+			for(var/d in GLOB.cardinals)
+				var/turf/T = get_step(src, d)
+				for(var/obj/structure/machinery/power/terminal/term in T)
+					if(term && term.dir == turn(d, 180))
+						terminal = term
+						break dir_loop
+	if(!terminal)
+		return FALSE
+	stat &= ~BROKEN
 	terminal.master = src
 	if(!terminal.powernet)
 		terminal.connect_to_network()
 	update_icon()
+	return TRUE
 
-	if(!should_be_mapped)
-		warning("Non-buildable or Non-magical SMES at [src.x]X [src.y]Y [src.z]Z")
+/// One-shot deferred retry for the terminal search above -- only reached
+/// when the first attempt (Initialize()) found nothing. If this ALSO comes
+/// up empty, the SMES genuinely has no terminal and stays broken, same as
+/// today's behavior.
+/obj/structure/machinery/power/smes/proc/_retry_find_terminal()
+	if(!_find_and_hook_terminal())
+		stat |= BROKEN
 
 /obj/structure/machinery/power/smes/proc/can_function()
 	if(is_badly_damaged())

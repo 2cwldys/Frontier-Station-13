@@ -121,18 +121,27 @@ if (-not (Test-Path $backupsDir)) {
     New-Item -ItemType Directory $backupsDir | Out-Null
 }
 
-# ── 8. Optional: register daily backup scheduled task ────────────────────────
+# ── 8. Optional: register daily backup scheduled task (Windows only) ─────────
+# Register-ScheduledTask is a Windows Task Scheduler cmdlet with no PowerShell
+# Core equivalent on Linux/macOS -- asking the question there would just lead
+# into a crash if answered yes, so skip it outright on non-Windows and point
+# at cron/systemd instead. $IsWindows is a PowerShell Core automatic variable.
 
-Write-Host ""
-$schedule = Read-Host "Register a Windows Scheduled Task to back up the DB daily at 04:00? (y/N)"
-if ($schedule -match '^[Yy]') {
-    $backupScript = Join-Path $PSScriptRoot "db_backup.ps1"
-    $taskArg = '-NonInteractive -File "' + $backupScript + '"'
-    $action   = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument $taskArg
-    $trigger  = New-ScheduledTaskTrigger -Daily -At "04:00"
-    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable
-    Register-ScheduledTask -TaskName "AuroraDB_DailyBackup" -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest -Force | Out-Null
-    Write-Host "Scheduled task 'AuroraDB_DailyBackup' registered." -ForegroundColor Green
+if ($IsWindows -or $PSVersionTable.PSEdition -eq 'Desktop') {
+    Write-Host ""
+    $schedule = Read-Host "Register a Windows Scheduled Task to back up the DB daily at 04:00? (y/N)"
+    if ($schedule -match '^[Yy]') {
+        $backupScript = Join-Path $PSScriptRoot "db_backup.ps1"
+        $taskArg = '-NonInteractive -File "' + $backupScript + '"'
+        $action   = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument $taskArg
+        $trigger  = New-ScheduledTaskTrigger -Daily -At "04:00"
+        $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable
+        Register-ScheduledTask -TaskName "AuroraDB_DailyBackup" -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest -Force | Out-Null
+        Write-Host "Scheduled task 'AuroraDB_DailyBackup' registered." -ForegroundColor Green
+    }
+} else {
+    Write-Host ""
+    Write-Host "Scheduled-task auto-backups are Windows-only -- on this platform, schedule scripts/db_backup.sh yourself (cron or a systemd timer)." -ForegroundColor Yellow
 }
 
 # ── Done ─────────────────────────────────────────────────────────────────────

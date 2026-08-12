@@ -337,6 +337,17 @@
 	enabled = FALSE
 	if(looping_sound)
 		soundloop.stop(src)
+#ifdef PADD_BUTTON_PRESS_SOUNDS
+	// Abruptly cuts off a button-press click sound that might still be
+	// ringing out when the device powers off, rather than letting it play
+	// to completion -- same fixed channel every click uses (ui_act(),
+	// ui.dm), so a null sound on that channel silences it immediately for
+	// anyone still in range. Same listener-gathering shape playsound()
+	// itself uses (sound.dm) for its own ignore_walls range check.
+	for(var/mob/M in get_hearers_in_view(SOUND_RANGE, get_turf(src)))
+		if(M.client)
+			M << sound(null, channel = CHANNEL_PADD_CLICK)
+#endif
 	update_icon()
 
 /obj/item/modular_computer/proc/enable_computer(var/mob/user, var/ar_forced=FALSE)

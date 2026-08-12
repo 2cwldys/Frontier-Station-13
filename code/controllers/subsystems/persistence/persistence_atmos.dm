@@ -161,6 +161,8 @@ GLOBAL_LIST_EMPTY(persistence_atmos_cache)
 		return null
 	if(!Z.air || !length(Z.air.gas))
 		return null
+	if(persistence_turf_docked_elsewhere(rep))
+		return null
 	var/scope_escaped = replacetext(persistence_scope_for_z(rep.z), "'", "''")
 	var/gas_json = replacetext(json_encode(Z.air.gas), "'", "''")
 	return "('[scope_escaped]', [rep.x], [rep.y], [rep.z], '[gas_json]', [Z.air.temperature], NOW())"

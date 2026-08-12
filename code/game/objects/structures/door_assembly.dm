@@ -102,6 +102,10 @@
 	icon = 'icons/obj/doors/basic/single/secure/door.dmi'
 	airlock_type = /obj/structure/machinery/door/airlock/highsecurity
 
+/obj/structure/door_assembly/door_assembly_keyp
+	base_name = "keypad airlock"
+	airlock_type = /obj/structure/machinery/door/airlock/keypad
+
 /obj/structure/door_assembly/multi_tile
 	icon = 'icons/obj/doors/basic/double/generic/door.dmi'
 	dir = EAST
