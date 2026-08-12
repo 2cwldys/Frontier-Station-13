@@ -250,6 +250,12 @@
 			if(CD.linked != src || !CD.active)
 				continue
 			CD._set_active(FALSE, silent = TRUE)
+		// Same reasoning -- toggle_tractor() already refuses to ENGAGE the
+		// beam at an away site (ship_tractor_beam.dm), but doesn't cover
+		// flying there and landing while a lock from open space is still
+		// held; this is that other half.
+		if(tractor_beam && tractor_beam.active)
+			tractor_beam._release_lock(silent = TRUE)
 	var/obj/effect/overmap/visitable/target = GLOB.map_sectors["[into.z]"]
 	var/datum/shuttle/shuttle_datum = SSshuttle.shuttles[shuttle]
 	if(into.landmark_tag == shuttle_datum.motherdock) // If our motherdock is a landable ship, it won't be found properly here so we need to find it manually.

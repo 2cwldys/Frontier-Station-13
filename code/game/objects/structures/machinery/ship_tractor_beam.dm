@@ -241,6 +241,12 @@
 /obj/structure/machinery/ship_tractor_beam/proc/toggle_tractor(mob/user)
 	if(active)
 		_release_lock()
+		// The projector's own visible_message() (inside _release_lock())
+		// only reaches mobs standing physically next to it -- toggling is
+		// console-only now (ui_act() no longer exists on the projector
+		// itself), so the operator at the console needs their own direct
+		// confirmation regardless of where the projector physically is.
+		to_chat(user, SPAN_NOTICE("\The [src] powers down its lock."))
 		return
 	if(!anchored)
 		to_chat(user, SPAN_WARNING("\The [src] must be anchored before it can be activated."))
@@ -278,6 +284,9 @@
 		to_chat(user, SPAN_WARNING("\The [src] can't get a lock -- something else already has that ship."))
 		return
 	_acquire_lock(target_ship)
+	// Same reasoning as the release-side to_chat() above -- _acquire_lock()'s
+	// own visible_message() is only heard physically next to the projector.
+	to_chat(user, SPAN_NOTICE("\The [src] locks onto \the [target_ship]."))
 
 /obj/structure/machinery/ship_tractor_beam/proc/_acquire_lock(obj/effect/overmap/visitable/ship/target_ship)
 	active = TRUE
@@ -292,7 +301,15 @@
 	announce_to_ship_z(target_ship.map_z, 'sound/AI/announcements/enemy_tractor_beam_engaged.ogg', 50, TRUE)
 	broadcast_combat_sensor_contact(linked, target_ship, "[linked.name] has tractor-beamed [target_ship.name].")
 
-/obj/structure/machinery/ship_tractor_beam/proc/_release_lock()
+/// silent (mirrors ship_shield_generator.dm's/ship_cloaking_device.dm's own
+/// _set_active(FALSE, silent = TRUE) convention): suppresses the visible
+/// message, both announcer voice lines, and the stop stinger -- used by
+/// landable.dm's on_landing() when a docked-at-an-away-site auto-shutoff
+/// releases the lock, so it doesn't broadcast to everyone already on that
+/// site's own z. The loop sound itself still stops either way (it's
+/// cleanup of an already-ongoing sound, not a new announcement) and
+/// target_ship.tractored_by is still cleared either way.
+/obj/structure/machinery/ship_tractor_beam/proc/_release_lock(silent = FALSE)
 	if(!active && !locked_target)
 		return
 	var/obj/effect/overmap/visitable/ship/target_ship = locked_target
@@ -309,19 +326,22 @@
 	// the stop stinger belongs here too, in the same statement as the loop
 	// itself actually stopping, not on some separate announcement timing.
 	for(var/mob/M in loop_listeners)
-		M << sound('sound/effects/ship_weapons/tractor_stop.ogg', volume = 35)
+		if(!silent)
+			M << sound('sound/effects/ship_weapons/tractor_stop.ogg', volume = 35)
 		M << sound(null, channel = CHANNEL_TRACTOR_BEAM)
 	loop_listeners = list()
 	update_icon()
-	if(istype(linked))
+	if(!silent && istype(linked))
 		announce_to_ship_z(linked.map_z, 'sound/AI/announcements/tractor_beam_released.ogg', 50, TRUE)
 	if(istype(target_ship))
 		if(target_ship.tractored_by == src)
 			target_ship.tractored_by = null
-		announce_to_ship_z(target_ship.map_z, 'sound/AI/announcements/enemy_tractor_beam_released.ogg', 50, TRUE)
-		if(istype(linked))
-			broadcast_combat_sensor_contact(linked, target_ship, "[linked.name] has released [target_ship.name] from a tractor beam.")
-	visible_message(SPAN_NOTICE("\The [src] powers down its lock."))
+		if(!silent)
+			announce_to_ship_z(target_ship.map_z, 'sound/AI/announcements/enemy_tractor_beam_released.ogg', 50, TRUE)
+			if(istype(linked))
+				broadcast_combat_sensor_contact(linked, target_ship, "[linked.name] has released [target_ship.name] from a tractor beam.")
+	if(!silent)
+		visible_message(SPAN_NOTICE("\The [src] powers down its lock."))
 
 /// TRUE when this projector's ship is genuinely, physically parked at an
 /// away site right now -- mirrors ship_shield_generator.dm's own

@@ -11,7 +11,12 @@
 	var/shelleo_id
 	var/out_file = ""
 	var/err_file = ""
-	var/static/list/interpreters = list("[MS_WINDOWS]" = "cmd /c", "[UNIX]" = "sh -c")
+	// Windows: wscript (not cmd) so the two shelleo() callers (Trigger
+	// Database Backup, Sync Deployment Branch) never flash a console window
+	// -- hidden_run.vbs relaunches the same command through its own hidden
+	// "cmd /c", preserving the ">"/"2>" redirection appended below exactly
+	// as before. See hidden_run.vbs's own header for the full reasoning.
+	var/static/list/interpreters = list("[MS_WINDOWS]" = "wscript //nologo //B scripts\\hidden_run.vbs", "[UNIX]" = "sh -c")
 	var/interpreter = interpreters["[world.system_type]"]
 	if(interpreter)
 		for(var/seo_id in shelleo_ids)

@@ -404,15 +404,15 @@
 	var/turf/origin = get_turf(L)
 	var/atom/movable/pulled = L.pulling
 	if(origin)
-		new /obj/effect/portal/decorative/fading(origin, null, null, 5 SECONDS, 0)
 		spark(origin, 3, GLOB.alldirs)
-		playsound(origin, 'sound/effects/phasein.ogg', 30, 1)
-	new /obj/effect/portal/decorative/fading(destination, null, null, 5 SECONDS, 0)
+		// Must precede the forceMove below, while the bystanders who watched
+		// them leave are still the ones in view of this turf.
+		_travel_announce_phase(L, origin, FALSE)
 	spark(destination, 3, GLOB.alldirs)
 	L.forceMove(destination)
 	if(pulled && !QDELETED(pulled))
 		pulled.forceMove(destination)
-	playsound(destination, 'sound/effects/phasein.ogg', 30, 1)
+	_travel_announce_phase(L, destination, TRUE)
 
 /// Resolves which ship L has boarding rights to nearby -- ownership/crew/
 /// faction check, DS.ready, and same/adjacent overmap sector proximity,
@@ -570,7 +570,7 @@
 	// Sparks at both the boarder's own tile and the ship-side landing spot --
 	// warns anyone already aboard that someone's about to portal in.
 	var/list/spool_token = list(TRUE)
-	_start_travel_spool_pulses(get_turf(L), destination, DRYDOCK_BOARDING_SPOOLUP, CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_spool_token_valid), spool_token))
+	_start_travel_spool_pulses(get_turf(L), destination, DRYDOCK_BOARDING_SPOOLUP, CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_spool_token_valid), spool_token), show_phase_effect = TRUE, facing_dir = L.dir)
 	if(!do_after(L, DRYDOCK_BOARDING_SPOOLUP, L))
 		spool_token[1] = FALSE
 		to_chat(L, SPAN_WARNING("Boarding interrupted."))
@@ -1076,7 +1076,7 @@
 	// Sparks at both the disembarking player's own tile and the landing
 	// spot -- warns anyone already there that someone's about to portal in.
 	var/list/spool_token = list(TRUE)
-	_start_travel_spool_pulses(get_turf(L), destination, DRYDOCK_DISEMBARK_SPOOLUP, CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_spool_token_valid), spool_token))
+	_start_travel_spool_pulses(get_turf(L), destination, DRYDOCK_DISEMBARK_SPOOLUP, CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_spool_token_valid), spool_token), show_phase_effect = TRUE, facing_dir = L.dir)
 	if(!do_after(L, DRYDOCK_DISEMBARK_SPOOLUP, L))
 		spool_token[1] = FALSE
 		to_chat(L, SPAN_WARNING("Disembarking interrupted."))

@@ -330,7 +330,7 @@
 	var/seq = ++spool_seq
 	// Destination-side pulses too, not just the origin -- warns anyone
 	// already standing there that someone's about to jump in.
-	_start_travel_spool_pulses(spool_turf, destination, PERSONAL_TRAVEL_SPOOLUP, CALLBACK(src, PROC_REF(_spool_still_valid), seq))
+	_start_travel_spool_pulses(spool_turf, destination, PERSONAL_TRAVEL_SPOOLUP, CALLBACK(src, PROC_REF(_spool_still_valid), seq), show_phase_effect = TRUE, facing_dir = user.dir)
 	if(!do_after(user, PERSONAL_TRAVEL_SPOOLUP, user))
 		spool_seq++ // invalidate the pending spark pulses above
 		to_chat(user, SPAN_WARNING("Bluespace calibration interrupted."))
@@ -380,16 +380,16 @@
 	var/turf/origin = get_turf(user)
 	var/atom/movable/pulled = user.pulling
 	if(origin)
-		new /obj/effect/portal/decorative/fading(origin, null, null, 5 SECONDS, 0)
 		spark(origin, 3, GLOB.alldirs)
-		playsound(origin, 'sound/effects/phasein.ogg', 30, 1)
-	new /obj/effect/portal/decorative/fading(dest, null, null, 5 SECONDS, 0)
+		// Must precede the forceMove below, while the bystanders who watched
+		// them leave are still the ones in view of this turf.
+		_travel_announce_phase(user, origin, FALSE)
 	spark(dest, 3, GLOB.alldirs)
 	user.forceMove(dest)
 	if(pulled && !QDELETED(pulled))
 		pulled.forceMove(dest)
-	playsound(dest, 'sound/effects/phasein.ogg', 30, 1)
-	to_chat(user, SPAN_GOOD("You leap through a bluespace rift."))
+	_travel_announce_phase(user, dest, TRUE)
+	to_chat(user, SPAN_GOOD("You transport through a bluespace rift."))
 	next_travel_time = world.time + PERSONAL_TRAVEL_COOLDOWN
 
 /// world.view is a "WxH" string in this fork (world.dm), not a bare

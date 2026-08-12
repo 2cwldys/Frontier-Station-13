@@ -51,6 +51,11 @@ GLOBAL_LIST_INIT(ambient_playlist_tracks, list(
 	'sound/music/ambient_playlist/eve_forsaken_ruins.ogg',
 	'sound/music/ambient_playlist/eve_object_almost_accomplished.ogg',
 	'sound/music/ambient_playlist/hellsirens.ogg',
+	'sound/music/ambient_playlist/briefing_1.ogg',
+	'sound/music/ambient_playlist/briefing_2.ogg',
+	'sound/music/ambient_playlist/elite_27.ogg',
+	'sound/music/ambient_playlist/stasis_1.ogg',
+	'sound/music/ambient_playlist/stasis_2.ogg',
 ))
 
 /// Duration of each track in deciseconds, buffered a few deciseconds short so
@@ -92,6 +97,11 @@ GLOBAL_LIST_INIT(ambient_playlist_durations, list(
 	'sound/music/ambient_playlist/eve_forsaken_ruins.ogg' = 3665,
 	'sound/music/ambient_playlist/eve_object_almost_accomplished.ogg' = 4615,
 	'sound/music/ambient_playlist/hellsirens.ogg' = 4680,
+	'sound/music/ambient_playlist/briefing_1.ogg' = 1608,
+	'sound/music/ambient_playlist/briefing_2.ogg' = 1334,
+	'sound/music/ambient_playlist/elite_27.ogg' = 954,
+	'sound/music/ambient_playlist/stasis_1.ogg' = 1203,
+	'sound/music/ambient_playlist/stasis_2.ogg' = 1036,
 ))
 
 /// Fallback duration (deciseconds, ~3 minutes) used only if a track is

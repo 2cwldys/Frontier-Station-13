@@ -34,20 +34,89 @@
 		spark(destination, 2, GLOB.alldirs)
 		playsound(destination, 'sound/effects/sparks4.ogg', 20, 1)
 
+/// Third-person line for bystanders at the moment a channeled travel actually
+/// completes: "materializes" on the tile being arrived at, "dematerializes" on
+/// the one being left. Shared by personal_travel.dm and drydock
+/// board/disembark so both ends of every jump read the same way.
+///
+/// The traveller is skipped. They already get their own first-person feedback
+/// ("You leap through a bluespace rift.", "You board the ship."), and since
+/// every caller invokes this while the mob is standing on the turf in question,
+/// they would otherwise appear in viewers() for both halves.
+///
+/// **Ordering is what makes this correct**: viewers() is resolved from the turf
+/// at call time, so the dematerialize half must be called BEFORE the forceMove
+/// and the materialize half after it. Called in the wrong order, both lines
+/// reach the same set of bystanders.
+///
+/// show_message type 1 is a visual message, so a blind bystander correctly gets
+/// nothing rather than seeing an event they could not have witnessed.
+/proc/_travel_announce_phase(mob/living/L, turf/T, materializing)
+	if(!L || !T)
+		return
+	var/message = SPAN_NOTICE("[L] [materializing ? "materializes" : "dematerializes"].")
+	for(var/mob/M in viewers(T))
+		if(M == L)
+			continue
+		M.show_message(message, 1)
+
 /// Fires _travel_spool_pulse() immediately, then every 5 seconds until
 /// duration -- personal_travel.dm's original 15s/3-pulse cadence (t=0/5/10),
 /// generalized to any duration so a 3-second channel (pod warp) still gets
-/// its one t=0 pulse without extra repeats. Also spawns a continuous blue
+/// its one t=0 pulse without extra repeats.
+/// show_phase_effect (opt-in, default off): also spawns a continuous blue
 /// "teleporting here" visual (temp_visual/phase/spool) at both ends for the
-/// duration of the channel -- see _travel_spool_visual_tick() below.
-/proc/_start_travel_spool_pulses(turf/origin, turf/destination, duration, datum/callback/still_valid)
+/// duration of the channel -- see _travel_spool_visual_tick() below. Only
+/// drydock board/disembark and Personal Travel ask for this; pod warp
+/// (warp.dm) deliberately doesn't, so it stays off by default rather than
+/// every future caller of this shared proc getting it automatically.
+/// facing_dir (optional, only meaningful with show_phase_effect): the
+/// traveling mob's own current dir, passed straight through to both
+/// effects -- mirrors the rig teleporter's own phase_in()/phase_out()
+/// (ninja.dm), which likewise face the effect the same way as the mob using
+/// it, rather than each object picking its own random dir (temp_visual's
+/// own default).
+/proc/_start_travel_spool_pulses(turf/origin, turf/destination, duration, datum/callback/still_valid, show_phase_effect = FALSE, facing_dir)
 	_travel_spool_pulse(origin, destination, still_valid)
-	var/obj/effect/temp_visual/phase/spool/origin_fx = origin ? new(origin) : null
-	var/obj/effect/temp_visual/phase/spool/destination_fx = destination ? new(destination) : null
-	_travel_spool_visual_tick(origin_fx, destination_fx, still_valid, duration)
+	if(show_phase_effect)
+		var/obj/effect/temp_visual/phase/spool/origin_fx = origin ? new(origin, facing_dir) : null
+		var/obj/effect/temp_visual/phase/spool/destination_fx = destination ? new(destination, facing_dir) : null
+		_travel_spool_visual_tick(origin_fx, destination_fx, still_valid, duration)
+		_start_travel_transport_pulses(origin, destination, duration, still_valid)
 	var/t = 5 SECONDS
 	while(t < duration)
 		addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_travel_spool_pulse), origin, destination, still_valid), t)
+		t += 5 SECONDS
+
+/// One forward/reversed "transport" cue at each of origin/destination --
+/// same still_valid contract as _travel_spool_pulse(). reverted picks
+/// transport_reverse.ogg instead of transport.ogg. Each play is left to run
+/// its own natural length (6.34s) even if the next scheduled beat lands
+/// before it finishes -- no forced cutoff.
+/proc/_travel_transport_pulse(turf/origin, turf/destination, datum/callback/still_valid, reverted)
+	if(still_valid && !still_valid.Invoke())
+		return
+	var/transport_sound = reverted ? 'sound/effects/transport_reverse.ogg' : 'sound/effects/transport.ogg'
+	if(origin)
+		playsound(origin, transport_sound, 40, FALSE)
+	if(destination)
+		playsound(destination, transport_sound, 40, FALSE)
+
+/// Schedules _travel_transport_pulse() on four beats -- t=0, 5, 10, and
+/// duration itself (not just the three t=0/5/10 spark-pulse timestamps) --
+/// alternating normal -> reverted -> normal -> reverted, so the very last
+/// beat (right as the channel ends and the traveler actually arrives) is
+/// always the reversed cue. Only called from _start_travel_spool_pulses()'s
+/// show_phase_effect branch, so pod warp never gets this.
+/proc/_start_travel_transport_pulses(turf/origin, turf/destination, duration, datum/callback/still_valid)
+	var/reverted = FALSE
+	var/t = 0
+	while(t <= duration)
+		if(t == 0)
+			_travel_transport_pulse(origin, destination, still_valid, reverted)
+		else
+			addtimer(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(_travel_transport_pulse), origin, destination, still_valid, reverted), t)
+		reverted = !reverted
 		t += 5 SECONDS
 
 /// Keeps origin_fx/destination_fx (temp_visual/phase/spool instances, either
