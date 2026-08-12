@@ -58,11 +58,12 @@
 	active_power_usage = 0
 
 	var/active = FALSE
-	/// Fuel efficiency -- how long 1 sheet lasts at power_output 1. Same
-	/// starting numbers as the cloaking device (ship_cloaking_device.dm) --
-	/// holding a ship in place is meant to be a real phoron cost, not free.
-	var/time_per_sheet = 60
-	var/max_sheets = 30
+	/// Fuel efficiency -- how long 1 sheet lasts at power_output 1. Holding a
+	/// ship in place is meant to be a real phoron cost, not free -- 1 sheet
+	/// every 30 seconds while active, up to 50 sheets in the hopper (~25
+	/// minutes of continuous lock on a full tank).
+	var/time_per_sheet = 30
+	var/max_sheets = 50
 	var/sheets = 0
 	var/sheet_left = 0
 	var/power_output = 1
@@ -383,4 +384,34 @@
 /obj/structure/machinery/ship_tractor_beam/attack_hand(mob/user)
 	if(..())
 		return
-	toggle_tractor(user)
+	ui_interact(user)
+
+/obj/structure/machinery/ship_tractor_beam/ui_interact(mob/user, datum/tgui/ui)
+	ui = SStgui.try_update_ui(user, src, ui)
+	if(!ui)
+		ui = new(user, src, "ShipTractorBeam", "Tractor Beam Projector", 380, 360)
+		ui.open()
+
+/// Read-only fuel/status visibility only -- same shape as
+/// ship_cloaking_device.dm's own ui_data() (fuel/status fields are directly
+/// comparable, same hopper model), but deliberately no ui_act() at all:
+/// activating/releasing the lock is exclusively done from the gunnery
+/// console's own tractor control panel (_targeting_console.dm's
+/// "toggle_tractor" ui_act case, which already calls toggle_tractor()
+/// directly), not from here.
+/obj/structure/machinery/ship_tractor_beam/ui_data(mob/user)
+	var/list/data = list()
+	data["active"] = active
+	data["anchored"] = anchored
+	data["linked"] = istype(linked)
+	data["sheets"] = sheets
+	data["max_sheets"] = max_sheets
+	data["sheet_name"] = sheet_name
+	var/needed_sheets = power_output / time_per_sheet // fraction of a sheet burned per process() tick
+	data["seconds_per_sheet"] = time_per_sheet
+	data["seconds_remaining"] = (needed_sheets > 0) ? round((sheets + sheet_left) / needed_sheets) : null
+	data["at_away_site"] = _currently_at_away_site()
+	data["locked_target_name"] = istype(locked_target) ? locked_target.name : null
+	var/obj/effect/overmap/visitable/console_target = istype(linked) ? linked.targeting : null
+	data["has_console_target"] = istype(console_target, /obj/effect/overmap/visitable/ship) && console_target != linked
+	return data

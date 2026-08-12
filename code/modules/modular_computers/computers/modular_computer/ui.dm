@@ -137,20 +137,15 @@
 			return ""
 
 #ifdef PADD_BUTTON_PRESS_SOUNDS
-/// Every PADD_BUTTON_PRESS_1.._6.ogg -- picked at random per click, see
-/// ui_act() below. One shared list for every modular_computer subtype
-/// (PDA/laptop/tablet/console), same as the rest of this device's
-/// behavior already being defined once on the base type.
-// NOTE: PADD_BUTTON_PRESS_2.mp3 was not present in D:\Downloads alongside
-// the other 5 -- only 1/3/4/5/6 exist on disk right now. Add
-// 'sound/effects/padd_button_press_2.ogg' back to this list once it's
-// supplied; deliberately not faked with a placeholder copy.
+/// Picked at random per click, see ui_act() below. One shared list for
+/// every modular_computer subtype (PDA/laptop/tablet/console), same as the
+/// rest of this device's behavior already being defined once on the base
+/// type.
 GLOBAL_LIST_INIT(padd_button_sounds, list(
 	'sound/effects/padd_button_press_1.ogg',
+	'sound/effects/padd_button_press_2.ogg',
 	'sound/effects/padd_button_press_3.ogg',
 	'sound/effects/padd_button_press_4.ogg',
-	'sound/effects/padd_button_press_5.ogg',
-	'sound/effects/padd_button_press_6.ogg',
 ))
 /// How often (per device) a button-press click sound can play -- rapid
 /// clicking shouldn't spam it.
@@ -170,7 +165,10 @@ GLOBAL_LIST_INIT(padd_button_sounds, list(
 	// anyone standing near the physical device, not just whoever's holding it.
 	if(action && world.time >= next_button_sound_at)
 		next_button_sound_at = world.time + PADD_BUTTON_SOUND_COOLDOWN
-		playsound(src, pick(GLOB.padd_button_sounds), 15, TRUE)
+		// Fixed channel, not playsound()'s default random-allocated one --
+		// shutdown_computer() needs a predictable channel to silence a
+		// still-ringing click the instant the device powers off.
+		playsound(src, pick(GLOB.padd_button_sounds), 15, TRUE, channel = CHANNEL_PADD_CLICK)
 #endif
 
 	if(active_program)

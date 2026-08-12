@@ -60,14 +60,14 @@ LINES = [
     "cloak_offline",
 ]
 # Tractor beam + lobby welcome lines are NOT included above -- their source
-# recording names (D:\Downloads\TRACTOR_BEAM_ENGAGED.mp3 etc.) don't match
-# their destination .ogg stems 1:1 (e.g. TRACTOR_BEAM_DISENGAGED.mp3 ->
+# recording names (TRACTOR_BEAM_ENGAGED.mp3 etc.) don't match their
+# destination .ogg stems 1:1 (e.g. TRACTOR_BEAM_DISENGAGED.mp3 ->
 # tractor_beam_released.ogg), unlike every line above. Appending them here
 # with mismatched names would silently look for the wrong source file on a
 # future rebuild. See build_tractor_and_welcome_lines.py instead, which
 # has the real source->dest mapping and merges into the duration manifest
 # rather than overwriting it (most of the sources above are no longer in
-# D:\Downloads, so a full rebuild from this file alone isn't currently
+# SOURCE_DIR, so a full rebuild from this file alone isn't currently
 # possible anyway).
 
 # Pushed well past sound/AI/Voice how-to.txt's documented Audacity chain --

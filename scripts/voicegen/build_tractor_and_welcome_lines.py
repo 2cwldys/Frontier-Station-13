@@ -4,8 +4,8 @@ welcome voice line batch. Same resample -> reverb -> OGG treatment and the
 same duration-manifest bookkeeping, but MERGES its new entries into the
 existing _announcer_sound_durations.dm instead of overwriting the whole
 file -- build_bookended_lines.py's own LINES list expects all 28 of the
-original source recordings to still be sitting in D:\\Downloads together,
-which is no longer true (most have already been consumed by an earlier
+original source recordings to still be sitting alongside each other in
+SOURCE_DIR, which is no longer true (most have already been consumed by an earlier
 run), so re-running it as-is would either abort outright or, worse, wipe
 the duration entries for every already-shipped line that isn't re-processed
 in the same pass.
@@ -32,7 +32,7 @@ TARGET_SAMPLE_RATE = 16000
 REVERB_TAIL_SECONDS = 2.5
 FADE_OUT_SECONDS = 1.5
 
-# (source .mp3 stem in D:\Downloads, destination .ogg stem in sound/AI/announcements)
+# (source .mp3 stem in SOURCE_DIR, destination .ogg stem in sound/AI/announcements)
 LINES = [
     ("TRACTOR_BEAM_ENGAGED", "tractor_beam_engaged"),
     ("ENEMY_TRACTOR_BEAM_ENGAGED", "enemy_tractor_beam_engaged"),
