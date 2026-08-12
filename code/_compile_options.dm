@@ -47,6 +47,15 @@
 // out to strip it entirely.
 //#define DRYDOCK_ENGINE_DIAGNOSTICS
 
+// If defined, restoring a saved /turf/simulated/wall logs whether the row
+// carried a saved material, what material the turf actually ended up with,
+// and its icon var before/after the restore path's own guarantee step runs.
+// For chasing a restored wall showing icon=null despite ChangeTurf()'s own
+// Initialize() supposedly assigning a default material -- comment out to
+// strip it entirely. Defined by default while this is still being actively
+// chased.
+#define WALL_RESTORE_DIAGNOSTICS
+
 // If defined, the floor-item persistence path logs every decision it makes
 // for a faction-tagged clothing item: which branch dropped it (if any),
 // whether its extra state blob was built, and which restore branch ran on
