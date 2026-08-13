@@ -53,6 +53,16 @@
 	if(!check_rights(R_SERVER))
 		return
 
+	// world.shelleo() (run_database_backup(), below) is a raw OS shell-out --
+	// BYOND refuses that outright under Safe/Ultrasafe security, so this
+	// would otherwise just silently fail every time under either of those.
+	// Same TgsSecurityLevel() check toggle_auto_backup_on_autosave() uses --
+	// null (TGS absent, e.g. a bare local test server) treated as Trusted.
+	var/current_security = world.TgsSecurityLevel()
+	if(!isnull(current_security) && current_security != TGS_SECURITY_TRUSTED)
+		to_chat(usr, SPAN_WARNING("Database backup can't run while this server's security level is Safe/Ultrasafe -- it shells out to run the backup script, which BYOND blocks under anything but Trusted. Set the server's security level to Trusted first."))
+		return
+
 	to_chat(usr, SPAN_NOTICE("Running database backup..."))
 
 	var/list/result = SSpersistence.run_database_backup()

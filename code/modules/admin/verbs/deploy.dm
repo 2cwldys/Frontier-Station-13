@@ -24,6 +24,20 @@
  * separate announcement can fire once the compile actually finishes.
  */
 /proc/trigger_deployment_sync(mob/triggered_by)
+	// world.shelleo() (below) is a raw OS shell-out -- BYOND refuses that
+	// outright under Safe/Ultrasafe security. Same TgsSecurityLevel() guard
+	// trigger_database_backup() (persistence_backups.dm) and
+	// toggle_auto_backup_on_autosave() use -- null (TGS absent, e.g. a bare
+	// local test server) treated as Trusted.
+	var/current_security = world.TgsSecurityLevel()
+	if(!isnull(current_security) && current_security != TGS_SECURITY_TRUSTED)
+		var/security_msg = "can't run while this server's security level is Safe/Ultrasafe -- it shells out to pull and compile, which BYOND blocks under anything but Trusted. Set the server's security level to Trusted first."
+		if(triggered_by)
+			to_chat(triggered_by, SPAN_WARNING("Deployment sync [security_msg]"))
+		else
+			message_admins(SPAN_WARNING("Automatic deployment sync [security_msg]"))
+		return FALSE
+
 	// Backslashes on Windows for the same reason trigger_database_backup()
 	// uses them (persistence_backups.dm) -- cmd.exe reads a leading
 	// "scripts/..." as a command plus switches, not a path.
