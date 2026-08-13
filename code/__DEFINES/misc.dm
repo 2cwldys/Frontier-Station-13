@@ -300,7 +300,7 @@
 /// succeeds. Declared here (not in faction_manage.dm) so
 /// persistence_factions.dm, which is #included earlier in the .dme, can
 /// also see it.
-#define FACTION_CREATION_COST 100000
+#define FACTION_CREATION_COST 10000000
 /// Distinct OTHER ckeys (not the founder) required before a founding
 /// petition auto-finalizes into a real faction.
 #define FACTION_FOUNDING_REQUIRED_SUPPORTERS 10
