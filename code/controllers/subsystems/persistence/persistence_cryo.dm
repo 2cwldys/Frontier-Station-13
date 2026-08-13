@@ -240,12 +240,16 @@
 		// (the voluntary store path hands it to a new lobby mob only after
 		// this proc returns), so an unqualified population check would always
 		// see itself as "still playing" and never fire.
+#ifdef LOBBY_EMPTY_AUTOSAVE
 		if(!_any_active_player_character(H))
 			INVOKE_ASYNC(SSpersistence, PROC_REF(runLobbyEmptyAutosave))
+#endif
 		return TRUE
 
+#ifdef LOBBY_EMPTY_AUTOSAVE
 	if(!_any_active_player_character(H))
 		INVOKE_ASYNC(SSpersistence, PROC_REF(runLobbyEmptyAutosave))
+#endif
 	return TRUE
 
 // ============================================================

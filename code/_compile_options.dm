@@ -115,6 +115,13 @@
 // leave undefined to keep admin logs server-local only.
 //#define EXPORT_ADMIN_LOG_TO_DISCORD
 
+// If defined, the last active player character going to cryo immediately
+// triggers a full persistence autosave (runLobbyEmptyAutosave(),
+// persistence.dm) instead of waiting for the next periodic save. Comment
+// out to disable -- lobby-empty saves then only happen on the regular
+// periodic timer.
+#define LOBBY_EMPTY_AUTOSAVE
+
 // If defined, faction-tagged equipment can only be WORN by people employed by
 // that faction (can_use_faction_equipment(), persistence_factions.dm) -- gated
 // in mob_can_equip() (items.dm) so every equip route is covered at once.
