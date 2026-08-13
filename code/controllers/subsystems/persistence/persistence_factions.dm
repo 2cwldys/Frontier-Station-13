@@ -75,7 +75,8 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 					"allowed_cargo_category" = null,
 					"leader_ckey"      = null,
 					"leader_char_name" = null,
-					"is_company_tier"  = FALSE
+					"is_company_tier"  = FALSE,
+					"pirate_founded"   = FALSE
 				)
 			GLOB.persistence_faction_cache = loaded // only replace on confirmed success
 			_factionLoadExtendedColumns()
@@ -167,7 +168,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	PRIVATE_PROC(TRUE)
 	try
 		var/datum/db_query/eq = SSdbcore.NewQuery(
-			"SELECT uid, allowed_cargo_category, leader_ckey, leader_char_name, is_company_tier FROM ss13_factions",
+			"SELECT uid, allowed_cargo_category, leader_ckey, leader_char_name, is_company_tier, pirate_founded FROM ss13_factions",
 			list()
 		)
 		eq.Execute()
@@ -180,6 +181,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 				GLOB.persistence_faction_cache[uid]["leader_ckey"] = eq.item[3]
 				GLOB.persistence_faction_cache[uid]["leader_char_name"] = eq.item[4]
 				GLOB.persistence_faction_cache[uid]["is_company_tier"] = !!text2num(eq.item[5])
+				GLOB.persistence_faction_cache[uid]["pirate_founded"] = !!text2num(eq.item[6])
 		else
 			message_admins("Faction extended-columns load failed -- cargo category/leader/company-tier data unavailable until the schema is updated (db_update?). Core faction data is unaffected.")
 		qdel(eq)
@@ -429,35 +431,58 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 		founding_category = FACTION_CARGO_CATEGORY_ALL
 #endif //FACTION_CARGO_SPECIALIZATION
 
+	var/obj/item/card/id/faction_master/master_card = _financalizeFactionRow(faction_uid, petition["faction_name"], petition["abbreviation"], founder_ckey, petition["founder_name"], founding_category, is_company, founding_cost, FALSE)
+
+	var/client/founder_client = GLOB.directory[founder_ckey]
+	var/mob/founder_mob = founder_client ? founder_client.mob : null
+
+	if(founder_mob)
+		to_chat(founder_mob, SPAN_GOOD("Founding petition successful! '[petition["faction_name"]]' ([faction_uid]) is now a registered [is_company ? "company" : "faction"] with a starting balance of [founding_cost] credits.[master_card ? " A faction master card has been printed." : ""][is_company ? " It has been automatically listed on the stock exchange -- you hold 100% of its shares." : ""]"))
+	log_game("Founding petition for '[faction_uid]' ([petition["faction_name"]]) succeeded -- founder [petition["founder_name"]] ([founder_ckey]), [length(petition["supporters"])] supporters, [founding_cost] credits paid, tier [is_company ? "Company" : "Full Faction"].")
+	message_admins("A founding petition succeeded: '[petition["faction_name"]]' ([faction_uid]), founded by [petition["founder_name"]] ([founder_ckey]) with [length(petition["supporters"])] supporters, paying [founding_cost] credits ([is_company ? "Company" : "Full Faction"] tier).[founder_mob ? " (<a href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[founder_mob.x];Y=[founder_mob.y];Z=[founder_mob.z]'>JMP</a>)" : ""]")
+
+	cancelFoundingPetition(faction_uid)
+	return TRUE
+
+/**
+ * Shared "make this faction row genuinely usable" core -- faction + account
+ * INSERT, cache seed, founder registration, master card spawn. Used by both
+ * the normal petition finalize path above (charges the founder's bank
+ * account, requires supporters) and the instant pirate-faction path
+ * (piracyBeaconFoundFaction() below, charges physical spacecash, skips the
+ * petition system entirely). Returns the printed master card (or null, with
+ * an admin message already sent if printing failed) -- callers build their
+ * own user-facing summary message around that.
+ */
+/datum/controller/subsystem/persistence/proc/_financalizeFactionRow(faction_uid, name, abbreviation, founder_ckey, founder_name, cargo_category, is_company_tier, starting_balance, pirate_founded = FALSE)
 	var/datum/db_query/cf_q1 = SSdbcore.NewQuery(
-		"INSERT INTO ss13_factions (uid, name, abbreviation, is_lore, founder_ckey, allowed_cargo_category, cargo_category_changed_at, is_company_tier) VALUES (:uid, :name, :abbr, 0, :founder, :cat, NOW(), :company)",
-		list("uid" = faction_uid, "name" = petition["faction_name"], "abbr" = petition["abbreviation"], "founder" = founder_ckey, "cat" = founding_category, "company" = is_company ? 1 : 0)
+		"INSERT INTO ss13_factions (uid, name, abbreviation, is_lore, founder_ckey, allowed_cargo_category, cargo_category_changed_at, is_company_tier, pirate_founded) VALUES (:uid, :name, :abbr, 0, :founder, :cat, NOW(), :company, :pirate)",
+		list("uid" = faction_uid, "name" = name, "abbr" = abbreviation, "founder" = founder_ckey, "cat" = cargo_category, "company" = is_company_tier ? 1 : 0, "pirate" = pirate_founded ? 1 : 0)
 	)
 	cf_q1.Execute()
-	databaseCheckQueryResult(cf_q1, "tryFinalizeFounding insert")
+	databaseCheckQueryResult(cf_q1, "_financalizeFactionRow insert")
 	qdel(cf_q1)
 
 	var/datum/db_query/cf_q2 = SSdbcore.NewQuery(
 		"INSERT INTO ss13_faction_accounts (faction_uid, balance) VALUES (:uid, :balance) ON DUPLICATE KEY UPDATE balance = VALUES(balance), saved_at = NOW()",
-		list("uid" = faction_uid, "balance" = founding_cost)
+		list("uid" = faction_uid, "balance" = starting_balance)
 	)
 	cf_q2.Execute()
-	databaseCheckQueryResult(cf_q2, "tryFinalizeFounding account")
+	databaseCheckQueryResult(cf_q2, "_financalizeFactionRow account")
 	qdel(cf_q2)
 
 	if(!islist(GLOB.persistence_faction_cache))
 		GLOB.persistence_faction_cache = list()
-	GLOB.persistence_faction_cache[faction_uid] = list("name" = petition["faction_name"], "abbreviation" = petition["abbreviation"], "balance" = founding_cost, "founder_ckey" = founder_ckey, "master_card_lost" = FALSE, "allowed_cargo_category" = founding_category, "is_company_tier" = is_company)
+	GLOB.persistence_faction_cache[faction_uid] = list("name" = name, "abbreviation" = abbreviation, "balance" = starting_balance, "founder_ckey" = founder_ckey, "master_card_lost" = FALSE, "allowed_cargo_category" = cargo_category, "is_company_tier" = is_company_tier, "pirate_founded" = pirate_founded)
 	if(!islist(GLOB.persistence_faction_jobs_cache))
 		GLOB.persistence_faction_jobs_cache = list()
 	GLOB.persistence_faction_jobs_cache[faction_uid] = list()
 
-	factionRegisterMember(founder_ckey, petition["founder_name"], faction_uid, null, 2)
+	factionRegisterMember(founder_ckey, founder_name, faction_uid, null, 2)
 
 	// Master card spawn point: the founder's own turf if they're currently
-	// online, else any existing terminal already shackled to this network
-	// (the one that started the petition, if nothing else) -- same
-	// world-scan-by-persistent_network shape persistence_cryo's telepad
+	// online, else any existing terminal already shackled to this network --
+	// same world-scan-by-persistent_network shape persistence_cryo's telepad
 	// delivery lookup already uses.
 	var/client/founder_client = GLOB.directory[founder_ckey]
 	var/mob/founder_mob = founder_client ? founder_client.mob : null
@@ -468,13 +493,16 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	// Both procs are offline-safe (founder_mob may be null here) -- matches
 	// this whole proc's own offline-safe design. A listing failure is
 	// logged but never blocks faction creation itself, same as a failed
-	// master card spawn a few lines below.
-	if(is_company)
+	// master card spawn a few lines below. Explicitly excludes a pirate
+	// founding even though is_company_tier is already always FALSE for one
+	// today -- belt-and-suspenders against this branch ever auto-listing a
+	// pirate faction if that invariant ever changes.
+	if(is_company_tier && !pirate_founded)
 		var/list_fail = stockMarketListFaction(faction_uid, founder_mob)
 		if(list_fail)
-			message_admins("Company '[petition["faction_name"]]' ([faction_uid]) founded, but auto-listing on the stock exchange failed: [list_fail]")
+			message_admins("Company '[name]' ([faction_uid]) founded, but auto-listing on the stock exchange failed: [list_fail]")
 		else
-			factionGrantShareholder(faction_uid, founder_ckey, petition["founder_name"], 100, "Company Founding", null)
+			factionGrantShareholder(faction_uid, founder_ckey, founder_name, 100, "Company Founding", null)
 
 	var/turf/spawn_turf = founder_mob ? get_turf(founder_mob) : null
 	if(!spawn_turf)
@@ -482,20 +510,54 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 			if(normalize_faction_uid(MC.persistent_network) == faction_uid)
 				spawn_turf = get_turf(MC)
 				break
+	var/obj/item/card/id/faction_master/master_card
 	if(spawn_turf)
-		var/obj/item/card/id/faction_master/master_card = new(spawn_turf)
+		master_card = new(spawn_turf)
 		master_card.employer_faction = faction_uid
 		master_card.update_name()
 	else
-		message_admins("Faction '[petition["faction_name"]]' ([faction_uid]) founded, but no valid location was found to print its master card -- spawn one manually.")
+		message_admins("Faction '[name]' ([faction_uid]) founded, but no valid location was found to print its master card -- spawn one manually.")
 
-	if(founder_mob)
-		to_chat(founder_mob, SPAN_GOOD("Founding petition successful! '[petition["faction_name"]]' ([faction_uid]) is now a registered [is_company ? "company" : "faction"] with a starting balance of [founding_cost] credits.[spawn_turf ? " A faction master card has been printed." : ""][is_company ? " It has been automatically listed on the stock exchange -- you hold 100% of its shares." : ""]"))
-	log_game("Founding petition for '[faction_uid]' ([petition["faction_name"]]) succeeded -- founder [petition["founder_name"]] ([founder_ckey]), [length(petition["supporters"])] supporters, [founding_cost] credits paid, tier [is_company ? "Company" : "Full Faction"].")
-	message_admins("A founding petition succeeded: '[petition["faction_name"]]' ([faction_uid]), founded by [petition["founder_name"]] ([founder_ckey]) with [length(petition["supporters"])] supporters, paying [founding_cost] credits ([is_company ? "Company" : "Full Faction"] tier).[founder_mob ? " (<a href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[founder_mob.x];Y=[founder_mob.y];Z=[founder_mob.z]'>JMP</a>)" : ""]")
+	return master_card
 
-	cancelFoundingPetition(faction_uid)
-	return TRUE
+/**
+ * Instant pirate-faction founding, triggered from a piracy beacon's own TGUI
+ * (piracy_beacon.dm) -- no petition, no supporters. Payment is physical
+ * spacecash consumed by the caller BEFORE this is ever reached (the caller
+ * is responsible for verifying and deducting PIRATE_FACTION_FOUNDING_COST --
+ * this proc trusts that it already happened). Mirrors faction_manage.dm's
+ * own "start_founding" uid/name uniqueness validation. Returns null on
+ * success, or a refusal string to show the user (in which case nothing was
+ * charged or created -- safe to retry).
+ */
+/datum/controller/subsystem/persistence/proc/piracyBeaconFoundFaction(mob/user, name, abbreviation, uid)
+	if(!user || !name || !abbreviation || !uid)
+		return "Missing founding details."
+	uid = normalize_faction_uid(uid)
+	if(!uid)
+		return "Invalid faction identifier."
+	if(islist(GLOB.persistence_faction_cache) && (uid in GLOB.persistence_faction_cache))
+		return "This network is already registered to a faction."
+	name = lowertext(name)
+	if(islist(GLOB.persistence_faction_cache))
+		for(var/existing_uid in GLOB.persistence_faction_cache)
+			var/list/existing = GLOB.persistence_faction_cache[existing_uid]
+			if(lowertext(existing["name"]) == name)
+				return "A faction named '[name]' already exists."
+	if(!databaseCheckConnection("piracyBeaconFoundFaction"))
+		return "Database connection failed -- try again shortly."
+
+	var/founder_ckey = user.ckey
+	var/founder_name = user.real_name
+	if(!founder_ckey || !founder_name)
+		return "You need an active character to found a faction."
+
+	_financalizeFactionRow(uid, name, abbreviation, founder_ckey, founder_name, null, FALSE, PIRATE_FACTION_FOUNDING_COST, TRUE)
+
+	to_chat(user, SPAN_GOOD("'[name]' ([uid]) is now a registered pirate faction with a starting balance of [PIRATE_FACTION_FOUNDING_COST] credits. It cannot import cargo or list on any exchange -- illegal exports and theft are its only economy now."))
+	log_game("Pirate faction '[uid]' ([name]) founded via piracy beacon by [founder_name] ([founder_ckey]).")
+	message_admins("A pirate faction was founded: '[name]' ([uid]), by [founder_name] ([founder_ckey]) via piracy beacon.[user.z ? " (<a href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[user.x];Y=[user.y];Z=[user.z]'>JMP</a>)" : ""]")
+	return null
 
 /// Periodic catch-all, called from forceSaveAll() (every persistence save
 /// cycle): sweeps every founding petition that has reached its supporter
@@ -985,6 +1047,18 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
 		return FALSE
 	return !!GLOB.persistence_faction_cache[uid]["is_company_tier"]
+
+/// TRUE for a faction founded instantly through a piracy beacon
+/// (piracyBeaconFoundFaction() below) rather than the normal petition
+/// process. Permanent -- gates two restrictions: cargo_order.dm's
+/// allowed_cargo_category can never be self-service-set by the faction's own
+/// officers (faction_manage.dm), and stockMarketListFaction() refuses to
+/// ever list it. FALSE for every normally-founded or admin-made faction.
+/proc/is_pirate_faction(uid)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return FALSE
+	return !!GLOB.persistence_faction_cache[uid]["pirate_founded"]
 
 /// Sets (or, with null/null, clears) a faction's designated leader, updating
 /// the cache and persisting it so it survives a reboot.

@@ -311,6 +311,12 @@
 #define FACTION_CREATION_COST_COMPANY 25000
 #define FACTION_FOUNDING_REQUIRED_SUPPORTERS_COMPANY 5
 
+/// Physical spacecash cost to found a pirate faction instantly through a
+/// piracy beacon (piracyBeaconFoundFaction(), persistence_factions.dm) --
+/// no petition, no supporters. Becomes the new faction's starting balance,
+/// same as FACTION_CREATION_COST above.
+#define PIRATE_FACTION_FOUNDING_COST 100000
+
 #define PROGRAM_STATE_DISABLED -1
 #define PROGRAM_STATE_KILLED 0
 #define PROGRAM_STATE_BACKGROUND 1

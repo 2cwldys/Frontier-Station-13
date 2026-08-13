@@ -412,6 +412,15 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		var/obj/structure/machinery/faction_beacon/holder = GLOB.faction_beacon_by_z["[z]"]
 		if(holder && holder != src && !QDELETED(holder))
 			return "Z-level [z] is already claimed by [holder.faction_uid ? get_faction_name(holder.faction_uid) : "another beacon"]"
+		// A tethered, faction-tagged piracy beacon already claims this Z
+		// invisibly (no zone-tier bump, no overmap shield -- see
+		// piracy_beacon.dm's own top-of-file doc comment) -- the two claim
+		// systems must never silently fight over the same Z in either
+		// direction, so this refuses here symmetrically with the check
+		// piracy_beacon.dm's own _claim_refusal_reason() already has.
+		var/pirate_claim = piracy_beacon_claimed_faction_on_z(z)
+		if(pirate_claim)
+			return "Z-level [z] is already claimed by the [get_faction_name(pirate_claim)] faction."
 		// ANY other active beacon's radius reach over z -- at any tier,
 		// highsec or medsec -- already provides protection there; letting a
 		// second beacon claim inside that radius would just nest overlapping

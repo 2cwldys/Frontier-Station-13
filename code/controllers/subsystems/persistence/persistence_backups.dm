@@ -96,6 +96,23 @@
 	catch(var/exception/toggle_e)
 		log_subsystem_persistence_error("Backups: failed to load auto-backup-on-autosave toggle: [toggle_e]")
 
+	// Toggle was left on from a prior session that was Trusted -- this boot
+	// might not be. Catch it here instead of leaving it on to fail silently
+	// on every future autosave.
+	if(GLOB.auto_backup_on_autosave && !_autoBackupSecurityOK())
+		_autoBackupDisableForSecurity()
+
+/// Shared security gate -- TRUE if this instance can actually run
+/// world.shelleo() right now (null = TGS absent, treated as Trusted, same
+/// as toggle_auto_backup_on_autosave()'s own reasoning).
+/datum/controller/subsystem/persistence/proc/_autoBackupSecurityOK()
+	var/current_security = world.TgsSecurityLevel()
+	return isnull(current_security) || current_security == TGS_SECURITY_TRUSTED
+
+/datum/controller/subsystem/persistence/proc/_autoBackupDisableForSecurity()
+	setAutoBackupOnAutosave(FALSE)
+	log_and_message_admins("Auto-backup-on-autosave was automatically disabled -- server security level is no longer Trusted.")
+
 /datum/controller/subsystem/persistence/proc/setAutoBackupOnAutosave(enabled)
 	GLOB.auto_backup_on_autosave = enabled
 	if(!databaseCheckConnection("setAutoBackupOnAutosave"))
@@ -125,13 +142,9 @@
 	// BYOND refuses that outright under Safe/Ultrasafe security, so an
 	// autosave-triggered backup would just silently fail every single time
 	// under either of those. Refuse turning it ON here rather than letting
-	// an admin enable something that can never actually run. TgsSecurityLevel()
-	// returns null when TGS isn't present at all (e.g. a bare local test
-	// server) -- treated the same as Trusted there, since world.shelleo()'s
-	// own security gate is a DreamDaemon launch-flag concept independent of
-	// whether TGS itself is managing this instance.
-	var/current_security = world.TgsSecurityLevel()
-	if(new_state && !isnull(current_security) && current_security != TGS_SECURITY_TRUSTED)
+	// an admin enable something that can never actually run -- see
+	// _autoBackupSecurityOK()'s own doc comment for the null/Trusted handling.
+	if(new_state && !SSpersistence._autoBackupSecurityOK())
 		to_chat(usr, SPAN_WARNING("Auto-backup-on-autosave can't be enabled while this server's security level is Safe/Ultrasafe -- it shells out to run the backup script, which BYOND blocks under anything but Trusted. Set the server's security level to Trusted first."))
 		return
 

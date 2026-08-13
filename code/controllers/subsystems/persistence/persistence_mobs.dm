@@ -751,8 +751,11 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		persistence_set_imprisoned(ckey, char_name, FALSE)
 		return null
 
-	// Pod-existence check -- a destroyed/missing cell means auto-freed
-	// regardless of remaining time (confirmed with the user).
+	// Pod-existence check -- a destroyed/missing cell first tries to reassign
+	// to another live cell belonging to the same faction (mirrors the manual
+	// "transfer" operator action, prison_management.dm) before falling back
+	// to auto-freeing. Confirmed with the user this reassignment should
+	// happen rather than a silent, unconditional pardon.
 	var/list/pos = GLOB.persistence_position_cache["[ckey]|[char_name]"]
 	var/pod_pz = pos ? pos["last_pod_z"] : null
 	var/obj/structure/machinery/cryopod/prison/cell
@@ -761,8 +764,22 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		if(T)
 			cell = locate(/obj/structure/machinery/cryopod/prison) in T
 	if(!cell)
-		persistence_set_imprisoned(ckey, char_name, FALSE)
-		return null
+		var/imprisoning_faction = normalize_faction_uid(pos ? pos["imprisoned_by_faction_uid"] : null)
+		for(var/obj/structure/machinery/cryopod/prison/P in world)
+			if(normalize_faction_uid(P.persistent_network) == imprisoning_faction)
+				cell = P
+				break
+		if(cell)
+			persistence_set_last_pod(ckey, char_name, cell)
+			if(islist(pos))
+				pos["last_pod_x"] = cell.x
+				pos["last_pod_y"] = cell.y
+				pos["last_pod_z"] = cell.z
+			log_and_message_admins("Prison pod for [ckey]/[char_name] was gone -- automatically reassigned to another [get_faction_name(imprisoning_faction)] cell at ([cell.x],[cell.y],[cell.z]).")
+		else
+			log_and_message_admins("Prison pod for [ckey]/[char_name] was gone and no other [get_faction_name(imprisoning_faction)] cell exists -- auto-pardoned.")
+			persistence_set_imprisoned(ckey, char_name, FALSE)
+			return null
 
 	return list(
 		"indefinite"        = !!indefinite,

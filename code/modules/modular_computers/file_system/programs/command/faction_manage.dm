@@ -796,6 +796,12 @@
 			if(faction_cargo_unrestricted(net))
 				to_chat(user, SPAN_WARNING("[get_faction_name(net)] has unrestricted cargo access from its founding tier -- this can't be changed to a single category."))
 				return
+			// Pirate factions never get self-service cargo access -- imports
+			// come from theft, not legitimate supply lines. Admin override
+			// (Manage Faction Account -> Set Cargo Category) is untouched.
+			if(is_pirate_faction(net))
+				to_chat(user, SPAN_WARNING("[get_faction_name(net)] is a pirate faction -- it has no legitimate supply lines to order from."))
+				return
 			var/picked_display_name = params["category"]
 			var/resolved_category
 			for(var/cat_name in SScargo.cargo_categories)

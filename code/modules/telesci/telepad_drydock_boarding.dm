@@ -367,24 +367,34 @@
 
 /// Shared core of the raiding gate: TRUE if acting_faction_uid should be
 /// refused entry to target_z because faction raiding is currently disabled,
-/// the Z is claimed by an ordinary (non-Hub) powered, non-public-territory
-/// faction beacon, and acting_faction_uid isn't a member of (or allied with,
-/// under FACTION_ALLIANCES) that faction. acting_faction_uid may be null
-/// (an unaffiliated player, or a personally-owned drydock ship) -- always
-/// blocked in that case, same as before this was split out.
+/// and EITHER the Z is claimed by an ordinary (non-Hub) powered,
+/// non-public-territory faction beacon, OR a piracy beacon there is
+/// currently claimed by a faction (piracy_beacon_claimed_faction_on_z(),
+/// piracy_beacon.dm -- tethered AND faction-tagged) -- and acting_faction_uid
+/// isn't a member of (or allied with, under FACTION_ALLIANCES) that faction.
+/// acting_faction_uid may be null (an unaffiliated player, or a personally-
+/// owned drydock ship) -- always blocked in that case, same as before this
+/// was split out.
 /proc/_faction_raid_blocked_for(target_z, acting_faction_uid)
 	if(GLOB.faction_raiding_enabled)
 		return FALSE
 	if(zone_security_get(target_z) == ZONE_HIGHSEC)
 		return FALSE
 	var/obj/structure/machinery/faction_beacon/B = GLOB.faction_beacon_by_z["[target_z]"]
-	if(!istype(B) || !B.powered || B.public_territory || istype(B, /obj/structure/machinery/faction_beacon/hub))
-		return FALSE
+	if(istype(B) && B.powered && !B.public_territory && !istype(B, /obj/structure/machinery/faction_beacon/hub))
 #ifdef FACTION_ALLIANCES
-	return !(B.faction_uid && acting_faction_uid && (B.faction_uid == acting_faction_uid || factions_are_allied(acting_faction_uid, B.faction_uid)))
+		return !(B.faction_uid && acting_faction_uid && (B.faction_uid == acting_faction_uid || factions_are_allied(acting_faction_uid, B.faction_uid)))
 #else
-	return !(B.faction_uid && acting_faction_uid && B.faction_uid == acting_faction_uid)
+		return !(B.faction_uid && acting_faction_uid && B.faction_uid == acting_faction_uid)
 #endif //FACTION_ALLIANCES
+	var/pirate_claim = piracy_beacon_claimed_faction_on_z(target_z)
+	if(pirate_claim)
+#ifdef FACTION_ALLIANCES
+		return !(acting_faction_uid && (pirate_claim == acting_faction_uid || factions_are_allied(acting_faction_uid, pirate_claim)))
+#else
+		return !(acting_faction_uid && pirate_claim == acting_faction_uid)
+#endif //FACTION_ALLIANCES
+	return FALSE
 
 /// Plays the raiding-prohibited announcer cue to L, gated by ASFX_ANNOUNCER
 /// like every other announcer line -- call alongside _drydock_raid_blocked()'s

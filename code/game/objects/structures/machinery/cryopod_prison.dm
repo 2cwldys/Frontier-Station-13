@@ -181,6 +181,9 @@
 			if(!persistent_network || persistent_network == "public")
 				to_chat(user, SPAN_WARNING("\The [src] must be tagged to a faction before it can be used to imprison someone -- an unassigned, public, or personally-tagged unit refuses."))
 				return
+			if(zone_security_get(GET_Z(src)) == ZONE_NULLSEC && !piracy_beacon_tethered_on_z(GET_Z(src)) && !GLOB.persistence_ship_z["[GET_Z(src)]"])
+				to_chat(user, SPAN_WARNING("\The [src] refuses -- unregulated space offers no oversight to hold a prisoner safely here. A local, tethered piracy beacon, or a ship's own containment, would work."))
+				return
 			var/prisoner_ckey = target.ckey
 			var/prisoner_name = target.real_name
 			if(!prisoner_ckey)

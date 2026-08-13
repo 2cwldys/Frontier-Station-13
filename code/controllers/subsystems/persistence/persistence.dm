@@ -194,13 +194,16 @@ SUBSYSTEM_DEF(persistence)
 	// rest of the automatic persistence machinery (_autosave_empty_reconcile()
 	// above behaves the same way).
 	if(GLOB.auto_backup_on_autosave)
-		log_subsystem_persistence_info("Persistence: Running automatic post-autosave database backup...")
-		var/list/backup_result = run_database_backup()
-		if(backup_result["success"])
-			log_subsystem_persistence_info("Persistence: Automatic post-autosave database backup complete.")
+		if(!_autoBackupSecurityOK())
+			_autoBackupDisableForSecurity()
 		else
-			log_subsystem_persistence_error("Persistence: Automatic post-autosave database backup FAILED (exit [backup_result["errorcode"]]): [backup_result["stderr"] || backup_result["stdout"]]")
-			log_and_message_admins("automatic post-autosave database backup FAILED (exit [backup_result["errorcode"]])", null)
+			log_subsystem_persistence_info("Persistence: Running automatic post-autosave database backup...")
+			var/list/backup_result = run_database_backup()
+			if(backup_result["success"])
+				log_subsystem_persistence_info("Persistence: Automatic post-autosave database backup complete.")
+			else
+				log_subsystem_persistence_error("Persistence: Automatic post-autosave database backup FAILED (exit [backup_result["errorcode"]]): [backup_result["stderr"] || backup_result["stdout"]]")
+				log_and_message_admins("automatic post-autosave database backup FAILED (exit [backup_result["errorcode"]])", null)
 	// ignite() (subsystem.dm) is waitfor=FALSE, and forceSaveAll() really
 	// does sleep across real time (CHECK_TICK) for a save this size -- so
 	// Master's RunQueue() gets control back (and calls update_nextfire())
@@ -248,12 +251,15 @@ SUBSYSTEM_DEF(persistence)
 	_drydockProcessNextQueued()
 
 	if(GLOB.auto_backup_on_autosave)
-		var/list/backup_result = run_database_backup()
-		if(backup_result["success"])
-			log_subsystem_persistence_info("Persistence: Automatic post-lobby-autosave database backup complete.")
+		if(!_autoBackupSecurityOK())
+			_autoBackupDisableForSecurity()
 		else
-			log_subsystem_persistence_error("Persistence: Automatic post-lobby-autosave database backup FAILED (exit [backup_result["errorcode"]]): [backup_result["stderr"] || backup_result["stdout"]]")
-			log_and_message_admins("automatic post-lobby-autosave database backup FAILED (exit [backup_result["errorcode"]])", null)
+			var/list/backup_result = run_database_backup()
+			if(backup_result["success"])
+				log_subsystem_persistence_info("Persistence: Automatic post-lobby-autosave database backup complete.")
+			else
+				log_subsystem_persistence_error("Persistence: Automatic post-lobby-autosave database backup FAILED (exit [backup_result["errorcode"]]): [backup_result["stderr"] || backup_result["stdout"]]")
+				log_and_message_admins("automatic post-lobby-autosave database backup FAILED (exit [backup_result["errorcode"]])", null)
 
 /// TRUE if any mob in the round is alive, has a connected client, and is
 /// actively possessing it right now -- i.e. someone is really playing, not
