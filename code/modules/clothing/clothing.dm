@@ -848,6 +848,11 @@
 	var/down_flags_inv = 0
 	var/adjustable = FALSE
 	var/hanging = 0
+	// See persistent_toggle_vars' own doc comment (obj/item base vars,
+	// items.dm) -- adjust_mask()/adjust_sprites() (below) mutate exactly this
+	// set together. Declared once here (not per-subtype like helmet.dm)
+	// since every adjustable mask shares this same base toggle mechanism.
+	persistent_toggle_vars = list("hanging", "icon_state", "item_state", "body_parts_covered", "item_flags", "flags_inv", "gas_transfer_coefficient")
 
 	var/has_blood_overlay = TRUE
 
