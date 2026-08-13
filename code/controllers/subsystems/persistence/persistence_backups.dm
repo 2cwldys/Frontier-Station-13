@@ -47,7 +47,7 @@
 
 /datum/admins/proc/trigger_database_backup()
 	set name = "Trigger Database Backup"
-	set category = "Persistence"
+	set category = "Persistence.Backups & Saves"
 	set desc = "Runs scripts/db_backup now and reports the result."
 
 	if(!check_rights(R_SERVER))
@@ -130,7 +130,7 @@
 /// across restarts via ss13_auto_backup_toggle (setAutoBackupOnAutosave()).
 /datum/admins/proc/toggle_auto_backup_on_autosave()
 	set name = "Toggle Auto Backup On Autosave"
-	set category = "Persistence"
+	set category = "Persistence.Backups & Saves"
 	set desc = "Toggles whether every periodic autosave also runs a database backup."
 
 	if(!check_rights(R_SERVER))

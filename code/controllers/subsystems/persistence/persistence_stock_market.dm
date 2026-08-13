@@ -389,7 +389,7 @@ GLOBAL_LIST_EMPTY(persistence_stock_holdings_cache)
 /// baseline the simulation continues from, same as any other tick.
 /datum/admins/proc/manage_stock_market()
 	set name = "Manage Stock Market"
-	set category = "Persistence"
+	set category = "Persistence.Cargo & Economy"
 	if(!check_rights(R_ADMIN))
 		return
 	if(!length(SSstock_market.companies))

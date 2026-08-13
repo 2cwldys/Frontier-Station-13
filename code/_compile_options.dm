@@ -56,6 +56,14 @@
 // chased.
 #define WALL_RESTORE_DIAGNOSTICS
 
+// If defined, wall-mounted machine save/restore logs each machine's
+// type/position/dir/pixel offset at save time, at worldstate restore time,
+// and whenever wallOffsetFinalize()'s sweep actually changes one -- so a
+// mismatch can be diagnosed by comparing what was saved against what came
+// back, instead of re-deriving it from scratch. Defined by default while
+// wall-mount positioning is still being actively chased.
+#define WALL_MACHINE_DIAGNOSTICS
+
 // If defined, the floor-item persistence path logs every decision it makes
 // for a faction-tagged clothing item: which branch dropped it (if any),
 // whether its extra state blob was built, and which restore branch ran on
@@ -113,7 +121,7 @@
 // log_adminsay() are deliberately NOT included -- see admin.dm's own
 // ADMINPRIVATE-is-stripped-from-public-logs convention. Off by default --
 // leave undefined to keep admin logs server-local only.
-//#define EXPORT_ADMIN_LOG_TO_DISCORD
+#define EXPORT_ADMIN_LOG_TO_DISCORD
 
 // If defined, the last active player character going to cryo immediately
 // triggers a full persistence autosave (runLobbyEmptyAutosave(),

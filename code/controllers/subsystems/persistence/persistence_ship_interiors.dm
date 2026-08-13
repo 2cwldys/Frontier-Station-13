@@ -250,6 +250,13 @@ GLOBAL_VAR_INIT(persistence_interior_save_z, 0)
 	catch(var/exception/ws_e)
 		log_subsystem_persistence_error("Ship interiors: worldstate apply failed for [scope]: [ws_e]")
 	try
+		// Same gap/fix as the boot-time sweep (persistence_worldstate.dm's
+		// wallOffsetFinalize() doc comment) -- a ship/site deploying mid-round
+		// without a full server restart needs this too.
+		wallOffsetFinalize(z)
+	catch(var/exception/wo_e)
+		log_subsystem_persistence_error("Ship interiors: wall-mount offset finalize failed for [scope]: [wo_e]")
+	try
 		botsApplyZ(z, scope)
 	catch(var/exception/bots_e)
 		log_subsystem_persistence_error("Ship interiors: bot apply failed for [scope]: [bots_e]")

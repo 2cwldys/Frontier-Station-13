@@ -122,7 +122,7 @@ GLOBAL_VAR_INIT(persistence_join_whitelist_enabled, TRUE)
 
 /datum/admins/proc/whitelist_players()
 	set name = "Whitelist Players"
-	set category = "Persistence"
+	set category = "Persistence.Characters"
 	set desc = "Add or remove ckeys allowed to join through the character menu."
 
 	if(!check_rights(R_ADMIN))

@@ -134,7 +134,7 @@ GLOBAL_LIST_EMPTY(hostile_npc_presets)
 
 /datum/admins/proc/manage_hostile_npc_presets()
 	set name = "Manage Hostile NPC Presets"
-	set category = "Persistence"
+	set category = "Persistence.Away Sites & Missions"
 	set desc = "Add, edit, remove, or toggle admin-authored hostile NPC equipment/stat presets."
 
 	if(!check_rights(R_ADMIN))

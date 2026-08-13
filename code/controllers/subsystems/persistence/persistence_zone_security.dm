@@ -727,7 +727,7 @@ GLOBAL_LIST_EMPTY(hub_emergency_last_tracked)
 /// markers (zone outlines, pinned-site names/icons) in action.
 /datum/admins/proc/view_overmap()
 	set name = "View Overmap"
-	set category = "Persistence"
+	set category = "Persistence.Zones & Z-Levels"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -748,7 +748,7 @@ GLOBAL_LIST_EMPTY(hub_emergency_last_tracked)
 /// Admin verb: set a z-level's security zone, stored to DB immediately.
 /datum/admins/proc/set_zone_security()
 	set name = "Set Z-Level Security Zone"
-	set category = "Persistence"
+	set category = "Persistence.Zones & Z-Levels"
 
 	if(!check_rights(R_ADMIN))
 		return

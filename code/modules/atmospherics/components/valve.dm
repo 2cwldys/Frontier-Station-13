@@ -318,6 +318,172 @@
 			else
 				open()
 
+/**
+ * Buildable variant of the digital valve that gates manual opening
+ * behind a keypad code instead of ID access. Deliberately doesn't touch
+ * set_frequency()/atmos_init() -- a paired atmos control button (or AI)
+ * still WORKS over RADIO_ATMOSIA exactly as any other digital valve, but
+ * receive_signal() is overridden below so its open direction is gated by
+ * the same lock the keypad enforces -- a button alone, without the code
+ * ever having been entered, is not enough to open this valve. The admin
+ * AltClick() bypass is untouched (still a full, unconditional override).
+ */
+/obj/structure/machinery/atmospherics/valve/digital/keypad
+	name = "keypad valve"
+	desc = "A digitally controlled valve gated by a keypad lock."
+
+	/// The permanent stored code, null = not yet set.
+	var/set_code = null
+	/// (ckey, char_name) of whoever set the current code -- same composite
+	/// per-character identity pattern airlock_keypad.dm uses.
+	var/setter_ckey = null
+	var/setter_name = null
+	/// Transient, not persisted -- digits typed so far, mirrors
+	/// airlock_keypad.dm's own entry_buffer.
+	var/entry_buffer = ""
+	/// TRUE until the correct code is entered via the keypad -- gates the
+	/// OPEN direction of receive_signal() below (a paired remote atmos
+	/// button/AI can't open this valve on frequency knowledge alone; it can
+	/// only act once the keypad has already authorized it). Re-armed
+	/// unconditionally by close() below regardless of what closed it --
+	/// closing is always free (close_valve, ui_act()) and always re-locks.
+	var/locked = TRUE
+
+/obj/structure/machinery/atmospherics/valve/digital/keypad/attack_hand(mob/user as mob)
+	if(!powered())
+		return
+	ui_interact(user)
+
+/obj/structure/machinery/atmospherics/valve/digital/keypad/ui_interact(mob/user, datum/tgui/ui)
+	ui = SStgui.try_update_ui(user, src, ui)
+	if(!ui)
+		ui = new(user, src, "KeypadValve", "[name]", 380, 520)
+		ui.open()
+
+/obj/structure/machinery/atmospherics/valve/digital/keypad/ui_data(mob/user)
+	var/list/data = list()
+	data["valveName"] = name
+	data["codeSet"] = !!set_code
+	data["open"] = open
+	data["setterName"] = setter_name
+	// Matches ui_act()'s own "reset_code" gate exactly (setter OR admin) --
+	// without the admin half here, an admin who isn't the setter would
+	// never see the button to trigger the reset they're already allowed to do.
+	data["canReset"] = set_code && (_is_setter(user) || check_rights(R_ADMIN, FALSE, user))
+	data["entry"] = entry_buffer
+	return data
+
+/// TRUE if user is the (ckey, char_name) that set the current code.
+/obj/structure/machinery/atmospherics/valve/digital/keypad/proc/_is_setter(mob/user)
+	return set_code && (user.ckey == setter_ckey) && (user.real_name == setter_name)
+
+/// Every close path (the TGUI's free close_valve, a remote valve_close/
+/// valve_toggle signal, or an admin's AltClick) funnels through here, so
+/// re-locking once, in this single override, covers all of them uniformly.
+/obj/structure/machinery/atmospherics/valve/digital/keypad/close()
+	. = ..()
+	locked = TRUE
+
+/// Same signal handling as the base digital valve, except the open
+/// direction additionally requires !locked -- a paired remote button
+/// knowing the frequency/id is not, on its own, sufficient authorization;
+/// it can only act once the keypad has unlocked this valve. The close
+/// direction is intentionally left unconditional, matching the keypad's
+/// own free close_valve action.
+/obj/structure/machinery/atmospherics/valve/digital/keypad/receive_signal(datum/signal/signal)
+	if(!signal.data["tag"] || (signal.data["tag"] != id))
+		return 0
+
+	switch(signal.data["command"])
+		if("valve_open")
+			if(!open && !locked)
+				open()
+		if("valve_close")
+			if(open)
+				close()
+		if("valve_toggle")
+			if(open)
+				close()
+			else if(!locked)
+				open()
+
+/obj/structure/machinery/atmospherics/valve/digital/keypad/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
+	. = ..()
+	if(.)
+		return
+	var/mob/user = usr
+	switch(action)
+		if("type")
+			var/digit = params["value"]
+			// Membership test, not text2num() -- see airlock_keypad.dm's
+			// identical comment: null == 0 is TRUE in DM, so text2num("0")
+			// would be indistinguishable from a rejected digit.
+			if(istext(digit) && length(digit) == 1 && findtext("0123456789", digit) && length(entry_buffer) < 5)
+				entry_buffer += digit
+			. = TRUE
+		if("clear")
+			entry_buffer = ""
+			. = TRUE
+		if("enter")
+			var/entered = entry_buffer
+			entry_buffer = ""
+			if(length(entered) != 5)
+				. = TRUE
+				return
+			if(!set_code)
+				set_code = entered
+				setter_ckey = user.ckey
+				setter_name = user.real_name
+				to_chat(user, SPAN_NOTICE("You set \the [src]'s passcode."))
+			else if(entered == set_code)
+				locked = FALSE
+				if(!open)
+					open()
+					if(admin_message)
+						log_and_message_admins("[SPAN_WARNING("OPENED")] [name] via keypad.", user)
+				else
+					to_chat(user, SPAN_NOTICE("\The [src] is already open."))
+			else
+				to_chat(user, SPAN_WARNING("Incorrect code."))
+			. = TRUE
+		// Closing is always free, no code needed -- mirrors
+		// airlock_keypad.dm's own "Close Door" action. close() (overridden
+		// below) re-locks unconditionally, so re-opening -- by keypad OR by
+		// a paired remote button -- always needs the code again afterward.
+		if("close_valve")
+			if(open)
+				close()
+				if(admin_message)
+					log_and_message_admins("closed [name] via keypad.", user)
+			. = TRUE
+		if("reset_code")
+			if(!_is_setter(user) && !check_rights(R_ADMIN, FALSE, user))
+				return TRUE
+			set_code = null
+			setter_ckey = null
+			setter_name = null
+			to_chat(user, SPAN_NOTICE("You reset \the [src]'s passcode."))
+			. = TRUE
+	if(.)
+		SStgui.update_uis(src)
+
+/// Persists the code/setter across a restart -- same generic per-object
+/// content hook this session's other player-built machinery already uses.
+/obj/structure/machinery/atmospherics/valve/digital/keypad/persistent_objects_get_content()
+	var/list/content = ..()
+	content["set_code"] = set_code
+	content["setter_ckey"] = setter_ckey
+	content["setter_name"] = setter_name
+	return content
+
+/obj/structure/machinery/atmospherics/valve/digital/keypad/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	set_code = content["set_code"]
+	setter_ckey = content["setter_ckey"]
+	setter_name = content["setter_name"]
+
 /obj/structure/machinery/atmospherics/valve/attackby(obj/item/attacking_item, mob/user)
 	if (attacking_item.tool_behaviour != TOOL_WRENCH)
 		return ..()

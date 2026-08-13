@@ -807,7 +807,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 
 /datum/admins/proc/toggle_faction_creation()
 	set name = "Toggle Faction Creation"
-	set category = "Persistence"
+	set category = "Persistence.Factions"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -881,7 +881,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 /// GLOB.hub_law_text's own doc comment (persistence.dm).
 /datum/admins/proc/modify_hub_laws()
 	set name = "Modify Hub Laws"
-	set category = "Persistence"
+	set category = "Persistence.Factions"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -903,7 +903,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 
 /datum/admins/proc/toggle_faction_raiding()
 	set name = "Toggle Faction Raiding"
-	set category = "Persistence"
+	set category = "Persistence.Factions"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -1574,7 +1574,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 
 /datum/admins/proc/toggle_zlevel_persistence()
 	set name = "Toggle Z-Level Persistence"
-	set category = "Persistence"
+	set category = "Persistence.Zones & Z-Levels"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -1630,7 +1630,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 /// z-levels with labels, backed by ss13_zlevel_persistence (enabled = 1 rows).
 /datum/admins/proc/manage_manual_save_list()
 	set name = "Manual Z-Level Save List"
-	set category = "Persistence"
+	set category = "Persistence.Zones & Z-Levels"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -1905,7 +1905,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 /// (procedurally generated every boot -- no fixed template to respawn).
 /datum/admins/proc/manage_persistent_overmap_sites()
 	set name = "Persistent Overmap Sites"
-	set category = "Persistence"
+	set category = "Persistence.Zones & Z-Levels"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -2512,7 +2512,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 /// respawns it at this exact spot every boot with full persistence.
 /datum/admins/proc/generate_away_site()
 	set name = "Generate Away Site"
-	set category = "Persistence"
+	set category = "Persistence.Away Sites & Missions"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -2678,7 +2678,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
  */
 /datum/admins/proc/remove_away_site()
 	set name = "Remove Away Site"
-	set category = "Persistence"
+	set category = "Persistence.Away Sites & Missions"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -2743,7 +2743,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 
 /datum/admins/proc/give_credits_to_player()
 	set name = "Give Credits"
-	set category = "Persistence"
+	set category = "Persistence.Factions"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -2780,7 +2780,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 
 /datum/admins/proc/reset_player_bank_account()
 	set name = "Reset Player Bank Account"
-	set category = "Persistence"
+	set category = "Persistence.Factions"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -2817,7 +2817,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 
 /datum/admins/proc/debug_character_spawn_lock()
 	set name = "Debug Character Spawn Lock"
-	set category = "Persistence"
+	set category = "Persistence.Factions"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -2868,7 +2868,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 
 /datum/admins/proc/give_faction_id()
 	set name = "Give Faction ID"
-	set category = "Persistence"
+	set category = "Persistence.Factions"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -2940,7 +2940,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 
 /datum/admins/proc/manage_faction_account()
 	set name = "Manage Faction Account"
-	set category = "Persistence"
+	set category = "Persistence.Factions"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -3221,7 +3221,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 
 /datum/admins/proc/manage_faction_jobs()
 	set name = "Manage Faction Jobs"
-	set category = "Persistence"
+	set category = "Persistence.Factions"
 
 	if(!check_rights(R_ADMIN))
 		return

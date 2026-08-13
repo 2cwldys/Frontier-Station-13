@@ -334,7 +334,7 @@ SUBSYSTEM_DEF(persistence)
 
 /datum/admins/proc/toggle_server_joining()
 	set name = "Toggle Server Joining"
-	set category = "Persistence"
+	set category = "Persistence.Misc"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -362,7 +362,7 @@ SUBSYSTEM_DEF(persistence)
 /// Persistence Save) and/or reboot.
 /datum/admins/proc/warn_pending_save()
 	set name = "Warn Pending Save"
-	set category = "Persistence"
+	set category = "Persistence.Backups & Saves"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -373,7 +373,7 @@ SUBSYSTEM_DEF(persistence)
 
 /datum/admins/proc/toggle_persistence()
 	set name = "Toggle Persistence"
-	set category = "Persistence"
+	set category = "Persistence.Backups & Saves"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -403,7 +403,7 @@ SUBSYSTEM_DEF(persistence)
 
 /datum/admins/proc/toggle_autosave_pause()
 	set name = "Toggle Autosave Pause"
-	set category = "Persistence"
+	set category = "Persistence.Backups & Saves"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -424,7 +424,7 @@ SUBSYSTEM_DEF(persistence)
 
 /datum/admins/proc/force_persistence_save()
 	set name = "Force Persistence Save"
-	set category = "Persistence"
+	set category = "Persistence.Backups & Saves"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -459,41 +459,43 @@ SUBSYSTEM_DEF(persistence)
 	play_announcer_voice_to_all('sound/AI/announcements/autosave_in_progress.ogg')
 	log_and_message_admins("initiated a world persistence save", usr)
 
-	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("1/8")] Saving economy..."))
-	SSpersistence.economyFinalize()
-	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("2/8")] Saving records + research..."))
-	SSpersistence.recordsFinalize()
-	SSpersistence.researchFinalize()
-	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("3/8")] Saving machinery states..."))
-	SSpersistence.areasFinalize()
-	SSpersistence.worldstateFinalize()
-	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("4/8")] Saving mob health, inventory, identity, position..."))
-	SSpersistence.mobsHealthFinalize()
-	SSpersistence.mobsInventoryFinalize()
-	SSpersistence.charIdentityFinalize()
-	SSpersistence.mobsPositionFinalizeAll()
-	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("5/8")] Saving turfs..."))
-	SSpersistence.turfsFinalize()
-	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("6/8")] Saving atmos zones..."))
-	SSpersistence.atmosFinalize()
-	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("7/8")] Saving persistent objects..."))
-	SSpersistence.objectsFinalize()
-	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("8/8")] Saving floor items..."))
-	SSpersistence.floorItemsFinalize()
-	SSpersistence.botsFinalize()
-	SSpersistence.subshipSnapshotSaveAllDeployed()
-	// Same trailing cleanup the periodic save and Shutdown() both run -- see
-	// drydockForgetBeaconEnvelopes() (persistence_shuttles.dm).
-	//
-	// try/catch is NOT optional here: save_in_progress gates the Stash,
-	// Retrieve and Scuttle buttons on every ship schematic AND the Ship
-	// Drydock program. An exception escaping between setting it TRUE and
-	// clearing it below leaves every one of those greyed out, with no way to
-	// recover short of a server restart.
+	// try/catch is NOT optional around this whole sequence: save_in_progress
+	// gates the Stash, Retrieve and Scuttle buttons on every ship schematic
+	// AND the Ship Drydock program (plus joining, plus another save). An
+	// exception escaping ANY of these -- not just the last one -- between
+	// setting save_in_progress TRUE and clearing it below leaves everything
+	// gated on it stuck, with no way to recover short of a server restart
+	// (or the Emergency Stop Save admin verb).
 	try
+		to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("1/8")] Saving economy..."))
+		SSpersistence.economyFinalize()
+		to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("2/8")] Saving records + research..."))
+		SSpersistence.recordsFinalize()
+		SSpersistence.researchFinalize()
+		to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("3/8")] Saving machinery states..."))
+		SSpersistence.areasFinalize()
+		SSpersistence.worldstateFinalize()
+		to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("4/8")] Saving mob health, inventory, identity, position..."))
+		SSpersistence.mobsHealthFinalize()
+		SSpersistence.mobsInventoryFinalize()
+		SSpersistence.charIdentityFinalize()
+		SSpersistence.mobsPositionFinalizeAll()
+		to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("5/8")] Saving turfs..."))
+		SSpersistence.turfsFinalize()
+		to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("6/8")] Saving atmos zones..."))
+		SSpersistence.atmosFinalize()
+		to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("7/8")] Saving persistent objects..."))
+		SSpersistence.objectsFinalize()
+		to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("8/8")] Saving floor items..."))
+		SSpersistence.floorItemsFinalize()
+		SSpersistence.botsFinalize()
+		SSpersistence.subshipSnapshotSaveAllDeployed()
+		// Same trailing cleanup the periodic save and Shutdown() both run --
+		// see drydockForgetBeaconEnvelopes() (persistence_shuttles.dm).
 		SSpersistence.drydockForgetBeaconEnvelopes()
-	catch(var/exception/beacon_forget_e)
-		log_subsystem_persistence_panic("Unhandled exception during docking beacon envelope cleanup: [beacon_forget_e]")
+	catch(var/exception/force_save_e)
+		log_subsystem_persistence_panic("Unhandled exception during forced persistence save: [force_save_e]")
+		to_chat(usr, SPAN_WARNING("Persistence save failed partway through -- see the persistence log. save_in_progress has still been cleared."))
 
 	SSpersistence.save_in_progress = FALSE
 	// Same post-save queue kick as the periodic fire() -- stash/retrieve
@@ -503,6 +505,58 @@ SUBSYSTEM_DEF(persistence)
 	to_chat(usr, SPAN_GOOD("Persistence save complete."))
 
 	feedback_add_details("admin_verb","FPS")
+
+/**
+ * Actually unsticks a hung save, not just the flag. A stuck save is the
+ * original proc sleeping forever in datum/db_query/sync() (dbcore.dm:550-552,
+ * `while(status < DB_QUERY_FINISHED): stoplag()`), waiting on
+ * SSdbcore's connection POOL (SSdbcore.connection -- a rust-g pool handle,
+ * not a single connection, see dbcore.dm's Connect()) to ever report that
+ * query finished. If the underlying MySQL query is genuinely wedged (e.g.
+ * a lock wait that never resolves), that pool slot -- and the suspended
+ * proc waiting on it -- is orphaned forever; merely clearing
+ * save_in_progress unblocks everything ELSE gated on it (joining, drydock
+ * ops, a new save) but leaves that original proc as a permanent zombie and
+ * does nothing to recover the pool capacity it's still holding.
+ *
+ * SSdbcore.Disconnect() + Connect() tears down and rebuilds the whole
+ * connection pool, forcibly severing whatever query is stuck. This is safe:
+ * individual SQL statements are atomic, so MySQL rolls back the interrupted
+ * one cleanly -- nothing is left half-written. The real cost is that any
+ * OTHER query genuinely in flight at that exact moment also gets aborted
+ * and has to be retried by its own caller, same as any ordinary "DB
+ * connection dropped" hiccup this codebase already tolerates everywhere
+ * (databaseCheckConnection() failing is a normal, handled case). Severing
+ * the connection lets the ORIGINAL stuck proc's query fail for real, which
+ * lets it actually resume and hit its own try/catch (both
+ * force_persistence_save() and forceSaveAll() have one) and finish
+ * properly instead of staying orphaned.
+ */
+/datum/admins/proc/emergency_stop_save()
+	set name = "Emergency Stop Save"
+	set category = "Persistence.Backups & Saves"
+	set desc = "Resets the database connection pool to actually unstick a hung save (not just clear the flag), then clears save_in_progress. Only use once you're sure a save is genuinely stuck, not just slow."
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	if(!SSpersistence.save_in_progress)
+		to_chat(usr, SPAN_NOTICE("No save is currently marked in progress."))
+		return
+
+	var/confirm = tgui_alert(usr, "This resets the database connection pool -- killing whatever query is genuinely stuck -- then clears save_in_progress. SQL statements are atomic, so the interrupted one rolls back cleanly with nothing half-written, but any OTHER query in flight right now also gets aborted and will need to retry. Only do this if a save has stalled far longer than one ever should, not just running slow.", "Emergency Stop Save", list("Reset & Clear", "Cancel"))
+	if(confirm != "Reset & Clear")
+		return
+
+	SSdbcore.Disconnect()
+	SSdbcore.Connect()
+
+	SSpersistence.save_in_progress = FALSE
+	SSpersistence._drydockProcessNextQueued()
+	log_and_message_admins("reset the database connection pool and force-cleared a stuck save_in_progress flag (Emergency Stop Save)", usr)
+	to_chat(usr, SPAN_GOOD("Database connection pool reset, save_in_progress cleared. Saves, joins, and drydock ops can resume."))
+
+	feedback_add_details("admin_verb","ESS")
 
 /**
  * Sweeps the whole world and vaults every dead/unclaimed neural lace, plus
@@ -545,7 +599,7 @@ SUBSYSTEM_DEF(persistence)
 
 /datum/admins/proc/force_vault_all_laces()
 	set name = "Force Vault All Laces"
-	set category = "Persistence"
+	set category = "Persistence.Backups & Saves"
 	set desc = "Immediately vaults every neural lace belonging to a dead/unclaimed body, plus any sitting loose in the world. Never touches a living person's installed lace. Use before a server reboot."
 
 	if(!check_rights(R_ADMIN))
@@ -1010,6 +1064,16 @@ SUBSYSTEM_DEF(persistence)
 		atmosAlarmsReset()
 	catch(var/exception/aar_e)
 		log_subsystem_persistence_panic("Unhandled exception during atmos alarm reset: [aar_e]")
+
+	log_subsystem_persistence_info("Starting wall-mount offset finalization...")
+	try
+		// After worldstateInitialize(): re-apply wall-mount pixel offsets to
+		// every machine, fixing (and self-healing on every future boot) any
+		// wall-mounted device left centered/off-wall by a worldstate dir
+		// restore -- see wallOffsetFinalize()'s own doc comment.
+		wallOffsetFinalize()
+	catch(var/exception/wo_e)
+		log_subsystem_persistence_panic("Unhandled exception during wall-mount offset finalization: [wo_e]")
 
 	log_subsystem_persistence_info("Starting mob health initialization...")
 	try

@@ -102,7 +102,7 @@
 
 /obj/structure/machinery/body_vat/verb/admin_instant_grow()
 	set name = "Instant Grow Body (Admin)"
-	set category = "Persistence"
+	set category = "Persistence.Characters"
 	set src in oview(1)
 
 	if(!check_rights(R_ADMIN))

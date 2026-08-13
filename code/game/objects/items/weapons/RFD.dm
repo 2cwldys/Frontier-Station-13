@@ -798,7 +798,8 @@ ABSTRACT_TYPE(/obj/item/rfd)
 		"Gas Filter" = PIPE_GAS_FILTER_M,
 		"Omni Gas Filter" = PIPE_OMNI_FILTER,
 		"Omni Gas Mixer" = PIPE_OMNI_MIXER,
-		"Gas Meter" = "gasmeter"
+		"Gas Meter" = "gasmeter",
+		"Keypad Valve" = PIPE_KEYPAD_VALVE
 	)
 
 /obj/item/rfd/piping/mechanics_hints(mob/user, distance, is_adjacent)

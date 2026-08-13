@@ -185,6 +185,60 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	log_subsystem_persistence_info("Worldstate: Power state finalized -- [apc_count] APC(s), [solar_count] solar controller(s), [length(apc_areas)] area(s) rebroadcast.")
 
 /**
+ * Re-applies wall-mount pixel offsets to every currently-loaded machine.
+ * persistence_reapply_wall_offset() (objs.dm, overridden by firealarm/
+ * alarm/light_construct/airlock_controller/airlock_sensor/access_button/
+ * blast_door_button-buildable) is a no-op for anything that doesn't
+ * override it, so sweeping every machine broadly is safe/cheap rather than
+ * special-casing the affected types.
+ *
+ * Needed because worldstate_apply_content() (this file) restores `dir` as
+ * a raw var for airlock_sensor/access_button/airlock_controller (their
+ * worldstate_vars lists include "dir") but never recomputes the pixel
+ * offset that should go with it -- an instance recreated fresh during a
+ * worldstate-driven restore (pinned site reload, ship redeploy, server
+ * restart) gets its correct dir back but keeps its class-default
+ * (centered) pixel offset, rendering dead-center instead of hugging its
+ * wall. The OTHER persistence path (objectsApplyTrackContent(),
+ * persistence_objects.dm) already calls persistence_reapply_wall_offset()
+ * correctly -- this covers the gap on the worldstate side.
+ *
+ * z = null sweeps every currently-loaded machine (boot); a specific z
+ * scopes it to one Z (ship/site deploy).
+ */
+/datum/controller/subsystem/persistence/proc/wallOffsetFinalize(z = null)
+	PRIVATE_PROC(TRUE)
+	var/swept = 0
+	for(var/obj/structure/machinery/M in SSmachinery.machinery)
+		if(z && M.z != z)
+			continue
+#ifdef WALL_MACHINE_DIAGNOSTICS
+		var/before_px = M.pixel_x
+		var/before_py = M.pixel_y
+#endif
+		M.persistence_reapply_wall_offset()
+#ifdef WALL_MACHINE_DIAGNOSTICS
+		if(before_px != M.pixel_x || before_py != M.pixel_y)
+			log_subsystem_persistence_info("WallMachineDiag SWEEP: [M.type] at ([M.x],[M.y],[M.z]) pixel_x [before_px]->[M.pixel_x] pixel_y [before_py]->[M.pixel_y]")
+#endif
+		swept++
+	log_subsystem_persistence_info("Worldstate: Re-applied wall-mount offsets to [swept] machine(s)[z ? " on z=[z]" : ""].")
+
+/// On-demand live fix -- runs the same sweep wallOffsetFinalize() already
+/// does automatically at boot/deploy, without needing a restart.
+/datum/admins/proc/fix_wall_mounted_machinery()
+	set name = "Fix Wall-Mounted Machinery"
+	set category = "Persistence.Backups & Saves"
+	set desc = "Re-applies wall-mount pixel offsets to every currently-loaded machine, fixing any left centered/off-wall by a persistence restore."
+
+	if(!check_rights(R_SERVER))
+		return
+
+	SSpersistence.wallOffsetFinalize()
+	to_chat(usr, SPAN_GOOD("Wall-mount offsets re-applied to every currently-loaded machine."))
+	log_and_message_admins("ran a live wall-mounted machinery fix.")
+
+/**
  * Clear atmos alarm state latched during boot, called AFTER atmosApply()
  * has put the real saved air back. While turfs/zones rebuild, live air
  * alarms sample transient vacuum/cold and latch danger levels that close
@@ -238,6 +292,10 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 			return 0
 		content -= "__worldstate_site"
 		S.worldstate_apply_content(content)
+#ifdef WALL_MACHINE_DIAGNOSTICS
+		if(S.pixel_x || S.pixel_y)
+			log_subsystem_persistence_info("WallMachineDiag RESTORE: [S.type] at ([T.x],[T.y],[T.z]) dir=[S.dir] pixel_x=[S.pixel_x] pixel_y=[S.pixel_y]")
+#endif
 		return 1
 	catch(var/exception/e)
 		log_subsystem_persistence_error("Worldstate: Failed to apply content to [S] at [get_turf(S)]: [e]")
@@ -407,6 +465,10 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 			return 0
 		content -= "__worldstate_site"
 		S.worldstate_apply_content(content)
+#ifdef WALL_MACHINE_DIAGNOSTICS
+		if(S.pixel_x || S.pixel_y)
+			log_subsystem_persistence_info("WallMachineDiag RESTORE: [S.type] at ([T.x],[T.y],[T.z]) dir=[S.dir] pixel_x=[S.pixel_x] pixel_y=[S.pixel_y]")
+#endif
 		return 1
 	catch(var/exception/e)
 		log_subsystem_persistence_error("Worldstate: Failed to apply ship content to [S] at [get_turf(S)]: [e]")
@@ -424,6 +486,10 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		var/turf/T = get_turf(S)
 		if(!T || !T.z)
 			return 0
+#ifdef WALL_MACHINE_DIAGNOSTICS
+		if(S.pixel_x || S.pixel_y)
+			log_subsystem_persistence_info("WallMachineDiag SAVE: [S.type] at ([T.x],[T.y],[T.z]) dir=[S.dir] pixel_x=[S.pixel_x] pixel_y=[S.pixel_y]")
+#endif
 		var/list/content = S.worldstate_get_content()
 		if(!islist(content) || !length(content))
 			return 0
@@ -816,6 +882,14 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	// to draining its own cell until it reads as unpowered.
 	if(anchored)
 		connect_to_network()
+	// Same issue, same cause, for the looping hum: Initialize() constructs
+	// soundloop with start_immediately = active, but sees the class default
+	// (FALSE) since this restore hasn't run yet -- so a generator saved
+	// while running comes back reporting active but silently mute until
+	// manually toggled off and back on. soundloop is always non-null by this
+	// point (Initialize() constructs it unconditionally).
+	if(active)
+		soundloop.start(src)
 
 /obj/structure/machinery/power/solar_control
 	worldstate_vars = list("track", "trackrate")

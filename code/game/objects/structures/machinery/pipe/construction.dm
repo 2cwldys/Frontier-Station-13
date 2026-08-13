@@ -1079,6 +1079,23 @@
 				V.node2.atmos_init()
 				V.node2.build_network()
 
+		if(PIPE_KEYPAD_VALVE)		//keypad-gated digital valve
+			var/obj/structure/machinery/atmospherics/valve/digital/keypad/V = new( src.loc)
+			V.set_dir(dir)
+			V.initialize_directions = pipe_dir
+			if (pipename)
+				V.name = pipename
+			var/turf/T = V.loc
+			V.level = !T.is_plating() ? 2 : 1
+			V.atmos_init()
+			V.build_network()
+			if (V.node1)
+				V.node1.atmos_init()
+				V.node1.build_network()
+			if (V.node2)
+				V.node2.atmos_init()
+				V.node2.build_network()
+
 		if(PIPE_PVENT) //passive vent
 			var/obj/structure/machinery/atmospherics/pipe/vent_passive/V = new (src.loc)
 			V.set_dir(dir)

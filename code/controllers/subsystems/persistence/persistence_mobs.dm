@@ -1003,7 +1003,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 
 /datum/admins/proc/check_vitals()
 	set name = "Check Vitals"
-	set category = "Persistence"
+	set category = "Persistence.Characters"
 
 	if(!check_rights(R_ADMIN))
 		return

@@ -408,7 +408,7 @@
  */
 /datum/admins/proc/repair_dual_tagged_devices()
 	set name = "Repair Dual-Tagged Devices"
-	set category = "Persistence"
+	set category = "Persistence.Factions"
 	set desc = "Finds cryopods/telepads/computers/autodocs left tagged to both a faction AND a personal owner by a now-fixed sweep bug -- clears the erroneous faction tag, keeps the personal one."
 
 	if(!check_rights(R_ADMIN))
