@@ -168,6 +168,16 @@
 	. = ..(mapload, MATERIAL_RUST)
 	desc = "Rust stains this ancient wall."
 	canSmoothWith = list(src.type)
+	GLOB.rust_variant_walls += src
+	if(!GLOB.rust_variants_enabled)
+		// Late-loaded (e.g. a Z brought in after an admin already toggled
+		// rust off) -- construct straight into the clean material instead
+		// of visibly flashing rusty for a tick.
+		set_material(SSmaterials.get_material_by_name(DEFAULT_WALL_MATERIAL))
+
+/turf/simulated/wall/rusty/Destroy()
+	GLOB.rust_variant_walls -= src
+	return ..()
 
 /turf/simulated/wall/cloth/Initialize(mapload)
 	canSmoothWith = list(src.type)

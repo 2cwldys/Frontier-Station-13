@@ -321,6 +321,24 @@
 		set_frequency(frequency)
 	update_icon()
 
+/obj/structure/machinery/airlock_sensor/persistence_reapply_wall_offset()
+	apply_wall_mount_offset()
+
+/obj/structure/machinery/airlock_sensor/persistent_objects_get_content()
+	. = ..()
+	.["buildstage"] = buildstage
+	.["panel_open"] = panel_open
+
+/obj/structure/machinery/airlock_sensor/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if("buildstage" in content)
+		buildstage = text2num(content["buildstage"])
+	if("panel_open" in content)
+		panel_open = content["panel_open"]
+	update_icon()
+
 /obj/structure/machinery/airlock_sensor/update_icon()
 	if(buildstage < 2)
 		icon_state = "airlock_sensor_off"
@@ -752,6 +770,24 @@
 
 	if(SSradio)
 		set_frequency(frequency)
+
+/obj/structure/machinery/access_button/persistence_reapply_wall_offset()
+	apply_wall_mount_offset()
+
+/obj/structure/machinery/access_button/persistent_objects_get_content()
+	. = ..()
+	.["buildstage"] = buildstage
+	.["panel_open"] = panel_open
+
+/obj/structure/machinery/access_button/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if("buildstage" in content)
+		buildstage = text2num(content["buildstage"])
+	if("panel_open" in content)
+		panel_open = content["panel_open"]
+	update_icon()
 
 /obj/structure/machinery/access_button/Destroy()
 	if(SSradio)

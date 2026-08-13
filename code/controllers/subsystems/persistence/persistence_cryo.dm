@@ -236,8 +236,16 @@
 		// here would sever that in-flight handoff and strand the client instead
 		// of returning it to the main menu.
 		QDEL_IN(H, 0)
+		// H excluded -- its own client is often still attached at this point
+		// (the voluntary store path hands it to a new lobby mob only after
+		// this proc returns), so an unqualified population check would always
+		// see itself as "still playing" and never fire.
+		if(!_any_active_player_character(H))
+			INVOKE_ASYNC(SSpersistence, PROC_REF(runLobbyEmptyAutosave))
 		return TRUE
 
+	if(!_any_active_player_character(H))
+		INVOKE_ASYNC(SSpersistence, PROC_REF(runLobbyEmptyAutosave))
 	return TRUE
 
 // ============================================================

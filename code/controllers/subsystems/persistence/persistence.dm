@@ -32,6 +32,13 @@ GLOBAL_VAR_INIT(faction_raiding_enabled, TRUE)
 /// via ss13_hub_law_text. Empty string until an admin sets it.
 GLOBAL_VAR_INIT(hub_law_text, "")
 
+/// Whether the periodic autosave (fire(), below) also runs a full database
+/// backup (the same scripts/db_backup that Trigger Database Backup runs on
+/// demand) after each successful save. Default OFF -- opt-in. Admin-toggled
+/// (toggle_auto_backup_on_autosave(), persistence_backups.dm), persists
+/// across restarts via ss13_auto_backup_toggle.
+GLOBAL_VAR_INIT(auto_backup_on_autosave, FALSE)
+
 /// Z levels whose numbers appear in this list are SKIPPED by turf/object/worldstate persistence.
 /// Populated from ss13_zlevel_persistence WHERE enabled = 0 at startup.
 /// Empty by default = all Z levels persist.
@@ -180,6 +187,20 @@ SUBSYSTEM_DEF(persistence)
 	SSstatistics.update_status()
 	log_subsystem_persistence_info("Persistence: Periodic save complete.")
 	to_world(SPAN_GOOD(SPAN_BOLD("World save complete.")))
+
+	// Admin-toggled (toggle_auto_backup_on_autosave(), persistence_backups.dm).
+	// Reported via subsystem log on success and an admin ping on failure --
+	// not to_world, so this stays silent to players every 30 minutes like the
+	// rest of the automatic persistence machinery (_autosave_empty_reconcile()
+	// above behaves the same way).
+	if(GLOB.auto_backup_on_autosave)
+		log_subsystem_persistence_info("Persistence: Running automatic post-autosave database backup...")
+		var/list/backup_result = run_database_backup()
+		if(backup_result["success"])
+			log_subsystem_persistence_info("Persistence: Automatic post-autosave database backup complete.")
+		else
+			log_subsystem_persistence_error("Persistence: Automatic post-autosave database backup FAILED (exit [backup_result["errorcode"]]): [backup_result["stderr"] || backup_result["stdout"]]")
+			log_and_message_admins("automatic post-autosave database backup FAILED (exit [backup_result["errorcode"]])", null)
 	// ignite() (subsystem.dm) is waitfor=FALSE, and forceSaveAll() really
 	// does sleep across real time (CHECK_TICK) for a save this size -- so
 	// Master's RunQueue() gets control back (and calls update_nextfire())
@@ -195,11 +216,56 @@ SUBSYSTEM_DEF(persistence)
 	// drain only runs after another drydock op, never after a save.
 	_drydockProcessNextQueued()
 
+/**
+ * Ad hoc full save triggered when the last active player leaves the round
+ * via cryo (see the hook in persistStoreCharacter(), persistence_cryo.dm) --
+ * distinct from fire()'s scheduled 30-minute save, and from the admin's own
+ * Force Persistence Save (force_persistence_save(), persistence_backups.dm),
+ * but reuses the exact same forceSaveAll()/save_in_progress/drydock-idle
+ * guard fire() uses. Must be dispatched via INVOKE_ASYNC by the caller, never
+ * called inline -- forceSaveAll() yields across ticks for a real 1-2 minutes,
+ * and persistStoreCharacter()'s own caller needs to hand its client off to a
+ * new lobby mob immediately afterward with no sleep in between.
+ *
+ * Silent (subsystem log only, no to_world/announcer voice line) -- there is
+ * nobody left in a body to see it, matching how _autosave_empty_reconcile()'s
+ * own automatic pause/resume of this same subsystem stays silent for its own
+ * automatic actions.
+ */
+/datum/controller/subsystem/persistence/proc/runLobbyEmptyAutosave()
+	if(prevent_saving || !GLOB.config.sql_enabled || save_in_progress)
+		return
+	if(GLOB.drydock_op_active || length(GLOB.drydock_op_queue))
+		return
+	save_in_progress = TRUE
+	log_subsystem_persistence_info("Persistence: Running lobby-empty autosave (last player left via cryo).")
+	try
+		forceSaveAll()
+	catch(var/exception/e)
+		log_subsystem_persistence_error("Lobby-empty autosave failed: [e]")
+	save_in_progress = FALSE
+	log_subsystem_persistence_info("Persistence: Lobby-empty autosave complete.")
+	_drydockProcessNextQueued()
+
+	if(GLOB.auto_backup_on_autosave)
+		var/list/backup_result = run_database_backup()
+		if(backup_result["success"])
+			log_subsystem_persistence_info("Persistence: Automatic post-lobby-autosave database backup complete.")
+		else
+			log_subsystem_persistence_error("Persistence: Automatic post-lobby-autosave database backup FAILED (exit [backup_result["errorcode"]]): [backup_result["stderr"] || backup_result["stdout"]]")
+			log_and_message_admins("automatic post-lobby-autosave database backup FAILED (exit [backup_result["errorcode"]])", null)
+
 /// TRUE if any mob in the round is alive, has a connected client, and is
 /// actively possessing it right now -- i.e. someone is really playing, not
 /// just an admin ghost/ dead body with a lingering ckey/ lobby client.
-/proc/_any_active_player_character()
+/// exclude: skip this mob when checking -- needed by callers checking "is
+/// anyone ELSE still playing" while the mob in question is mid-departure and
+/// may still have its client attached (see runLobbyEmptyAutosave()'s hook in
+/// persistStoreCharacter(), persistence_cryo.dm).
+/proc/_any_active_player_character(mob/living/exclude)
 	for(var/mob/M in GLOB.mob_list)
+		if(M == exclude)
+			continue
 		if(M.stat != DEAD && M.client)
 			return TRUE
 	return FALSE
@@ -844,6 +910,12 @@ SUBSYSTEM_DEF(persistence)
 		hubLawTextInitialize()
 	catch(var/exception/hub_law_text_e)
 		log_subsystem_persistence_panic("Unhandled exception during hub law text initialization: [hub_law_text_e]")
+
+	log_subsystem_persistence_info("Starting auto-backup-on-autosave toggle initialization...")
+	try
+		autoBackupToggleInitialize()
+	catch(var/exception/auto_backup_toggle_e)
+		log_subsystem_persistence_panic("Unhandled exception during auto-backup-on-autosave toggle initialization: [auto_backup_toggle_e]")
 
 	log_subsystem_persistence_info("Starting stock market initialization...")
 	try

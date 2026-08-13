@@ -209,11 +209,11 @@
 	desc = "A Nralakk-manufactured combat hardsuit, designed for use by elite operatives of the Qukala. Due to their expense and classified design, these suits are rarely seen outside of Qukala hands. Only wearable by skrell."
 
 /datum/uplink_item/item/hardsuit_modules/suit/bunker
-	name = "Ceres Lance Bunker Suit"
+	name = "Hub Lancer Bunker Suit"
 	telecrystal_cost = 8
 	bluecrystal_cost = 8
 	path = /obj/item/rig/bunker/nerfed
-	desc = "A powerful niche-function hardsuit utilized by Ceres' Lance to apprehend synthetics. This is a lighter version with more standard hardsuit plating. Only wearable by humans."
+	desc = "A powerful niche-function hardsuit utilized by Hub Lancers to apprehend synthetics. This is a lighter version with more standard hardsuit plating. Only wearable by humans."
 
 /datum/uplink_item/item/hardsuit_modules/suit/vaurca
 	name = "Vaurca Combat Exoskeleton"

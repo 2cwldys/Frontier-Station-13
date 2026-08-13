@@ -312,8 +312,8 @@
 	slowdown = 0
 
 /obj/item/clothing/accessory/armor_plate/riot/lancer
-	name = "ceres lance armor plate"
-	desc = "A state-of-the-art armor plate used by Ceres Lance. It is made with an additional layer of padding and is designed to protect operatives attempting to physically restrain hostile IPCs, but has poor heat dissipation characteristics as a result."
+	name = "hub lancer armor plate"
+	desc = "A state-of-the-art armor plate used by Hub Lancer. It is made with an additional layer of padding and is designed to protect operatives attempting to physically restrain hostile IPCs, but has poor heat dissipation characteristics as a result."
 	icon_state = "lancer_plate"
 	item_state = "lancer_plate"
 	armor = list(

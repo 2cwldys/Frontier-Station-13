@@ -671,6 +671,49 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	entry["imprisoned_until"] = null
 
 /**
+ * Sets (or clears) a character's faction shackle -- same shape as
+ * persistence_set_imprisoned() above, ckey+char_name keyed so it survives
+ * relog/restart independent of whatever ID card the character currently
+ * holds. See faction_bound.dm.
+ */
+/proc/persistence_set_faction_bound(ckey, char_name, bound, faction_uid = null)
+	if(!GLOB.config.sql_enabled || !ckey || !char_name)
+		return
+	if(!SSpersistence.databaseCheckConnection("persistence_set_faction_bound"))
+		return
+
+	faction_uid = bound ? normalize_faction_uid(faction_uid) : null
+
+	var/datum/db_query/upd = SSdbcore.NewQuery(
+		"UPDATE ss13_mob_position SET faction_bound = :bound, faction_bound_uid = :faction WHERE ckey = :ckey AND char_name = :char_name",
+		list("ckey" = ckey, "char_name" = char_name, "bound" = bound ? 1 : 0, "faction" = faction_uid)
+	)
+	upd.Execute()
+	SSpersistence.databaseCheckQueryResult(upd, "persistence_set_faction_bound")
+	qdel(upd)
+
+	var/key = "[ckey]|[char_name]"
+	var/list/entry = GLOB.persistence_position_cache[key]
+	if(!islist(entry))
+		entry = list()
+		GLOB.persistence_position_cache[key] = entry
+	entry["faction_bound"] = bound ? 1 : 0
+	entry["faction_bound_uid"] = faction_uid
+
+/// Live re-check, mirrored on the in-memory cache populated at boot from
+/// ss13_mob_position -- returns the faction_uid this character is still
+/// shackled to, or null if not (or never) bound. No live SQL round-trip
+/// needed on the hot path (mob Login()) since the cache is already kept in
+/// sync by persistence_set_faction_bound() above.
+/proc/persistence_character_faction_bound(ckey, char_name)
+	if(!ckey || !char_name)
+		return null
+	var/list/entry = GLOB.persistence_position_cache["[ckey]|[char_name]"]
+	if(!islist(entry) || !entry["faction_bound"])
+		return null
+	return entry["faction_bound_uid"]
+
+/**
  * Shared core for the two public procs below -- always re-verified live
  * against SQL (wall-clock expiry) and against whether the specific prison
  * pod this character was stored in still physically exists. Returns null if

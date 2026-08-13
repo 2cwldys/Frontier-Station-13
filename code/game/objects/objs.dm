@@ -452,3 +452,15 @@
 	if(nx && ny && nz)
 		var/turf/target = locate(nx, ny, nz)
 		if(target) forceMove(target)
+
+/**
+ * Called by the persistence subsystem once, immediately after a tracked object's
+ * dir/anchored have been restored from a save. persistent_objects_apply_content()
+ * itself runs BEFORE that restore, so any dir-derived state it computes there is
+ * still using the pre-restore/default dir, not the real saved one.
+ * No-op by default. Wall-mounted machines that derive pixel_x/pixel_y from dir at
+ * Initialize() time override this to recompute the offset now that dir reflects
+ * the real saved value.
+ */
+/obj/proc/persistence_reapply_wall_offset()
+	return

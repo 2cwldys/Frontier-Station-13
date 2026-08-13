@@ -57,6 +57,7 @@ GLOBAL_LIST_INIT(admin_verbs_admin, list(
 	/client/proc/manage_silicon_laws,
 	/client/proc/check_antagonists,
 	/client/proc/odyssey_panel,
+	/client/proc/rust_variants_panel,
 	/client/proc/dsay,					/*talk in deadchat using our ckey/fakekey*/
 	/client/proc/toggleprayers,			/*toggles prayers on/off*/
 //	/client/proc/toggle_hear_deadcast,	/*toggles whether we hear deadchat*/
@@ -225,6 +226,7 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/remove_away_site,
 	/datum/admins/proc/manage_away_site_mob_presets,
 	/datum/admins/proc/trigger_database_backup,
+	/datum/admins/proc/toggle_auto_backup_on_autosave,
 	/datum/admins/proc/manage_cargo_exports,
 	/datum/admins/proc/modify_cargo_imports,
 	/datum/admins/proc/modify_cargo_beacons,

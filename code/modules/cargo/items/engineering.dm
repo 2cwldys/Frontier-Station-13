@@ -12,6 +12,18 @@
 	access = 0
 	container_type = "crate"
 
+/singleton/cargo_item/telecomms_aio
+	category = "engineering"
+	name = "telecommunications mainframe"
+	supplier = "Hub"
+	description = "A self-contained subspace telecommunications unit -- handles receiving, processing, and broadcasting radio traffic all in one box, no relay chain or manual linking needed. Assigns itself a fresh channel once secured. Wrench to secure after placement."
+	price = 100000
+	items = list(
+		/obj/structure/machinery/telecomms/allinone/ship/crate
+	)
+	access = 0
+	container_type = "crate"
+
 /singleton/cargo_item/drydock_boarding_pad
 	category = "engineering"
 	name = "drydock boarding pad"

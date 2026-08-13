@@ -15,16 +15,14 @@
  * button.
  */
 
-/datum/admins/proc/trigger_database_backup()
-	set name = "Trigger Database Backup"
-	set category = "Persistence"
-	set desc = "Runs scripts/db_backup now and reports the result."
-
-	if(!check_rights(R_SERVER))
-		return
-
-	to_chat(usr, SPAN_NOTICE("Running database backup..."))
-
+/**
+ * Shared backup runner -- shells out to scripts/db_backup (mysqldump + 7-backup
+ * rotation) and hands back the raw result. No chat/log reporting in here; the
+ * two callers (the admin verb and fire()'s automatic post-autosave hook,
+ * persistence.dm) each report success/failure in whatever way fits their own
+ * context (one to the calling admin, the other to the subsystem log/admins).
+ */
+/datum/controller/subsystem/persistence/proc/run_database_backup()
 	// Fixed literal chosen only by world.system_type -- never built from admin- or
 	// player-supplied text, so there is no injection surface here.
 	// Backslashes on Windows -- cmd.exe parses a leading "scripts/..." token as
@@ -44,18 +42,92 @@
 	// db_backup.ps1 Write-Error's "Backup failed..." on a non-zero mysqldump exit
 	// but the wrapping .bat/.sh can still exit 0 -- check the text too, not just
 	// the process exit code.
-	if(errorcode || findtext(stdout, "Backup failed"))
-		to_chat(usr, SPAN_WARNING("Backup failed (exit code [errorcode]):"))
-		to_chat(usr, SPAN_WARNING(stderr || stdout || "No output captured."))
-		log_and_message_admins("ran a database backup -- FAILED (exit [errorcode])", usr)
+	var/success = !errorcode && !findtext(stdout, "Backup failed")
+	return list("success" = success, "errorcode" = errorcode, "stdout" = stdout, "stderr" = stderr)
+
+/datum/admins/proc/trigger_database_backup()
+	set name = "Trigger Database Backup"
+	set category = "Persistence"
+	set desc = "Runs scripts/db_backup now and reports the result."
+
+	if(!check_rights(R_SERVER))
+		return
+
+	to_chat(usr, SPAN_NOTICE("Running database backup..."))
+
+	var/list/result = SSpersistence.run_database_backup()
+	if(!result["success"])
+		to_chat(usr, SPAN_WARNING("Backup failed (exit code [result["errorcode"]]):"))
+		to_chat(usr, SPAN_WARNING(result["stderr"] || result["stdout"] || "No output captured."))
+		log_and_message_admins("ran a database backup -- FAILED (exit [result["errorcode"]])", usr)
 		return
 
 	to_chat(usr, SPAN_GOOD("Backup complete:"))
 	// A script can legitimately report progress on stderr while still
 	// succeeding, so show both rather than only stdout -- printing an empty
 	// line was what made a completed backup look like it said nothing at all.
-	var/report = trim(stdout)
-	if(trim(stderr))
-		report = report ? "[report]\n[trim(stderr)]" : trim(stderr)
+	var/report = trim(result["stdout"])
+	if(trim(result["stderr"]))
+		report = report ? "[report]\n[trim(result["stderr"])]" : trim(result["stderr"])
 	to_chat(usr, report || "No output captured.")
 	log_and_message_admins("ran a manual database backup", usr)
+
+/// Loads the auto-backup-on-autosave toggle from ss13_auto_backup_toggle at
+/// boot. Mirrors factionRaidingToggleInitialize() (persistence_factions.dm).
+/datum/controller/subsystem/persistence/proc/autoBackupToggleInitialize()
+	if(!databaseCheckConnection("autoBackupToggleInitialize"))
+		return
+	try
+		var/datum/db_query/q = SSdbcore.NewQuery("SELECT enabled FROM ss13_auto_backup_toggle WHERE id = 1", list())
+		q.Execute()
+		if(databaseCheckQueryResult(q, "autoBackupToggleInitialize") && q.NextRow())
+			GLOB.auto_backup_on_autosave = text2num(q.item[1])
+		qdel(q)
+	catch(var/exception/toggle_e)
+		log_subsystem_persistence_error("Backups: failed to load auto-backup-on-autosave toggle: [toggle_e]")
+
+/datum/controller/subsystem/persistence/proc/setAutoBackupOnAutosave(enabled)
+	GLOB.auto_backup_on_autosave = enabled
+	if(!databaseCheckConnection("setAutoBackupOnAutosave"))
+		return
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"INSERT INTO ss13_auto_backup_toggle (id, enabled) VALUES (1, :enabled) ON DUPLICATE KEY UPDATE enabled = VALUES(enabled)",
+		list("enabled" = enabled ? 1 : 0)
+	)
+	q.Execute()
+	databaseCheckQueryResult(q, "setAutoBackupOnAutosave")
+	qdel(q)
+
+/// Admin toggle: whether the periodic autosave (fire(), persistence.dm) also
+/// runs this same backup automatically after each successful save. Persists
+/// across restarts via ss13_auto_backup_toggle (setAutoBackupOnAutosave()).
+/datum/admins/proc/toggle_auto_backup_on_autosave()
+	set name = "Toggle Auto Backup On Autosave"
+	set category = "Persistence"
+	set desc = "Toggles whether every periodic autosave also runs a database backup."
+
+	if(!check_rights(R_SERVER))
+		return
+
+	var/new_state = !GLOB.auto_backup_on_autosave
+
+	// world.shelleo() (run_database_backup(), above) is a raw OS shell-out --
+	// BYOND refuses that outright under Safe/Ultrasafe security, so an
+	// autosave-triggered backup would just silently fail every single time
+	// under either of those. Refuse turning it ON here rather than letting
+	// an admin enable something that can never actually run. TgsSecurityLevel()
+	// returns null when TGS isn't present at all (e.g. a bare local test
+	// server) -- treated the same as Trusted there, since world.shelleo()'s
+	// own security gate is a DreamDaemon launch-flag concept independent of
+	// whether TGS itself is managing this instance.
+	var/current_security = world.TgsSecurityLevel()
+	if(new_state && !isnull(current_security) && current_security != TGS_SECURITY_TRUSTED)
+		to_chat(usr, SPAN_WARNING("Auto-backup-on-autosave can't be enabled while this server's security level is Safe/Ultrasafe -- it shells out to run the backup script, which BYOND blocks under anything but Trusted. Set the server's security level to Trusted first."))
+		return
+
+	var/script_name = (world.system_type == UNIX) ? "scripts/db_backup.sh" : "scripts\\db_backup.bat"
+	if(tgui_alert(usr, "Auto-backup-on-autosave is currently [GLOB.auto_backup_on_autosave ? "ON" : "OFF"]. [new_state ? "Enable" : "Disable"] it? When on, every periodic autosave (every 30 minutes) also runs a full database backup ([script_name]).", "Toggle Auto Backup On Autosave", list("Yes", "No")) != "Yes")
+		return
+
+	SSpersistence.setAutoBackupOnAutosave(new_state)
+	log_and_message_admins("[new_state ? "enabled" : "disabled"] automatic database backups on autosave.", usr)

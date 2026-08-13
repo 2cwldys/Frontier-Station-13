@@ -409,8 +409,16 @@
 
 /obj/structure/machinery/cryopod/prison/update_icon()
 	flick("[initial(icon_state)]-anim", src)
+	// Tagged to a real faction (not unassigned/public) -- carried on the
+	// pod's own name so it reads correctly anywhere the name shows up on
+	// its own (examine, the base machinery's own name-only tooltip), not
+	// just in Prison Management's own list which already scopes by
+	// faction separately.
+	var/faction_suffix = ""
+	if(persistent_network && persistent_network != "public")
+		faction_suffix = " ([get_faction_name(normalize_faction_uid(persistent_network))])"
 	if(length(prison_occupants))
-		name = "[initial(name)] ([english_list(prison_occupants)])"
+		name = "[initial(name)] ([english_list(prison_occupants)])[faction_suffix]"
 		if(stat & BROKEN)
 			icon_state = "[initial(icon_state)]-broken-closed"
 		else if(stat & NOPOWER)
@@ -418,7 +426,7 @@
 		else
 			icon_state = "[initial(icon_state)]-working"
 		return
-	name = initial(name)
+	name = "[initial(name)][faction_suffix]"
 	if(stat & BROKEN)
 		icon_state = "[initial(icon_state)]-broken"
 	else if(stat & NOPOWER)

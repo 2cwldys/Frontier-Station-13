@@ -60,16 +60,23 @@
 		/obj/structure/window_frame/empty
 	)
 
-/turf/unsimulated/wall/steel/Initialize(mapload)
-	. = ..()
+/turf/unsimulated/wall/steel/get_rust_weathering_variants()
 	// Reuses /material/steel's OWN live variant list rather than a second,
 	// hand-copied file list -- so a CentCom wall can never drift out of sync
 	// with what real steel walls actually offer as their pool.
 	var/material/steel = SSmaterials.get_material_by_name(DEFAULT_WALL_MATERIAL)
-	if(steel)
-		var/picked_variant = pick_wall_icon_variant(x, y, z, steel.wall_icon_variants)
-		if(picked_variant)
-			icon = picked_variant
+	return steel?.wall_icon_variants
+
+/turf/unsimulated/wall/steel/Initialize(mapload)
+	. = ..()
+	var/list/variants = get_rust_weathering_variants()
+	if(length(variants) > 1)
+		GLOB.rust_variant_weathered_walls |= src
+		icon = GLOB.rust_variants_enabled ? pick_wall_icon_variant(x, y, z, variants) : variants[length(variants)]
+
+/turf/unsimulated/wall/steel/Destroy()
+	GLOB.rust_variant_weathered_walls -= src
+	return ..()
 
 /turf/unsimulated/wall/darkshuttlewall
 	// Base/fallback value before Initialize() below picks a variant -- see the
@@ -87,16 +94,26 @@
 		/obj/structure/window_frame/empty
 	)
 
-/turf/unsimulated/wall/darkshuttlewall/Initialize(mapload)
-	. = ..()
+/turf/unsimulated/wall/darkshuttlewall/get_rust_weathering_variants()
 	// Only two entries -- shuttle_wall_dark.dmi was never baked into a 4-file
 	// pool of its own, so this reuses the one existing weathered bake plus the
 	// plain source sheet as "clean", rather than generating three more variants
-	// just for this one CentCom subtype. Same picker, same x/y/z hash as steel.
-	icon = pick_wall_icon_variant(x, y, z, list(
+	// just for this one CentCom subtype.
+	return list(
 		'icons/turf/smooth/shuttle_wall_dark_rust.dmi',
 		'icons/turf/smooth/shuttle_wall_dark.dmi',
-	))
+	)
+
+/turf/unsimulated/wall/darkshuttlewall/Initialize(mapload)
+	. = ..()
+	// Same picker, same x/y/z hash as steel.
+	var/list/variants = get_rust_weathering_variants()
+	GLOB.rust_variant_weathered_walls |= src
+	icon = GLOB.rust_variants_enabled ? pick_wall_icon_variant(x, y, z, variants) : variants[length(variants)]
+
+/turf/unsimulated/wall/darkshuttlewall/Destroy()
+	GLOB.rust_variant_weathered_walls -= src
+	return ..()
 
 /turf/unsimulated/wall/fakeairlock
 	icon = 'icons/obj/doors/Doorele.dmi'

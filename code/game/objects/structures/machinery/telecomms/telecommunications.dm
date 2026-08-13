@@ -123,8 +123,18 @@
 	. = ..()
 	SSmachinery.all_telecomms += src
 
-	if(mapload)
-		return INITIALIZE_HINT_LATELOAD
+	// Not gated on mapload -- a player-built machine (frame + circuitboard,
+	// mapload FALSE) needs the exact same LateInitialize() hookup a
+	// map-placed one gets (attempt_hook_up() setting `linked`, the
+	// automatic sibling-link sweep, and the icon refresh). Without this, a
+	// runtime-built broadcaster/etc. never links to its overmap sector, so
+	// broadcast_levels() never reaches any Z beyond its own physically-
+	// stacked ones -- invisible on the station (already physically
+	// connected to other station Zs) but total silence for anything built
+	// on an away site, which depends entirely on the overmap link. Mirrors
+	// /obj/item/modular_computer's own unconditional sync_linked() call in
+	// Initialize() (modular_computer/core.dm) for the same reason.
+	return INITIALIZE_HINT_LATELOAD
 
 /obj/structure/machinery/telecomms/LateInitialize()
 	. = ..()
@@ -150,13 +160,13 @@
 
 /// This proc returns distance, so -1 is our error value
 /obj/structure/machinery/telecomms/proc/receive_range(datum/signal/subspace/sig)
-	if(!use_power || !istype(sig) || !is_freq_listening(sig))
+	if(!anchored || !use_power || !istype(sig) || !is_freq_listening(sig))
 		return -1
 
 	return get_signal_dist(sig)
 
 /obj/structure/machinery/telecomms/proc/broadcast_levels(datum/signal/subspace/sig)
-	if(!use_power || !istype(sig) || !is_freq_listening(sig))
+	if(!anchored || !use_power || !istype(sig) || !is_freq_listening(sig))
 		return
 
 	. = GetConnectedZlevels(z)

@@ -321,6 +321,7 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
 			track.dir = text2num(content["__dir"])
 		if(islist(content) && ("__anchored" in content))
 			track.anchored = content["__anchored"]
+		track.persistence_reapply_wall_offset()
 	catch(var/exception/e)
 		log_subsystem_persistence_error("Error during json deserialization for persistent object. Failed to apply/decode track content: [e]")
 

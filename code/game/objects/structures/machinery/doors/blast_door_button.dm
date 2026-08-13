@@ -38,6 +38,21 @@
 		buildstage = 0
 		update_icon()
 
+/obj/structure/machinery/button/remote/blast_door/buildable/persistence_reapply_wall_offset()
+	apply_wall_mount_offset()
+
+/obj/structure/machinery/button/remote/blast_door/buildable/persistent_objects_get_content()
+	. = ..()
+	.["buildstage"] = buildstage
+
+/obj/structure/machinery/button/remote/blast_door/buildable/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if("buildstage" in content)
+		buildstage = text2num(content["buildstage"])
+	update_icon()
+
 /obj/structure/machinery/button/remote/blast_door/buildable/update_icon()
 	if(buildstage < 2)
 		icon_state = "doorctrl-p"

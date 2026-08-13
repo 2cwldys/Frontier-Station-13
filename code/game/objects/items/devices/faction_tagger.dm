@@ -54,7 +54,13 @@
 	if(!proximity_flag)
 		return
 	if(target == user)
-		return // accidental self-click (e.g. default use-in-hand keybind) shouldn't produce a warning
+		// Still an accidental-click no-op for every normal target -- except a
+		// faction-bound mob using the tagger on themselves is a deliberate,
+		// meaningful action (self-release, see faction_bound.dm), so that
+		// one case falls through to the UI instead of being swallowed here.
+		var/mob/self_target = ismob(target) ? target : null
+		if(!self_target || !self_target.faction_tagger_compatible())
+			return
 	if(istype(target, /obj/item/storage))
 		return // let normal storage insertion happen -- don't second-guess it as a tag target
 	if(!istype(target, /atom/movable))
@@ -117,6 +123,13 @@
 			data["factions"] += list(list("uid" = uid, "name" = get_faction_name(uid)))
 	else if(own_uid)
 		data["factions"] += list(list("uid" = own_uid, "name" = data["own_name"]))
+
+	if(ismob(current_target))
+		var/mob/living/mob_target = current_target
+		data["is_mob_target"] = TRUE
+		data["is_faction_bound"] = HAS_TRAIT(mob_target, TRAIT_FACTION_BOUND)
+		data["is_faction_restrained"] = HAS_TRAIT(mob_target, TRAIT_FACTION_RESTRAINED)
+		data["can_toggle_restrained"] = data["is_faction_bound"] && _can_toggle_faction_restrained(user, mob_target.faction_bound_uid)
 
 	if(is_admin && istype(current_target, /obj/structure/machinery/cryopod))
 		var/obj/structure/machinery/cryopod/pod = current_target
@@ -199,6 +212,17 @@
 				log_game("[key_name(user)] used a faction tagger to set [current_target] at [get_turf(current_target)] to faction '[new_uid]'.")
 			. = TRUE
 		if("release")
+			// Faction-bound mob releasing itself (any tagger, unconditional
+			// -- see faction_bound.dm's own doc comment: a captive has no
+			// rank in the faction holding them by definition, so the
+			// generic officer-rank check below would make self-release
+			// impossible for the exact people it's meant for).
+			if(ismob(current_target) && current_target == user && HAS_TRAIT(user, TRAIT_FACTION_BOUND))
+				// Messaging handled entirely by faction_tagger_set() itself
+				// (faction_bound.dm) -- it already knows this is a self-release.
+				current_target.faction_tagger_set(null, user)
+				. = TRUE
+				return
 			// Personal tag takes priority -- release whichever one is actually set.
 			var/personal_owner = current_target.personal_tagger_get_owner()
 			if(personal_owner)
@@ -236,6 +260,35 @@
 				to_chat(user, SPAN_NOTICE("\The [current_target] released from [get_faction_name(old_uid)]."))
 				log_game("[key_name(user)] used a faction tagger to release [current_target] at [get_turf(current_target)] from faction '[old_uid]'.")
 			. = TRUE
+			if("restrain")
+				if(!ismob(current_target))
+					return
+				var/mob/living/restrain_target = current_target
+				if(!HAS_TRAIT(restrain_target, TRAIT_FACTION_BOUND))
+					to_chat(user, SPAN_WARNING("[restrain_target] must be shackled to a faction first."))
+					return
+				if(HAS_TRAIT(restrain_target, TRAIT_FACTION_RESTRAINED))
+					to_chat(user, SPAN_WARNING("[restrain_target] is already restrained."))
+					return
+				if(!_can_toggle_faction_restrained(user, restrain_target.faction_bound_uid))
+					to_chat(user, SPAN_WARNING("You need [normalize_faction_uid(restrain_target.faction_bound_uid) == "hub" ? "officer access in" : "membership in"] [get_faction_name(restrain_target.faction_bound_uid)] to restrain [restrain_target]."))
+					return
+				restrain_target._faction_bound_set_restrained(TRUE, user)
+				log_game("[key_name(user)] restrained [key_name(restrain_target)] with a faction tagger (faction '[restrain_target.faction_bound_uid]').")
+				. = TRUE
+			if("unrestrain")
+				if(!ismob(current_target))
+					return
+				var/mob/living/unrestrain_target = current_target
+				if(!HAS_TRAIT(unrestrain_target, TRAIT_FACTION_RESTRAINED))
+					to_chat(user, SPAN_WARNING("[unrestrain_target] isn't restrained."))
+					return
+				if(!_can_toggle_faction_restrained(user, unrestrain_target.faction_bound_uid))
+					to_chat(user, SPAN_WARNING("You need [normalize_faction_uid(unrestrain_target.faction_bound_uid) == "hub" ? "officer access in" : "membership in"] [get_faction_name(unrestrain_target.faction_bound_uid)] to unrestrain [unrestrain_target]."))
+					return
+				unrestrain_target._faction_bound_set_restrained(FALSE, user)
+				log_game("[key_name(user)] unrestrained [key_name(unrestrain_target)] with a faction tagger (faction '[unrestrain_target.faction_bound_uid]').")
+				. = TRUE
 		if("set_personal")
 			if(!current_target.faction_tagger_compatible())
 				return
