@@ -182,11 +182,16 @@ SUBSYSTEM_DEF(persistence)
 		forceSaveAll()
 	catch(var/exception/e)
 		log_subsystem_persistence_error("Periodic save failed: [e]")
+		log_and_message_admins("EVENT periodic persistence autosave FAILED: [e]", null)
 
 	save_in_progress = FALSE
 	SSstatistics.update_status()
 	log_subsystem_persistence_info("Persistence: Periodic save complete.")
 	to_world(SPAN_GOOD(SPAN_BOLD("World save complete.")))
+	// Discord-only (log_admin(), not log_and_message_admins()) -- to_world()
+	// above already covers live visibility, this just closes the gap where
+	// routine automatic saves never reached the admin log webhook at all.
+	log_admin("EVENT periodic persistence autosave completed.")
 
 	// Admin-toggled (toggle_auto_backup_on_autosave(), persistence_backups.dm).
 	// Reported via subsystem log on success and an admin ping on failure --
@@ -201,6 +206,7 @@ SUBSYSTEM_DEF(persistence)
 			var/list/backup_result = run_database_backup()
 			if(backup_result["success"])
 				log_subsystem_persistence_info("Persistence: Automatic post-autosave database backup complete.")
+				log_admin("EVENT automatic post-autosave database backup complete.")
 			else
 				log_subsystem_persistence_error("Persistence: Automatic post-autosave database backup FAILED (exit [backup_result["errorcode"]]): [backup_result["stderr"] || backup_result["stdout"]]")
 				log_and_message_admins("automatic post-autosave database backup FAILED (exit [backup_result["errorcode"]])", null)
@@ -246,8 +252,13 @@ SUBSYSTEM_DEF(persistence)
 		forceSaveAll()
 	catch(var/exception/e)
 		log_subsystem_persistence_error("Lobby-empty autosave failed: [e]")
+		log_and_message_admins("EVENT lobby-empty persistence autosave FAILED: [e]", null)
 	save_in_progress = FALSE
 	log_subsystem_persistence_info("Persistence: Lobby-empty autosave complete.")
+	// Discord-only (log_admin(), not log_and_message_admins()) -- this proc
+	// is deliberately silent to players/live chat (nobody's left in a body
+	// to see it), but that shouldn't also mean invisible to the admin log.
+	log_admin("EVENT lobby-empty persistence autosave completed (last player left via cryo).")
 	_drydockProcessNextQueued()
 
 	if(GLOB.auto_backup_on_autosave)
@@ -257,6 +268,7 @@ SUBSYSTEM_DEF(persistence)
 			var/list/backup_result = run_database_backup()
 			if(backup_result["success"])
 				log_subsystem_persistence_info("Persistence: Automatic post-lobby-autosave database backup complete.")
+				log_admin("EVENT automatic post-lobby-autosave database backup complete.")
 			else
 				log_subsystem_persistence_error("Persistence: Automatic post-lobby-autosave database backup FAILED (exit [backup_result["errorcode"]]): [backup_result["stderr"] || backup_result["stdout"]]")
 				log_and_message_admins("automatic post-lobby-autosave database backup FAILED (exit [backup_result["errorcode"]])", null)
@@ -299,11 +311,13 @@ SUBSYSTEM_DEF(persistence)
 		SSpersistence.autosave_paused = TRUE
 		SSpersistence.autosave_auto_paused = TRUE
 		log_subsystem_persistence_info("Persistence: Autosave auto-paused -- no active player characters.")
+		log_admin("EVENT periodic autosave auto-paused -- no active player characters.")
 	else if(playing && SSpersistence.autosave_auto_paused)
 		SSpersistence.next_fire = world.time + max(0, SSpersistence.autosave_pause_remaining)
 		SSpersistence.autosave_paused = FALSE
 		SSpersistence.autosave_auto_paused = FALSE
 		log_subsystem_persistence_info("Persistence: Autosave auto-resumed -- a player character is active again.")
+		log_admin("EVENT periodic autosave auto-resumed -- a player character is active again.")
 
 /**
  * Helper method to check and log database connection.

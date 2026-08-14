@@ -105,6 +105,10 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
 				if(!O)
 					continue
 				var/list/limb = organ_data[limb_name]
+				if(limb["missing"])
+					O.droplimb(clean = TRUE, disintegrate = DROPLIMB_EDGE)
+					qdel(O) // don't leave a severed-limb prop item sitting at the spawn point
+					continue
 				var/brute_amt = isnull(limb["brute"]) ? 0 : (limb["brute"] + 0)
 				var/burn_amt  = isnull(limb["burn"])  ? 0 : (limb["burn"]  + 0)
 				if(brute_amt > 0 || burn_amt > 0)
@@ -909,8 +913,10 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 
 	var/list/organ_damage = list()
 	var/list/serialized_laces = list()
-	for(var/obj/item/organ/external/O in H.organs)
-		if(!O.limb_name)
+	for(var/limb_name in H.species.has_limbs)
+		var/obj/item/organ/external/O = H.organs_by_name[limb_name]
+		if(!O || O.is_stump())
+			organ_damage[limb_name] = list("missing" = 1)
 			continue
 		var/list/augments = list()
 		for(var/obj/item/organ/A in O.internal_organs)
@@ -936,7 +942,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			if(O.model) limb["model"] = O.model
 		if(length(augments))
 			limb["augments"] = augments
-		organ_damage[O.limb_name] = limb
+		organ_damage[limb_name] = limb
 
 	// Defensive: a lace registered on the mob but absent from every external
 	// organ's internal_organs list (wiring bug somewhere) would silently drop

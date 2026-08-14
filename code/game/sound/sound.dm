@@ -241,8 +241,22 @@
 		// nothing else, unless they idled in the lobby through the whole track.
 		// shuffle() (__HELPERS/lists.dm) returns a shuffled COPY, so the shared
 		// SSticker.login_music list is left untouched for everyone else.
-		for(var/lobby_music in shuffle(SSticker.login_music))
-			SEND_SOUND(src, sound(lobby_music, repeat = 0, wait = TRUE, volume = prefs.lobby_music_vol, channel = CHANNEL_LOBBYMUSIC)) // MAD JAMS
+		//
+		// Staggered, not sent in one tick -- the client has to fetch/buffer
+		// each track's resource, often for the first time this connection,
+		// and sending the whole list at once made that a single noticeable
+		// burst. Only matters once this fires well after the client has
+		// already loaded and settled (chained after the welcome announcer
+		// line finishes, login.dm's _play_welcome_line()) -- called right at
+		// login instead, the same burst is invisible, absorbed into the
+		// client's own initial load. Track 1 is still sent immediately so
+		// the audible start has no added delay; only the rest trickle in.
+		var/list/shuffled_tracks = shuffle(SSticker.login_music)
+		for(var/i in 1 to length(shuffled_tracks))
+			CHECK_TICK
+			SEND_SOUND(src, sound(shuffled_tracks[i], repeat = 0, wait = TRUE, volume = prefs.lobby_music_vol, channel = CHANNEL_LOBBYMUSIC)) // MAD JAMS
+			if(i < length(shuffled_tracks))
+				sleep(3)
 
 /proc/get_rand_frequency()
 	return rand(32000, 55000) //Frequency stuff only works with 45kbps oggs.

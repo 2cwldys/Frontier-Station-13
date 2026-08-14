@@ -368,8 +368,18 @@
 		var/obj/item/multitool/MT = attacking_item
 		var/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller = MT.get_buffer(/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller)
 		if(!controller)
-			MT.set_buffer(src)
-			to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
+			var/choice = tgui_alert(user, "What would you like to do with \the [src]?", "Airlock Sensor", list("Buffer", "Set Direction"))
+			if(choice == "Set Direction")
+				var/dir_choice = tgui_input_list(user, "Choose a facing direction for \the [src]:", "Set Direction", list("North", "South", "East", "West"))
+				if(!dir_choice)
+					return TRUE
+				set_dir(text2dir(dir_choice))
+				apply_wall_mount_offset()
+				to_chat(user, SPAN_NOTICE("You adjust \the [src] to face [dir_choice]."))
+				return TRUE
+			else if(choice == "Buffer")
+				MT.set_buffer(src)
+				to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
 			return TRUE
 		_link_to_controller(controller, user)
 		MT.set_buffer(null)
@@ -652,8 +662,18 @@
 		var/obj/item/multitool/MT = attacking_item
 		var/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller = MT.get_buffer(/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller)
 		if(!controller)
-			MT.set_buffer(src)
-			to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
+			var/choice = tgui_alert(user, "What would you like to do with \the [src]?", "Access Button", list("Buffer", "Set Direction"))
+			if(choice == "Set Direction")
+				var/dir_choice = tgui_input_list(user, "Choose a facing direction for \the [src]:", "Set Direction", list("North", "South", "East", "West"))
+				if(!dir_choice)
+					return TRUE
+				set_dir(text2dir(dir_choice))
+				apply_wall_mount_offset()
+				to_chat(user, SPAN_NOTICE("You adjust \the [src] to face [dir_choice]."))
+				return TRUE
+			else if(choice == "Buffer")
+				MT.set_buffer(src)
+				to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
 			return TRUE
 		_link_to_controller(controller, user)
 		MT.set_buffer(null)

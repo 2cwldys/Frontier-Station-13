@@ -29,6 +29,10 @@
 	var/min_bruised_damage = 10 // Damage before considered bruised
 	var/max_damage = 30
 
+	//Bioprinter stats.
+	var/can_be_printed = TRUE // Explicit per-organ opt-out from bioprinter product lists.
+	var/print_cost = 0 // Biomass/matter cost to print. 0 = use the bioprinter's own fallback formula.
+
 	//Strings.
 	var/organ_tag = "organ"
 	var/parent_organ = BP_CHEST
@@ -523,3 +527,20 @@ INITIALIZE_IMMEDIATE(/obj/item/organ)
 //used by stethoscope
 /obj/item/organ/proc/listen()
 	return
+
+/// Whether a bioprinter should ever offer this organ TYPE as a product --
+/// operates on a type path via initial(), not an instance, since it's used
+/// to filter a species' has_organ/has_limbs type lists directly.
+/proc/organ_type_is_printable(organtype)
+	var/obj/item/organ/O = organtype
+	if(!initial(O.can_be_printed))
+		return FALSE
+	if(initial(O.vital))
+		return FALSE
+	if(initial(O.robotic))
+		return FALSE
+	if(ispath(organtype, /obj/item/organ/external))
+		var/obj/item/organ/external/E = organtype
+		if(initial(E.limb_flags) & ORGAN_HEALS_OVERKILL)
+			return FALSE
+	return TRUE

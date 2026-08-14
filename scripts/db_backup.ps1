@@ -20,8 +20,10 @@ $OutFile   = Join-Path $BackupDir "backup_$Timestamp.sql"
 
 Write-Host "Backing up Aurora DB to $OutFile ..." -ForegroundColor Cyan
 
-# Run mysqldump inside the container, write output to file
-docker exec aurora-db mysqldump -u aurora -paurora aurora_persist | Out-File -FilePath $OutFile -Encoding UTF8
+# Run mysqldump inside the container, write output to file.
+# --single-transaction: consistent InnoDB snapshot via MVCC instead of table
+# read-locks, so a backup running mid-round doesn't block live game queries.
+docker exec aurora-db mysqldump --single-transaction -u aurora -paurora aurora_persist | Out-File -FilePath $OutFile -Encoding UTF8
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Backup failed. Is the aurora-db container running?"

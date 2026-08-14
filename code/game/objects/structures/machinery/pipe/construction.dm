@@ -593,6 +593,10 @@
 
 	var/pipefailtext = SPAN_WARNING("There's nothing to connect this pipe section to!") //(with how the pipe code works, at least one end needs to be connected to something, otherwise the game deletes the segment)"
 
+#ifdef PIPE_CONSTRUCTION_DIAGNOSTICS
+	log_game("PipeConstructionDiag: about to build pipe_type=[pipe_type] dir=[dir] pipe_dir=[pipe_dir] at [get_turf(src)]")
+#endif
+
 	//TODO: Move all of this stuff into the various pipe constructors.
 	switch(pipe_type)
 		if(PIPE_SIMPLE_STRAIGHT, PIPE_SIMPLE_BENT)
@@ -1554,6 +1558,16 @@
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
 			P.build_network()
+
+		else
+			// No case above matched pipe_type -- without this, execution fell
+			// through to the unconditional "fastened" message + qdel(src)
+			// below with nothing ever built, silently eating the fitting for
+			// nothing. See PIPE_CONSTRUCTION_DIAGNOSTICS above for tracing
+			// exactly which pipe_type value gets here.
+			log_game("Pipe construction: unrecognized pipe_type=[pipe_type] at [get_turf(src)] by [key_name(user)] -- fitting NOT consumed.")
+			to_chat(user, SPAN_WARNING("Nothing happens -- this pipe type isn't recognized."))
+			return TRUE
 
 	attacking_item.play_tool_sound(get_turf(src), 50)
 	user.visible_message( \

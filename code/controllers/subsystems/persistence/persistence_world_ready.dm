@@ -41,12 +41,18 @@ SUBSYSTEM_DEF(persistence_world_ready)
 			// Delete everything on the station's own Z-levels -- every object,
 			// mob, structure, and the turfs themselves. No reset/revert logic,
 			// just gone -- open space. The Z-levels stay allocated, just empty.
+			//
+			// Reuses _wipeZContents() (persistence_ship_interiors.dm) rather
+			// than a plain qdel() pass -- that's the same multi-pass mop-up +
+			// moveToNullspace()-before-del() forced fallback already built to
+			// fix this exact class of bug for ship-stash Z teardown (some
+			// objects survive a single qdel() pass undeleted). Its own
+			// protected-deck guard already special-cases this: decks 1-3 are
+			// only protected `if(!GLOB.config.persistence_disable_station)`,
+			// so it's a no-op skip everywhere else but permits exactly this
+			// call.
 			for(var/z in station_zs)
-				for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
-					for(var/atom/movable/AM in T)
-						qdel(AM)
-					T.ChangeTurf(/turf/space)
-					CHECK_TICK
+				SSpersistence._wipeZContents(z, "persistence_disable_station")
 		else
 			log_world("persistence_disable_station set, but no base=TRUE overmap marker was found to remove.")
 

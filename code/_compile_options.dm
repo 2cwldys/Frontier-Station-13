@@ -64,6 +64,13 @@
 // wall-mount positioning is still being actively chased.
 #define WALL_MACHINE_DIAGNOSTICS
 
+// If defined, fastening a pipe fitting logs its pipe_type/dir/pipe_dir
+// before construction (construction.dm), and explicitly logs when no case
+// in the build switch matched -- so a fitting that vanishes without
+// building anything leaves a trace of exactly which pipe_type value was
+// responsible. Defined by default while this is actively being chased.
+#define PIPE_CONSTRUCTION_DIAGNOSTICS
+
 // If defined, the floor-item persistence path logs every decision it makes
 // for a faction-tagged clothing item: which branch dropped it (if any),
 // whether its extra state blob was built, and which restore branch ran on

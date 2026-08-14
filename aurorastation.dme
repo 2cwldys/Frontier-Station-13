@@ -1278,6 +1278,7 @@
 #include "code\game\objects\items\weapons\circuitboards\computer\research.dm"
 #include "code\game\objects\items\weapons\circuitboards\computer\telecomms.dm"
 #include "code\game\objects\items\weapons\circuitboards\machinery\biogenerator.dm"
+#include "code\game\objects\items\weapons\circuitboards\machinery\bioprinter.dm"
 #include "code\game\objects\items\weapons\circuitboards\machinery\chem_heater.dm"
 #include "code\game\objects\items\weapons\circuitboards\machinery\cloning.dm"
 #include "code\game\objects\items\weapons\circuitboards\machinery\commsantenna.dm"

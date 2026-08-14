@@ -259,13 +259,21 @@
 		// want to buffer this controller to go link something to it" and "I
 		// want to wipe this controller's links and start over," so ask
 		// instead of always assuming the former.
-		var/choice = tgui_alert(user, "What would you like to do with \the [src]?", "Airlock Cycler", list("Buffer", "Reset Links"))
+		var/choice = tgui_alert(user, "What would you like to do with \the [src]?", "Airlock Cycler", list("Buffer", "Reset Links", "Set Direction"))
 		if(QDELETED(src) || QDELETED(user) || QDELETED(MT) || !user.Adjacent(src))
 			return TRUE
 		if(!choice)
 			return TRUE
 		if(choice == "Reset Links")
 			_reset_links(user)
+			return TRUE
+		if(choice == "Set Direction")
+			var/dir_choice = tgui_input_list(user, "Choose a facing direction for \the [src]:", "Set Direction", list("North", "South", "East", "West"))
+			if(!dir_choice)
+				return TRUE
+			set_dir(text2dir(dir_choice))
+			apply_wall_mount_offset()
+			to_chat(user, SPAN_NOTICE("You adjust \the [src] to face [dir_choice]."))
 			return TRUE
 		MT.set_buffer(src)
 		to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))

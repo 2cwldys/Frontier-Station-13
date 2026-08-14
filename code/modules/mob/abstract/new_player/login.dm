@@ -41,7 +41,15 @@
 	// already had a head start, and the lobby music is chained to start
 	// only once the welcome line has actually finished (see
 	// _play_welcome_line()) instead of racing it.
-	show_persistent_menu()
+	// INVOKE_ASYNC, not a direct call -- show_persistent_menu() can run
+	// straight through into a blocking DB query (ui_data()'s character list
+	// lookup) with no yield point of its own when goonchat is off. A direct
+	// call, even with waitfor=FALSE on the callee, still runs synchronously
+	// up to ITS OWN first yield -- so without this, a stuck query there
+	// blocks LateLogin() itself, silencing the welcome line and lobby music
+	// along with the menu. INVOKE_ASYNC hands control back here immediately
+	// regardless.
+	INVOKE_ASYNC(src, PROC_REF(show_persistent_menu))
 	// LateLogin() fires again every time this client's mob becomes a FRESH
 	// /mob/abstract/new_player instance -- not just on the true first
 	// connect, but also e.g. returning to character select after cryo-ing

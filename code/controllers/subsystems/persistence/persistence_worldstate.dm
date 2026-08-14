@@ -799,6 +799,15 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 /obj/structure/machinery/biogenerator
 	worldstate_vars = list("points", "build_eff", "eat_eff", "processing_time_divisor", "emagged")
 
+/obj/structure/machinery/bioprinter
+	worldstate_vars = list("stored_matter", "loaded_species_id", "loaded_blood_type", "loaded_blood_dna")
+
+/obj/structure/machinery/bioprinter/worldstate_apply_content(list/content)
+	. = ..()
+	if(loaded_species_id)
+		loaded_species = GLOB.all_species[loaded_species_id]
+	products = get_possible_products()
+
 /obj/structure/machinery/stasis_bed
 	worldstate_vars = list("stasis_enabled", "stasis_can_toggle")
 
