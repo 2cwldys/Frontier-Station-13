@@ -508,6 +508,17 @@
 /obj/item/pipe/attack_self(mob/user as mob)
 	return rotate()
 
+/// Every build case below creates its component and calls atmos_init(), which
+/// DELETES that component outright when it cannot connect at either end (see
+/// pipes.dm's `if(!node1 && !node2) qdel(src)`). Without noticing that, the proc
+/// runs on to its unconditional tail and cheerfully reports "you have fastened"
+/// while consuming the player's fitting for a pipe that no longer exists. Only
+/// ten of the fifty-six cases used to check, so every other type -- valves,
+/// connectors, vents, the non-plain manifolds and caps -- vanished silently.
+/// Applied uniformly so the check cannot drift out of sync again; it is a no-op
+/// for components that never self-delete.
+#define PIPE_ABORT_IF_DELETED(thing) if(QDELETED(thing)) { to_chat(usr, pipefailtext); return TRUE; }
+
 /obj/item/pipe/attackby(obj/item/attacking_item, mob/user)
 	..()
 	//*
@@ -607,9 +618,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
-			if (QDELETED(P))
-				to_chat(usr, pipefailtext)
-				return TRUE
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -626,9 +635,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
-			if (QDELETED(P))
-				to_chat(usr, pipefailtext)
-				return TRUE
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -645,9 +652,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
-			if (QDELETED(P))
-				to_chat(usr, pipefailtext)
-				return TRUE
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -664,9 +669,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
-			if (QDELETED(P))
-				to_chat(usr, pipefailtext)
-				return TRUE
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -683,9 +686,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
-			if (QDELETED(P))
-				to_chat(usr, pipefailtext)
-				return TRUE
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -702,9 +703,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
-			if (QDELETED(P))
-				to_chat(usr, pipefailtext)
-				return TRUE
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -719,9 +718,7 @@
 			P.initialize_directions = pipe_dir //this var it's used to know if the pipe is bent or not
 			P.initialize_directions_he = pipe_dir
 			P.atmos_init()
-			if (QDELETED(P))
-				to_chat(usr, pipefailtext)
-				return TRUE
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -739,6 +736,7 @@
 			var/turf/T = C.loc
 			C.level = !T.is_plating() ? 2 : 1
 			C.atmos_init()
+			PIPE_ABORT_IF_DELETED(C)
 			C.build_network()
 			if (C.node)
 				C.node.atmos_init()
@@ -753,6 +751,7 @@
 			var/turf/T = C.loc
 			C.level = !T.is_plating() ? 2 : 1
 			C.atmos_init()
+			PIPE_ABORT_IF_DELETED(C)
 			C.build_network()
 			if (C.node)
 				C.node.atmos_init()
@@ -767,6 +766,7 @@
 			var/turf/T = C.loc
 			C.level = !T.is_plating() ? 2 : 1
 			C.atmos_init()
+			PIPE_ABORT_IF_DELETED(C)
 			C.build_network()
 			if (C.node)
 				C.node.atmos_init()
@@ -781,9 +781,7 @@
 			var/turf/T = M.loc
 			M.level = !T.is_plating() ? 2 : 1
 			M.atmos_init()
-			if (QDELETED(M))
-				to_chat(usr, pipefailtext)
-				return TRUE
+			PIPE_ABORT_IF_DELETED(M)
 			M.build_network()
 			if (M.node1)
 				M.node1.atmos_init()
@@ -804,6 +802,7 @@
 			var/turf/T = M.loc
 			M.level = !T.is_plating() ? 2 : 1
 			M.atmos_init()
+			PIPE_ABORT_IF_DELETED(M)
 			if (!M)
 				to_chat(usr, "There's nothing to connect this manifold to! (with how the pipe code works, at least one end needs to be connected to something, otherwise the game deletes the segment)")
 				return TRUE
@@ -827,6 +826,7 @@
 			var/turf/T = M.loc
 			M.level = !T.is_plating() ? 2 : 1
 			M.atmos_init()
+			PIPE_ABORT_IF_DELETED(M)
 			if (!M)
 				to_chat(usr, "There's nothing to connect this manifold to! (with how the pipe code works, at least one end needs to be connected to something, otherwise the game deletes the segment)")
 				return TRUE
@@ -850,6 +850,7 @@
 			var/turf/T = M.loc
 			M.level = !T.is_plating() ? 2 : 1
 			M.atmos_init()
+			PIPE_ABORT_IF_DELETED(M)
 			if (!M)
 				to_chat(usr, "There's nothing to connect this manifold to! (with how the pipe code works, at least one end needs to be connected to something, otherwise the game deletes the segment)")
 				return TRUE
@@ -873,6 +874,7 @@
 			var/turf/T = M.loc
 			M.level = !T.is_plating() ? 2 : 1
 			M.atmos_init()
+			PIPE_ABORT_IF_DELETED(M)
 			if (!M)
 				to_chat(usr, "There's nothing to connect this manifold to! (with how the pipe code works, at least one end needs to be connected to something, otherwise the game deletes the segment)")
 				return TRUE
@@ -896,9 +898,7 @@
 			var/turf/T = M.loc
 			M.level = !T.is_plating() ? 2 : 1
 			M.atmos_init()
-			if (QDELETED(M))
-				to_chat(usr, pipefailtext)
-				return TRUE
+			PIPE_ABORT_IF_DELETED(M)
 			M.build_network()
 			if (M.node1)
 				M.node1.atmos_init()
@@ -923,6 +923,7 @@
 			var/turf/T = M.loc
 			M.level = !T.is_plating() ? 2 : 1
 			M.atmos_init()
+			PIPE_ABORT_IF_DELETED(M)
 			if (!M)
 				to_chat(usr, "There's nothing to connect this manifold to! (with how the pipe code works, at least one end needs to be connected to something, otherwise the game deletes the segment)")
 				return TRUE
@@ -950,6 +951,7 @@
 			var/turf/T = M.loc
 			M.level = !T.is_plating() ? 2 : 1
 			M.atmos_init()
+			PIPE_ABORT_IF_DELETED(M)
 			if (!M)
 				to_chat(usr, "There's nothing to connect this manifold to! (with how the pipe code works, at least one end needs to be connected to something, otherwise the game deletes the segment)")
 				return TRUE
@@ -977,6 +979,7 @@
 			var/turf/T = M.loc
 			M.level = !T.is_plating() ? 2 : 1
 			M.atmos_init()
+			PIPE_ABORT_IF_DELETED(M)
 			if (!M)
 				to_chat(usr, "There's nothing to connect this manifold to! (with how the pipe code works, at least one end needs to be connected to something, otherwise the game deletes the segment)")
 				return TRUE
@@ -1004,6 +1007,7 @@
 			var/turf/T = M.loc
 			M.level = !T.is_plating() ? 2 : 1
 			M.atmos_init()
+			PIPE_ABORT_IF_DELETED(M)
 			if (!M)
 				to_chat(usr, "There's nothing to connect this manifold to! (with how the pipe code works, at least one end needs to be connected to something, otherwise the game deletes the segment)")
 				return TRUE
@@ -1027,9 +1031,7 @@
 			P.initialize_directions = src.get_pdir()
 			P.initialize_directions_he = src.get_hdir()
 			P.atmos_init()
-			if (QDELETED(P))
-				to_chat(usr, pipefailtext) //"There's nothing to connect this pipe to! (with how the pipe code works, at least one end needs to be connected to something, otherwise the game deletes the segment)")
-				return TRUE
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -1047,6 +1049,7 @@
 			var/turf/T = V.loc
 			V.level = !T.is_plating() ? 2 : 1
 			V.atmos_init()
+			PIPE_ABORT_IF_DELETED(V)
 			V.build_network()
 			if (V.node)
 				V.node.atmos_init()
@@ -1061,6 +1064,7 @@
 			var/turf/T = V.loc
 			V.level = !T.is_plating() ? 2 : 1
 			V.atmos_init()
+			PIPE_ABORT_IF_DELETED(V)
 			V.build_network()
 			if (V.node)
 				V.node.atmos_init()
@@ -1075,6 +1079,7 @@
 			var/turf/T = V.loc
 			V.level = !T.is_plating() ? 2 : 1
 			V.atmos_init()
+			PIPE_ABORT_IF_DELETED(V)
 			V.build_network()
 			if (V.node1)
 				V.node1.atmos_init()
@@ -1092,6 +1097,7 @@
 			var/turf/T = V.loc
 			V.level = !T.is_plating() ? 2 : 1
 			V.atmos_init()
+			PIPE_ABORT_IF_DELETED(V)
 			V.build_network()
 			if (V.node1)
 				V.node1.atmos_init()
@@ -1110,6 +1116,7 @@
 			V.level = !T.is_plating() ? 2 : 1
 			V.build_network()
 			V.atmos_init()
+			PIPE_ABORT_IF_DELETED(V)
 			if (V.node1)
 				V.node1.atmos_init()
 				V.node1.build_network()
@@ -1123,6 +1130,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -1140,6 +1148,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -1157,6 +1166,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -1174,6 +1184,7 @@
 			var/turf/T = S.loc
 			S.level = !T.is_plating() ? 2 : 1
 			S.atmos_init()
+			PIPE_ABORT_IF_DELETED(S)
 			S.build_network()
 			if (S.node)
 				S.node.atmos_init()
@@ -1188,6 +1199,7 @@
 			var/turf/T = V.loc
 			V.level = !T.is_plating() ? 2 : 1
 			V.atmos_init()
+			PIPE_ABORT_IF_DELETED(V)
 			V.build_network()
 			if (V.node1)
 				V.node1.atmos_init()
@@ -1208,6 +1220,7 @@
 			var/turf/T = V.loc
 			V.level = !T.is_plating() ? 2 : 1
 			V.atmos_init()
+			PIPE_ABORT_IF_DELETED(V)
 			V.build_network()
 			if (V.node1)
 				V.node1.atmos_init()
@@ -1224,6 +1237,7 @@
 			C.set_dir(dir)
 			C.initialize_directions = pipe_dir
 			C.atmos_init()
+			PIPE_ABORT_IF_DELETED(C)
 			C.build_network()
 			if(C.node)
 				C.node.atmos_init()
@@ -1234,6 +1248,7 @@
 			C.set_dir(dir)
 			C.initialize_directions = pipe_dir
 			C.atmos_init()
+			PIPE_ABORT_IF_DELETED(C)
 			C.build_network()
 			if(C.node)
 				C.node.atmos_init()
@@ -1244,6 +1259,7 @@
 			C.set_dir(dir)
 			C.initialize_directions = pipe_dir
 			C.atmos_init()
+			PIPE_ABORT_IF_DELETED(C)
 			C.build_network()
 			if(C.node)
 				C.node.atmos_init()
@@ -1254,6 +1270,7 @@
 			C.set_dir(dir)
 			C.initialize_directions = pipe_dir
 			C.atmos_init()
+			PIPE_ABORT_IF_DELETED(C)
 			C.build_network()
 			if(C.node)
 				C.node.atmos_init()
@@ -1264,6 +1281,7 @@
 			C.set_dir(dir)
 			C.initialize_directions = pipe_dir
 			C.atmos_init()
+			PIPE_ABORT_IF_DELETED(C)
 			C.build_network()
 			if(C.node)
 				C.node.atmos_init()
@@ -1278,6 +1296,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -1295,6 +1314,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -1312,6 +1332,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -1329,6 +1350,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -1346,6 +1368,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -1363,6 +1386,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -1380,6 +1404,7 @@
 			var/turf/T = C.loc
 			C.level = !T.is_plating() ? 2 : 1
 			C.atmos_init()
+			PIPE_ABORT_IF_DELETED(C)
 			C.build_network()
 			if (C.node)
 				C.node.atmos_init()
@@ -1394,6 +1419,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -1410,6 +1436,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -1426,6 +1453,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -1442,6 +1470,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -1458,6 +1487,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -1474,6 +1504,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -1490,6 +1521,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -1506,6 +1538,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -1522,6 +1555,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -1538,6 +1572,7 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 			if (P.node1)
 				P.node1.atmos_init()
@@ -1551,12 +1586,14 @@
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 		if(PIPE_OMNI_FILTER)
 			var/obj/structure/machinery/atmospherics/omni/filter/P = new(loc)
 			var/turf/T = P.loc
 			P.level = !T.is_plating() ? 2 : 1
 			P.atmos_init()
+			PIPE_ABORT_IF_DELETED(P)
 			P.build_network()
 
 		else
@@ -1582,6 +1619,8 @@
 // ensure that setterm() is called for a newly connected pipeline
 
 
+
+#undef PIPE_ABORT_IF_DELETED
 
 /obj/item/pipe_meter
 	name = "meter"

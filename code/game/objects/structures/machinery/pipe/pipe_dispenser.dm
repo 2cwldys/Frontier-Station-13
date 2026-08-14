@@ -29,6 +29,7 @@
 		<A href='byond://?src=[REF(src)];make=17;dir=1'>4-Way Manifold</A><BR>
 		<A href='byond://?src=[REF(src)];make=16;dir=1'>Manual T-Valve</A><BR>
 		<A href='byond://?src=[REF(src)];make=41;dir=1'>Manual T-Valve - Mirrored</A><BR>
+		<A href='byond://?src=[REF(src)];make=66;dir=1'>Keypad Valve</A><BR>
 		<A href='byond://?src=[REF(src)];make=19;dir=1'>Upward Pipe</A><BR>
 		<A href='byond://?src=[REF(src)];make=20;dir=1'>Downward Pipe</A><BR>
 		<b>Supply pipes:</b><BR>
@@ -51,7 +52,7 @@
 		<A href='byond://?src=[REF(src)];make=44;dir=1'>Pipe</A><BR>
 		<A href='byond://?src=[REF(src)];make=45;dir=5'>Bent Pipe</A><BR>
 		<A href='byond://?src=[REF(src)];make=48;dir=1'>Manifold</A><BR>
-		<A href='byond://?src=[REF(src)];make=40;dir=1'>Pipe Cap</A><BR>
+		<A href='byond://?src=[REF(src)];make=56;dir=1'>Pipe Cap</A><BR>
 		<A href='byond://?src=[REF(src)];make=50;dir=1'>4-Way Manifold</A><BR>
 		<A href='byond://?src=[REF(src)];make=52;dir=1'>Upward Pipe</A><BR>
 		<A href='byond://?src=[REF(src)];make=54;dir=1'>Downward Pipe</A><BR>
@@ -59,7 +60,7 @@
 		<A href='byond://?src=[REF(src)];make=46;dir=1'>Pipe</A><BR>
 		<A href='byond://?src=[REF(src)];make=47;dir=5'>Bent Pipe</A><BR>
 		<A href='byond://?src=[REF(src)];make=49;dir=1'>Manifold</A><BR>
-		<A href='byond://?src=[REF(src)];make=40;dir=1'>Pipe Cap</A><BR>
+		<A href='byond://?src=[REF(src)];make=57;dir=1'>Pipe Cap</A><BR>
 		<A href='byond://?src=[REF(src)];make=51;dir=1'>4-Way Manifold</A><BR>
 		<A href='byond://?src=[REF(src)];make=53;dir=1'>Upward Pipe</A><BR>
 		<A href='byond://?src=[REF(src)];make=55;dir=1'>Downward Pipe</A><BR>
