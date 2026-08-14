@@ -177,7 +177,10 @@
 			var/target_ckey = tgui_input_text(user, "Ckey to give this ship's title to:", "Give Title", "", max_length = 32)
 			if(!target_ckey)
 				return TRUE
-			var/target_char_name = tgui_input_text(user, "Exact character name for '[target_ckey]' to title the ship to:", "Give Title", "", max_length = 64)
+			// encode = FALSE -- identity key compared raw against real_name
+			// elsewhere, not display text. See ship_schematic.dm's own
+			// "add_crew" comment for the same reasoning.
+			var/target_char_name = tgui_input_text(user, "Exact character name for '[target_ckey]' to title the ship to:", "Give Title", "", max_length = 64, encode = FALSE)
 			if(!target_char_name)
 				return TRUE
 			log_drydock("drydock ui_act: [key_name(user)] requested give_schematic for shuttle_id=[shuttle_id] to '[target_char_name]' ([target_ckey]).")

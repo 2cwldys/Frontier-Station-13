@@ -209,7 +209,17 @@
 			src.pipe_type = PIPE_DOWN
 ///// Z-Level stuff
 	else
-		src.pipe_type = pipe_type
+		// Guarded, not a plain assignment. Persistence recreates a dropped
+		// fitting with `new path(T)` and no arguments
+		// (persistence_floor_items.dm), so this used to run with a null
+		// pipe_type and DESTROY the class default of 0 -- leaving a fitting
+		// whose switch(pipe_type) matched no build case at all. Before the
+		// unrecognized-type warning existed that silently ate the fitting on
+		// wrench; after it, every restored pipe reported "this pipe type isn't
+		// recognized". Keeping the default also means a fitting saved before
+		// pipe_type was persisted (below) still comes back usable.
+		if(!isnull(pipe_type))
+			src.pipe_type = pipe_type
 		src.set_dir(dir)
 		if (pipe_type == 27 || pipe_type == 28 || pipe_type == 31 || pipe_type == 33 || pipe_type == 35 || pipe_type == 37 || pipe_type == 39)
 			connect_types = CONNECT_TYPE_SUPPLY
@@ -235,6 +245,40 @@
 /obj/item/pipe/Initialize(mapload)
 	. = ..()
 	randpixel_xy()
+
+/// A dropped pipe fitting is restored by the floor-item system with a bare
+/// `new path(T)` and no constructor arguments (persistence_floor_items.dm), so
+/// everything New() would normally derive from its pipe_type argument -- the
+/// type itself, the connect_types/colour that go with it, and the custom name
+/// -- is lost unless it is saved explicitly. serializePersistentItem() already
+/// provides the generic passthrough for exactly this ("catches state that would
+/// otherwise come back blank on a fresh /new item_type(holder)"), storing this
+/// list as obj_content and handing it back to apply_content() on restore, so
+/// these two overrides are the whole fix -- no persistence-side change needed.
+/obj/item/pipe/persistent_objects_get_content()
+	. = ..()
+	if(!islist(.))
+		. = list()
+	.["pipe_type"]     = pipe_type
+	.["pipename"]      = pipename
+	.["connect_types"] = connect_types
+	.["color"]         = color
+
+/obj/item/pipe/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if("pipe_type" in content)
+		pipe_type = text2num(content["pipe_type"])
+	if("pipename" in content)
+		pipename = content["pipename"]
+	if("connect_types" in content)
+		connect_types = text2num(content["connect_types"])
+	if("color" in content)
+		color = content["color"]
+	// Name and icon_state are derived from pipe_type, so they have to be
+	// recomputed now that the real type is back -- New() already ran with none.
+	update()
 
 //update the name and icon of the pipe item depending on the type
 

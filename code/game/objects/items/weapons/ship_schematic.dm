@@ -277,7 +277,12 @@
 				return TRUE
 			// Crew access is scoped to one specific CHARACTER, not the whole
 			// account -- see owned_by()/drydockAddCrew() (persistence_shuttles.dm).
-			var/target_char_name = tgui_input_text(user, "Exact character name for '[target_ckey]' to grant boarding access to:", "Add Crew", "", max_length = 64)
+			// encode = FALSE -- this is an identity key later compared raw
+			// against real_name (_drydock_full_access_check(),
+			// telepad_drydock_boarding.dm), not text for HTML display. The
+			// default HTML-encoding a name with an apostrophe/&/<>/" would
+			// silently break that exact-string match.
+			var/target_char_name = tgui_input_text(user, "Exact character name for '[target_ckey]' to grant boarding access to:", "Add Crew", "", max_length = 64, encode = FALSE)
 			if(!target_char_name)
 				return TRUE
 			var/label = tgui_input_text(user, "Optional label (e.g. their role):", "Add Crew", "", max_length = 64)

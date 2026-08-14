@@ -256,11 +256,18 @@
 				src.close_other = A
 				break
 
+	_apply_glass_state()
+	update_icon()
+
+/// Applies the visual/material consequences of the `glass` var -- shared by
+/// Initialize() and the worldstate restore path (persistence_worldstate.dm),
+/// which re-derives `glass` (and other type-defining vars) from a saved
+/// type's compiled defaults after a glass conversion.
+/obj/structure/machinery/door/airlock/proc/_apply_glass_state()
 	if (glass)
 		paintable |= AIRLOCK_PAINTABLE_WINDOW
 		window_material = SSmaterials.get_material_by_name(init_material_window)
 		opacity = FALSE
-	update_icon()
 
 /obj/structure/machinery/door/airlock/Destroy()
 	if(frequency && SSradio)

@@ -908,12 +908,11 @@
 	for(var/mob/m in active_mobs)
 		UnregisterSignal(m, COMSIG_QDELETING)
 		if(!QDELETED(m))
-			// Same fading bluespace portal + sparks recall_stragglers() uses --
-			// dismissed soldiers vanish with the same tell, not a silent qdel.
+			// Same transporter pulse (telepad_travel.dm) drydock boarding/
+			// Personal Travel use -- dismissed soldiers vanish with the same
+			// tell, not a silent qdel.
 			var/turf/origin = get_turf(m)
-			if(origin)
-				new /obj/effect/portal/decorative/fading(origin, null, null, 5 SECONDS, 0)
-				spark(origin, 3, GLOB.alldirs)
+			_travel_spool_pulse(origin, null, null)
 			qdel(m)
 	active_mobs.Cut()
 	selected_soldiers = list()
@@ -943,12 +942,8 @@
 		if(get_dist(M, user) <= world.view)
 			continue
 		var/turf/origin = get_turf(M)
-		if(origin)
-			new /obj/effect/portal/decorative/fading(origin, null, null, 5 SECONDS, 0)
-			spark(origin, 3, GLOB.alldirs)
+		_travel_spool_pulse(origin, destination, null)
 		M.forceMove(destination)
-		new /obj/effect/portal/decorative/fading(destination, null, null, 5 SECONDS, 0)
-		spark(destination, 3, GLOB.alldirs)
 		fetched_any = TRUE
 	if(!fetched_any)
 		to_chat(user, SPAN_NOTICE("Your soldiers are already close by."))

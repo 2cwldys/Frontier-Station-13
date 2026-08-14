@@ -42,6 +42,13 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 /// Leave null (default) to opt out of worldstate entirely.
 /atom/movable/var/list/worldstate_vars = null
 
+/// Cache-key type for worldstate save/restore matching. Defaults to the
+/// object's own type -- override only when a type is allowed to change at
+/// runtime (e.g. glass conversion) and should still key/match consistently
+/// across that change.
+/atom/movable/proc/worldstate_key_type()
+	return type
+
 /// Generic get  reads each var in worldstate_vars via BYOND runtime src.vars[] accessor.
 /// Types with complex state (nested objects, list-encoded fields) override this proc directly.
 /atom/movable/proc/worldstate_get_content()
@@ -272,7 +279,8 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		if(!T || !T.z)
 			return 0
 		var/site_key = worldstate_pinned_site_key(T.z)
-		var/cache_key = site_key ? "[S.type]|site:[site_key]|[T.x]|[T.y]" : "[S.type]|[T.x]|[T.y]|[T.z]"
+		var/key_type = S.worldstate_key_type()
+		var/cache_key = site_key ? "[key_type]|site:[site_key]|[T.x]|[T.y]" : "[key_type]|[T.x]|[T.y]|[T.z]"
 		var/json = GLOB.persistence_worldstate_cache[cache_key]
 		if(!json)
 			return 0
@@ -497,7 +505,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 				// Deployed ship Zs key under their ship scope instead of the
 				// map path -- see persistence_ship_interiors.dm.
 				"map_path" = persistence_scope_for_z(T.z),
-				"type"    = "[S.type]",
+				"type"    = "[S.worldstate_key_type()]",
 				"x"       = T.x,
 				"y"       = T.y,
 				"z"       = T.z,
@@ -563,15 +571,48 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	// does for the cycler/legacy button systems.
 	worldstate_vars = list("name", "welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access", "id_tag", "frequency", "crew_tagged", "emagged", "persistent_network", "door_button_tag")
 
+// Converting an airlock to/from glass (door_assembly.dm's construction-finish
+// step) changes its actual DM type -- new glass_type(...), not a var toggle.
+// On restart the map reloads the original (pre-conversion) type at this
+// position, so keying by exact type would silently orphan the whole saved
+// row, not just glass -- collapse every airlock subtype onto one stable key
+// per position instead. Position alone already guarantees uniqueness.
+/obj/structure/machinery/door/airlock/worldstate_key_type()
+	return /obj/structure/machinery/door/airlock
+
 /obj/structure/machinery/door/airlock/worldstate_get_content()
 	var/list/content = ..()
 	if(!content) content = list()
+	// The exact type at save time -- glass subtypes aren't uniformly defined
+	// (e.g. glass_service doesn't restate maxhealth/explosion_resistance the
+	// way the base /glass type does), so restoring "glass-ness" means
+	// re-deriving THIS type's actual compiled defaults, not guessing a fixed
+	// var set -- see worldstate_apply_content() below.
+	content["saved_type"] = "[type]"
 	if(wires && length(wires.cut_wires))
 		content["cut_wires"] = json_encode(wires.cut_wires)
 	return content
 
 /obj/structure/machinery/door/airlock/worldstate_apply_content(list/content)
 	..()
+	if(content && content["saved_type"])
+		var/saved_type_path = text2path(content["saved_type"])
+		if(ispath(saved_type_path, /obj/structure/machinery/door/airlock) && saved_type_path != type)
+			// Off-map dummy purely to read that type's compiled defaults --
+			// qdel()'d before anything else runs, never observable elsewhere.
+			var/obj/structure/machinery/door/airlock/dummy = new saved_type_path(null)
+			glass = dummy.glass
+			maxhealth = dummy.maxhealth
+			health = maxhealth
+			explosion_resistance = dummy.explosion_resistance
+			hitsound = dummy.hitsound
+			open_sound_powered = dummy.open_sound_powered
+			close_sound_powered = dummy.close_sound_powered
+			panel_visible_while_open = dummy.panel_visible_while_open
+			door_color = dummy.door_color
+			door_frame_color = dummy.door_frame_color
+			qdel(dummy)
+			_apply_glass_state()
 	if(content && content["cut_wires"] && wires)
 		var/list/cut = json_decode(content["cut_wires"])
 		if(islist(cut))
@@ -1118,4 +1159,32 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		var/turf/T = locate(text2num(content["tu_x"]), text2num(content["tu_y"]), text2num(content["tu_z"]))
 		if(T) for(var/obj/structure/ladder/BL in T)
 			if(BL.allowed_directions & DOWN) { target_up = BL; BL.target_down = src; break }
+
+// ------- Table (material/reinforced aren't flat vars -- round-trip by name) -------
+
+/obj/structure/table
+	worldstate_vars = list("flipped", "carpeted")
+
+/obj/structure/table/worldstate_get_content()
+	var/list/content = ..()
+	if(!content) content = list()
+	if(material)
+		content["material_name"] = material.name
+	if(reinforced)
+		content["reinforced_name"] = reinforced.name
+	return content
+
+/obj/structure/table/worldstate_apply_content(list/content)
+	..()
+	if(content && content["material_name"])
+		material = SSmaterials.get_material_by_name(content["material_name"])
+	if(content && content["reinforced_name"])
+		reinforced = SSmaterials.get_material_by_name(content["reinforced_name"])
+	if(material)
+		update_connections(1)
+		update_desc()
+		update_material()
+		if(reinforced)
+			AddComponent(/datum/component/armor, list(MELEE = ARMOR_MELEE_KNIVES, BULLET = ARMOR_BALLISTIC_MINOR))
+	queue_icon_update()
 	update_icon()
