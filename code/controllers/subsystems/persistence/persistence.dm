@@ -1079,16 +1079,6 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/aar_e)
 		log_subsystem_persistence_panic("Unhandled exception during atmos alarm reset: [aar_e]")
 
-	log_subsystem_persistence_info("Starting wall-mount offset finalization...")
-	try
-		// After worldstateInitialize(): re-apply wall-mount pixel offsets to
-		// every machine, fixing (and self-healing on every future boot) any
-		// wall-mounted device left centered/off-wall by a worldstate dir
-		// restore -- see wallOffsetFinalize()'s own doc comment.
-		wallOffsetFinalize()
-	catch(var/exception/wo_e)
-		log_subsystem_persistence_panic("Unhandled exception during wall-mount offset finalization: [wo_e]")
-
 	log_subsystem_persistence_info("Starting mob health initialization...")
 	try
 		mobsHealthInitialize()

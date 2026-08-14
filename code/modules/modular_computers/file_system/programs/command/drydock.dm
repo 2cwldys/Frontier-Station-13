@@ -61,6 +61,7 @@
 	data["faction_balance"] = own_faction ? get_faction_account_balance(own_faction) : null
 	data["is_admin"] = check_rights(R_ADMIN, 0, user)
 	data["can_buy_faction"] = own_faction && can_configure_faction_shackle(user, own_faction, 1)
+	data["save_in_progress"] = SSpersistence.save_in_progress
 
 	var/board_ready_at = last_boarded_by_ckey[user.ckey] ? (last_boarded_by_ckey[user.ckey] + 30) : 0
 	data["can_board"] = world.time >= board_ready_at

@@ -185,58 +185,47 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	log_subsystem_persistence_info("Worldstate: Power state finalized -- [apc_count] APC(s), [solar_count] solar controller(s), [length(apc_areas)] area(s) rebroadcast.")
 
 /**
- * Re-applies wall-mount pixel offsets to every currently-loaded machine.
- * persistence_reapply_wall_offset() (objs.dm, overridden by firealarm/
- * alarm/light_construct/airlock_controller/airlock_sensor/access_button/
- * blast_door_button-buildable) is a no-op for anything that doesn't
- * override it, so sweeping every machine broadly is safe/cheap rather than
- * special-casing the affected types.
+ * On-demand repair for a PLAYER-BUILT wall device left centered/off-wall.
  *
- * Needed because worldstate_apply_content() (this file) restores `dir` as
- * a raw var for airlock_sensor/access_button/airlock_controller (their
- * worldstate_vars lists include "dir") but never recomputes the pixel
- * offset that should go with it -- an instance recreated fresh during a
- * worldstate-driven restore (pinned site reload, ship redeploy, server
- * restart) gets its correct dir back but keeps its class-default
- * (centered) pixel offset, rendering dead-center instead of hugging its
- * wall. The OTHER persistence path (objectsApplyTrackContent(),
- * persistence_objects.dm) already calls persistence_reapply_wall_offset()
- * correctly -- this covers the gap on the worldstate side.
+ * There is deliberately no automatic world-wide version of this, and there
+ * must never be one again. apply_wall_mount_offset() (_machinery.dm) derives
+ * pixel_x/pixel_y purely from `dir`, which is only ever correct for the case
+ * its own doc comment describes: a wall frame being built, which can only
+ * place its machine on the adjacent floor tile with `dir` pointing at the
+ * wall. Mapped devices do not follow that convention at all -- a mapper
+ * positions them on BOTH axes (x to sit beside a doorframe, y to sit high on
+ * the wall) while `dir` independently sets which way the sprite faces, e.g.
+ * `access_button{ pixel_x = -12; pixel_y = 28; dir = 8 }` in frontier.dmm.
+ * A dir-derived formula can only ever produce a single-axis offset, so
+ * applying it to a mapped device relocates it -- previously 342 of them per
+ * boot, many onto the opposite wall.
  *
- * z = null sweeps every currently-loaded machine (boot); a specific z
- * scopes it to one Z (ship/site deploy).
+ * So this is scoped to machines that are genuinely persistence-tracked:
+ * persistent_objects_track_id is only ever assigned by objectsRegisterTrack()
+ * under `!mapload` (_machinery.dm), making "was this player-built" a fact we
+ * can read rather than guess. A mapped device is structurally unreachable
+ * from here.
  */
-/datum/controller/subsystem/persistence/proc/wallOffsetFinalize(z = null)
-	PRIVATE_PROC(TRUE)
-	var/swept = 0
-	for(var/obj/structure/machinery/M in SSmachinery.machinery)
-		if(z && M.z != z)
-			continue
-#ifdef WALL_MACHINE_DIAGNOSTICS
-		var/before_px = M.pixel_x
-		var/before_py = M.pixel_y
-#endif
-		M.persistence_reapply_wall_offset()
-#ifdef WALL_MACHINE_DIAGNOSTICS
-		if(before_px != M.pixel_x || before_py != M.pixel_y)
-			log_subsystem_persistence_info("WallMachineDiag SWEEP: [M.type] at ([M.x],[M.y],[M.z]) pixel_x [before_px]->[M.pixel_x] pixel_y [before_py]->[M.pixel_y]")
-#endif
-		swept++
-	log_subsystem_persistence_info("Worldstate: Re-applied wall-mount offsets to [swept] machine(s)[z ? " on z=[z]" : ""].")
-
-/// On-demand live fix -- runs the same sweep wallOffsetFinalize() already
-/// does automatically at boot/deploy, without needing a restart.
 /datum/admins/proc/fix_wall_mounted_machinery()
 	set name = "Fix Wall-Mounted Machinery"
 	set category = "Persistence.Backups & Saves"
-	set desc = "Re-applies wall-mount pixel offsets to every currently-loaded machine, fixing any left centered/off-wall by a persistence restore."
+	set desc = "Re-derives wall-mount pixel offsets for PLAYER-BUILT wall devices only. Never touches mapped machinery."
 
 	if(!check_rights(R_SERVER))
 		return
 
-	SSpersistence.wallOffsetFinalize()
-	to_chat(usr, SPAN_GOOD("Wall-mount offsets re-applied to every currently-loaded machine."))
-	log_and_message_admins("ran a live wall-mounted machinery fix.")
+	var/fixed = 0
+	for(var/obj/structure/machinery/M in SSmachinery.machinery)
+		if(!M.persistent_objects_track_id)
+			continue // mapped/untracked -- its offset is authored, not derived
+		var/before_px = M.pixel_x
+		var/before_py = M.pixel_y
+		M.persistence_reapply_wall_offset()
+		if(before_px != M.pixel_x || before_py != M.pixel_y)
+			fixed++
+			log_subsystem_persistence_info("WallMachineFix: [M.type] at ([M.x],[M.y],[M.z]) pixel_x [before_px]->[M.pixel_x] pixel_y [before_py]->[M.pixel_y]")
+	to_chat(usr, SPAN_GOOD("Re-derived wall-mount offsets for [fixed] player-built device(s). Mapped machinery was not touched."))
+	log_and_message_admins("ran a live wall-mounted machinery fix ([fixed] player-built device(s) adjusted).")
 
 /**
  * Clear atmos alarm state latched during boot, called AFTER atmosApply()
@@ -682,8 +671,17 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 // under-construction frame/circuit survives a restart mid-build, plus every
 // tag/frequency link a multitool sets up, so a player-built cycler doesn't
 // need to be rewired after a restart.
+//
+// pixel_x/pixel_y travel WITH dir here, deliberately. These offsets cannot be
+// re-derived from dir: a mapper positions these devices on both axes (x to sit
+// beside a doorframe, y to sit high on the wall) while dir independently sets
+// which way the sprite faces -- see apply_wall_mount_offset()'s formula, which
+// can only ever produce a single-axis offset and is correct solely for a frame
+// being freshly BUILT. Persisting the real value means whatever the device
+// actually had -- mapper-authored or player-built -- round-trips exactly,
+// instead of being recomputed into the wrong position on every boot.
 /obj/structure/machinery/airlock_sensor
-	worldstate_vars = list("buildstage", "panel_open", "dir", "id_tag", "master_tag", "frequency", "on")
+	worldstate_vars = list("buildstage", "panel_open", "dir", "pixel_x", "pixel_y", "id_tag", "master_tag", "frequency", "on")
 
 /obj/structure/machinery/airlock_sensor/worldstate_apply_content(list/content)
 	..()
@@ -691,7 +689,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		set_frequency(frequency)
 
 /obj/structure/machinery/access_button
-	worldstate_vars = list("buildstage", "panel_open", "dir", "master_tag", "frequency", "on")
+	worldstate_vars = list("buildstage", "panel_open", "dir", "pixel_x", "pixel_y", "master_tag", "frequency", "on")
 
 /obj/structure/machinery/access_button/worldstate_apply_content(list/content)
 	..()
@@ -699,7 +697,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		set_frequency(frequency)
 
 /obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller
-	worldstate_vars = list("buildstage", "panel_open", "dir", "id_tag", "frequency", "tag_exterior_door", "tag_interior_door", "tag_exterior_doors", "tag_interior_doors", "tag_airpump", "tag_airpumps", "tag_chamber_sensor", "tag_exterior_sensor", "tag_interior_sensor", "persistent_network")
+	worldstate_vars = list("buildstage", "panel_open", "dir", "pixel_x", "pixel_y", "id_tag", "frequency", "tag_exterior_door", "tag_interior_door", "tag_exterior_doors", "tag_interior_doors", "tag_airpump", "tag_airpumps", "tag_chamber_sensor", "tag_exterior_sensor", "tag_interior_sensor", "persistent_network")
 
 /obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/worldstate_apply_content(list/content)
 	..()

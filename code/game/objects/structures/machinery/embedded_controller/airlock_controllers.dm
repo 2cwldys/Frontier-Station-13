@@ -271,8 +271,9 @@
 			var/dir_choice = tgui_input_list(user, "Choose a facing direction for \the [src]:", "Set Direction", list("North", "South", "East", "West"))
 			if(!dir_choice)
 				return TRUE
+			// Facing only -- see airlock_control.dm's airlock_sensor handler
+			// for why apply_wall_mount_offset() must not be called here.
 			set_dir(text2dir(dir_choice))
-			apply_wall_mount_offset()
 			to_chat(user, SPAN_NOTICE("You adjust \the [src] to face [dir_choice]."))
 			return TRUE
 		MT.set_buffer(src)

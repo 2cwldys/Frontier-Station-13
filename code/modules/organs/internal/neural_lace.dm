@@ -476,7 +476,7 @@
 
 /mob/living/carbon/human/proc/check_neural_lace_status()
 	set name = "Check Neural Lace"
-	set category = "Persistence - Characters"
+	set category = "Persistence.Characters"
 	set desc = "Query your neural lace for a status report."
 
 	var/obj/item/organ/internal/neural_lace/lace = internal_organs_by_name["neural_lace"]

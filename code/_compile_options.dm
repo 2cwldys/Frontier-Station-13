@@ -57,11 +57,12 @@
 #define WALL_RESTORE_DIAGNOSTICS
 
 // If defined, wall-mounted machine save/restore logs each machine's
-// type/position/dir/pixel offset at save time, at worldstate restore time,
-// and whenever wallOffsetFinalize()'s sweep actually changes one -- so a
-// mismatch can be diagnosed by comparing what was saved against what came
-// back, instead of re-deriving it from scratch. Defined by default while
-// wall-mount positioning is still being actively chased.
+// type/position/dir/pixel offset at save time and at worldstate restore
+// time -- so a mismatch can be diagnosed by comparing what was saved
+// against what came back. Offsets are now persisted verbatim rather than
+// re-derived from dir, so a healthy boot should show the saved and restored
+// values matching exactly. Defined by default while wall-mount positioning
+// is still being actively chased.
 #define WALL_MACHINE_DIAGNOSTICS
 
 // If defined, fastening a pipe fitting logs its pipe_type/dir/pipe_dir

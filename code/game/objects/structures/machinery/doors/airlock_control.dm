@@ -373,8 +373,13 @@
 				var/dir_choice = tgui_input_list(user, "Choose a facing direction for \the [src]:", "Set Direction", list("North", "South", "East", "West"))
 				if(!dir_choice)
 					return TRUE
+				// Facing only -- deliberately does NOT call
+				// apply_wall_mount_offset(). That derives pixel_x/pixel_y from
+				// dir, which is only correct for a frame being BUILT (placed on
+				// the floor tile adjacent to the wall its dir points at). This
+				// device is already positioned, so re-deriving would physically
+				// move it off its wall instead of just turning it.
 				set_dir(text2dir(dir_choice))
-				apply_wall_mount_offset()
 				to_chat(user, SPAN_NOTICE("You adjust \the [src] to face [dir_choice]."))
 				return TRUE
 			else if(choice == "Buffer")
@@ -667,8 +672,9 @@
 				var/dir_choice = tgui_input_list(user, "Choose a facing direction for \the [src]:", "Set Direction", list("North", "South", "East", "West"))
 				if(!dir_choice)
 					return TRUE
+				// Facing only -- see the airlock_sensor handler above for why
+				// apply_wall_mount_offset() must not be called here.
 				set_dir(text2dir(dir_choice))
-				apply_wall_mount_offset()
 				to_chat(user, SPAN_NOTICE("You adjust \the [src] to face [dir_choice]."))
 				return TRUE
 			else if(choice == "Buffer")
