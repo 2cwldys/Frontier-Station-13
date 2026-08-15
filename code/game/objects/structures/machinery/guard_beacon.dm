@@ -240,17 +240,17 @@
 	if(user)
 		to_chat(user, SPAN_NOTICE("\The [src] will now face [dir2text(new_dir)]."))
 
-/// Dismisses the current guard (transporter pulse VFX/SFX, same as drydock
-/// boarding/Personal Travel -- telepad_travel.dm, not a silent qdel) --
-/// called both by the explicit "Dismiss" UI button and automatically
-/// whenever the beacon powers off or is destroyed (see _set_active()/
-/// Destroy()). Safe to call with an empty active_mobs list.
+/// Dismisses the current guard (instant phase-teleport visual/sound, same as
+/// drydock boarding/Personal Travel use on arrival -- telepad_travel.dm, not
+/// a silent qdel) -- called both by the explicit "Dismiss" UI button and
+/// automatically whenever the beacon powers off or is destroyed (see
+/// _set_active()/Destroy()). Safe to call with an empty active_mobs list.
 /obj/structure/machinery/guard_beacon/proc/dismiss_soldiers(mob/user)
 	for(var/mob/m in active_mobs)
 		UnregisterSignal(m, COMSIG_QDELETING)
 		if(!QDELETED(m))
 			var/turf/origin = get_turf(m)
-			_travel_spool_pulse(origin, null, null)
+			_telepad_phase_arrival(origin, m.dir)
 			qdel(m)
 	active_mobs.Cut()
 	if(user)

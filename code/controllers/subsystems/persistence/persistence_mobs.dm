@@ -1547,6 +1547,12 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			var/obj/item/child = deserializePersistentItem(child_data, I)
 			if(child)
 				S.handle_item_insertion(child, TRUE)
+		// handle_item_insertion() (storage.dm) never calls update_icon() on its
+		// own -- harmless for storage whose sprite doesn't depend on contents,
+		// but anything that renders its contents directly (e.g. yoke.dm's
+		// per-can overlays) would otherwise stay stale until something
+		// unrelated happened to trigger a redraw.
+		S.update_icon()
 
 	// Internal storage (suit pockets, webbing holds, helmet holds)
 	if(data["internal_storage"])

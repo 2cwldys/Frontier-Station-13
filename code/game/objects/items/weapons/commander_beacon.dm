@@ -908,11 +908,11 @@
 	for(var/mob/m in active_mobs)
 		UnregisterSignal(m, COMSIG_QDELETING)
 		if(!QDELETED(m))
-			// Same transporter pulse (telepad_travel.dm) drydock boarding/
-			// Personal Travel use -- dismissed soldiers vanish with the same
-			// tell, not a silent qdel.
+			// Same instant phase-teleport visual (telepad_travel.dm) drydock
+			// boarding/Personal Travel use on arrival -- dismissed soldiers
+			// vanish with the same tell, not a silent qdel.
 			var/turf/origin = get_turf(m)
-			_travel_spool_pulse(origin, null, null)
+			_telepad_phase_arrival(origin, m.dir)
 			qdel(m)
 	active_mobs.Cut()
 	selected_soldiers = list()
@@ -942,8 +942,9 @@
 		if(get_dist(M, user) <= world.view)
 			continue
 		var/turf/origin = get_turf(M)
-		_travel_spool_pulse(origin, destination, null)
+		_telepad_phase_arrival(origin, M.dir)
 		M.forceMove(destination)
+		_telepad_phase_arrival(destination, M.dir)
 		fetched_any = TRUE
 	if(!fetched_any)
 		to_chat(user, SPAN_NOTICE("Your soldiers are already close by."))

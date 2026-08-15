@@ -9,7 +9,6 @@
 	storage_slots = 6
 	icon_overlays = FALSE
 	closable = FALSE
-	var/list/obj/item/reagent_containers/food/drinks/cans/cans = list()
 	var/list/can_positions = list( // these are the correct positions for energy drinks achieved via trial and error
 		list(10, -6),
 		list(10, 2),
@@ -23,36 +22,40 @@
 	. += ..()
 	. += "Click drag it to pick it up, click on it to take out a can."
 
-/obj/item/storage/box/fancy/yoke/fill()
-	. = ..()
-	for(var/obj/item/reagent_containers/food/drinks/cans/C in contents)
-		cans += C
-
 /obj/item/storage/box/fancy/yoke/update_icon()
 	for(var/thing in underlays)
 		underlays -= thing
 
-	for(var/i = 1 to length(cans))
-		var/mutable_appearance/can = mutable_appearance(cans[i].icon, cans[i].icon_state)
+	// Derived from contents directly, not cached -- a separately-maintained
+	// list here would only stay in sync with whatever procs remembered to
+	// update it (this type's own attack_hand()/remove_from_storage()), going
+	// stale after anything else that changes contents (persistence restore,
+	// admin tools, etc.) without going through those specific procs.
+	var/list/obj/item/reagent_containers/food/drinks/cans/current_cans = list()
+	for(var/obj/item/reagent_containers/food/drinks/cans/C in contents)
+		current_cans += C
+
+	for(var/i = 1 to length(current_cans))
+		var/mutable_appearance/can = mutable_appearance(current_cans[i].icon, current_cans[i].icon_state)
 		var/list/positions = can_positions[i]
 		can.pixel_x = positions[1]
 		can.pixel_y = positions[2]
 		underlays += can
 
 	// Calling this here so the appended names change when cans are removed from the yoke.
-	append_cans()
+	append_cans(current_cans)
 
 /// We use this to append the names of the cans in a yoke to its name, for QoL.
-/obj/item/storage/box/fancy/yoke/proc/append_cans()
+/obj/item/storage/box/fancy/yoke/proc/append_cans(list/obj/item/reagent_containers/food/drinks/cans/current_cans)
 	// Return early and use the initial name if there's no cans, so we don't have stray brackets.
-	if(!length(cans))
+	if(!length(current_cans))
 		name = initial(name)
 		return
 
 	// Names of cans in the yoke that we are selecting to append to the name. No names in this should repeat.
 	var/list/taken_names = list()
 
-	for(var/obj/can in cans)
+	for(var/obj/can in current_cans)
 		taken_names |= can.name
 
 	// We end this at the third item, so at maximum two items in the yoke will be in the name.
@@ -79,15 +82,10 @@
 	if(use_check_and_message(user))
 		return
 
-	var/obj/item/reagent_containers/food/drinks/cans/C = cans[length(cans)]
+	var/obj/item/reagent_containers/food/drinks/cans/C = locate() in contents
 	remove_from_storage(C, get_turf(user))
 	user.put_in_hands(C)
 	update_icon()
-
-/obj/item/storage/box/fancy/yoke/remove_from_storage(obj/item/W, atom/new_location)
-	. = ..()
-	if(.)
-		cans -= W
 
 /obj/item/storage/box/fancy/yoke/attackby(obj/item/attacking_item, mob/user)
 	to_chat(user, SPAN_WARNING("\The [src] cannot be refilled with items!"))
