@@ -715,7 +715,7 @@ var/global/enabled_spooking = 0
 /// sendbacktolobby (topic.dm) and abandon_mob() (mob.dm) already use.
 /datum/admins/proc/return_to_lobby()
 	set name = "Return to Lobby"
-	set category = "Persistence"
+	set category = "Persistence.Characters"
 	set desc = "Safely deletes your current mob and returns you to the main menu to select a character."
 
 	if(!check_rights(R_ADMIN))

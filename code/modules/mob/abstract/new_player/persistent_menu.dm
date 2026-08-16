@@ -69,7 +69,10 @@
 	data["slot_limit"]        = slot_limit
 	data["can_create"]        = length(chars_out) < slot_limit && !any_imprisoned
 	data["persistence_ready"] = GLOB.persistence_ready
-	data["save_in_progress"]  = SSpersistence.save_in_progress ? TRUE : FALSE
+	// Admins can still Play while a save is in progress -- matches
+	// PersistentAutoSpawn()'s own admin bypass (new_player.dm) and this
+	// same enter_allowed/whitelisted pattern just below.
+	data["save_in_progress"]  = (SSpersistence.save_in_progress && !check_rights(R_ADMIN, 0, user)) ? TRUE : FALSE
 	// Whitelist gate mirrors enter_allowed: applies to non-admins only
 	data["whitelisted"]       = (check_rights(R_ADMIN, 0, user) || persistence_is_whitelisted(ckey)) ? TRUE : FALSE
 	// Admins can still Play while joining is locked -- matches PersistentAutoSpawn()'s
@@ -103,7 +106,7 @@
 			if(!GLOB.persistence_ready)
 				to_chat(NP, SPAN_WARNING("The server is still loading. Please wait a moment and try again."))
 				return TRUE
-			if(SSpersistence.save_in_progress)
+			if(SSpersistence.save_in_progress && !check_rights(R_ADMIN, 0, NP))
 				to_chat(NP, SPAN_WARNING("Cannot join server while a save is in progress."))
 				return TRUE
 			if(!GLOB.config.enter_allowed && !check_rights(R_ADMIN, 0, NP))

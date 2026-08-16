@@ -113,8 +113,11 @@ GLOBAL_LIST_EMPTY(hostile_npc_presets)
 	var/list/preset = get_hostile_npc_preset(preset_id)
 	if(!preset || !preset["enabled"] || !T)
 		return null
-	new /obj/effect/portal/decorative/fading(T, null, null, 5 SECONDS, 0)
-	spark(T, 3, GLOB.alldirs)
+	// Same instant phase-teleport visual/sound (telepad_travel.dm) drydock
+	// boarding/Personal Travel use on arrival -- the single shared choke
+	// point above means every caller (missions, spawners, barracks,
+	// commander item, ad-hoc admin spawn) gets it uniformly.
+	_telepad_phase_arrival(T)
 	var/mob/living/carbon/human/npc/hostile/H = new(T)
 	H.apply_hostile_preset(preset, override_faction_uid)
 	return H
@@ -134,7 +137,7 @@ GLOBAL_LIST_EMPTY(hostile_npc_presets)
 
 /datum/admins/proc/manage_hostile_npc_presets()
 	set name = "Manage Hostile NPC Presets"
-	set category = "Persistence"
+	set category = "Persistence.Away Sites & Missions"
 	set desc = "Add, edit, remove, or toggle admin-authored hostile NPC equipment/stat presets."
 
 	if(!check_rights(R_ADMIN))

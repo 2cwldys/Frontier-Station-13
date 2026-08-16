@@ -105,6 +105,10 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
 				if(!O)
 					continue
 				var/list/limb = organ_data[limb_name]
+				if(limb["missing"])
+					O.droplimb(clean = TRUE, disintegrate = DROPLIMB_EDGE)
+					qdel(O) // don't leave a severed-limb prop item sitting at the spawn point
+					continue
 				var/brute_amt = isnull(limb["brute"]) ? 0 : (limb["brute"] + 0)
 				var/burn_amt  = isnull(limb["burn"])  ? 0 : (limb["burn"]  + 0)
 				if(brute_amt > 0 || burn_amt > 0)
@@ -671,6 +675,49 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	entry["imprisoned_until"] = null
 
 /**
+ * Sets (or clears) a character's faction shackle -- same shape as
+ * persistence_set_imprisoned() above, ckey+char_name keyed so it survives
+ * relog/restart independent of whatever ID card the character currently
+ * holds. See faction_bound.dm.
+ */
+/proc/persistence_set_faction_bound(ckey, char_name, bound, faction_uid = null)
+	if(!GLOB.config.sql_enabled || !ckey || !char_name)
+		return
+	if(!SSpersistence.databaseCheckConnection("persistence_set_faction_bound"))
+		return
+
+	faction_uid = bound ? normalize_faction_uid(faction_uid) : null
+
+	var/datum/db_query/upd = SSdbcore.NewQuery(
+		"UPDATE ss13_mob_position SET faction_bound = :bound, faction_bound_uid = :faction WHERE ckey = :ckey AND char_name = :char_name",
+		list("ckey" = ckey, "char_name" = char_name, "bound" = bound ? 1 : 0, "faction" = faction_uid)
+	)
+	upd.Execute()
+	SSpersistence.databaseCheckQueryResult(upd, "persistence_set_faction_bound")
+	qdel(upd)
+
+	var/key = "[ckey]|[char_name]"
+	var/list/entry = GLOB.persistence_position_cache[key]
+	if(!islist(entry))
+		entry = list()
+		GLOB.persistence_position_cache[key] = entry
+	entry["faction_bound"] = bound ? 1 : 0
+	entry["faction_bound_uid"] = faction_uid
+
+/// Live re-check, mirrored on the in-memory cache populated at boot from
+/// ss13_mob_position -- returns the faction_uid this character is still
+/// shackled to, or null if not (or never) bound. No live SQL round-trip
+/// needed on the hot path (mob Login()) since the cache is already kept in
+/// sync by persistence_set_faction_bound() above.
+/proc/persistence_character_faction_bound(ckey, char_name)
+	if(!ckey || !char_name)
+		return null
+	var/list/entry = GLOB.persistence_position_cache["[ckey]|[char_name]"]
+	if(!islist(entry) || !entry["faction_bound"])
+		return null
+	return entry["faction_bound_uid"]
+
+/**
  * Shared core for the two public procs below -- always re-verified live
  * against SQL (wall-clock expiry) and against whether the specific prison
  * pod this character was stored in still physically exists. Returns null if
@@ -708,8 +755,11 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		persistence_set_imprisoned(ckey, char_name, FALSE)
 		return null
 
-	// Pod-existence check -- a destroyed/missing cell means auto-freed
-	// regardless of remaining time (confirmed with the user).
+	// Pod-existence check -- a destroyed/missing cell first tries to reassign
+	// to another live cell belonging to the same faction (mirrors the manual
+	// "transfer" operator action, prison_management.dm) before falling back
+	// to auto-freeing. Confirmed with the user this reassignment should
+	// happen rather than a silent, unconditional pardon.
 	var/list/pos = GLOB.persistence_position_cache["[ckey]|[char_name]"]
 	var/pod_pz = pos ? pos["last_pod_z"] : null
 	var/obj/structure/machinery/cryopod/prison/cell
@@ -718,8 +768,22 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		if(T)
 			cell = locate(/obj/structure/machinery/cryopod/prison) in T
 	if(!cell)
-		persistence_set_imprisoned(ckey, char_name, FALSE)
-		return null
+		var/imprisoning_faction = normalize_faction_uid(pos ? pos["imprisoned_by_faction_uid"] : null)
+		for(var/obj/structure/machinery/cryopod/prison/P in world)
+			if(normalize_faction_uid(P.persistent_network) == imprisoning_faction)
+				cell = P
+				break
+		if(cell)
+			persistence_set_last_pod(ckey, char_name, cell)
+			if(islist(pos))
+				pos["last_pod_x"] = cell.x
+				pos["last_pod_y"] = cell.y
+				pos["last_pod_z"] = cell.z
+			log_and_message_admins("Prison pod for [ckey]/[char_name] was gone -- automatically reassigned to another [get_faction_name(imprisoning_faction)] cell at ([cell.x],[cell.y],[cell.z]).")
+		else
+			log_and_message_admins("Prison pod for [ckey]/[char_name] was gone and no other [get_faction_name(imprisoning_faction)] cell exists -- auto-pardoned.")
+			persistence_set_imprisoned(ckey, char_name, FALSE)
+			return null
 
 	return list(
 		"indefinite"        = !!indefinite,
@@ -849,8 +913,10 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 
 	var/list/organ_damage = list()
 	var/list/serialized_laces = list()
-	for(var/obj/item/organ/external/O in H.organs)
-		if(!O.limb_name)
+	for(var/limb_name in H.species.has_limbs)
+		var/obj/item/organ/external/O = H.organs_by_name[limb_name]
+		if(!O || O.is_stump())
+			organ_damage[limb_name] = list("missing" = 1)
 			continue
 		var/list/augments = list()
 		for(var/obj/item/organ/A in O.internal_organs)
@@ -876,7 +942,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			if(O.model) limb["model"] = O.model
 		if(length(augments))
 			limb["augments"] = augments
-		organ_damage[O.limb_name] = limb
+		organ_damage[limb_name] = limb
 
 	// Defensive: a lace registered on the mob but absent from every external
 	// organ's internal_organs list (wiring bug somewhere) would silently drop
@@ -943,7 +1009,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 
 /datum/admins/proc/check_vitals()
 	set name = "Check Vitals"
-	set category = "Persistence"
+	set category = "Persistence.Characters"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -1481,6 +1547,12 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			var/obj/item/child = deserializePersistentItem(child_data, I)
 			if(child)
 				S.handle_item_insertion(child, TRUE)
+		// handle_item_insertion() (storage.dm) never calls update_icon() on its
+		// own -- harmless for storage whose sprite doesn't depend on contents,
+		// but anything that renders its contents directly (e.g. yoke.dm's
+		// per-can overlays) would otherwise stay stale until something
+		// unrelated happened to trigger a redraw.
+		S.update_icon()
 
 	// Internal storage (suit pockets, webbing holds, helmet holds)
 	if(data["internal_storage"])

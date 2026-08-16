@@ -93,6 +93,8 @@ type FactionData = {
   faction_creation_enabled: BooleanLike;
   founding_required: number;
   founding_required_company: number;
+  founding_cost: number;
+  founding_cost_company: number;
   petitions: FoundingPetition[];
   stock_listed: BooleanLike;
   stock_ticker: string | null;
@@ -108,6 +110,8 @@ const FoundingSection = (props: {
   faction_creation_enabled: BooleanLike;
   founding_required: number;
   founding_required_company: number;
+  founding_cost: number;
+  founding_cost_company: number;
   petitions: FoundingPetition[];
 }) => {
   const { act } = useBackend<FactionData>();
@@ -115,6 +119,8 @@ const FoundingSection = (props: {
     faction_creation_enabled,
     founding_required,
     founding_required_company,
+    founding_cost,
+    founding_cost_company,
     petitions,
   } = props;
   return (
@@ -129,20 +135,20 @@ const FoundingSection = (props: {
           icon="plus"
           color="good"
           disabled={!faction_creation_enabled}
-          tooltip={`Starts a founding petition for 25,000 credits (needs ${founding_required_company} supporters). You become its first command-rank member, and it's automatically listed on the stock exchange in your name. Stays limited to one cargo order category.`}
+          tooltip={`Starts a founding petition for ${founding_cost_company.toLocaleString()} credits (needs ${founding_required_company} supporters). You become its first command-rank member, and it's automatically listed on the stock exchange in your name. Stays limited to one cargo order category.`}
           onClick={() => act('start_founding', { tier: 'company' })}
         >
-          Start Company (25,000 cr)
+          Start Company ({founding_cost_company.toLocaleString()} cr)
         </Button>
         <Button
           icon="plus"
           color="good"
           ml={1}
           disabled={!faction_creation_enabled}
-          tooltip={`Starts a founding petition for 100,000 credits (needs ${founding_required} supporters) from your own bank account, charged only once other players consent. You become its first command-rank member, and it gets unrestricted cargo ordering across every category.`}
+          tooltip={`Starts a founding petition for ${founding_cost.toLocaleString()} credits (needs ${founding_required} supporters) from your own bank account, charged only once other players consent. You become its first command-rank member, and it gets unrestricted cargo ordering across every category.`}
           onClick={() => act('start_founding', { tier: 'full' })}
         >
-          Start Full Faction (100,000 cr)
+          Start Full Faction ({founding_cost.toLocaleString()} cr)
         </Button>
       </Box>
       {petitions.length > 0 && (
@@ -240,6 +246,8 @@ export const FactionManagement = (props) => {
     faction_creation_enabled,
     founding_required,
     founding_required_company,
+    founding_cost,
+    founding_cost_company,
     petitions,
     stock_listed,
     stock_ticker,
@@ -255,6 +263,8 @@ export const FactionManagement = (props) => {
       faction_creation_enabled={faction_creation_enabled}
       founding_required={founding_required}
       founding_required_company={founding_required_company}
+      founding_cost={founding_cost}
+      founding_cost_company={founding_cost_company}
       petitions={petitions ?? []}
     />
   );

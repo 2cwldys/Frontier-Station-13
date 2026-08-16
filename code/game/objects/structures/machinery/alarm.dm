@@ -129,6 +129,14 @@ pixel_x = 10;
 	var/datum/wires/alarm/wires
 
 	var/mode = AALARM_MODE_SCRUBBING
+	/// TRUE while this alarm's own mode is currently forced into
+	/// AALARM_MODE_PANIC by an area fire alarm (COMSIG_AREA_FIRE_ALARM), rather
+	/// than a player's own selection -- see _on_area_fire_alarm().
+	var/fire_forced_mode = FALSE
+	/// Whatever mode was active immediately before a fire alarm forced this
+	/// into AALARM_MODE_PANIC, so it can be restored once the fire clears --
+	/// but only if the room isn't independently still dangerous.
+	var/mode_before_fire = null
 	var/area_uid
 	var/area/alarm_area
 	/// Display name
@@ -396,12 +404,33 @@ pixel_x = 10;
 	pixel_x = ((src.dir & (NORTH|SOUTH)) ? 0 : (src.dir == EAST ? 10 : -10))
 	pixel_y = ((src.dir & (NORTH|SOUTH)) ? (src.dir == NORTH ? 21 : -4) : 0)
 
+/obj/structure/machinery/alarm/persistence_reapply_wall_offset()
+	set_pixel_offsets()
+
+/obj/structure/machinery/alarm/persistent_objects_get_content()
+	. = ..()
+	.["buildstage"] = buildstage
+	.["panel_open"] = panel_open
+
+/obj/structure/machinery/alarm/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if("buildstage" in content)
+		buildstage = text2num(content["buildstage"])
+	if("panel_open" in content)
+		panel_open = content["panel_open"]
+	update_icon()
+
 /obj/structure/machinery/alarm/proc/first_run()
 	alarm_area = get_area(src)
 	// Just directional indicators, if any
 	alarm_area_name = get_area_display_name(alarm_area, FALSE, FALSE, FALSE, TRUE)
 	alarm_area_name_full = get_area_display_name(alarm_area)
 	area_uid = alarm_area.uid
+	// Area-scoped fire response -- no direct tagging to a specific fire alarm,
+	// mirrors firealarm.dm's own COMSIG_AREA_FIRE_ALARM registration exactly.
+	RegisterSignal(alarm_area, COMSIG_AREA_FIRE_ALARM, PROC_REF(_on_area_fire_alarm))
 	if (name == "alarm")
 		if (highpower)
 			name = "[alarm_area_name] High-Power Air Alarm"
@@ -621,6 +650,28 @@ pixel_x = 10;
 	radio_connection.post_signal(src, signal, RADIO_FROM_AIRALARM)
 
 	return 1
+
+/// Area-scoped fire response, per COMSIG_AREA_FIRE_ALARM -- no direct tagging to
+/// a specific fire alarm, this reacts to whichever fire alarm(s) cover the same
+/// area. Forces a siphon on fire, and on clear restores whatever mode was active
+/// before rather than blindly defaulting to Scrubbing -- but only if the room
+/// isn't independently still dangerous (alarm_area.atmosalm), so a genuine,
+/// unrelated atmos hazard isn't silently released just because the fire itself
+/// is out.
+/obj/structure/machinery/alarm/proc/_on_area_fire_alarm(datum/source, new_fire_state)
+	SIGNAL_HANDLER
+	if(new_fire_state)
+		if(!fire_forced_mode)
+			mode_before_fire = mode
+			fire_forced_mode = TRUE
+		mode = AALARM_MODE_PANIC
+		apply_mode()
+	else if(fire_forced_mode)
+		fire_forced_mode = FALSE
+		if(alarm_area?.atmosalm)
+			return
+		mode = mode_before_fire
+		apply_mode()
 
 /obj/structure/machinery/alarm/proc/apply_mode()
 	//propagate mode to other air alarms in the area

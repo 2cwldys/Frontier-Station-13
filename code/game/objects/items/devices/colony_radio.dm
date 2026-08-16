@@ -171,7 +171,7 @@ GLOBAL_LIST_EMPTY(colony_radio_requests)
 
 /datum/admins/proc/review_colony_radio_requests()
 	set name = "Review Colony Radio Requests"
-	set category = "Persistence"
+	set category = "Persistence.Misc"
 
 	if(!check_rights(R_ADMIN))
 		return

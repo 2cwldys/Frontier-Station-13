@@ -131,7 +131,7 @@ GLOBAL_LIST_EMPTY(custom_outfit_templates)
 
 /datum/admins/proc/modify_outfit_templates()
 	set name = "Modify Outfit Templates"
-	set category = "Persistence"
+	set category = "Persistence.Cargo & Economy"
 	set desc = "Add, recapture, rename, or remove admin-authored custom outfit templates captured from a human mob's current equipment."
 
 	if(!check_rights(R_ADMIN))

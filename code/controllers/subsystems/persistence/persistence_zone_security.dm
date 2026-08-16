@@ -79,6 +79,11 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 ///   member of that SAME faction is exempt (mirrors
 ///   get_cargo_tax_beneficiary()'s and _drydock_raid_blocked()'s own
 ///   identical same-faction carve-out).
+/// - OR a piracy beacon on that z is currently claimed by a faction
+///   (piracy_beacon_claimed_faction_on_z(), piracy_beacon.dm -- tethered AND
+///   faction-tagged) -- same same-faction exemption as the faction-beacon
+///   case above. An unclaimed (or untethered) piracy beacon provides no
+///   bombardment protection at all.
 /proc/site_bombardment_protected(obj/effect/overmap/visitable/O, mob/user)
 	if(!istype(O))
 		return FALSE
@@ -86,21 +91,34 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 		if(zone_security_get(target_z) == ZONE_HIGHSEC)
 			return TRUE
 		var/obj/structure/machinery/faction_beacon/B = get_owning_faction_beacon(target_z)
-		if(!B)
-			continue
-		if(B.faction_uid && ishuman(user))
-			var/mob/living/carbon/human/H = user
-			var/obj/item/card/id/ID = H.GetIdCard()
-			var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
-#ifdef FACTION_ALLIANCES
-			if(own_faction && (own_faction == normalize_faction_uid(B.faction_uid) || factions_are_allied(own_faction, B.faction_uid)))
+		if(B)
+			if(_user_exempt_from_bombardment(user, B.faction_uid))
 				continue
-#else
-			if(own_faction && own_faction == normalize_faction_uid(B.faction_uid))
+			return TRUE
+		var/pirate_claim = piracy_beacon_claimed_faction_on_z(target_z)
+		if(pirate_claim)
+			if(_user_exempt_from_bombardment(user, pirate_claim))
 				continue
-#endif //FACTION_ALLIANCES
-		return TRUE
+			return TRUE
 	return FALSE
+
+/// TRUE if user (a human) is employed by (or, under FACTION_ALLIANCES,
+/// allied with) faction_uid -- the same-faction exemption shared by both
+/// branches of site_bombardment_protected() above, factored out so the
+/// faction-beacon and piracy-beacon-claim cases can never drift apart.
+/proc/_user_exempt_from_bombardment(mob/user, faction_uid)
+	if(!faction_uid || !ishuman(user))
+		return FALSE
+	var/mob/living/carbon/human/H = user
+	var/obj/item/card/id/ID = H.GetIdCard()
+	var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+	if(!own_faction)
+		return FALSE
+#ifdef FACTION_ALLIANCES
+	return own_faction == normalize_faction_uid(faction_uid) || factions_are_allied(own_faction, faction_uid)
+#else
+	return own_faction == normalize_faction_uid(faction_uid)
+#endif //FACTION_ALLIANCES
 
 /// TRUE if z belongs to an asteroid exoplanet body (any variant) -- covers
 /// romanovich/ice/dumas/ytizi/chanterel/burzsia/etc, all subtypes of one
@@ -709,7 +727,7 @@ GLOBAL_LIST_EMPTY(hub_emergency_last_tracked)
 /// markers (zone outlines, pinned-site names/icons) in action.
 /datum/admins/proc/view_overmap()
 	set name = "View Overmap"
-	set category = "Persistence"
+	set category = "Persistence.Zones & Z-Levels"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -730,7 +748,7 @@ GLOBAL_LIST_EMPTY(hub_emergency_last_tracked)
 /// Admin verb: set a z-level's security zone, stored to DB immediately.
 /datum/admins/proc/set_zone_security()
 	set name = "Set Z-Level Security Zone"
-	set category = "Persistence"
+	set category = "Persistence.Zones & Z-Levels"
 
 	if(!check_rights(R_ADMIN))
 		return

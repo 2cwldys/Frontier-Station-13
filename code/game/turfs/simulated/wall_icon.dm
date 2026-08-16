@@ -36,6 +36,18 @@
 #endif
 	return picked
 
+/// Base stub -- overridden by every wall type that can show a weathered
+/// look (see rust_variants_panel.dm), so its live toggle can re-derive
+/// "what pool was this turf picking from" polymorphically instead of
+/// special-casing each type. Most turfs (and walls with no variant pool,
+/// e.g. wood/cult/MATERIAL_RUST) correctly return null here -- they were
+/// never eligible for the effect to begin with.
+/turf/proc/get_rust_weathering_variants()
+	return null
+
+/turf/simulated/wall/get_rust_weathering_variants()
+	return material?.wall_icon_variants
+
 /turf/simulated/wall/proc/update_material()
 	if(!material)
 		return
@@ -50,6 +62,16 @@
 		explosion_resistance = material.explosion_resistance
 		var/picked_variant = pick_wall_icon_variant(x, y, z, material.wall_icon_variants)
 		if(picked_variant)
+			// Only a real pool (more than the single fallback entry) is
+			// "weathering" in the rust_variants_panel.dm sense -- track it,
+			// and if rust is currently toggled off session-wide, force the
+			// documented-clean last entry instead of this turf's natural
+			// hash pick (same "late-loaded Z respects the current toggle"
+			// handling /turf/simulated/wall/rusty/Initialize() already does).
+			if(length(material.wall_icon_variants) > 1)
+				GLOB.rust_variant_weathered_walls |= src
+				if(!GLOB.rust_variants_enabled)
+					picked_variant = material.wall_icon_variants[length(material.wall_icon_variants)]
 			icon = picked_variant
 		else if (material.wall_icon)
 			icon = material.wall_icon

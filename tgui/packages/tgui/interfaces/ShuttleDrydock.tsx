@@ -28,6 +28,7 @@ type DrydockData = {
   board_cooldown: number;
   can_disembark: BooleanLike;
   ship_retrieving: BooleanLike;
+  save_in_progress: BooleanLike;
 };
 
 export const ShuttleDrydock = (props) => {
@@ -112,11 +113,17 @@ export const ShuttleDrydock = (props) => {
                 <Button
                   fluid
                   icon="street-view"
-                  disabled={data.ship_retrieving || !data.can_board}
+                  disabled={
+                    data.ship_retrieving ||
+                    !data.can_board ||
+                    !!data.save_in_progress
+                  }
                   tooltip={
-                    data.ship_retrieving
-                      ? 'That ship is still being retrieved -- wait until it is ready to board.'
-                      : undefined
+                    data.save_in_progress
+                      ? 'World save in progress -- please wait.'
+                      : data.ship_retrieving
+                        ? 'That ship is still being retrieved -- wait until it is ready to board.'
+                        : undefined
                   }
                   onClick={() => act('board')}
                 >
@@ -131,11 +138,13 @@ export const ShuttleDrydock = (props) => {
                 fluid
                 mt={1}
                 icon="user-plus"
-                disabled={!data.can_disembark}
+                disabled={!data.can_disembark || !!data.save_in_progress}
                 tooltip={
-                  !data.can_disembark
-                    ? 'You are not on board a drydock ship.'
-                    : undefined
+                  data.save_in_progress
+                    ? 'World save in progress -- please wait.'
+                    : !data.can_disembark
+                      ? 'You are not on board a drydock ship.'
+                      : undefined
                 }
                 onClick={() => act('invite_board')}
               >
@@ -145,7 +154,12 @@ export const ShuttleDrydock = (props) => {
                 fluid
                 mt={1}
                 icon="right-from-bracket"
-                disabled={!data.can_disembark}
+                disabled={!data.can_disembark || !!data.save_in_progress}
+                tooltip={
+                  data.save_in_progress
+                    ? 'World save in progress -- please wait.'
+                    : undefined
+                }
                 onClick={() => act('disembark')}
               >
                 Exit Ship
@@ -166,6 +180,12 @@ export const ShuttleDrydock = (props) => {
                     <LabeledList.Item key={row.shuttle_id} label={row.display_name}>
                       <Button
                         icon="file-import"
+                        disabled={!!data.save_in_progress}
+                        tooltip={
+                          data.save_in_progress
+                            ? 'World save in progress -- please wait.'
+                            : undefined
+                        }
                         onClick={() =>
                           act('withdraw_schematic', { shuttle_id: row.shuttle_id })
                         }
@@ -175,11 +195,13 @@ export const ShuttleDrydock = (props) => {
                       <Button
                         ml={1}
                         icon="right-left"
-                        disabled={!!row.reported_stolen}
+                        disabled={!!row.reported_stolen || !!data.save_in_progress}
                         tooltip={
-                          row.reported_stolen
-                            ? 'This ship is reported stolen -- return it to its rightful owner first.'
-                            : undefined
+                          data.save_in_progress
+                            ? 'World save in progress -- please wait.'
+                            : row.reported_stolen
+                              ? 'This ship is reported stolen -- return it to its rightful owner first.'
+                              : undefined
                         }
                         onClick={() =>
                           act('give_schematic', { shuttle_id: row.shuttle_id })

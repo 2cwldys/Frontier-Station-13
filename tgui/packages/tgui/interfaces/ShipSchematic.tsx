@@ -136,11 +136,13 @@ export const ShipSchematic = (props) => {
                   fluid
                   mt={1}
                   icon="street-view"
-                  disabled={!ready || !can_board}
+                  disabled={!ready || !can_board || !!save_in_progress}
                   tooltip={
-                    !ready
-                      ? 'This ship is still being retrieved -- wait until it is ready to board.'
-                      : undefined
+                    save_in_progress
+                      ? 'World save in progress -- please wait.'
+                      : !ready
+                        ? 'This ship is still being retrieved -- wait until it is ready to board.'
+                        : undefined
                   }
                   onClick={() => act('board')}
                 >
@@ -156,11 +158,13 @@ export const ShipSchematic = (props) => {
                   fluid
                   mt={1}
                   icon="street-view"
-                  disabled={!ready || !can_board}
+                  disabled={!ready || !can_board || !!save_in_progress}
                   tooltip={
-                    !ready
-                      ? 'This ship is still being retrieved -- wait until it is ready to board.'
-                      : undefined
+                    save_in_progress
+                      ? 'World save in progress -- please wait.'
+                      : !ready
+                        ? 'This ship is still being retrieved -- wait until it is ready to board.'
+                        : undefined
                   }
                   onClick={() => act('board_subship')}
                 >
@@ -175,11 +179,13 @@ export const ShipSchematic = (props) => {
                 fluid
                 mt={1}
                 icon="user-plus"
-                disabled={!can_disembark}
+                disabled={!can_disembark || !!save_in_progress}
                 tooltip={
-                  !can_disembark
-                    ? 'You are not on board a drydock ship.'
-                    : undefined
+                  save_in_progress
+                    ? 'World save in progress -- please wait.'
+                    : !can_disembark
+                      ? 'You are not on board a drydock ship.'
+                      : undefined
                 }
                 onClick={() => act('invite_board')}
               >
@@ -189,7 +195,12 @@ export const ShipSchematic = (props) => {
                 fluid
                 mt={1}
                 icon="right-from-bracket"
-                disabled={!can_disembark}
+                disabled={!can_disembark || !!save_in_progress}
+                tooltip={
+                  save_in_progress
+                    ? 'World save in progress -- please wait.'
+                    : undefined
+                }
                 onClick={() => act('disembark')}
               >
                 Exit Ship

@@ -92,15 +92,26 @@
 /turf/simulated/floor/tiled/rust
 	name = "rusted steel floor"
 	initial_flooring = /singleton/flooring/tiling/steel
+	/// The rust decal overlay this instance is currently showing, if any --
+	/// tracked explicitly so it can be cut on its own, rather than depending
+	/// on whatever update_icon()'s parent call does with other overlays.
+	/// Not tracked/toggled by rust_variants_panel.dm -- this subtype was
+	/// never actually placed on any map, unlike the dedicated rust wall type.
+	var/image/rust_overlay
 
 /turf/simulated/floor/tiled/steel/airless
 	initial_gas = null
 
 /turf/simulated/floor/tiled/rust/update_icon()
 	. = ..()
-	var/image/rust = image('icons/turf/decals/damage.dmi', "rust")
-	rust.appearance_flags = RESET_COLOR
-	AddOverlays(rust)
+	if(rust_overlay)
+		CutOverlays(rust_overlay)
+		rust_overlay = null
+	if(!GLOB.rust_variants_enabled)
+		return
+	rust_overlay = image('icons/turf/decals/damage.dmi', "rust")
+	rust_overlay.appearance_flags = RESET_COLOR
+	AddOverlays(rust_overlay)
 
 /turf/simulated/floor/tiled/rust/airless
 	initial_gas = null

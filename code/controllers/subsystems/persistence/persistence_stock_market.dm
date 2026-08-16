@@ -148,6 +148,8 @@ GLOBAL_LIST_EMPTY(persistence_stock_holdings_cache)
 		return "No faction context."
 	if(!databaseCheckConnection("stockMarketListFaction"))
 		return "Database connection failed."
+	if(is_pirate_faction(faction_uid))
+		return "Pirate factions have no legitimate standing to list on any exchange."
 	for(var/cid in SSstock_market.companies)
 		var/datum/stock_company/existing = SSstock_market.companies[cid]
 		if(existing.faction_uid == faction_uid)
@@ -387,7 +389,7 @@ GLOBAL_LIST_EMPTY(persistence_stock_holdings_cache)
 /// baseline the simulation continues from, same as any other tick.
 /datum/admins/proc/manage_stock_market()
 	set name = "Manage Stock Market"
-	set category = "Persistence"
+	set category = "Persistence.Cargo & Economy"
 	if(!check_rights(R_ADMIN))
 		return
 	if(!length(SSstock_market.companies))

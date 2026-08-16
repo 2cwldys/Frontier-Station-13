@@ -17,7 +17,9 @@ OUT_FILE="$BACKUP_DIR/backup_$TIMESTAMP.sql"
 
 echo "Backing up Aurora DB to $OUT_FILE ..."
 
-if ! docker exec aurora-db mysqldump -u aurora -paurora aurora_persist > "$OUT_FILE"; then
+# --single-transaction: consistent InnoDB snapshot via MVCC instead of table
+# read-locks, so a backup running mid-round doesn't block live game queries.
+if ! docker exec aurora-db mysqldump --single-transaction -u aurora -paurora aurora_persist > "$OUT_FILE"; then
 	echo "Backup failed. Is the aurora-db container running?" >&2
 	rm -f "$OUT_FILE"
 	exit 1

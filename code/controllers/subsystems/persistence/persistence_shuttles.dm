@@ -4082,7 +4082,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// right now, not just at server shutdown.
 /datum/admins/proc/force_stash_ship()
 	set name = "Force Stash Ship"
-	set category = "Persistence"
+	set category = "Persistence.Ships & Drydock"
 	if(!check_rights(R_ADMIN))
 		return
 
@@ -4114,7 +4114,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// restricted to only broken ones.
 /datum/admins/proc/free_drydock_ship_name()
 	set name = "Free Drydock Ship Name"
-	set category = "Persistence"
+	set category = "Persistence.Ships & Drydock"
 	if(!check_rights(R_ADMIN))
 		return
 
@@ -4152,7 +4152,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// already runs at shutdown.
 /datum/admins/proc/force_stash_all_ships()
 	set name = "Force Stash All Ships"
-	set category = "Persistence"
+	set category = "Persistence.Ships & Drydock"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -4173,7 +4173,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// regardless of this setting.
 /datum/admins/proc/toggle_ship_z_reuse()
 	set name = "Toggle Ship Z Reuse"
-	set category = "Persistence"
+	set category = "Persistence.Ships & Drydock"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -4201,7 +4201,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// may be under construction in that envelope.
 /datum/admins/proc/clear_docking_beacons()
 	set name = "Clear Docking Beacons"
-	set category = "Persistence"
+	set category = "Persistence.Ships & Drydock"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -4395,7 +4395,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// a deployment is lost before the next successful Stash.
 /datum/admins/proc/restore_ship_backup()
 	set name = "Restore Ship Backup"
-	set category = "Persistence"
+	set category = "Persistence.Ships & Drydock"
 	if(!check_rights(R_ADMIN))
 		return
 
@@ -4482,7 +4482,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// takes effect immediately, survives a restart. 0 = no limit.
 /datum/admins/proc/set_drydock_ship_cap()
 	set name = "Set Drydock Ship Cap"
-	set category = "Persistence"
+	set category = "Persistence.Ships & Drydock"
 	if(!check_rights(R_ADMIN))
 		return
 
@@ -4524,7 +4524,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// already-handled ships are skipped every time.
 /datum/admins/proc/backfill_ship_schematics()
 	set name = "Backfill Ship Schematics"
-	set category = "Persistence"
+	set category = "Persistence.Ships & Drydock"
 	if(!check_rights(R_ADMIN))
 		return
 

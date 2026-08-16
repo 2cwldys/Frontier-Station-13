@@ -42,6 +42,7 @@
 	// only once the welcome line has actually finished (see
 	// _play_welcome_line()) instead of racing it.
 	show_persistent_menu()
+	
 	// LateLogin() fires again every time this client's mob becomes a FRESH
 	// /mob/abstract/new_player instance -- not just on the true first
 	// connect, but also e.g. returning to character select after cryo-ing
@@ -60,6 +61,18 @@
 		// control back here immediately regardless.
 		INVOKE_ASYNC(src, PROC_REF(_resolve_welcome_line))
 		addtimer(CALLBACK(src, PROC_REF(_play_welcome_line)), 1 SECOND)
+	else if(client)
+		// Not the true first connection -- the welcome voice line already
+		// played once and must stay that way, but lobby music itself has to
+		// restart every time a client actually reaches the lobby (returning
+		// via cryo/store-character, an AFK/prison force-store, or a failed
+		// spawn all recreate this mob and re-enter LateLogin()). Without this
+		// branch the music silently never plays again for the rest of the
+		// connection, since it otherwise only ever starts chained off the
+		// one-time welcome line above. playtitlemusic() (sound.dm) is safe to
+		// call again any time -- it clears CHANNEL_LOBBYMUSIC before queuing
+		// a freshly-shuffled playlist.
+		client.playtitlemusic()
 
 /**
  * Resolves welcome_line ahead of _play_welcome_line() actually playing it --

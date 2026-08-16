@@ -56,6 +56,22 @@
 // chased.
 #define WALL_RESTORE_DIAGNOSTICS
 
+// If defined, wall-mounted machine save/restore logs each machine's
+// type/position/dir/pixel offset at save time and at worldstate restore
+// time -- so a mismatch can be diagnosed by comparing what was saved
+// against what came back. Offsets are now persisted verbatim rather than
+// re-derived from dir, so a healthy boot should show the saved and restored
+// values matching exactly. Defined by default while wall-mount positioning
+// is still being actively chased.
+#define WALL_MACHINE_DIAGNOSTICS
+
+// If defined, fastening a pipe fitting logs its pipe_type/dir/pipe_dir
+// before construction (construction.dm), and explicitly logs when no case
+// in the build switch matched -- so a fitting that vanishes without
+// building anything leaves a trace of exactly which pipe_type value was
+// responsible. Defined by default while this is actively being chased.
+#define PIPE_CONSTRUCTION_DIAGNOSTICS
+
 // If defined, the floor-item persistence path logs every decision it makes
 // for a faction-tagged clothing item: which branch dropped it (if any),
 // whether its extra state blob was built, and which restore branch ran on
@@ -113,7 +129,14 @@
 // log_adminsay() are deliberately NOT included -- see admin.dm's own
 // ADMINPRIVATE-is-stripped-from-public-logs convention. Off by default --
 // leave undefined to keep admin logs server-local only.
-//#define EXPORT_ADMIN_LOG_TO_DISCORD
+#define EXPORT_ADMIN_LOG_TO_DISCORD
+
+// If defined, the last active player character going to cryo immediately
+// triggers a full persistence autosave (runLobbyEmptyAutosave(),
+// persistence.dm) instead of waiting for the next periodic save. Comment
+// out to disable -- lobby-empty saves then only happen on the regular
+// periodic timer.
+#define LOBBY_EMPTY_AUTOSAVE
 
 // If defined, faction-tagged equipment can only be WORN by people employed by
 // that faction (can_use_faction_equipment(), persistence_factions.dm) -- gated

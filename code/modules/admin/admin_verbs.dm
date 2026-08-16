@@ -43,6 +43,7 @@ GLOBAL_LIST_INIT(admin_verbs_admin, list(
 	/client/proc/jumptokey,				//allows us to jump to the location of a mob with a certain ckey,
 	/client/proc/jumptomob,				//allows us to jump to a specific mob,
 	/client/proc/jumptoturf,			//allows us to jump to a specific turf,
+	/client/proc/jump_to_neural_lace,	//lists every neural lace in the world and jumps to the one picked,
 	/client/proc/admin_call_shuttle,	//allows us to call the emergency shuttle,
 	/client/proc/admin_cancel_shuttle,	//allows us to cancel the emergency shuttle, sending it back to centcomm,
 	/client/proc/cmd_admin_direct_narrate,	//send text directly to a player with no padding. Useful for narratives and fluff-text,
@@ -57,6 +58,7 @@ GLOBAL_LIST_INIT(admin_verbs_admin, list(
 	/client/proc/manage_silicon_laws,
 	/client/proc/check_antagonists,
 	/client/proc/odyssey_panel,
+	/client/proc/rust_variants_panel,
 	/client/proc/dsay,					/*talk in deadchat using our ckey/fakekey*/
 	/client/proc/toggleprayers,			/*toggles prayers on/off*/
 //	/client/proc/toggle_hear_deadcast,	/*toggles whether we hear deadchat*/
@@ -195,6 +197,7 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/client/proc/toggleconnectionlogging, //toggles admin-log/Discord lines for player connect/disconnect
 	/client/proc/force_away_mission,
 	/datum/admins/proc/force_persistence_save,
+	/datum/admins/proc/emergency_stop_save,
 	/datum/admins/proc/capture_world_template,
 	/datum/admins/proc/load_world_template_next_start,
 	/datum/admins/proc/load_world_template_immediate,
@@ -225,6 +228,8 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/remove_away_site,
 	/datum/admins/proc/manage_away_site_mob_presets,
 	/datum/admins/proc/trigger_database_backup,
+	/datum/admins/proc/toggle_auto_backup_on_autosave,
+	/datum/admins/proc/fix_wall_mounted_machinery,
 	/datum/admins/proc/manage_cargo_exports,
 	/datum/admins/proc/modify_cargo_imports,
 	/datum/admins/proc/modify_cargo_beacons,
@@ -494,6 +499,7 @@ GLOBAL_LIST_INIT(admin_verbs_hideable, list(
 	/client/proc/create_portal,
 	/datum/admins/proc/open_narrate_panel,
 	/datum/admins/proc/force_persistence_save,
+	/datum/admins/proc/emergency_stop_save,
 	/datum/admins/proc/capture_world_template,
 	/datum/admins/proc/load_world_template_next_start,
 	/datum/admins/proc/load_world_template_immediate,
@@ -1549,7 +1555,7 @@ GLOBAL_LIST_INIT(admin_verbs_storyteller, list(
 /// lazily clears anyone already expired/pod-missing off the list.
 /datum/admins/proc/manage_faction_prisoners()
 	set name = "Manage Faction Prisoners"
-	set category = "Persistence"
+	set category = "Persistence.Factions"
 	set desc = "View and release anyone currently imprisoned in cryogenic prison storage, regardless of faction."
 
 	if(!check_rights(R_ADMIN))

@@ -321,6 +321,24 @@
 		set_frequency(frequency)
 	update_icon()
 
+/obj/structure/machinery/airlock_sensor/persistence_reapply_wall_offset()
+	apply_wall_mount_offset()
+
+/obj/structure/machinery/airlock_sensor/persistent_objects_get_content()
+	. = ..()
+	.["buildstage"] = buildstage
+	.["panel_open"] = panel_open
+
+/obj/structure/machinery/airlock_sensor/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if("buildstage" in content)
+		buildstage = text2num(content["buildstage"])
+	if("panel_open" in content)
+		panel_open = content["panel_open"]
+	update_icon()
+
 /obj/structure/machinery/airlock_sensor/update_icon()
 	if(buildstage < 2)
 		icon_state = "airlock_sensor_off"
@@ -350,8 +368,23 @@
 		var/obj/item/multitool/MT = attacking_item
 		var/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller = MT.get_buffer(/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller)
 		if(!controller)
-			MT.set_buffer(src)
-			to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
+			var/choice = tgui_alert(user, "What would you like to do with \the [src]?", "Airlock Sensor", list("Buffer", "Set Direction"))
+			if(choice == "Set Direction")
+				var/dir_choice = tgui_input_list(user, "Choose a facing direction for \the [src]:", "Set Direction", list("North", "South", "East", "West"))
+				if(!dir_choice)
+					return TRUE
+				// Facing only -- deliberately does NOT call
+				// apply_wall_mount_offset(). That derives pixel_x/pixel_y from
+				// dir, which is only correct for a frame being BUILT (placed on
+				// the floor tile adjacent to the wall its dir points at). This
+				// device is already positioned, so re-deriving would physically
+				// move it off its wall instead of just turning it.
+				set_dir(text2dir(dir_choice))
+				to_chat(user, SPAN_NOTICE("You adjust \the [src] to face [dir_choice]."))
+				return TRUE
+			else if(choice == "Buffer")
+				MT.set_buffer(src)
+				to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
 			return TRUE
 		_link_to_controller(controller, user)
 		MT.set_buffer(null)
@@ -634,8 +667,19 @@
 		var/obj/item/multitool/MT = attacking_item
 		var/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller = MT.get_buffer(/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller)
 		if(!controller)
-			MT.set_buffer(src)
-			to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
+			var/choice = tgui_alert(user, "What would you like to do with \the [src]?", "Access Button", list("Buffer", "Set Direction"))
+			if(choice == "Set Direction")
+				var/dir_choice = tgui_input_list(user, "Choose a facing direction for \the [src]:", "Set Direction", list("North", "South", "East", "West"))
+				if(!dir_choice)
+					return TRUE
+				// Facing only -- see the airlock_sensor handler above for why
+				// apply_wall_mount_offset() must not be called here.
+				set_dir(text2dir(dir_choice))
+				to_chat(user, SPAN_NOTICE("You adjust \the [src] to face [dir_choice]."))
+				return TRUE
+			else if(choice == "Buffer")
+				MT.set_buffer(src)
+				to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
 			return TRUE
 		_link_to_controller(controller, user)
 		MT.set_buffer(null)
@@ -752,6 +796,24 @@
 
 	if(SSradio)
 		set_frequency(frequency)
+
+/obj/structure/machinery/access_button/persistence_reapply_wall_offset()
+	apply_wall_mount_offset()
+
+/obj/structure/machinery/access_button/persistent_objects_get_content()
+	. = ..()
+	.["buildstage"] = buildstage
+	.["panel_open"] = panel_open
+
+/obj/structure/machinery/access_button/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if("buildstage" in content)
+		buildstage = text2num(content["buildstage"])
+	if("panel_open" in content)
+		panel_open = content["panel_open"]
+	update_icon()
 
 /obj/structure/machinery/access_button/Destroy()
 	if(SSradio)

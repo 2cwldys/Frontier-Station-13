@@ -123,8 +123,18 @@
 	. = ..()
 	SSmachinery.all_telecomms += src
 
-	if(mapload)
-		return INITIALIZE_HINT_LATELOAD
+	// Not gated on mapload -- a player-built machine (frame + circuitboard,
+	// mapload FALSE) needs the exact same LateInitialize() hookup a
+	// map-placed one gets (attempt_hook_up() setting `linked`, the
+	// automatic sibling-link sweep, and the icon refresh). Without this, a
+	// runtime-built broadcaster/etc. never links to its overmap sector, so
+	// broadcast_levels() never reaches any Z beyond its own physically-
+	// stacked ones -- invisible on the station (already physically
+	// connected to other station Zs) but total silence for anything built
+	// on an away site, which depends entirely on the overmap link. Mirrors
+	// /obj/item/modular_computer's own unconditional sync_linked() call in
+	// Initialize() (modular_computer/core.dm) for the same reason.
+	return INITIALIZE_HINT_LATELOAD
 
 /obj/structure/machinery/telecomms/LateInitialize()
 	. = ..()
@@ -140,6 +150,35 @@
 
 	update_icon()
 
+/**
+ * attempt_hook_up() (_machinery.dm) is SHOULD_CALL_PARENT(TRUE) and gets
+ * called from two places: this machine's own LateInitialize() above (the
+ * immediate attempt, which only succeeds if GLOB.map_sectors["[z]"] is
+ * already populated at that exact moment) and, later, SSshuttle's
+ * populate_sector_objects() catch-up sweep (sectors.dm) for anything that
+ * lost that first race. Without this override, only the immediate attempt
+ * ever configured a preset_map machine's autolinkers/sibling network (that
+ * logic lived inline in each preset_map subtype's own one-shot
+ * LateInitialize() -- see configure_preset_map_linkage() overrides,
+ * presets.dm) -- so a machine that only linked via the later catch-up
+ * ended up with `linked` correctly set but permanently unconfigured:
+ * autolinkers stayed empty, the sibling sweep never ran, and
+ * relay_information() had nothing to relay to. Routing both call paths
+ * through this override means whichever one actually succeeds finishes
+ * the job.
+ */
+/obj/structure/machinery/telecomms/attempt_hook_up(obj/effect/overmap/visitable/sector)
+	. = ..()
+	if(.)
+		configure_preset_map_linkage()
+
+/// No-op base -- only the six preset_map subtypes (presets.dm) override
+/// this with real id/network/freq_listening/autolinkers configuration.
+/// Re-entrant safe to call more than once (add_new_link()'s own dedupe
+/// guard, machine_interactions.dm).
+/obj/structure/machinery/telecomms/proc/configure_preset_map_linkage()
+	return
+
 /obj/structure/machinery/telecomms/Destroy()
 	SSmachinery.all_telecomms -= src
 	for(var/obj/structure/machinery/telecomms/comm in SSmachinery.all_telecomms)
@@ -150,13 +189,13 @@
 
 /// This proc returns distance, so -1 is our error value
 /obj/structure/machinery/telecomms/proc/receive_range(datum/signal/subspace/sig)
-	if(!use_power || !istype(sig) || !is_freq_listening(sig))
+	if(!anchored || !use_power || !istype(sig) || !is_freq_listening(sig))
 		return -1
 
 	return get_signal_dist(sig)
 
 /obj/structure/machinery/telecomms/proc/broadcast_levels(datum/signal/subspace/sig)
-	if(!use_power || !istype(sig) || !is_freq_listening(sig))
+	if(!anchored || !use_power || !istype(sig) || !is_freq_listening(sig))
 		return
 
 	. = GetConnectedZlevels(z)

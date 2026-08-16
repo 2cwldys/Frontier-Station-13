@@ -189,10 +189,16 @@
 
 //--------------- FULLSCREEN RUNECHAT BUBBLES ------------
 
+// Both planes relay into the same composited target as FULLSCREEN_PLANE
+// (see code/modules/rendering/render_plate.dm's relay_render_to_plane(),
+// which derives draw order from the source plane number) -- staying above
+// FULLSCREEN_PLANE (900) here is what keeps the FOV cone's darkened rear
+// arc (vision_cone.dm) from painting over this text. Must stay below
+// HUD_PLANE (1000).
 ///Popup Chat Messages
-#define RUNECHAT_PLANE 501
+#define RUNECHAT_PLANE 901
 /// Plane for balloon text (text that fades up)
-#define BALLOON_CHAT_PLANE 502
+#define BALLOON_CHAT_PLANE 902
 
 #define FULLSCREEN_PLANE 900
 	/// Lowest-priority fullscreen layer -- sits behind every other fullscreen

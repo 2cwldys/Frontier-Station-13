@@ -80,7 +80,7 @@
 
 /datum/admins/proc/check_zlevel_info()
 	set name = "Check Z-Level Info"
-	set category = "Persistence"
+	set category = "Persistence.Zones & Z-Levels"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -282,7 +282,7 @@
 
 /datum/admins/proc/reset_zlevel()
 	set name = "Reset Z-Level"
-	set category = "Persistence"
+	set category = "Persistence.Zones & Z-Levels"
 
 	if(!check_rights(R_ADMIN))
 		return

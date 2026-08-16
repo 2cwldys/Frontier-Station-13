@@ -367,24 +367,34 @@
 
 /// Shared core of the raiding gate: TRUE if acting_faction_uid should be
 /// refused entry to target_z because faction raiding is currently disabled,
-/// the Z is claimed by an ordinary (non-Hub) powered, non-public-territory
-/// faction beacon, and acting_faction_uid isn't a member of (or allied with,
-/// under FACTION_ALLIANCES) that faction. acting_faction_uid may be null
-/// (an unaffiliated player, or a personally-owned drydock ship) -- always
-/// blocked in that case, same as before this was split out.
+/// and EITHER the Z is claimed by an ordinary (non-Hub) powered,
+/// non-public-territory faction beacon, OR a piracy beacon there is
+/// currently claimed by a faction (piracy_beacon_claimed_faction_on_z(),
+/// piracy_beacon.dm -- tethered AND faction-tagged) -- and acting_faction_uid
+/// isn't a member of (or allied with, under FACTION_ALLIANCES) that faction.
+/// acting_faction_uid may be null (an unaffiliated player, or a personally-
+/// owned drydock ship) -- always blocked in that case, same as before this
+/// was split out.
 /proc/_faction_raid_blocked_for(target_z, acting_faction_uid)
 	if(GLOB.faction_raiding_enabled)
 		return FALSE
 	if(zone_security_get(target_z) == ZONE_HIGHSEC)
 		return FALSE
 	var/obj/structure/machinery/faction_beacon/B = GLOB.faction_beacon_by_z["[target_z]"]
-	if(!istype(B) || !B.powered || B.public_territory || istype(B, /obj/structure/machinery/faction_beacon/hub))
-		return FALSE
+	if(istype(B) && B.powered && !B.public_territory && !istype(B, /obj/structure/machinery/faction_beacon/hub))
 #ifdef FACTION_ALLIANCES
-	return !(B.faction_uid && acting_faction_uid && (B.faction_uid == acting_faction_uid || factions_are_allied(acting_faction_uid, B.faction_uid)))
+		return !(B.faction_uid && acting_faction_uid && (B.faction_uid == acting_faction_uid || factions_are_allied(acting_faction_uid, B.faction_uid)))
 #else
-	return !(B.faction_uid && acting_faction_uid && B.faction_uid == acting_faction_uid)
+		return !(B.faction_uid && acting_faction_uid && B.faction_uid == acting_faction_uid)
 #endif //FACTION_ALLIANCES
+	var/pirate_claim = piracy_beacon_claimed_faction_on_z(target_z)
+	if(pirate_claim)
+#ifdef FACTION_ALLIANCES
+		return !(acting_faction_uid && (pirate_claim == acting_faction_uid || factions_are_allied(acting_faction_uid, pirate_claim)))
+#else
+		return !(acting_faction_uid && pirate_claim == acting_faction_uid)
+#endif //FACTION_ALLIANCES
+	return FALSE
 
 /// Plays the raiding-prohibited announcer cue to L, gated by ASFX_ANNOUNCER
 /// like every other announcer line -- call alongside _drydock_raid_blocked()'s
@@ -662,16 +672,15 @@
 		return FALSE
 	return _drydock_board_deliver(L, target, cooldown)
 
-/// Portal+spark visual cue at T only -- no forceMove, this just marks where
-/// an invitation is being extended. A lighter cousin of
-/// _drydock_deliver_with_portal() (which does the same VFX plus the actual
-/// move).
-/proc/_drydock_invite_vfx(turf/T)
+/// Phase-teleport visual cue at T only -- no forceMove, this just marks where
+/// an invitation is being extended. Uses the same _telepad_phase_arrival()
+/// effect (telepad_travel.dm) as an actual arrival, so an invite reads as the
+/// same kind of event as the boarding it leads to rather than a decorative
+/// portal nothing else uses anymore.
+/proc/_drydock_invite_vfx(turf/T, facing_dir)
 	if(!T)
 		return
-	new /obj/effect/portal/decorative/fading(T, null, null, 5 SECONDS, 0)
-	spark(T, 3, GLOB.alldirs)
-	playsound(T, 'sound/effects/phasein.ogg', 30, 1)
+	_telepad_phase_arrival(T, facing_dir)
 
 /// Finds a passable, unobstructed turf adjacent to center, falling back to
 /// center itself if it's non-dense, or null if nothing usable is found.
@@ -767,7 +776,7 @@
 
 	var/ship_display_name = target_ship.display_name()
 	var/turf/target_turf = get_turf(target)
-	_drydock_invite_vfx(target_turf)
+	_drydock_invite_vfx(target_turf, target.dir)
 	var/response = tgui_alert(target, "[inviter] wants to bring you aboard [ship_display_name]. Board?", "Boarding Invitation", list("Accept", "Deny"), DRYDOCK_INVITE_TIMEOUT)
 
 	if(QDELETED(inviter) || QDELETED(target))

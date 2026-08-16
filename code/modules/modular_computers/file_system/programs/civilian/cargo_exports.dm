@@ -337,12 +337,6 @@
 			// Send-off feedback -- matches the sound persistence_telepad_deliver()
 			// already plays for an INCOMING order arriving at this same pad
 			// (persistence_cryo.dm), so export and delivery sound consistent.
-			// The fading decorative portal (portals.dm) is the visual half --
-			// a non-functional flash (does_teleport = FALSE, inherited from
-			// the base decorative portal) that fades out over its lifespan
-			// instead of vanishing abruptly, for a "goods just left through
-			// here" send-off.
 			spark(pad_turf, 5, GLOB.alldirs)
 			playsound(pad_turf, 'sound/effects/transport.ogg', 50, 1)
-			new /obj/effect/portal/decorative/fading(pad_turf)
 			return TRUE

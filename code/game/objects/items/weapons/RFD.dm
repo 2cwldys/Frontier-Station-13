@@ -798,7 +798,8 @@ ABSTRACT_TYPE(/obj/item/rfd)
 		"Gas Filter" = PIPE_GAS_FILTER_M,
 		"Omni Gas Filter" = PIPE_OMNI_FILTER,
 		"Omni Gas Mixer" = PIPE_OMNI_MIXER,
-		"Gas Meter" = "gasmeter"
+		"Gas Meter" = "gasmeter",
+		"Keypad Valve" = PIPE_KEYPAD_VALVE
 	)
 
 /obj/item/rfd/piping/mechanics_hints(mob/user, distance, is_adjacent)
@@ -818,7 +819,15 @@ ABSTRACT_TYPE(/obj/item/rfd)
 		to_chat(user, SPAN_WARNING("You can't materialize a pipe here!"))
 		return FALSE
 	var/turf/target_turf = get_turf(A)
-	if(!is_station_level(target_turf.z))
+	// Station levels alone is too narrow: everything players actually build on
+	// in this codebase lives off-station. Away sites (ZTRAIT_AWAY, which also
+	// covers pinned/persistent sites) and drydock/player-built ship interiors
+	// both have to be allowed -- and a ship's own Z needs its own check rather
+	// than riding on is_away_level(), because /datum/map_template/drydock_ship
+	// deliberately clears the default ZTRAITS_AWAY (drydock_ship.dm) so a hull's
+	// home Z isn't mistaken for an away site by shield/cloak gating.
+	// GLOB.persistence_ship_z is the established way to identify one.
+	if(!is_station_level(target_turf.z) && !is_away_level(target_turf.z) && !GLOB.persistence_ship_z["[target_turf.z]"])
 		to_chat(user, SPAN_WARNING("You can't materialize a pipe on this level!"))
 		return FALSE
 	return do_pipe(target_turf, user)

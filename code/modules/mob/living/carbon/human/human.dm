@@ -360,6 +360,8 @@
 		return 1
 	if (istype(wear_suit, /obj/item/clothing/suit/straight_jacket))
 		return 1
+	if (HAS_TRAIT(src, TRAIT_FACTION_RESTRAINED))
+		return 1
 	return 0
 
 /mob/living/carbon/human/show_inv(mob/user as mob)

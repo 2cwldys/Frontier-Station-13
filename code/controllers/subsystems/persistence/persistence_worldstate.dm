@@ -42,6 +42,13 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 /// Leave null (default) to opt out of worldstate entirely.
 /atom/movable/var/list/worldstate_vars = null
 
+/// Cache-key type for worldstate save/restore matching. Defaults to the
+/// object's own type -- override only when a type is allowed to change at
+/// runtime (e.g. glass conversion) and should still key/match consistently
+/// across that change.
+/atom/movable/proc/worldstate_key_type()
+	return type
+
 /// Generic get  reads each var in worldstate_vars via BYOND runtime src.vars[] accessor.
 /// Types with complex state (nested objects, list-encoded fields) override this proc directly.
 /atom/movable/proc/worldstate_get_content()
@@ -185,6 +192,49 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	log_subsystem_persistence_info("Worldstate: Power state finalized -- [apc_count] APC(s), [solar_count] solar controller(s), [length(apc_areas)] area(s) rebroadcast.")
 
 /**
+ * On-demand repair for a PLAYER-BUILT wall device left centered/off-wall.
+ *
+ * There is deliberately no automatic world-wide version of this, and there
+ * must never be one again. apply_wall_mount_offset() (_machinery.dm) derives
+ * pixel_x/pixel_y purely from `dir`, which is only ever correct for the case
+ * its own doc comment describes: a wall frame being built, which can only
+ * place its machine on the adjacent floor tile with `dir` pointing at the
+ * wall. Mapped devices do not follow that convention at all -- a mapper
+ * positions them on BOTH axes (x to sit beside a doorframe, y to sit high on
+ * the wall) while `dir` independently sets which way the sprite faces, e.g.
+ * `access_button{ pixel_x = -12; pixel_y = 28; dir = 8 }` in frontier.dmm.
+ * A dir-derived formula can only ever produce a single-axis offset, so
+ * applying it to a mapped device relocates it -- previously 342 of them per
+ * boot, many onto the opposite wall.
+ *
+ * So this is scoped to machines that are genuinely persistence-tracked:
+ * persistent_objects_track_id is only ever assigned by objectsRegisterTrack()
+ * under `!mapload` (_machinery.dm), making "was this player-built" a fact we
+ * can read rather than guess. A mapped device is structurally unreachable
+ * from here.
+ */
+/datum/admins/proc/fix_wall_mounted_machinery()
+	set name = "Fix Wall-Mounted Machinery"
+	set category = "Persistence.Backups & Saves"
+	set desc = "Re-derives wall-mount pixel offsets for PLAYER-BUILT wall devices only. Never touches mapped machinery."
+
+	if(!check_rights(R_SERVER))
+		return
+
+	var/fixed = 0
+	for(var/obj/structure/machinery/M in SSmachinery.machinery)
+		if(!M.persistent_objects_track_id)
+			continue // mapped/untracked -- its offset is authored, not derived
+		var/before_px = M.pixel_x
+		var/before_py = M.pixel_y
+		M.persistence_reapply_wall_offset()
+		if(before_px != M.pixel_x || before_py != M.pixel_y)
+			fixed++
+			log_subsystem_persistence_info("WallMachineFix: [M.type] at ([M.x],[M.y],[M.z]) pixel_x [before_px]->[M.pixel_x] pixel_y [before_py]->[M.pixel_y]")
+	to_chat(usr, SPAN_GOOD("Re-derived wall-mount offsets for [fixed] player-built device(s). Mapped machinery was not touched."))
+	log_and_message_admins("ran a live wall-mounted machinery fix ([fixed] player-built device(s) adjusted).")
+
+/**
  * Clear atmos alarm state latched during boot, called AFTER atmosApply()
  * has put the real saved air back. While turfs/zones rebuild, live air
  * alarms sample transient vacuum/cold and latch danger levels that close
@@ -229,7 +279,8 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		if(!T || !T.z)
 			return 0
 		var/site_key = worldstate_pinned_site_key(T.z)
-		var/cache_key = site_key ? "[S.type]|site:[site_key]|[T.x]|[T.y]" : "[S.type]|[T.x]|[T.y]|[T.z]"
+		var/key_type = S.worldstate_key_type()
+		var/cache_key = site_key ? "[key_type]|site:[site_key]|[T.x]|[T.y]" : "[key_type]|[T.x]|[T.y]|[T.z]"
 		var/json = GLOB.persistence_worldstate_cache[cache_key]
 		if(!json)
 			return 0
@@ -238,6 +289,10 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 			return 0
 		content -= "__worldstate_site"
 		S.worldstate_apply_content(content)
+#ifdef WALL_MACHINE_DIAGNOSTICS
+		if(S.pixel_x || S.pixel_y)
+			log_subsystem_persistence_info("WallMachineDiag RESTORE: [S.type] at ([T.x],[T.y],[T.z]) dir=[S.dir] pixel_x=[S.pixel_x] pixel_y=[S.pixel_y]")
+#endif
 		return 1
 	catch(var/exception/e)
 		log_subsystem_persistence_error("Worldstate: Failed to apply content to [S] at [get_turf(S)]: [e]")
@@ -407,6 +462,10 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 			return 0
 		content -= "__worldstate_site"
 		S.worldstate_apply_content(content)
+#ifdef WALL_MACHINE_DIAGNOSTICS
+		if(S.pixel_x || S.pixel_y)
+			log_subsystem_persistence_info("WallMachineDiag RESTORE: [S.type] at ([T.x],[T.y],[T.z]) dir=[S.dir] pixel_x=[S.pixel_x] pixel_y=[S.pixel_y]")
+#endif
 		return 1
 	catch(var/exception/e)
 		log_subsystem_persistence_error("Worldstate: Failed to apply ship content to [S] at [get_turf(S)]: [e]")
@@ -424,6 +483,10 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		var/turf/T = get_turf(S)
 		if(!T || !T.z)
 			return 0
+#ifdef WALL_MACHINE_DIAGNOSTICS
+		if(S.pixel_x || S.pixel_y)
+			log_subsystem_persistence_info("WallMachineDiag SAVE: [S.type] at ([T.x],[T.y],[T.z]) dir=[S.dir] pixel_x=[S.pixel_x] pixel_y=[S.pixel_y]")
+#endif
 		var/list/content = S.worldstate_get_content()
 		if(!islist(content) || !length(content))
 			return 0
@@ -442,7 +505,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 				// Deployed ship Zs key under their ship scope instead of the
 				// map path -- see persistence_ship_interiors.dm.
 				"map_path" = persistence_scope_for_z(T.z),
-				"type"    = "[S.type]",
+				"type"    = "[S.worldstate_key_type()]",
 				"x"       = T.x,
 				"y"       = T.y,
 				"z"       = T.z,
@@ -508,15 +571,48 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	// does for the cycler/legacy button systems.
 	worldstate_vars = list("name", "welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access", "id_tag", "frequency", "crew_tagged", "emagged", "persistent_network", "door_button_tag")
 
+// Converting an airlock to/from glass (door_assembly.dm's construction-finish
+// step) changes its actual DM type -- new glass_type(...), not a var toggle.
+// On restart the map reloads the original (pre-conversion) type at this
+// position, so keying by exact type would silently orphan the whole saved
+// row, not just glass -- collapse every airlock subtype onto one stable key
+// per position instead. Position alone already guarantees uniqueness.
+/obj/structure/machinery/door/airlock/worldstate_key_type()
+	return /obj/structure/machinery/door/airlock
+
 /obj/structure/machinery/door/airlock/worldstate_get_content()
 	var/list/content = ..()
 	if(!content) content = list()
+	// The exact type at save time -- glass subtypes aren't uniformly defined
+	// (e.g. glass_service doesn't restate maxhealth/explosion_resistance the
+	// way the base /glass type does), so restoring "glass-ness" means
+	// re-deriving THIS type's actual compiled defaults, not guessing a fixed
+	// var set -- see worldstate_apply_content() below.
+	content["saved_type"] = "[type]"
 	if(wires && length(wires.cut_wires))
 		content["cut_wires"] = json_encode(wires.cut_wires)
 	return content
 
 /obj/structure/machinery/door/airlock/worldstate_apply_content(list/content)
 	..()
+	if(content && content["saved_type"])
+		var/saved_type_path = text2path(content["saved_type"])
+		if(ispath(saved_type_path, /obj/structure/machinery/door/airlock) && saved_type_path != type)
+			// Off-map dummy purely to read that type's compiled defaults --
+			// qdel()'d before anything else runs, never observable elsewhere.
+			var/obj/structure/machinery/door/airlock/dummy = new saved_type_path(null)
+			glass = dummy.glass
+			maxhealth = dummy.maxhealth
+			health = maxhealth
+			explosion_resistance = dummy.explosion_resistance
+			hitsound = dummy.hitsound
+			open_sound_powered = dummy.open_sound_powered
+			close_sound_powered = dummy.close_sound_powered
+			panel_visible_while_open = dummy.panel_visible_while_open
+			door_color = dummy.door_color
+			door_frame_color = dummy.door_frame_color
+			qdel(dummy)
+			_apply_glass_state()
 	if(content && content["cut_wires"] && wires)
 		var/list/cut = json_decode(content["cut_wires"])
 		if(islist(cut))
@@ -616,8 +712,17 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 // under-construction frame/circuit survives a restart mid-build, plus every
 // tag/frequency link a multitool sets up, so a player-built cycler doesn't
 // need to be rewired after a restart.
+//
+// pixel_x/pixel_y travel WITH dir here, deliberately. These offsets cannot be
+// re-derived from dir: a mapper positions these devices on both axes (x to sit
+// beside a doorframe, y to sit high on the wall) while dir independently sets
+// which way the sprite faces -- see apply_wall_mount_offset()'s formula, which
+// can only ever produce a single-axis offset and is correct solely for a frame
+// being freshly BUILT. Persisting the real value means whatever the device
+// actually had -- mapper-authored or player-built -- round-trips exactly,
+// instead of being recomputed into the wrong position on every boot.
 /obj/structure/machinery/airlock_sensor
-	worldstate_vars = list("buildstage", "panel_open", "dir", "id_tag", "master_tag", "frequency", "on")
+	worldstate_vars = list("buildstage", "panel_open", "dir", "pixel_x", "pixel_y", "id_tag", "master_tag", "frequency", "on")
 
 /obj/structure/machinery/airlock_sensor/worldstate_apply_content(list/content)
 	..()
@@ -625,7 +730,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		set_frequency(frequency)
 
 /obj/structure/machinery/access_button
-	worldstate_vars = list("buildstage", "panel_open", "dir", "master_tag", "frequency", "on")
+	worldstate_vars = list("buildstage", "panel_open", "dir", "pixel_x", "pixel_y", "master_tag", "frequency", "on")
 
 /obj/structure/machinery/access_button/worldstate_apply_content(list/content)
 	..()
@@ -633,7 +738,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		set_frequency(frequency)
 
 /obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller
-	worldstate_vars = list("buildstage", "panel_open", "dir", "id_tag", "frequency", "tag_exterior_door", "tag_interior_door", "tag_exterior_doors", "tag_interior_doors", "tag_airpump", "tag_airpumps", "tag_chamber_sensor", "tag_exterior_sensor", "tag_interior_sensor", "persistent_network")
+	worldstate_vars = list("buildstage", "panel_open", "dir", "pixel_x", "pixel_y", "id_tag", "frequency", "tag_exterior_door", "tag_interior_door", "tag_exterior_doors", "tag_interior_doors", "tag_airpump", "tag_airpumps", "tag_chamber_sensor", "tag_exterior_sensor", "tag_interior_sensor", "persistent_network")
 
 /obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/worldstate_apply_content(list/content)
 	..()
@@ -733,6 +838,15 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 /obj/structure/machinery/biogenerator
 	worldstate_vars = list("points", "build_eff", "eat_eff", "processing_time_divisor", "emagged")
 
+/obj/structure/machinery/bioprinter
+	worldstate_vars = list("stored_matter", "loaded_species_id", "loaded_blood_type", "loaded_blood_dna")
+
+/obj/structure/machinery/bioprinter/worldstate_apply_content(list/content)
+	. = ..()
+	if(loaded_species_id)
+		loaded_species = GLOB.all_species[loaded_species_id]
+	products = get_possible_products()
+
 /obj/structure/machinery/stasis_bed
 	worldstate_vars = list("stasis_enabled", "stasis_can_toggle")
 
@@ -816,6 +930,14 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	// to draining its own cell until it reads as unpowered.
 	if(anchored)
 		connect_to_network()
+	// Same issue, same cause, for the looping hum: Initialize() constructs
+	// soundloop with start_immediately = active, but sees the class default
+	// (FALSE) since this restore hasn't run yet -- so a generator saved
+	// while running comes back reporting active but silently mute until
+	// manually toggled off and back on. soundloop is always non-null by this
+	// point (Initialize() constructs it unconditionally).
+	if(active)
+		soundloop.start(src)
 
 /obj/structure/machinery/power/solar_control
 	worldstate_vars = list("track", "trackrate")
@@ -1037,4 +1159,32 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		var/turf/T = locate(text2num(content["tu_x"]), text2num(content["tu_y"]), text2num(content["tu_z"]))
 		if(T) for(var/obj/structure/ladder/BL in T)
 			if(BL.allowed_directions & DOWN) { target_up = BL; BL.target_down = src; break }
+
+// ------- Table (material/reinforced aren't flat vars -- round-trip by name) -------
+
+/obj/structure/table
+	worldstate_vars = list("flipped", "carpeted")
+
+/obj/structure/table/worldstate_get_content()
+	var/list/content = ..()
+	if(!content) content = list()
+	if(material)
+		content["material_name"] = material.name
+	if(reinforced)
+		content["reinforced_name"] = reinforced.name
+	return content
+
+/obj/structure/table/worldstate_apply_content(list/content)
+	..()
+	if(content && content["material_name"])
+		material = SSmaterials.get_material_by_name(content["material_name"])
+	if(content && content["reinforced_name"])
+		reinforced = SSmaterials.get_material_by_name(content["reinforced_name"])
+	if(material)
+		update_connections(1)
+		update_desc()
+		update_material()
+		if(reinforced)
+			AddComponent(/datum/component/armor, list(MELEE = ARMOR_MELEE_KNIVES, BULLET = ARMOR_BALLISTIC_MINOR))
+	queue_icon_update()
 	update_icon()

@@ -176,7 +176,7 @@ GLOBAL_LIST_EMPTY(cargo_export_prices)
 
 /datum/admins/proc/manage_cargo_exports()
 	set name = "Manage Cargo Exports"
-	set category = "Persistence"
+	set category = "Persistence.Cargo & Economy"
 	set desc = "Add, remove, or reprice sellable cargo export item types."
 
 	if(!check_rights(R_ADMIN))

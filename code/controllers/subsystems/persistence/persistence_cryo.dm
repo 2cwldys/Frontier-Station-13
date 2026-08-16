@@ -129,10 +129,20 @@
 			return
 		// Force-store unavailable (DB down etc) -- fall through to the normal despawn flow.
 
-	mobPositionSave(H)
-	mobsHealthSaveOne(H)
-	mobsInventorySaveOne(H)
-	charIdentitySaveOne(H)
+	// Skip the direct save while a bulk save is already running -- racing
+	// it with this proc's own unsynchronized writes to the same rows is
+	// exactly how a query can stall forever with no exception (see the
+	// matching guard/comment in persistStoreCharacter() above). Not a data
+	// loss risk: H stays in the world through the despawn grace timer
+	// either way, so the ALREADY-RUNNING bulk sweep's own normal iteration
+	// still saves H's current state -- this call is only a redundant
+	// fast-path, and there's no live client left here to tell to wait and
+	// retry.
+	if(!save_in_progress)
+		mobPositionSave(H)
+		mobsHealthSaveOne(H)
+		mobsInventorySaveOne(H)
+		charIdentitySaveOne(H)
 
 	H.persistence_stored_ckey = H.ckey
 	H.persistence_in_cryo     = TRUE
@@ -158,6 +168,17 @@
 	if(!H_turf || !H_turf.z)
 		return FALSE
 	if(!databaseCheckConnection("persistStoreCharacter"))
+		return FALSE
+	// A bulk save (periodic, lobby-empty, or an admin's Force Persistence
+	// Save) already writes this same mob's rows as part of its own sweep --
+	// racing it with this proc's OWN direct writes to the same rows, from a
+	// completely separate unsynchronized DB call, is how a query stalls
+	// forever with no exception ever thrown (confirmed from an actual stuck
+	// save in this codebase's own logs: an admin's own mob stored itself
+	// via cryo while their own just-triggered Force Persistence Save was
+	// still mid-flight). Refuse outright rather than race it.
+	if(save_in_progress)
+		log_subsystem_persistence_info("Cryo: [H.real_name] ([H.ckey]) store deferred -- a persistence save is in progress.")
 		return FALSE
 
 	// Save all character data
@@ -236,8 +257,20 @@
 		// here would sever that in-flight handoff and strand the client instead
 		// of returning it to the main menu.
 		QDEL_IN(H, 0)
+		// H excluded -- its own client is often still attached at this point
+		// (the voluntary store path hands it to a new lobby mob only after
+		// this proc returns), so an unqualified population check would always
+		// see itself as "still playing" and never fire.
+#ifdef LOBBY_EMPTY_AUTOSAVE
+		if(!_any_active_player_character(H))
+			INVOKE_ASYNC(SSpersistence, PROC_REF(runLobbyEmptyAutosave))
+#endif
 		return TRUE
 
+#ifdef LOBBY_EMPTY_AUTOSAVE
+	if(!_any_active_player_character(H))
+		INVOKE_ASYNC(SSpersistence, PROC_REF(runLobbyEmptyAutosave))
+#endif
 	return TRUE
 
 // ============================================================
@@ -753,7 +786,7 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 /// Requires the player to be inside or directly adjacent to a cryopod.
 /mob/living/carbon/human/verb/store_character()
 	set name = "Store Character"
-	set category = "Persistence"
+	set category = "Persistence.Characters"
 	set desc = "Save your character and go offline. Must be inside or next to a cryopod."
 
 	if(!GLOB.config.sql_enabled)
@@ -762,6 +795,14 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 
 	if(persistence_in_cryo)
 		to_chat(src, SPAN_WARNING("Your character is already being stored."))
+		return
+
+	// persistStoreCharacter() itself also refuses this (covers every other
+	// caller too -- AFK force-store, prison, drydock sweep), but the
+	// voluntary path gets its own specific message instead of falling
+	// through to the generic "Storage failed" one.
+	if(SSpersistence.save_in_progress)
+		to_chat(src, SPAN_WARNING("A world save is currently in progress. Please wait a moment and try again."))
 		return
 
 	// Must be inside a cryopod or standing directly adjacent to one
@@ -1026,7 +1067,7 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 
 /datum/admins/proc/install_neural_lace()
 	set name = "Install Neural Lace"
-	set category = "Persistence"
+	set category = "Persistence.Characters"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -1104,7 +1145,7 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 
 /datum/admins/proc/set_player_character_slots()
 	set name = "Set Character Slots"
-	set category = "Persistence"
+	set category = "Persistence.Characters"
 
 	if(!check_rights(R_ADMIN))
 		return

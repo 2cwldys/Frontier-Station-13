@@ -32,6 +32,13 @@ GLOBAL_VAR_INIT(faction_raiding_enabled, TRUE)
 /// via ss13_hub_law_text. Empty string until an admin sets it.
 GLOBAL_VAR_INIT(hub_law_text, "")
 
+/// Whether the periodic autosave (fire(), below) also runs a full database
+/// backup (the same scripts/db_backup that Trigger Database Backup runs on
+/// demand) after each successful save. Default OFF -- opt-in. Admin-toggled
+/// (toggle_auto_backup_on_autosave(), persistence_backups.dm), persists
+/// across restarts via ss13_auto_backup_toggle.
+GLOBAL_VAR_INIT(auto_backup_on_autosave, FALSE)
+
 /// Z levels whose numbers appear in this list are SKIPPED by turf/object/worldstate persistence.
 /// Populated from ss13_zlevel_persistence WHERE enabled = 0 at startup.
 /// Empty by default = all Z levels persist.
@@ -175,11 +182,34 @@ SUBSYSTEM_DEF(persistence)
 		forceSaveAll()
 	catch(var/exception/e)
 		log_subsystem_persistence_error("Periodic save failed: [e]")
+		log_and_message_admins("EVENT periodic persistence autosave FAILED: [e]", null)
 
 	save_in_progress = FALSE
 	SSstatistics.update_status()
 	log_subsystem_persistence_info("Persistence: Periodic save complete.")
 	to_world(SPAN_GOOD(SPAN_BOLD("World save complete.")))
+	// Discord-only (log_admin(), not log_and_message_admins()) -- to_world()
+	// above already covers live visibility, this just closes the gap where
+	// routine automatic saves never reached the admin log webhook at all.
+	log_admin("EVENT periodic persistence autosave completed.")
+
+	// Admin-toggled (toggle_auto_backup_on_autosave(), persistence_backups.dm).
+	// Reported via subsystem log on success and an admin ping on failure --
+	// not to_world, so this stays silent to players every 30 minutes like the
+	// rest of the automatic persistence machinery (_autosave_empty_reconcile()
+	// above behaves the same way).
+	if(GLOB.auto_backup_on_autosave)
+		if(!_autoBackupSecurityOK())
+			_autoBackupDisableForSecurity()
+		else
+			log_subsystem_persistence_info("Persistence: Running automatic post-autosave database backup...")
+			var/list/backup_result = run_database_backup()
+			if(backup_result["success"])
+				log_subsystem_persistence_info("Persistence: Automatic post-autosave database backup complete.")
+				log_admin("EVENT automatic post-autosave database backup complete.")
+			else
+				log_subsystem_persistence_error("Persistence: Automatic post-autosave database backup FAILED (exit [backup_result["errorcode"]]): [backup_result["stderr"] || backup_result["stdout"]]")
+				log_and_message_admins("automatic post-autosave database backup FAILED (exit [backup_result["errorcode"]])", null)
 	// ignite() (subsystem.dm) is waitfor=FALSE, and forceSaveAll() really
 	// does sleep across real time (CHECK_TICK) for a save this size -- so
 	// Master's RunQueue() gets control back (and calls update_nextfire())
@@ -195,11 +225,65 @@ SUBSYSTEM_DEF(persistence)
 	// drain only runs after another drydock op, never after a save.
 	_drydockProcessNextQueued()
 
+/**
+ * Ad hoc full save triggered when the last active player leaves the round
+ * via cryo (see the hook in persistStoreCharacter(), persistence_cryo.dm) --
+ * distinct from fire()'s scheduled 30-minute save, and from the admin's own
+ * Force Persistence Save (force_persistence_save(), persistence_backups.dm),
+ * but reuses the exact same forceSaveAll()/save_in_progress/drydock-idle
+ * guard fire() uses. Must be dispatched via INVOKE_ASYNC by the caller, never
+ * called inline -- forceSaveAll() yields across ticks for a real 1-2 minutes,
+ * and persistStoreCharacter()'s own caller needs to hand its client off to a
+ * new lobby mob immediately afterward with no sleep in between.
+ *
+ * Silent (subsystem log only, no to_world/announcer voice line) -- there is
+ * nobody left in a body to see it, matching how _autosave_empty_reconcile()'s
+ * own automatic pause/resume of this same subsystem stays silent for its own
+ * automatic actions.
+ */
+/datum/controller/subsystem/persistence/proc/runLobbyEmptyAutosave()
+	if(prevent_saving || !GLOB.config.sql_enabled || save_in_progress)
+		return
+	if(GLOB.drydock_op_active || length(GLOB.drydock_op_queue))
+		return
+	save_in_progress = TRUE
+	log_subsystem_persistence_info("Persistence: Running lobby-empty autosave (last player left via cryo).")
+	try
+		forceSaveAll()
+	catch(var/exception/e)
+		log_subsystem_persistence_error("Lobby-empty autosave failed: [e]")
+		log_and_message_admins("EVENT lobby-empty persistence autosave FAILED: [e]", null)
+	save_in_progress = FALSE
+	log_subsystem_persistence_info("Persistence: Lobby-empty autosave complete.")
+	// Discord-only (log_admin(), not log_and_message_admins()) -- this proc
+	// is deliberately silent to players/live chat (nobody's left in a body
+	// to see it), but that shouldn't also mean invisible to the admin log.
+	log_admin("EVENT lobby-empty persistence autosave completed (last player left via cryo).")
+	_drydockProcessNextQueued()
+
+	if(GLOB.auto_backup_on_autosave)
+		if(!_autoBackupSecurityOK())
+			_autoBackupDisableForSecurity()
+		else
+			var/list/backup_result = run_database_backup()
+			if(backup_result["success"])
+				log_subsystem_persistence_info("Persistence: Automatic post-lobby-autosave database backup complete.")
+				log_admin("EVENT automatic post-lobby-autosave database backup complete.")
+			else
+				log_subsystem_persistence_error("Persistence: Automatic post-lobby-autosave database backup FAILED (exit [backup_result["errorcode"]]): [backup_result["stderr"] || backup_result["stdout"]]")
+				log_and_message_admins("automatic post-lobby-autosave database backup FAILED (exit [backup_result["errorcode"]])", null)
+
 /// TRUE if any mob in the round is alive, has a connected client, and is
 /// actively possessing it right now -- i.e. someone is really playing, not
 /// just an admin ghost/ dead body with a lingering ckey/ lobby client.
-/proc/_any_active_player_character()
+/// exclude: skip this mob when checking -- needed by callers checking "is
+/// anyone ELSE still playing" while the mob in question is mid-departure and
+/// may still have its client attached (see runLobbyEmptyAutosave()'s hook in
+/// persistStoreCharacter(), persistence_cryo.dm).
+/proc/_any_active_player_character(mob/living/exclude)
 	for(var/mob/M in GLOB.mob_list)
+		if(M == exclude)
+			continue
 		if(M.stat != DEAD && M.client)
 			return TRUE
 	return FALSE
@@ -227,11 +311,13 @@ SUBSYSTEM_DEF(persistence)
 		SSpersistence.autosave_paused = TRUE
 		SSpersistence.autosave_auto_paused = TRUE
 		log_subsystem_persistence_info("Persistence: Autosave auto-paused -- no active player characters.")
+		log_admin("EVENT periodic autosave auto-paused -- no active player characters.")
 	else if(playing && SSpersistence.autosave_auto_paused)
 		SSpersistence.next_fire = world.time + max(0, SSpersistence.autosave_pause_remaining)
 		SSpersistence.autosave_paused = FALSE
 		SSpersistence.autosave_auto_paused = FALSE
 		log_subsystem_persistence_info("Persistence: Autosave auto-resumed -- a player character is active again.")
+		log_admin("EVENT periodic autosave auto-resumed -- a player character is active again.")
 
 /**
  * Helper method to check and log database connection.
@@ -262,7 +348,7 @@ SUBSYSTEM_DEF(persistence)
 
 /datum/admins/proc/toggle_server_joining()
 	set name = "Toggle Server Joining"
-	set category = "Persistence"
+	set category = "Persistence.Misc"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -290,7 +376,7 @@ SUBSYSTEM_DEF(persistence)
 /// Persistence Save) and/or reboot.
 /datum/admins/proc/warn_pending_save()
 	set name = "Warn Pending Save"
-	set category = "Persistence"
+	set category = "Persistence.Backups & Saves"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -301,7 +387,7 @@ SUBSYSTEM_DEF(persistence)
 
 /datum/admins/proc/toggle_persistence()
 	set name = "Toggle Persistence"
-	set category = "Persistence"
+	set category = "Persistence.Backups & Saves"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -331,7 +417,7 @@ SUBSYSTEM_DEF(persistence)
 
 /datum/admins/proc/toggle_autosave_pause()
 	set name = "Toggle Autosave Pause"
-	set category = "Persistence"
+	set category = "Persistence.Backups & Saves"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -352,7 +438,7 @@ SUBSYSTEM_DEF(persistence)
 
 /datum/admins/proc/force_persistence_save()
 	set name = "Force Persistence Save"
-	set category = "Persistence"
+	set category = "Persistence.Backups & Saves"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -387,41 +473,43 @@ SUBSYSTEM_DEF(persistence)
 	play_announcer_voice_to_all('sound/AI/announcements/autosave_in_progress.ogg')
 	log_and_message_admins("initiated a world persistence save", usr)
 
-	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("1/8")] Saving economy..."))
-	SSpersistence.economyFinalize()
-	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("2/8")] Saving records + research..."))
-	SSpersistence.recordsFinalize()
-	SSpersistence.researchFinalize()
-	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("3/8")] Saving machinery states..."))
-	SSpersistence.areasFinalize()
-	SSpersistence.worldstateFinalize()
-	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("4/8")] Saving mob health, inventory, identity, position..."))
-	SSpersistence.mobsHealthFinalize()
-	SSpersistence.mobsInventoryFinalize()
-	SSpersistence.charIdentityFinalize()
-	SSpersistence.mobsPositionFinalizeAll()
-	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("5/8")] Saving turfs..."))
-	SSpersistence.turfsFinalize()
-	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("6/8")] Saving atmos zones..."))
-	SSpersistence.atmosFinalize()
-	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("7/8")] Saving persistent objects..."))
-	SSpersistence.objectsFinalize()
-	to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("8/8")] Saving floor items..."))
-	SSpersistence.floorItemsFinalize()
-	SSpersistence.botsFinalize()
-	SSpersistence.subshipSnapshotSaveAllDeployed()
-	// Same trailing cleanup the periodic save and Shutdown() both run -- see
-	// drydockForgetBeaconEnvelopes() (persistence_shuttles.dm).
-	//
-	// try/catch is NOT optional here: save_in_progress gates the Stash,
-	// Retrieve and Scuttle buttons on every ship schematic AND the Ship
-	// Drydock program. An exception escaping between setting it TRUE and
-	// clearing it below leaves every one of those greyed out, with no way to
-	// recover short of a server restart.
+	// try/catch is NOT optional around this whole sequence: save_in_progress
+	// gates the Stash, Retrieve and Scuttle buttons on every ship schematic
+	// AND the Ship Drydock program (plus joining, plus another save). An
+	// exception escaping ANY of these -- not just the last one -- between
+	// setting save_in_progress TRUE and clearing it below leaves everything
+	// gated on it stuck, with no way to recover short of a server restart
+	// (or the Emergency Stop Save admin verb).
 	try
+		to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("1/8")] Saving economy..."))
+		SSpersistence.economyFinalize()
+		to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("2/8")] Saving records + research..."))
+		SSpersistence.recordsFinalize()
+		SSpersistence.researchFinalize()
+		to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("3/8")] Saving machinery states..."))
+		SSpersistence.areasFinalize()
+		SSpersistence.worldstateFinalize()
+		to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("4/8")] Saving mob health, inventory, identity, position..."))
+		SSpersistence.mobsHealthFinalize()
+		SSpersistence.mobsInventoryFinalize()
+		SSpersistence.charIdentityFinalize()
+		SSpersistence.mobsPositionFinalizeAll()
+		to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("5/8")] Saving turfs..."))
+		SSpersistence.turfsFinalize()
+		to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("6/8")] Saving atmos zones..."))
+		SSpersistence.atmosFinalize()
+		to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("7/8")] Saving persistent objects..."))
+		SSpersistence.objectsFinalize()
+		to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("8/8")] Saving floor items..."))
+		SSpersistence.floorItemsFinalize()
+		SSpersistence.botsFinalize()
+		SSpersistence.subshipSnapshotSaveAllDeployed()
+		// Same trailing cleanup the periodic save and Shutdown() both run --
+		// see drydockForgetBeaconEnvelopes() (persistence_shuttles.dm).
 		SSpersistence.drydockForgetBeaconEnvelopes()
-	catch(var/exception/beacon_forget_e)
-		log_subsystem_persistence_panic("Unhandled exception during docking beacon envelope cleanup: [beacon_forget_e]")
+	catch(var/exception/force_save_e)
+		log_subsystem_persistence_panic("Unhandled exception during forced persistence save: [force_save_e]")
+		to_chat(usr, SPAN_WARNING("Persistence save failed partway through -- see the persistence log. save_in_progress has still been cleared."))
 
 	SSpersistence.save_in_progress = FALSE
 	// Same post-save queue kick as the periodic fire() -- stash/retrieve
@@ -431,6 +519,58 @@ SUBSYSTEM_DEF(persistence)
 	to_chat(usr, SPAN_GOOD("Persistence save complete."))
 
 	feedback_add_details("admin_verb","FPS")
+
+/**
+ * Actually unsticks a hung save, not just the flag. A stuck save is the
+ * original proc sleeping forever in datum/db_query/sync() (dbcore.dm:550-552,
+ * `while(status < DB_QUERY_FINISHED): stoplag()`), waiting on
+ * SSdbcore's connection POOL (SSdbcore.connection -- a rust-g pool handle,
+ * not a single connection, see dbcore.dm's Connect()) to ever report that
+ * query finished. If the underlying MySQL query is genuinely wedged (e.g.
+ * a lock wait that never resolves), that pool slot -- and the suspended
+ * proc waiting on it -- is orphaned forever; merely clearing
+ * save_in_progress unblocks everything ELSE gated on it (joining, drydock
+ * ops, a new save) but leaves that original proc as a permanent zombie and
+ * does nothing to recover the pool capacity it's still holding.
+ *
+ * SSdbcore.Disconnect() + Connect() tears down and rebuilds the whole
+ * connection pool, forcibly severing whatever query is stuck. This is safe:
+ * individual SQL statements are atomic, so MySQL rolls back the interrupted
+ * one cleanly -- nothing is left half-written. The real cost is that any
+ * OTHER query genuinely in flight at that exact moment also gets aborted
+ * and has to be retried by its own caller, same as any ordinary "DB
+ * connection dropped" hiccup this codebase already tolerates everywhere
+ * (databaseCheckConnection() failing is a normal, handled case). Severing
+ * the connection lets the ORIGINAL stuck proc's query fail for real, which
+ * lets it actually resume and hit its own try/catch (both
+ * force_persistence_save() and forceSaveAll() have one) and finish
+ * properly instead of staying orphaned.
+ */
+/datum/admins/proc/emergency_stop_save()
+	set name = "Emergency Stop Save"
+	set category = "Persistence.Backups & Saves"
+	set desc = "Resets the database connection pool to actually unstick a hung save (not just clear the flag), then clears save_in_progress. Only use once you're sure a save is genuinely stuck, not just slow."
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	if(!SSpersistence.save_in_progress)
+		to_chat(usr, SPAN_NOTICE("No save is currently marked in progress."))
+		return
+
+	var/confirm = tgui_alert(usr, "This resets the database connection pool -- killing whatever query is genuinely stuck -- then clears save_in_progress. SQL statements are atomic, so the interrupted one rolls back cleanly with nothing half-written, but any OTHER query in flight right now also gets aborted and will need to retry. Only do this if a save has stalled far longer than one ever should, not just running slow.", "Emergency Stop Save", list("Reset & Clear", "Cancel"))
+	if(confirm != "Reset & Clear")
+		return
+
+	SSdbcore.Disconnect()
+	SSdbcore.Connect()
+
+	SSpersistence.save_in_progress = FALSE
+	SSpersistence._drydockProcessNextQueued()
+	log_and_message_admins("reset the database connection pool and force-cleared a stuck save_in_progress flag (Emergency Stop Save)", usr)
+	to_chat(usr, SPAN_GOOD("Database connection pool reset, save_in_progress cleared. Saves, joins, and drydock ops can resume."))
+
+	feedback_add_details("admin_verb","ESS")
 
 /**
  * Sweeps the whole world and vaults every dead/unclaimed neural lace, plus
@@ -473,7 +613,7 @@ SUBSYSTEM_DEF(persistence)
 
 /datum/admins/proc/force_vault_all_laces()
 	set name = "Force Vault All Laces"
-	set category = "Persistence"
+	set category = "Persistence.Backups & Saves"
 	set desc = "Immediately vaults every neural lace belonging to a dead/unclaimed body, plus any sitting loose in the world. Never touches a living person's installed lace. Use before a server reboot."
 
 	if(!check_rights(R_ADMIN))
@@ -844,6 +984,12 @@ SUBSYSTEM_DEF(persistence)
 		hubLawTextInitialize()
 	catch(var/exception/hub_law_text_e)
 		log_subsystem_persistence_panic("Unhandled exception during hub law text initialization: [hub_law_text_e]")
+
+	log_subsystem_persistence_info("Starting auto-backup-on-autosave toggle initialization...")
+	try
+		autoBackupToggleInitialize()
+	catch(var/exception/auto_backup_toggle_e)
+		log_subsystem_persistence_panic("Unhandled exception during auto-backup-on-autosave toggle initialization: [auto_backup_toggle_e]")
 
 	log_subsystem_persistence_info("Starting stock market initialization...")
 	try

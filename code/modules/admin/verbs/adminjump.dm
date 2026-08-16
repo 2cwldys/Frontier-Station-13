@@ -41,6 +41,93 @@
 			alert("Admin jumping disabled")
 		return
 
+/client/proc/jump_to_neural_lace()
+	set name = "Jump to Neural Lace"
+	set category = "Admin.Jump"
+	set desc = "Lists every neural lace in the world (vaulted, installed, or loose) and jumps to the one you pick."
+
+	if(!(check_rights(R_ADMIN|R_MOD|R_DEBUG|R_DEV) || isstoryteller(src.mob)))
+		return
+	if(isnewplayer(usr))
+		return
+	if(!GLOB.config.allow_admin_jump)
+		alert("Admin jumping disabled")
+		return
+
+	var/list/options = list()
+	for(var/obj/item/organ/internal/neural_lace/L in world)
+		if(QDELETED(L))
+			continue
+		var/turf/T = get_turf(L)
+		if(!T)
+			continue
+		var/status
+		if(istype(L.loc, /obj/structure/machinery/lace_storage))
+			status = "(Vaulted)"
+		else if(L.owner)
+			status = (L.owner.stat == DEAD) ? "(Installed, corpse)" : "(Installed, alive)"
+		else if(L.lace_occupied)
+			status = "(Consciousness, unvaulted)"
+		else
+			status = "(Loose)"
+		options["[L.registered_name || "unregistered"] ([L.registered_ckey || "no ckey"]) [status] -- ([T.x],[T.y],[T.z])"] = L
+
+	if(!length(options))
+		to_chat(usr, SPAN_WARNING("No neural laces found in the world."))
+		return
+
+	var/chosen = tgui_input_list(usr, "Select a neural lace to jump to:", "Jump to Neural Lace", options)
+	if(!chosen)
+		return
+	var/obj/item/organ/internal/neural_lace/target = options[chosen]
+	if(QDELETED(target))
+		to_chat(usr, SPAN_WARNING("That lace no longer exists."))
+		return
+
+	var/turf/T = get_turf(target)
+	if(!T)
+		to_chat(usr, SPAN_WARNING("Could not resolve a location for that lace."))
+		return
+
+	log_admin("[key_name(usr)] jumped to [target.registered_name]'s neural lace at [T.x],[T.y],[T.z] in [T.loc]")
+	message_admins("[key_name_admin(usr)] jumped to [target.registered_name]'s neural lace", 1)
+	usr.on_mob_jump()
+	usr.forceMove(T)
+	feedback_add_details("admin_verb","JNL")
+
+	// Offer to vault AFTER the jump, once the admin can actually see the
+	// lace/scene for themselves before deciding. Same eligibility
+	// vaultAllLaces() (persistence.dm) already enforces for its own bulk
+	// sweep -- never rip an installed lace out of someone who's still alive
+	// and playing. A vaulted lace has nothing to do either.
+	var/already_vaulted = istype(target.loc, /obj/structure/machinery/lace_storage)
+	var/installed_alive = target.owner && target.owner.stat != DEAD
+	if(already_vaulted || installed_alive || QDELETED(target))
+		return
+	var/vault_choice = tgui_alert(usr, "[target.registered_name]'s lace isn't vaulted. Vault it now?", "Jump to Neural Lace", list("Vault It", "Leave It"))
+	if(vault_choice != "Vault It" || QDELETED(target))
+		return
+
+	target._auto_transfer_to_storage()
+	if(QDELETED(target))
+		to_chat(usr, SPAN_WARNING("The lace was lost during vaulting."))
+		return
+	// A lace still installed (even on a dead body) only gets as far as
+	// surgical extraction on the first call -- _auto_transfer_to_storage()
+	// ejects it via removed() and returns, scheduling a fresh 4-hour timer
+	// rather than continuing on to the vault itself (see that proc's own
+	// "removed() will call this again indirectly" comment: that's the NEW
+	// timer, not an immediate re-invocation). Finish the job now, exactly
+	// mirroring vaultAllLaces()'s (persistence.dm) own double-call handling
+	// of this same case.
+	if(!istype(target.loc, /obj/structure/machinery/lace_storage) && !target.owner)
+		target._auto_transfer_to_storage()
+	if(istype(target.loc, /obj/structure/machinery/lace_storage))
+		to_chat(usr, SPAN_GOOD("Vaulted [target.registered_name]'s neural lace."))
+		log_and_message_admins("vaulted [target.registered_name] ([target.registered_ckey])'s neural lace via Jump to Neural Lace", usr)
+	else
+		to_chat(usr, SPAN_WARNING("No available lace storage vault found -- [target.registered_name]'s lace could not be vaulted."))
+
 /client/proc/jumptomob(var/mob/M in GLOB.mob_list)
 	set category = "Admin.Jump"
 	set name = "Jump to Mob Admin"

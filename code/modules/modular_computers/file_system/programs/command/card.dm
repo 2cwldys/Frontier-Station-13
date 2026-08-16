@@ -296,6 +296,17 @@ GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 					to_chat(usr, SPAN_WARNING("You are already a part of a faction, leave that one first before you can join this one!"))
 					return
 
+			// A faction-bound IPC is locked out of printing credentials
+			// anywhere but their own shackling faction's own console --
+			// same cross-faction refusal a faction-shackled MACHINE
+			// already gives everyone else (persistent_network mismatch),
+			// just applied to the bound person instead of a bound device.
+			if(HAS_TRAIT(user, TRAIT_FACTION_BOUND))
+				var/mob/living/bound_user = user
+				if(bound_user.faction_bound_uid != repl_net)
+					to_chat(usr, SPAN_WARNING("ACCESS DENIED -- you are shackled to [get_faction_name(bound_user.faction_bound_uid)] and cannot be issued credentials elsewhere."))
+					return
+
 			// Revoke any existing ID cards for this person in the world
 			for(var/obj/item/card/id/old_card in world)
 				if(!old_card.revoked && old_card.registered_name == user.real_name)

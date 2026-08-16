@@ -41,6 +41,7 @@ SUBSYSTEM_DEF(persistence_world_ready)
 			// Delete everything on the station's own Z-levels -- every object,
 			// mob, structure, and the turfs themselves. No reset/revert logic,
 			// just gone -- open space. The Z-levels stay allocated, just empty.
+			//
 			for(var/z in station_zs)
 				for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
 					for(var/atom/movable/AM in T)

@@ -258,7 +258,7 @@
 
 /obj/item/clothing/head/helmet/space/void/lancer
 	name = "lancer voidsuit helmet"
-	desc = "A sleek helmet with a bright yellow visor, expertly made in and colored in the iconic branding of Ceres' Lance."
+	desc = "A sleek helmet with a bright yellow visor, expertly made in and colored in the iconic branding of Hub Lancer."
 	icon = 'icons/obj/clothing/voidsuit/megacorp.dmi'
 	icon_state = "lancer_helm"
 	item_state = "lancer_helm"
@@ -278,12 +278,12 @@
 	refittable_species = list(BODYTYPE_HUMAN, BODYTYPE_UNATHI)
 
 /obj/item/clothing/head/helmet/space/void/lancer/unathi
-	desc = "A sleek helmet with a bright yellow visor, expertly made in and colored in the iconic branding of Ceres' Lance. This one is fitted to Unathi."
+	desc = "A sleek helmet with a bright yellow visor, expertly made in and colored in the iconic branding of Hub Lancer. This one is fitted to Unathi."
 	refit_initialize = BODYTYPE_UNATHI
 
 /obj/item/clothing/suit/space/void/lancer
 	name = "lancer voidsuit"
-	desc = "A bulky void suit with heavy plating. Looks to be colored in the branding of Ceres' Lance."
+	desc = "A bulky void suit with heavy plating. Looks to be colored in the branding of Hub Lancer."
 	icon = 'icons/obj/clothing/voidsuit/megacorp.dmi'
 	icon_state = "lancer"
 	item_state = "lancer"
@@ -306,7 +306,7 @@
 	refittable_species = list(BODYTYPE_HUMAN, BODYTYPE_UNATHI)
 
 /obj/item/clothing/suit/space/void/lancer/unathi
-	desc = "A bulky void suit with heavy plating. Looks to be colored in the branding of Ceres' Lance. This one is fitted to Unathi."
+	desc = "A bulky void suit with heavy plating. Looks to be colored in the branding of Hub Lancer. This one is fitted to Unathi."
 	refit_initialize = BODYTYPE_UNATHI
 
 //Einstein Engines espionage voidsuit

@@ -61,6 +61,7 @@
 	data["faction_balance"] = own_faction ? get_faction_account_balance(own_faction) : null
 	data["is_admin"] = check_rights(R_ADMIN, 0, user)
 	data["can_buy_faction"] = own_faction && can_configure_faction_shackle(user, own_faction, 1)
+	data["save_in_progress"] = SSpersistence.save_in_progress
 
 	var/board_ready_at = last_boarded_by_ckey[user.ckey] ? (last_boarded_by_ckey[user.ckey] + 30) : 0
 	data["can_board"] = world.time >= board_ready_at
@@ -176,7 +177,10 @@
 			var/target_ckey = tgui_input_text(user, "Ckey to give this ship's title to:", "Give Title", "", max_length = 32)
 			if(!target_ckey)
 				return TRUE
-			var/target_char_name = tgui_input_text(user, "Exact character name for '[target_ckey]' to title the ship to:", "Give Title", "", max_length = 64)
+			// encode = FALSE -- identity key compared raw against real_name
+			// elsewhere, not display text. See ship_schematic.dm's own
+			// "add_crew" comment for the same reasoning.
+			var/target_char_name = tgui_input_text(user, "Exact character name for '[target_ckey]' to title the ship to:", "Give Title", "", max_length = 64, encode = FALSE)
 			if(!target_char_name)
 				return TRUE
 			log_drydock("drydock ui_act: [key_name(user)] requested give_schematic for shuttle_id=[shuttle_id] to '[target_char_name]' ([target_ckey]).")

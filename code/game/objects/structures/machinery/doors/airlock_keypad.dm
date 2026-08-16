@@ -63,6 +63,14 @@
 /obj/structure/machinery/door/airlock/keypad/allowed(mob/M)
 	return !locked
 
+/// This door's sole access gate is its own code (allowed() above) -- a
+/// faction tag would have zero effect on who can actually open it, so don't
+/// offer one at all. Blocks both the faction tagger tool's menu
+/// (faction_tagger.dm) and the faction beacon's periodic auto-tag sweep
+/// (persistence_factions.dm), which both gate on this single proc.
+/obj/structure/machinery/door/airlock/keypad/faction_tagger_compatible()
+	return FALSE
+
 /// Re-locks unconditionally on every close -- self-timer autoclose, a
 /// remote signal, or another player closing it all count. The code has to
 /// be re-entered to get back in every time, per design. Refuses to close at

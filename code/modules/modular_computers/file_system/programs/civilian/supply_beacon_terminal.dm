@@ -406,7 +406,6 @@
 	for(var/turf/touched in touched_turfs)
 		spark(touched, 5, GLOB.alldirs)
 		playsound(touched, 'sound/effects/transport.ogg', 50, 1)
-		new /obj/effect/portal/decorative/fading(touched)
 
 	var/net = normalize_faction_uid(computer.persistent_network)
 	var/is_personal = computer.personal_ckey
