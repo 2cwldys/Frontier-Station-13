@@ -83,6 +83,12 @@
 	data["faction_creation_enabled"] = GLOB.faction_creation_enabled
 	data["founding_required"] = FACTION_FOUNDING_REQUIRED_SUPPORTERS
 	data["founding_required_company"] = FACTION_FOUNDING_REQUIRED_SUPPORTERS_COMPANY
+	// Sent rather than hardcoded UI-side -- the TSX used to carry the prices as
+	// literal strings, so raising FACTION_CREATION_COST quoted players the old
+	// figure while actually billing the new one. faction_founding_cost()
+	// (persistence_factions.dm) is the same helper the charge itself uses.
+	data["founding_cost"] = faction_founding_cost(FALSE)
+	data["founding_cost_company"] = faction_founding_cost(TRUE)
 	data["petitions"] = list()
 	if(islist(GLOB.persistence_faction_founding_petitions))
 		for(var/target_uid in GLOB.persistence_faction_founding_petitions)

@@ -104,7 +104,8 @@ export const PiracyBeacon = (_props) => {
         </Section>
         <Section title="Found a Pirate Faction">
           <Box mb={1} color="label">
-            Pay {data.founding_cost} credits, held as physical cash in hand,
+            Pay {data.founding_cost.toLocaleString()} credits, held as physical
+            cash in hand,
             to instantly found a real faction here -- no petition, no
             supporters, no waiting. It gets full faction management support
             (ranks, a bank account seeded with the payment, a master card),
@@ -118,7 +119,7 @@ export const PiracyBeacon = (_props) => {
             color="bad"
             onClick={() => act('found_faction')}
           >
-            Found Faction ({data.founding_cost}cr)
+            Found Faction ({data.founding_cost.toLocaleString()} cr)
           </Button>
         </Section>
       </Window.Content>

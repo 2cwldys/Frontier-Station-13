@@ -672,16 +672,15 @@
 		return FALSE
 	return _drydock_board_deliver(L, target, cooldown)
 
-/// Portal+spark visual cue at T only -- no forceMove, this just marks where
-/// an invitation is being extended. A lighter cousin of
-/// _drydock_deliver_with_portal() (which does the same VFX plus the actual
-/// move).
-/proc/_drydock_invite_vfx(turf/T)
+/// Phase-teleport visual cue at T only -- no forceMove, this just marks where
+/// an invitation is being extended. Uses the same _telepad_phase_arrival()
+/// effect (telepad_travel.dm) as an actual arrival, so an invite reads as the
+/// same kind of event as the boarding it leads to rather than a decorative
+/// portal nothing else uses anymore.
+/proc/_drydock_invite_vfx(turf/T, facing_dir)
 	if(!T)
 		return
-	new /obj/effect/portal/decorative/fading(T, null, null, 5 SECONDS, 0)
-	spark(T, 3, GLOB.alldirs)
-	playsound(T, 'sound/effects/phasein.ogg', 30, 1)
+	_telepad_phase_arrival(T, facing_dir)
 
 /// Finds a passable, unobstructed turf adjacent to center, falling back to
 /// center itself if it's non-dense, or null if nothing usable is found.
@@ -777,7 +776,7 @@
 
 	var/ship_display_name = target_ship.display_name()
 	var/turf/target_turf = get_turf(target)
-	_drydock_invite_vfx(target_turf)
+	_drydock_invite_vfx(target_turf, target.dir)
 	var/response = tgui_alert(target, "[inviter] wants to bring you aboard [ship_display_name]. Board?", "Boarding Invitation", list("Accept", "Deny"), DRYDOCK_INVITE_TIMEOUT)
 
 	if(QDELETED(inviter) || QDELETED(target))

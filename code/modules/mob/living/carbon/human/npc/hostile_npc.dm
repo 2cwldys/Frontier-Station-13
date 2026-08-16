@@ -524,12 +524,9 @@
 	if(!destination)
 		return
 	var/turf/origin = get_turf(src)
-	if(origin)
-		new /obj/effect/portal/decorative/fading(origin, null, null, 5 SECONDS, 0)
-		spark(origin, 3, GLOB.alldirs)
+	_telepad_phase_arrival(origin, dir)
 	forceMove(destination)
-	new /obj/effect/portal/decorative/fading(destination, null, null, 5 SECONDS, 0)
-	spark(destination, 3, GLOB.alldirs)
+	_telepad_phase_arrival(destination, dir)
 
 /// Any forced relocation (a swap with another soldier mid-bump, an admin
 /// teleport, whatever) moves this mob out-of-band from whatever
