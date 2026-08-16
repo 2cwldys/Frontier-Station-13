@@ -64,6 +64,12 @@
 #define MUTE_MUTTERING BITFLAG(12)
 #define VIGNETTE BITFLAG(13)
 #define CRT_SCANLINES BITFLAG(14)
+// Suppresses the spawn-in portal/spark flourish on this admin's own uses of
+// the Spawn verb (spawn_atom(), admin.dm). Inverted semantics on purpose,
+// same as MUTE_MUTTERING above: the bit's ABSENCE means the effect plays, so
+// preference rows saved before this flag existed get it rather than silently
+// opting every existing admin out.
+#define ADMIN_SPAWN_NO_VFX BITFLAG(15)
 
 #define TOGGLES_DEFAULT (SOUND_ADMINHELP | SOUND_MIDI | CHAT_OOC | CHAT_DEAD | CHAT_GHOSTEARS | CHAT_GHOSTSIGHT | CHAT_PRAYER | CHAT_RADIO | CHAT_ATTACKLOGS | CHAT_LOOC | CHAT_GHOSTLOOC)
 

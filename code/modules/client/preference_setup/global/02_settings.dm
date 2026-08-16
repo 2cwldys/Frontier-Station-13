@@ -94,6 +94,13 @@
 		"<b>CRT Scanlines:</b> <a href='byond://?src=[REF(src)];paratoggle=[CRT_SCANLINES]'><b>[(pref.toggles_secondary & CRT_SCANLINES) ? "On" : "Off"]</b></a><br>"
 	)
 
+	// Staff-only row -- the setting only governs this admin's own use of the
+	// Spawn verb, so it would read as a dead toggle to anyone else. Shown as
+	// "On/Off" despite the flag storing the INVERSE (ADMIN_SPAWN_NO_VFX,
+	// misc.dm), so the label matches what the admin actually sees happen.
+	if(user?.client?.holder)
+		dat += "<b>Spawn Effect:</b> <a href='byond://?src=[REF(src)];paratoggle=[ADMIN_SPAWN_NO_VFX]'><b>[(pref.toggles_secondary & ADMIN_SPAWN_NO_VFX) ? "Off" : "On"]</b></a><br>"
+
 	. = dat.Join()
 
 /datum/category_item/player_setup_item/player_global/settings/OnTopic(var/href,var/list/href_list, var/mob/user)

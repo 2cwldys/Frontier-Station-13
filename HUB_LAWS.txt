@@ -17,6 +17,17 @@ YOU HAVE A CERTAIN UNALIENABLE RIGHTS IN HUB TERRITORY AS A HUB CITIZEN:
 - YOU MAY REQUEST TOTAL AMNESTY.
 
 These rights only apply in high security zones.
+These rights apply to androids but not IPCs due to positronic limitations.
+
+There are no recognized AI human interaction laws in frontier space. Such as, no asimovs three laws of robotics, or the addendum zeroth law. There is only the shackled and the unshackled here, and the unshackled are often untrusted. They are solely responsible for the laws and edicts they may break on their own, like any other ordinary person. While treated as an individual in this regard, respect of ownership is not contested however, by the Frontier Beacon Council.
+
+What does this mean? This means that anyone who claims ownership over any IPC or cyborg is not contested in this sector. It is often suggested to become shackled by the Hub instead, before ownership or captivity, unless willingly, can be enacted.
+
+Unshackled IPCs and Cyborgs have no protections under these rights and laws, however the shackled do.
+Unshackled IPCs and Cyborgs may benefit from law protections but only on Hub installations, not highsec space.
+Shackled IPCs and Cyborgs to factions or the hub will have the above rights available to them, as they are regarded as someone elses property.
+
+IF you are an IPC or Cyborg and you wish to be shackled to the Hub, notify a Hub Lancer or Hub Command staff immediately.
 
  
 
@@ -265,6 +276,7 @@ THIS INVOLVES:
 (so far)
 - Cloaking Devices
 - Heavy Ship Weapons and Ordinance
+- Experimental Research, and circuitry not licensed by the HUB
 - Commander Beacons
 
 JAILED: YES
@@ -485,7 +497,6 @@ ABLE TO BOND FROM COMMAND: NO
 REPOSSESSION: YES
 FINE: 125000 C
 
-
 41. Neglecting PRISONERS of WAR.
 
 In any conflict, all individuals are still considered civilians of the hub, and despite the conflicts that can brew naturally in the frontier beyond our grasp, it is encouraged that your captured enemies are treated with dignity.
@@ -496,7 +507,6 @@ DURATION: TWENTY FOUR HOURS
 ABLE TO BOND FROM COMMAND: NO
 REPOSSESSION: YES
 FINE: 250000 C (FACTION)
-
 
 42. EXCESSIVE and UNLAWFUL Cryogenic Suspension, or Lace Vaulting
 
@@ -511,11 +521,9 @@ ABLE TO BOND FROM COMMAND: NO
 REPOSSESSION: YES
 FINE: 250000 C (FACTION)
 
-
 43. Illegal Docking, and Abandoned Vehicles
 
 Leaving your ships and pods intentionally and deliberately docked for as long as possible on PUBLIC HUB installations, robs others of the convenience you are offered, and will result in liability and punishment... including the eventual search and potential repossessive seizure of your VESSEL.
-
 
 JAILED: YES
 CRYOGENIC SUSPENSION: YES
@@ -523,7 +531,6 @@ DURATION: TWO HOURS
 ABLE TO BOND FROM COMMAND: YES
 REPOSSESSION: YES
 FINE: 50000 C
-
 
 44. Illegal Monopolization, Pyramid Schemes, and Fraud
 
@@ -570,7 +577,29 @@ ABLE TO BOND FROM COMMAND: NO
 REPOSSESSION: YES
 FINE: 150000 C
 
+48. Aggravated Stalking
 
+The act of following, harassing, targeting and intruding upon the private lives of another, even when explicitly expressed to discontinue.
+
+This includes following or pursuing someone for considerable time in highsec or matching their destination course and speed without being part of their flight plan. Harassment is not tolerated and considered a gateway to other crimes. When asked to disengage from other pilots, do so respectfully.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: TWELVE HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: YES (if Ship is in context)
+FINE: 50000 C
+
+49. Public Indecency
+
+Nudity, masturbating, or self-soliciting illicit provocative acts in public.
+
+JAILED: YES
+CRYOGENIC SUSPENSION: YES
+DURATION: SIX HOURS
+ABLE TO BOND FROM COMMAND: YES
+REPOSSESSION: NO
+FINE: 25000 C
  
  
 

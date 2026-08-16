@@ -16,6 +16,34 @@
 	upgraded = TRUE
 	can_clone = TRUE
 
+/// Persistence passthrough -- this is an ITEM, so it saves through
+/// serializePersistentItem()'s generic persistent_objects_get_content() hook
+/// (persistence_mobs.dm), not worldstate. Without these, a restored printer
+/// came back as a factory-fresh copy of its type: loaded metal gone, and both
+/// upgrade disks undone -- which is why an upgraded printer could no longer
+/// clone assemblies after a reboot. assembly_to_clone is deliberately NOT
+/// saved; it's a live reference to a specific assembly object that may not
+/// survive the restore, and it's re-picked from the UI anyway.
+/obj/item/integrated_circuit_printer/persistent_objects_get_content()
+	var/list/content = ..()
+	if(!islist(content))
+		content = list()
+	content["metal"] = metal
+	content["upgraded"] = upgraded
+	content["can_clone"] = can_clone
+	return content
+
+/obj/item/integrated_circuit_printer/persistent_objects_apply_content(content, x, y, z)
+	. = ..()
+	if(!islist(content))
+		return
+	if(!isnull(content["metal"]))
+		metal = content["metal"] + 0
+	if(!isnull(content["upgraded"]))
+		upgraded = content["upgraded"]
+	if(!isnull(content["can_clone"]))
+		can_clone = content["can_clone"]
+
 /obj/item/integrated_circuit_printer/attackby(obj/item/attacking_item, mob/user)
 	if(istype(attacking_item,/obj/item/stack/material))
 		var/obj/item/stack/material/stack = attacking_item
@@ -111,10 +139,19 @@
 			to_chat(usr, SPAN_WARNING("You need [cost] metal to build that!"))
 			return FALSE
 		metal -= cost
+		var/obj/item/printed
 		if (is_asm)
-			new build_type(get_turf(loc), TRUE)
+			printed = new build_type(get_turf(loc), TRUE)
 		else
-			new build_type(get_turf(loc))
+			printed = new build_type(get_turf(loc))
+		// Hand it over rather than leaving it underfoot. put_in_hands()
+		// (inventory.dm) already does exactly the wanted cascade: active hand,
+		// then the off hand, then dropping at the user's feet when both are
+		// full -- so the floor stays the last resort it used to be the only
+		// option.
+		if(printed && ismob(usr))
+			var/mob/printing_user = usr
+			printing_user.put_in_hands(printed)
 		. = TRUE
 
 /obj/item/integrated_circuit_printer/proc/can_print(build_type)

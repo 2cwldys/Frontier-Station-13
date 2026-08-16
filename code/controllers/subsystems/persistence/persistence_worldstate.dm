@@ -687,6 +687,52 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	if(frequency)
 		set_frequency(frequency)
 
+// ------- Tank control console + its injector (multitool-linked by tag) -------
+// input_tag/output_tag are the console's only handle on its devices, and the
+// injector's own `id` is what it answers to -- all three were mapper-authored
+// only until multitool linking existed, so none of them were ever persisted.
+// The set_frequency() calls matter for the same reason the vent pump and
+// airlock cycler already override apply: the generic apply writes the raw
+// frequency var, but it takes a real set_frequency() call to re-register with
+// SSradio, or a restored pair holds correct-looking tags and hears nothing.
+
+/obj/structure/machinery/computer/general_air_control/large_tank_control
+	worldstate_vars = list("input_tag", "output_tag", "frequency")
+
+/obj/structure/machinery/computer/general_air_control/large_tank_control/worldstate_apply_content(list/content)
+	..()
+	if(frequency)
+		set_frequency(frequency)
+
+/obj/structure/machinery/atmospherics/unary/outlet_injector
+	worldstate_vars = list("id", "frequency", "volume_rate", "use_power")
+
+/obj/structure/machinery/atmospherics/unary/outlet_injector/worldstate_apply_content(list/content)
+	..()
+	if(frequency)
+		set_frequency(frequency)
+
+// ------- Omni mixers/filters (port config is rebuilt from the tag vars) -------
+// The live `ports` list (datum/omni_port instances) is regenerated from these
+// tag vars rather than stored, so the apply override has to re-run
+// update_ports() (omni_base.dm -- sort_ports() + update_port_icons()) or the
+// restored tags never take effect and the port icons stay stale.
+// Subtypes restate the base list because worldstate_vars is a plain var
+// override, not additive; they inherit the apply override from the base.
+
+/obj/structure/machinery/atmospherics/omni
+	worldstate_vars = list("tag_north", "tag_south", "tag_east", "tag_west", "use_power")
+
+/obj/structure/machinery/atmospherics/omni/worldstate_apply_content(list/content)
+	..()
+	update_ports()
+
+/obj/structure/machinery/atmospherics/omni/mixer
+	worldstate_vars = list("tag_north", "tag_south", "tag_east", "tag_west", "use_power", "tag_north_con", "tag_south_con", "tag_east_con", "tag_west_con", "set_flow_rate")
+
+/obj/structure/machinery/atmospherics/omni/filter
+	worldstate_vars = list("tag_north", "tag_south", "tag_east", "tag_west", "use_power", "set_flow_rate")
+
 /obj/structure/machinery/portable_atmospherics/canister
 	worldstate_vars = list("valve_open", "release_pressure", "release_flow_rate", "can_label")
 

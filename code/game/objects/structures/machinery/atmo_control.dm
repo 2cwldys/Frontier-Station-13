@@ -256,6 +256,57 @@
 		data["output"]["setpressure"] = default_pressure_setting
 	return data
 
+/// Links an injector (Input) or vent pump (Output) to this console by tag,
+/// modelled on _link_to_airpump() (airlock_controllers.dm). Both tag slots are
+/// mapper-authored only, and a built injector starts with id = null and
+/// frequency = 0 (not on any channel at all), so without this a player-built
+/// console and injector could never address each other.
+///
+/// Re-linking the device already in a slot clears it, matching the cycler's
+/// own toggle behaviour. set_frequency() at the end is what actually puts the
+/// device on this console's channel -- writing the tag alone is not enough.
+/obj/structure/machinery/computer/general_air_control/large_tank_control/proc/_link_atmos_device(obj/structure/machinery/atmospherics/device, mob/user)
+	if(istype(device, /obj/structure/machinery/atmospherics/unary/outlet_injector))
+		var/obj/structure/machinery/atmospherics/unary/outlet_injector/injector = device
+		injector._ensure_id_tag()
+		if(input_tag == injector.id)
+			input_tag = null
+			input_info = null
+			to_chat(user, SPAN_NOTICE("You unlink \the [injector] from \the [src]'s input."))
+			return
+		input_tag = injector.id
+		injector.set_frequency(frequency)
+		to_chat(user, SPAN_NOTICE("You link \the [injector] to \the [src] as its input."))
+		return
+
+	if(istype(device, /obj/structure/machinery/atmospherics/unary/vent_pump))
+		var/obj/structure/machinery/atmospherics/unary/vent_pump/pump = device
+		pump._ensure_id_tag()
+		if(output_tag == pump.id_tag)
+			output_tag = null
+			output_info = null
+			to_chat(user, SPAN_NOTICE("You unlink \the [pump] from \the [src]'s output."))
+			return
+		output_tag = pump.id_tag
+		pump.set_frequency(frequency)
+		to_chat(user, SPAN_NOTICE("You link \the [pump] to \the [src] as its output."))
+		return
+
+	to_chat(user, SPAN_WARNING("\The [src] only accepts an air injector (input) or an air vent (output)."))
+
+/obj/structure/machinery/computer/general_air_control/large_tank_control/attackby(obj/item/attacking_item, mob/user, params)
+	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
+		var/obj/item/multitool/MT = attacking_item
+		var/obj/structure/machinery/atmospherics/buffered = MT.get_buffer(/obj/structure/machinery/atmospherics)
+		if(buffered)
+			_link_atmos_device(buffered, user)
+			MT.set_buffer(null)
+			return TRUE
+		MT.set_buffer(src)
+		to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
+		return TRUE
+	return ..()
+
 /obj/structure/machinery/computer/general_air_control/large_tank_control/receive_signal(datum/signal/signal)
 	if(!signal || signal.encryption) return
 
