@@ -407,8 +407,12 @@ SUBSYSTEM_DEF(discord)
 			)
 			OutData["embeds"] = list(emb)
 		if (WEBHOOK_LAW_ENFORCEMENT)
+			// No embed title -- every message is already self-describing, so a
+			// fixed header repeated on every line said nothing. Offenses and
+			// distress calls lead with their own bold category (see
+			// log_law_enforcement(), __HELPERS/logging/admin.dm); enforcement
+			// actions name the actor and end in "via First Responder".
 			var/emb = list(
-				"title" = "First Responder Action",
 				"description" = data["message"],
 				"color" = HEX_COLOR_BLUE
 			)

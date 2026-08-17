@@ -32,10 +32,22 @@
  * webhook set up this is a no-op. Text is stripped/escaped the same way the
  * admin-log mirror above does it, since Discord can't render the SPAN_ colour
  * tags or JMP links these strings carry.
+ *
+ * category is an OPTIONAL short label ("Highsec offense", "Distress call")
+ * rendered as a bold heading in front of the message. It exists because
+ * discord_escape() escapes "*" -- so markdown written into `text` by a caller
+ * arrives as literal \*\*asterisks\*\* rather than bold. Escaping `text` is
+ * not negotiable (it carries player-supplied character names, area names and
+ * admin sentences), so the emphasis is applied AFTER escaping instead, and
+ * only around this trusted caller-supplied label.
  */
-/proc/log_law_enforcement(text)
+/proc/log_law_enforcement(text, category)
 #ifdef EXPORT_LAW_ENFORCEMENT_TO_DISCORD
-	SSdiscord.post_webhook_event(WEBHOOK_LAW_ENFORCEMENT, list("message" = SSdiscord.discord_escape(strip_html_properly(text))))
+	var/body = SSdiscord.discord_escape(strip_html_properly(text))
+	if(category)
+		// The ** is deliberately outside discord_escape() -- see above.
+		body = "**[SSdiscord.discord_escape(category)]** -- [body]"
+	SSdiscord.post_webhook_event(WEBHOOK_LAW_ENFORCEMENT, list("message" = body))
 #endif
 	return
 

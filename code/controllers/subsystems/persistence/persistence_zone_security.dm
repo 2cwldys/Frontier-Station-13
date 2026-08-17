@@ -549,7 +549,7 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 		var/area/offense_area = get_area(anchor)
 		var/attacker_name = attacker ? (attacker.real_name || attacker.name) : "Unknown"
 		var/victim_name = victim ? (victim.real_name || victim.name) : "Unknown"
-		log_law_enforcement("**Highsec offense** -- [attacker_name] against [victim_name] in [offense_area ? offense_area.name : "unknown location"]: [admin_message]")
+		log_law_enforcement("[attacker_name] against [victim_name] in [offense_area ? offense_area.name : "unknown location"]: [admin_message]", "Highsec offense")
 
 /// ckey -> world.time of their last distress call. Separate from the offense
 /// tracking map so a distress can't be swallowed by an unrelated offense cooldown.
@@ -591,7 +591,7 @@ GLOBAL_LIST_EMPTY(hub_distress_last_called)
 		GLOB.highsec_offense_log.Cut(1, 2)
 	// Same PDA-beep alert path a normal offense uses (zone_security_alert_responders below).
 	zone_security_alert_responders(caller, caller, "DISTRESS CALL: [caller.name] requests Hub security in [A ? A.name : "unknown location"]! Open First Responder to respond.")
-	log_law_enforcement("**Distress call** -- [caller.real_name || caller.name] requests Hub security in [A ? A.name : "unknown location"].")
+	log_law_enforcement("[caller.real_name || caller.name] requests Hub security in [A ? A.name : "unknown location"].", "Distress call")
 	return TRUE
 
 /// ckey -> world.time of their last recorded death emergency. Separate from
