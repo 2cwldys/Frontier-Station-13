@@ -319,6 +319,33 @@
 				to_chat(user, SPAN_WARNING("This ship is reported stolen -- its title can't be legitimately transferred until it's back with its rightful owner."))
 				log_drydock_warning("drydock ui_act (schematic): [key_name(user)] tried to give away reported_stolen shuttle_id=[DS.shuttle_id].")
 				return TRUE
+			// A title can go to one character or to a faction as a whole --
+			// ask which before collecting anything, since the two need
+			// completely different details.
+			var/transfer_mode = tgui_alert(user, "Sign this ship's title over to a single character, or to a faction?", "Give Title", list("Character", "Faction", "Cancel"))
+			if(!transfer_mode || transfer_mode == "Cancel")
+				return TRUE
+
+			if(transfer_mode == "Faction")
+				var/list/faction_options = list()
+				for(var/uid in GLOB.persistence_faction_cache)
+					faction_options[get_faction_name(uid)] = uid
+				if(!length(faction_options))
+					to_chat(user, SPAN_WARNING("No registered factions to sign the title over to."))
+					return TRUE
+				var/chosen_label = tgui_input_list(user, "Which faction should hold this ship's title?", "Give Title", faction_options)
+				if(!chosen_label)
+					return TRUE
+				var/chosen_uid = faction_options[chosen_label]
+				// Signing over to a faction hands the whole ship across, so
+				// confirm explicitly -- the actor may well lose their own
+				// access to it in the process.
+				if(tgui_alert(user, "Sign [DS.display_name()] over to [chosen_label]? Ownership and title both pass to the faction, and the crew roster is cleared.", "Give Title", list("Sign Over", "Cancel")) != "Sign Over")
+					return TRUE
+				log_drydock("drydock ui_act (schematic): [key_name(user)] requested give_title for shuttle_id=[DS.shuttle_id] to faction '[chosen_uid]'.")
+				SSpersistence.drydockGiveSchematic(DS.shuttle_id, null, null, user, chosen_uid)
+				return TRUE
+
 			var/target_ckey = tgui_input_text(user, "Ckey to give this ship's title to:", "Give Title", "", max_length = 32)
 			if(!target_ckey)
 				return TRUE

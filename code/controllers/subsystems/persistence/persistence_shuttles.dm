@@ -1070,15 +1070,17 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 /// Lets shuttle_id's CURRENT owner (not necessarily its permanent
 /// title-holder -- see the gate below) formally sign the ship's title over
-/// to someone else -- console-only (requires the ship already banked), the
-/// deliberate "sign over the title" counterpart to just physically handing
-/// someone the schematic (which, per is_title_holder(), never moves title on
-/// its own). Personal-target only. Refuses outright while reported_stolen --
+/// to someone else -- driven from the schematic's own UI, the deliberate
+/// "sign over the title" counterpart to just physically handing someone the
+/// schematic (which, per is_title_holder(), never moves title on its own).
+/// The recipient may be a single character (target_ckey/target_char_name) or
+/// a whole faction (target_faction_uid); ownership follows title either way.
+/// Refuses outright while reported_stolen --
 /// handing off a stolen ship is still handing off a stolen ship, so this can
 /// never be used to launder one; it only ever succeeds on a ship that was
 /// never stolen (or already recovered by its title-holder, clearing the
 /// flag), never as a shortcut around that.
-/datum/controller/subsystem/persistence/proc/drydockGiveSchematic(shuttle_id, target_ckey, target_char_name, mob/user)
+/datum/controller/subsystem/persistence/proc/drydockGiveSchematic(shuttle_id, target_ckey, target_char_name, mob/user, target_faction_uid = null)
 	var/acting = user ? key_name(user) : "SYSTEM"
 	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
 	// schematic_banked is deliberately NOT required any more: this is now
@@ -1103,18 +1105,39 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			to_chat(user, SPAN_WARNING("This ship is reported stolen -- its title can't be legitimately transferred until it's back with its rightful owner."))
 		log_drydock_warning("drydockGiveSchematic: refused -- shuttle_id=[shuttle_id] is reported_stolen (acting=[acting]).")
 		return FALSE
-	target_ckey = ckey(target_ckey)
-	if(!target_ckey || !target_char_name)
-		return FALSE
+	// Two mutually exclusive targets. target_faction_uid signs the ship over to
+	// a faction as a whole (title AND current ownership both become the
+	// faction's, and the personal identity columns are cleared); otherwise the
+	// ckey/char_name pair names one character. Ownership follows title in both
+	// cases -- a transfer hands over the ship, not just its provenance.
+	var/datum/db_query/q
+	if(target_faction_uid)
+		target_faction_uid = normalize_faction_uid(target_faction_uid)
+		if(!target_faction_uid || !(target_faction_uid in GLOB.persistence_faction_cache))
+			if(user)
+				to_chat(user, SPAN_WARNING("That faction doesn't exist."))
+			return FALSE
+		if(!databaseCheckConnection("drydockGiveSchematic"))
+			if(user)
+				to_chat(user, SPAN_WARNING("Database connection failed."))
+			return FALSE
+		q = SSdbcore.NewQuery(
+			"UPDATE ss13_drydock_ships SET title_ckey = NULL, title_char_name = NULL, title_faction_uid = :fid, owner_ckey = NULL, owner_char_name = NULL, faction_uid = :fid, reported_stolen = 0 WHERE shuttle_id = :id",
+			list("fid" = target_faction_uid, "id" = shuttle_id)
+		)
+	else
+		target_ckey = ckey(target_ckey)
+		if(!target_ckey || !target_char_name)
+			return FALSE
+		if(!databaseCheckConnection("drydockGiveSchematic"))
+			if(user)
+				to_chat(user, SPAN_WARNING("Database connection failed."))
+			return FALSE
+		q = SSdbcore.NewQuery(
+			"UPDATE ss13_drydock_ships SET title_ckey = :ck, title_char_name = :cn, title_faction_uid = NULL, owner_ckey = :ck, owner_char_name = :cn, faction_uid = NULL, reported_stolen = 0 WHERE shuttle_id = :id",
+			list("ck" = target_ckey, "cn" = target_char_name, "id" = shuttle_id)
+		)
 
-	if(!databaseCheckConnection("drydockGiveSchematic"))
-		if(user)
-			to_chat(user, SPAN_WARNING("Database connection failed."))
-		return FALSE
-	var/datum/db_query/q = SSdbcore.NewQuery(
-		"UPDATE ss13_drydock_ships SET title_ckey = :ck, title_char_name = :cn, title_faction_uid = NULL, owner_ckey = :ck, owner_char_name = :cn, faction_uid = NULL, reported_stolen = 0 WHERE shuttle_id = :id",
-		list("ck" = target_ckey, "cn" = target_char_name, "id" = shuttle_id)
-	)
 	q.Execute()
 	if(!databaseCheckQueryResult(q, "drydockGiveSchematic update"))
 		qdel(q)
@@ -1123,12 +1146,20 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return FALSE
 	qdel(q)
 
-	DS.title_ckey = target_ckey
-	DS.title_char_name = target_char_name
-	DS.title_faction_uid = null
-	DS.owner_ckey = target_ckey
-	DS.owner_char_name = target_char_name
-	DS.faction_uid = null
+	if(target_faction_uid)
+		DS.title_ckey = null
+		DS.title_char_name = null
+		DS.title_faction_uid = target_faction_uid
+		DS.owner_ckey = null
+		DS.owner_char_name = null
+		DS.faction_uid = target_faction_uid
+	else
+		DS.title_ckey = target_ckey
+		DS.title_char_name = target_char_name
+		DS.title_faction_uid = null
+		DS.owner_ckey = target_ckey
+		DS.owner_char_name = target_char_name
+		DS.faction_uid = null
 	DS.reported_stolen = FALSE
 
 	// Wipe the crew roster along with the title. Boarding rights resolve as
@@ -1147,9 +1178,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	qdel(crew_wipe)
 	DS.crew_ckeys = list()
 
+	var/recipient_desc = target_faction_uid ? "[get_faction_name(target_faction_uid)] (faction)" : "'[target_char_name]' ([target_ckey])"
 	if(user)
-		to_chat(user, SPAN_GOOD("Title for [DS.display_name()] transferred to '[target_char_name]'. Its crew roster has been cleared."))
-	log_drydock("drydockGiveSchematic: [acting] transferred title for shuttle_id=[shuttle_id] to '[target_char_name]' ([target_ckey]).")
+		to_chat(user, SPAN_GOOD("Title for [DS.display_name()] transferred to [recipient_desc]. Its crew roster has been cleared."))
+	log_drydock("drydockGiveSchematic: [acting] transferred title for shuttle_id=[shuttle_id] to [recipient_desc].")
 	return TRUE
 
 /// Reverses drydockBankSchematic() -- mints a fresh /obj/item/ship_schematic

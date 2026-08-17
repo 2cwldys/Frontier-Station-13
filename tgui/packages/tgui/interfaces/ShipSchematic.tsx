@@ -231,7 +231,7 @@ export const ShipSchematic = (props) => {
                   tooltip={
                     reported_stolen
                       ? 'This ship is reported stolen -- return it to its rightful owner first.'
-                      : "Signs this ship's title over to another character. Also clears the crew roster."
+                      : "Signs this ship's title over to another character, or to a faction. Also clears the crew roster."
                   }
                   onClick={() => act('give_title')}
                 >
