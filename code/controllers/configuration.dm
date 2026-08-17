@@ -400,6 +400,13 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 	var/client_warn_version = 0
 	var/client_warn_message = ""
 	var/list/client_blacklist_version = list()
+	/// Minimum BYOND *build* (the 1687 of 516.1687) a client may connect with.
+	/// 0 disables the gate. Distinct from client_error_version above, which
+	/// only ever sees the major version (516) and so cannot express "516.1687
+	/// or later". Enforced in client_procs.dm; SSpersistence.min_client_build
+	/// overrides this at runtime when set.
+	var/min_client_build = 0
+	var/min_client_build_message = ""
 
 	//Mark-up enabling
 	var/allow_chat_markup = 0
@@ -1002,6 +1009,12 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 
 				if("client_blacklist_version")
 					GLOB.config.client_blacklist_version = splittext(value, ";")
+
+				if("min_client_build")
+					GLOB.config.min_client_build = text2num(value)
+
+				if("min_client_build_message")
+					GLOB.config.min_client_build_message = value
 
 				if("allow_chat_markup")
 					GLOB.config.allow_chat_markup = 1

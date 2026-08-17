@@ -455,6 +455,7 @@
 #include "code\controllers\subsystems\persistence\persistence_cargo_exports.dm"
 #include "code\controllers\subsystems\persistence\persistence_cargo_imports.dm"
 #include "code\controllers\subsystems\persistence\persistence_character_rename.dm"
+#include "code\controllers\subsystems\persistence\persistence_client_build.dm"
 #include "code\controllers\subsystems\persistence\persistence_closets.dm"
 #include "code\controllers\subsystems\persistence\persistence_cryo.dm"
 #include "code\controllers\subsystems\persistence\persistence_decals.dm"

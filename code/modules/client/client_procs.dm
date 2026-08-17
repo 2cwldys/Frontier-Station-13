@@ -592,6 +592,34 @@ GLOBAL_VAR_INIT(log_player_connections, TRUE)
 			del(src)
 			return 0
 
+	// Build-level version gate, the security-relevant one. The check above
+	// only ever sees byond_version -- the MAJOR (516) -- so it cannot express
+	// "516.1687 or later", which is exactly what refusing a client build with
+	// a known problem requires. byond_build is the separate build number.
+	//
+	// Resolution order: the admin-set database override wins when non-zero,
+	// otherwise config.txt's MIN_CLIENT_BUILD, otherwise the gate is off. The
+	// override exists because config is read once at startup and there is no
+	// reload, so without it every change here would need a restart --
+	// see persistence_client_build.dm.
+	var/required_build = GLOB.min_client_build_override || GLOB.config.min_client_build
+	// byond_build is unreported by some webclient sessions (connection ==
+	// "web"). A missing build must read as "unknown", never as "ancient" --
+	// otherwise enabling this gate silently locks out every webclient player.
+	if (required_build && byond_build && byond_version >= 516 && byond_build < required_build)
+		to_chat_immediate(src, SPAN_DANGER("<b>Your BYOND build is too old!</b>"))
+		if (GLOB.config.min_client_build_message)
+			to_chat_immediate(src, GLOB.config.min_client_build_message)
+		to_chat_immediate(src, "Your build: [byond_version].[byond_build].")
+		to_chat_immediate(src, "Required build: [byond_version].[required_build] or later.")
+		to_chat_immediate(src, "Visit http://www.byond.com/download/ to get the latest version of BYOND.")
+		if (holder)
+			to_chat_immediate(src, "Admins get a free pass. However, <b>please</b> update your BYOND as soon as possible -- this minimum exists for a reason.")
+		else
+			log_access("Failed Login: [key] [computer_id] [address] - Outdated BYOND build: [byond_version].[byond_build] (minimum [required_build]).")
+			del(src)
+			return 0
+
 	// New player, and we don't want any.
 	if (!holder)
 		if (GLOB.config.access_deny_new_players && player_age == -1)

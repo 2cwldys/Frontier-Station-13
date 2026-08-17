@@ -39,6 +39,15 @@ GLOBAL_VAR_INIT(hub_law_text, "")
 /// across restarts via ss13_auto_backup_toggle.
 GLOBAL_VAR_INIT(auto_backup_on_autosave, FALSE)
 
+/// Runtime override for config.txt's MIN_CLIENT_BUILD -- the minimum BYOND
+/// build (the 1687 of 516.1687) a client may connect with. 0 means "no
+/// override", in which case the config value applies. Exists because config
+/// is only read once at startup (configuration.dm load()), so without this a
+/// change to the minimum would need a server restart. Admin-set
+/// (set_min_client_build(), persistence_client_build.dm), persists across
+/// restarts via ss13_min_client_build, enforced in client_procs.dm.
+GLOBAL_VAR_INIT(min_client_build_override, 0)
+
 /// Z levels whose numbers appear in this list are SKIPPED by turf/object/worldstate persistence.
 /// Populated from ss13_zlevel_persistence WHERE enabled = 0 at startup.
 /// Empty by default = all Z levels persist.
@@ -990,6 +999,12 @@ SUBSYSTEM_DEF(persistence)
 		autoBackupToggleInitialize()
 	catch(var/exception/auto_backup_toggle_e)
 		log_subsystem_persistence_panic("Unhandled exception during auto-backup-on-autosave toggle initialization: [auto_backup_toggle_e]")
+
+	log_subsystem_persistence_info("Starting minimum client build initialization...")
+	try
+		minClientBuildInitialize()
+	catch(var/exception/min_client_build_e)
+		log_subsystem_persistence_panic("Unhandled exception during minimum client build initialization: [min_client_build_e]")
 
 	log_subsystem_persistence_info("Starting stock market initialization...")
 	try

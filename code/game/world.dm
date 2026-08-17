@@ -69,7 +69,11 @@ GLOBAL_PROTECT(config)
 		GLOB.round_id = "[c[(t % l) + 1]][GLOB.round_id]"
 		t = round(t / l)
 
-#define RECOMMENDED_VERSION 515
+/// Major-version floor for the SERVER's own BYOND install. Non-fatal -- this
+/// only log_world()s a warning below. The client-side counterpart is the
+/// build-level gate in client_procs.dm (MIN_CLIENT_BUILD), which is the one
+/// that actually refuses connections.
+#define RECOMMENDED_VERSION 516
 /world/New()
 	//logs
 	GLOB.diary_date_string = time2text(world.realtime, "YYYY/MM/DD")

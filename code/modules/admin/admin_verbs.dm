@@ -230,6 +230,7 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/manage_away_site_mob_presets,
 	/datum/admins/proc/trigger_database_backup,
 	/datum/admins/proc/toggle_auto_backup_on_autosave,
+	/datum/admins/proc/set_min_client_build,
 	/datum/admins/proc/fix_wall_mounted_machinery,
 	/datum/admins/proc/manage_cargo_exports,
 	/datum/admins/proc/modify_cargo_imports,
