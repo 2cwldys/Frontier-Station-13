@@ -124,10 +124,13 @@ GLOBAL_VAR_INIT(persistence_interior_save_z, 0)
 	return GLOB.persistence_docked_turf_scope[T]
 
 /// TRUE if any deployed drydock ship is already using this template.
-/// Shuttle datum names are per-template, and /datum/shuttle/New() hard-
-/// CRASHes on a duplicate name (shuttle.dm) -- so only one instance of a
-/// given hull class can be deployed at a time until per-instance shuttle
-/// naming lands (Phase 4).
+/// TRUE if any deployed (non-stashed) ship uses this template.
+///
+/// No longer a deployment gate: per-instance shuttle/landmark naming
+/// (GLOB.drydock_loading_suffix, persistence_shuttles.dm) means multiple hulls
+/// of one class can now be deployed simultaneously, so drydockRetrieve() no
+/// longer refuses on this. Kept as a plain query for anything that wants to
+/// know whether a class is currently in play.
 /proc/ship_template_already_deployed(template_id)
 	for(var/sid in GLOB.drydock_ships)
 		var/datum/drydock_ship/D = GLOB.drydock_ships[sid]

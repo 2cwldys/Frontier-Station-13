@@ -205,6 +205,7 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/list_world_templates,
 	/datum/admins/proc/revert_to_map_default,
 	/datum/admins/proc/set_player_character_slots,
+	/datum/admins/proc/rename_persistent_character,
 	/datum/admins/proc/toggle_server_joining,
 	/datum/admins/proc/manage_faction_account,
 	/datum/admins/proc/manage_faction_jobs,
@@ -507,6 +508,7 @@ GLOBAL_LIST_INIT(admin_verbs_hideable, list(
 	/datum/admins/proc/list_world_templates,
 	/datum/admins/proc/revert_to_map_default,
 	/datum/admins/proc/set_player_character_slots,
+	/datum/admins/proc/rename_persistent_character,
 	/datum/admins/proc/manage_faction_account,
 	/datum/admins/proc/manage_faction_jobs
 	))

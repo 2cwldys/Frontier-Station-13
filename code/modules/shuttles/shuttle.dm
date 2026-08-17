@@ -46,7 +46,12 @@
 	if(!islist(shuttle_area))
 		shuttle_area = list(shuttle_area)
 	for(var/T in shuttle_area)
-		var/area/A = locate(T)
+		// locate() resolves an area TYPE to its canonical singleton, which is
+		// the wrong instance during a drydock load -- the maploader has just
+		// built this hull its own per-instance areas (reader.dm), and binding
+		// to the canonical one would hand this shuttle the FIRST same-class
+		// hull's areas instead of its own.
+		var/area/A = GLOB.drydock_loading_areas[T] || locate(T)
 		if(!istype(A))
 			CRASH("Shuttle \"[name]\" couldn't locate area [T].")
 		areas += A
@@ -60,6 +65,13 @@
 	if(!istype(current_location))
 		CRASH("Shuttle \"[name]\" could not find its starting location.")
 
+	// Per-instance naming for drydock loads (drydock_apply_instance_suffix(),
+	// persistence_shuttles.dm) -- shuttle names are otherwise per-TEMPLATE, so
+	// deploying a second hull of the same class used to hit the CRASH below.
+	// A no-op outside a drydock template load, so every other shuttle keeps
+	// its authored name exactly as before. The CRASH is kept for the genuinely
+	// unexpected duplicate.
+	src.name = drydock_apply_instance_suffix(src.name)
 	if(src.name in SSshuttle.shuttles)
 		CRASH("A shuttle with the name '[name]' is already defined.")
 	SSshuttle.shuttles[src.name] = src

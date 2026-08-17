@@ -47,6 +47,31 @@
 
 	var/datum/radio_frequency/radio_connection
 
+/// Auto-assigns a unique id_tag the first time this sensor is linked to a
+/// console -- mirrors _ensure_id_tag() on airlocks/vent pumps/injectors.
+/// id_tag is what the sensor stamps on its broadcasts and what the console
+/// keys its `sensors` list by, and it is mapper-authored only, so a built
+/// sensor would otherwise stay null and collide with every other blank one.
+/obj/structure/machinery/air_sensor/proc/_ensure_id_tag()
+	if(!id_tag)
+		id_tag = "sensor_[REF(src)]"
+	return id_tag
+
+/// Multitool linking to any atmos console -- buffer either end, click the
+/// other. Same buffer-toggle shape used by the injector and vent pump.
+/obj/structure/machinery/air_sensor/attackby(obj/item/attacking_item, mob/user, params)
+	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
+		var/obj/item/multitool/MT = attacking_item
+		var/obj/structure/machinery/computer/general_air_control/console = MT.get_buffer(/obj/structure/machinery/computer/general_air_control)
+		if(!console)
+			MT.set_buffer(src)
+			to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
+			return TRUE
+		console._link_air_sensor(src, user)
+		MT.set_buffer(null)
+		return TRUE
+	return ..()
+
 /obj/structure/machinery/air_sensor/update_icon()
 	icon_state = "gsensor[on]"
 
@@ -196,6 +221,38 @@
 	. = ..()
 	set_frequency(frequency)
 
+/// Adds/removes a gas sensor from this console's readout list. `sensors` is an
+/// assoc id_tag -> display name, walked by ui_data(). Mapper-authored only
+/// until now, so a player-built console had no readouts at all. Re-linking the
+/// same sensor removes it, matching the injector/vent toggle behaviour.
+/obj/structure/machinery/computer/general_air_control/proc/_link_air_sensor(obj/structure/machinery/air_sensor/sensor, mob/user)
+	if(!istype(sensor))
+		return
+	sensor._ensure_id_tag()
+	if(sensors[sensor.id_tag])
+		sensors -= sensor.id_tag
+		sensor_information -= sensor.id_tag
+		to_chat(user, SPAN_NOTICE("You unlink \the [sensor] from \the [src]."))
+		return
+	sensors[sensor.id_tag] = sensor.name
+	// Same reason the injector/vent links do this -- writing the tag alone
+	// leaves the device on a different channel, so nothing ever arrives.
+	sensor.set_frequency(frequency)
+	to_chat(user, SPAN_NOTICE("You link \the [sensor] to \the [src]."))
+
+/obj/structure/machinery/computer/general_air_control/attackby(obj/item/attacking_item, mob/user, params)
+	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
+		var/obj/item/multitool/MT = attacking_item
+		var/obj/structure/machinery/air_sensor/sensor = MT.get_buffer(/obj/structure/machinery/air_sensor)
+		if(sensor)
+			_link_air_sensor(sensor, user)
+			MT.set_buffer(null)
+			return TRUE
+		MT.set_buffer(src)
+		to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
+		return TRUE
+	return ..()
+
 
 /obj/structure/machinery/computer/general_air_control/large_tank_control
 	ui_type = "AtmosControlTank"
@@ -302,9 +359,8 @@
 			_link_atmos_device(buffered, user)
 			MT.set_buffer(null)
 			return TRUE
-		MT.set_buffer(src)
-		to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
-		return TRUE
+		// Not an injector/vent -- fall through to the base console, which
+		// handles buffered gas sensors and the buffer-self case.
 	return ..()
 
 /obj/structure/machinery/computer/general_air_control/large_tank_control/receive_signal(datum/signal/signal)

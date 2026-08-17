@@ -169,10 +169,9 @@ export const ShuttleDrydock = (props) => {
               <Box color="label" mb={1}>
                 Ships whose schematic is currently in safekeeping -- deposited
                 voluntarily, or banked after a Hub repossession was returned
-                to its owner. Withdraw it back into your own hands, or
-                formally give its title to someone else (e.g. completing a
-                legitimate sale -- the recipient won't be mistaken for a
-                thief).
+                to its owner. Withdraw it back into your own hands. Signing a
+                title over to someone else is done from the schematic itself,
+                and only by its title holder.
               </Box>
               <LabeledList>
                 {data.withdrawable.length ? (
@@ -191,23 +190,6 @@ export const ShuttleDrydock = (props) => {
                         }
                       >
                         Withdraw Schematic
-                      </Button>
-                      <Button
-                        ml={1}
-                        icon="right-left"
-                        disabled={!!row.reported_stolen || !!data.save_in_progress}
-                        tooltip={
-                          data.save_in_progress
-                            ? 'World save in progress -- please wait.'
-                            : row.reported_stolen
-                              ? 'This ship is reported stolen -- return it to its rightful owner first.'
-                              : undefined
-                        }
-                        onClick={() =>
-                          act('give_schematic', { shuttle_id: row.shuttle_id })
-                        }
-                      >
-                        Give Title
                       </Button>
                     </LabeledList.Item>
                   ))

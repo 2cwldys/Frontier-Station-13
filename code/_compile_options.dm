@@ -131,12 +131,38 @@
 // leave undefined to keep admin logs server-local only.
 #define EXPORT_ADMIN_LOG_TO_DISCORD
 
+// If defined, security events are mirrored to a separate law-enforcement
+// Discord channel via the "law_enforcement" webhook tag
+// (WEBHOOK_LAW_ENFORCEMENT, __DEFINES/webhook.dm) -- highsec offenses and
+// distress calls as they reach responders' PDAs, plus First Responder
+// enforcement actions (repossession, force-stash, scuttling, schematic
+// withdrawal, stolen-flag clearing). Separate from EXPORT_ADMIN_LOG_TO_DISCORD
+// so a security channel can get these WITHOUT being handed the whole admin
+// log; admin logging is unaffected either way. Add a webhook carrying that
+// tag to config/webhooks.json (its optional "mention" field is what pings a
+// role). On by default -- harmless when no such webhook is configured, since
+// post_webhook_event() only delivers to webhooks that carry the tag.
+#define EXPORT_LAW_ENFORCEMENT_TO_DISCORD
+
 // If defined, the last active player character going to cryo immediately
 // triggers a full persistence autosave (runLobbyEmptyAutosave(),
 // persistence.dm) instead of waiting for the next periodic save. Comment
 // out to disable -- lobby-empty saves then only happen on the regular
 // periodic timer.
 #define LOBBY_EMPTY_AUTOSAVE
+
+// If defined, growing a clone through the resleeving pipeline
+// (order_clone_from_lace(), resleever_cloning.dm) charges CLONE_ORDER_COST --
+// to the faction when the cloning pod and resleever are both tagged to the
+// same faction, otherwise to the ordering character's own account. Comment
+// out to make cloning free: the charge, the refund-on-failure path, and the
+// affordability checks are all skipped, and the resleever's UI stops showing
+// a price. On by default.
+#define CLONING_COSTS_CREDITS
+/// Credits charged per clone while CLONING_COSTS_CREDITS is enabled. Lives
+/// here rather than beside the pipeline so the machine, its UI data and the
+/// billing path all read one number.
+#define CLONE_ORDER_COST 10000
 
 // If defined, faction-tagged equipment can only be WORN by people employed by
 // that faction (can_use_faction_equipment(), persistence_factions.dm) -- gated

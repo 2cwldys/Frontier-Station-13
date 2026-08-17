@@ -406,6 +406,13 @@ SUBSYSTEM_DEF(discord)
 				"color" = HEX_COLOR_BLUE
 			)
 			OutData["embeds"] = list(emb)
+		if (WEBHOOK_LAW_ENFORCEMENT)
+			var/emb = list(
+				"title" = "First Responder Action",
+				"description" = data["message"],
+				"color" = HEX_COLOR_BLUE
+			)
+			OutData["embeds"] = list(emb)
 		if (WEBHOOK_ROUNDEND)
 			var/emb = list(
 				"title" = "Round has ended",

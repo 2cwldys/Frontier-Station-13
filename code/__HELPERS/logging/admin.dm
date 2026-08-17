@@ -16,6 +16,29 @@
 	SSdiscord.post_webhook_event(WEBHOOK_ADMIN_LOG, list("message" = SSdiscord.discord_escape(strip_html_properly(text))))
 #endif
 
+/**
+ * Mirrors a security event to the law-enforcement Discord channel
+ * (WEBHOOK_LAW_ENFORCEMENT, __DEFINES/webhook.dm).
+ *
+ * Deliberately separate from log_admin()'s admin_log mirror: this carries the
+ * things a security team actually acts on -- highsec offenses and distress
+ * calls as they hit responders' PDAs, plus First Responder enforcement
+ * actions -- without handing that channel the entire admin log. Callers do
+ * their own message_admins()/log_admin() as before; this only adds a
+ * destination.
+ *
+ * Free when unconfigured: post_webhook_event() only delivers to webhooks
+ * explicitly carrying the tag (discord.dm), so with no "law_enforcement"
+ * webhook set up this is a no-op. Text is stripped/escaped the same way the
+ * admin-log mirror above does it, since Discord can't render the SPAN_ colour
+ * tags or JMP links these strings carry.
+ */
+/proc/log_law_enforcement(text)
+#ifdef EXPORT_LAW_ENFORCEMENT_TO_DISCORD
+	SSdiscord.post_webhook_event(WEBHOOK_LAW_ENFORCEMENT, list("message" = SSdiscord.discord_escape(strip_html_properly(text))))
+#endif
+	return
+
 /// Logging for admin actions on or with circuits
 /proc/log_admin_circuit(text)
 	GLOB.admin_log.Add(text)

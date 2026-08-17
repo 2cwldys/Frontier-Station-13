@@ -144,6 +144,10 @@
 	data["ready"] = DS.ready
 	data["title_holder_name"] = DS.title_faction_uid ? get_faction_name(DS.title_faction_uid) : (DS.title_char_name || "Unknown")
 	data["reported_stolen"] = DS.reported_stolen
+	// Title transfer is title-holder-only (see the "give_title" ui_act) --
+	// surfaced so the button is hidden outright for everyone else rather than
+	// offered and then refused.
+	data["can_give_title"] = DS.can_transfer_title(user) ? TRUE : FALSE
 	data["needs_rename"] = !DS.custom_name
 	data["shuttle_id"] = DS.shuttle_id
 	data["save_in_progress"] = SSpersistence.save_in_progress
@@ -291,6 +295,40 @@
 
 		if("remove_crew")
 			SSpersistence.drydockRemoveCrew(DS.shuttle_id, params["ckey"], params["char_name"], user)
+			. = TRUE
+
+		// Moved here from the Drydock console, and re-gated in the process.
+		// The console let whoever CURRENTLY owned the hull hand the title on,
+		// which let a thief who banked a stolen ship launder its provenance.
+		// is_title_holder() (persistence_shuttles.dm) is the permanent
+		// provenance check and covers both the personally-titled and
+		// faction-titled cases, so only the original holder (or an admin) can
+		// sign the title over.
+		if("give_title")
+			// can_transfer_title() (persistence_shuttles.dm) -- title holder for
+			// a personal ship, officer/command rank for a faction-titled one.
+			if(!DS.can_transfer_title(user))
+				to_chat(user, DS.title_faction_uid \
+					? SPAN_WARNING("Only an officer or command member of [get_faction_name(DS.title_faction_uid)] can sign this ship's title over.") \
+					: SPAN_WARNING("Only this ship's title holder can sign its title over."))
+				log_drydock_warning("drydock ui_act (schematic): [key_name(user)] may not transfer the title for shuttle_id=[DS.shuttle_id].")
+				return TRUE
+			// Handing off a stolen ship is still handing off a stolen ship --
+			// refuse outright rather than let this launder reported_stolen.
+			if(DS.reported_stolen && !check_rights(R_ADMIN, 0, user))
+				to_chat(user, SPAN_WARNING("This ship is reported stolen -- its title can't be legitimately transferred until it's back with its rightful owner."))
+				log_drydock_warning("drydock ui_act (schematic): [key_name(user)] tried to give away reported_stolen shuttle_id=[DS.shuttle_id].")
+				return TRUE
+			var/target_ckey = tgui_input_text(user, "Ckey to give this ship's title to:", "Give Title", "", max_length = 32)
+			if(!target_ckey)
+				return TRUE
+			// encode = FALSE for the same reason add_crew above uses it -- an
+			// identity key compared raw against real_name, not display text.
+			var/target_char_name = tgui_input_text(user, "Exact character name for '[target_ckey]' to title the ship to:", "Give Title", "", max_length = 64, encode = FALSE)
+			if(!target_char_name)
+				return TRUE
+			log_drydock("drydock ui_act (schematic): [key_name(user)] requested give_title for shuttle_id=[DS.shuttle_id] to '[target_char_name]' ([target_ckey]).")
+			SSpersistence.drydockGiveSchematic(DS.shuttle_id, target_ckey, target_char_name, user)
 			. = TRUE
 
 		if("sell")
