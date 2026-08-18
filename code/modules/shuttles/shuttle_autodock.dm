@@ -234,6 +234,20 @@
 //This can be used by subtypes to do things when the shuttle arrives.
 //Note that this is called when the shuttle leaves the WAIT_FINISHED state, the proc name is a little misleading
 /datum/shuttle/autodock/proc/arrived()
-	return	//do nothing for now
+	_play_landing_sound()
+
+/// Plays the shuttle landing/docking sound to everyone aboard, unconditionally,
+/// the moment docking is actually confirmed complete -- the arrival-side
+/// counterpart to shuttle_control's own _play_launch_sound() (shuttle_console.dm),
+/// same reasoning: a direct cue tied to the real event, not inferred from any
+/// engine on/off bookkeeping.
+/datum/shuttle/autodock/proc/_play_landing_sound()
+	for(var/area/A in shuttle_area)
+		for(var/mob/M in A)
+			if(!M.client || M.ear_deaf)
+				continue
+			if(!(M.client.prefs.sfx_toggles & ASFX_ENGINE_HUM))
+				continue
+			M << sound('sound/effects/shuttle_landing.ogg', volume = 50)
 
 #undef DOCK_ATTEMPT_TIMEOUT

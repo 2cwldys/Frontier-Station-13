@@ -419,6 +419,12 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 	/// fuller staff presence. See raidingUpdateForStaffPresence().
 	var/raiding_staff_minimum = 1
 
+	/// Minutes between uses of the "Advertise to Players" admin verb
+	/// (persistence_advertise.dm). Shared by all admins, not per-admin -- the
+	/// point is to rate-limit an @here ping, which a per-admin allowance would
+	/// defeat. 0 disables the cooldown entirely.
+	var/advertise_cooldown_minutes = 30
+
 	//Mark-up enabling
 	var/allow_chat_markup = 0
 
@@ -1032,6 +1038,9 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 
 				if("raiding_staff_minimum")
 					GLOB.config.raiding_staff_minimum = text2num(value)
+
+				if("advertise_cooldown_minutes")
+					GLOB.config.advertise_cooldown_minutes = text2num(value)
 
 				if("allow_chat_markup")
 					GLOB.config.allow_chat_markup = 1

@@ -64,6 +64,12 @@ LOCK_PATH = REPO / "data" / "discord_status_bot.lock"
 
 MILESTONE_STATE_PATH = REPO / "data" / "discord_status_bot_milestones.json"
 
+# Last "Advertise to Players" advert this bot has posted. Persisted for the
+# same reason the milestone state is: the bot restarts on every server boot,
+# and an advert still inside its validity window would otherwise be posted
+# again by the fresh process.
+ADVERT_STATE_PATH = REPO / "data" / "discord_status_bot_advert.json"
+
 # Tens up to 50, then fifties. Must stay sorted ascending.
 MILESTONES = (10, 20, 30, 40, 50, 100, 150, 200)
 
@@ -555,6 +561,79 @@ def main():
     # Resolved once on ready rather than per poll -- see announce_channel().
     channel = {"obj": None}
 
+    def _load_last_advert():
+        try:
+            return str(json.loads(ADVERT_STATE_PATH.read_text(encoding="utf-8"))
+                       .get("last_advert_id", ""))
+        except (OSError, ValueError, TypeError, AttributeError):
+            return ""
+
+    advert = {"last_id": _load_last_advert()}
+
+    async def post_advert(data):
+        """
+        Posts a pending "Advertise to Players" request, if there is a new one.
+
+        The game cannot post this itself -- it has no Discord token, only
+        webhook URLs -- so it records the advert and this bot delivers it to
+        the same channel milestones use. See persistence_advertise.dm.
+
+        Never raises: a failed advert must not take down the presence loop.
+        """
+        if not channel["obj"]:
+            return
+        advert_id = str(data.get("advert_id") or "")
+        if not advert_id or advert_id == advert["last_id"]:
+            return
+
+        # Recorded BEFORE the send, not after. If the send fails we still do
+        # not want to retry it every 10 seconds forever -- an advert is a
+        # ping, and spamming one because Discord hiccuped is far worse than
+        # dropping it.
+        advert["last_id"] = advert_id
+        try:
+            ADVERT_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            ADVERT_STATE_PATH.write_text(json.dumps({"last_advert_id": advert_id}),
+                                         encoding="utf-8")
+        except OSError as e:
+            print(f"[advert] could not persist {ADVERT_STATE_PATH}: {e}", flush=True)
+
+        who = str(data.get("advert_by") or "An admin")
+        try:
+            players = int(float(data.get("advert_players", 0)))
+        except (TypeError, ValueError):
+            players = 0
+
+        try:
+            embed = discord.Embed(
+                # No title/author -- description only, same shape as milestones.
+                description=f"**{who}** is looking for more players -- "
+                            f"{players} online right now.",
+                colour=0x3B83BD,
+            )
+            # The ping MUST be in content. Mentions inside an embed render as
+            # inert text and notify nobody, which would make this verb look
+            # like it worked while doing nothing.
+            #
+            # allowed_mentions is stated explicitly rather than relying on the
+            # library default: it is the difference between a real ping and a
+            # grey "@here" nobody is notified by, and it should not depend on
+            # what a future default happens to be. everyone=True is what covers
+            # @here as well as @everyone.
+            #
+            # The BOT ALSO NEEDS the "Mention @everyone, @here, and All Roles"
+            # permission in this channel -- without it Discord accepts the
+            # message and silently declines to notify anyone.
+            await channel["obj"].send(
+                content="@here",
+                embed=embed,
+                allowed_mentions=discord.AllowedMentions(everyone=True),
+            )
+            print(f"[advert] posted advert {advert_id} from {who} ({players} online)",
+                  flush=True)
+        except Exception as e:
+            print(f"[advert] could not post {advert_id}: {e}", flush=True)
+
     async def announce(players):
         """Posts a milestone embed, if one is due. Never raises."""
         if not milestones or not channel["obj"]:
@@ -704,6 +783,7 @@ def main():
         try:
             # Only on a successful poll -- an unreachable server has no count.
             await announce(data.get("players", 0))
+            await post_advert(data)
             # Window = one full poll cycle plus the timeout, so a save is still
             # reported as current on the next poll even when the poll that would
             # have caught it live timed out against the busy world thread.

@@ -449,6 +449,7 @@
 #include "code\controllers\subsystems\persistence\persistence_areas.dm"
 #include "code\controllers\subsystems\persistence\persistence_atmos.dm"
 #include "code\controllers\subsystems\persistence\persistence_away_site_mobs.dm"
+#include "code\controllers\subsystems\persistence\persistence_advertise.dm"
 #include "code\controllers\subsystems\persistence\persistence_backups.dm"
 #include "code\controllers\subsystems\persistence\persistence_bots.dm"
 #include "code\controllers\subsystems\persistence\persistence_bounties.dm"

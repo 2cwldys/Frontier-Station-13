@@ -41,6 +41,16 @@
 	// pollers sample less often than that, so the flag is usually back to
 	// FALSE again before anyone looks and the save goes entirely unnoticed.
 	// This lets a poller spot a save it never caught in progress.
+	// Pending "Advertise to Players" request, if any (persistence_advertise.dm).
+	// The status bot is what actually posts it -- DM has no bot token and can
+	// only reach webhook URLs, never the channel id the bot holds. Reported
+	// only while unexpired, so a stale advert cannot be picked up long after
+	// it stopped being true.
+	var/advertising = advert_pending()
+	s["advert_id"] = advertising ? GLOB.advert_id : ""
+	s["advert_by"] = advertising ? GLOB.advert_by : ""
+	s["advert_players"] = advertising ? GLOB.advert_players : 0
+
 	s["saved_ago"] = (SSpersistence && SSpersistence.last_save_completed) \
 		? round((world.realtime - SSpersistence.last_save_completed) / 10) \
 		: -1

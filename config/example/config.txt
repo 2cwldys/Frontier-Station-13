@@ -478,6 +478,15 @@ TIME_TO_CALL_EMERGENCY_SHUTTLE 36000
 ## and a room full of mods will not satisfy it.
 #RAIDING_STAFF_MINIMUM 1
 
+## Minutes between uses of the "Advertise to Players" admin verb, which asks the
+## Discord status bot to post an @here saying the server could use more players.
+## Shared by ALL admins rather than per-admin -- the point is to rate-limit the
+## ping itself, which a per-admin allowance would defeat. 0 disables the cooldown.
+## Requires the status bot to be running with milestone_announcements enabled and
+## milestone_channel_id set (config/discord_status_bot.json) -- the bot is what
+## actually posts it; the game has no Discord token of its own.
+#ADVERTISE_COOLDOWN_MINUTES 30
+
 ## Uncomment to enable simple Skype/Discord style markup over OOC, LOOC, say, and me.
 #ALLOW_CHAT_MARKUP
 
