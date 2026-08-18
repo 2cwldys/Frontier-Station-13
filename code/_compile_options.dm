@@ -164,6 +164,19 @@
 /// billing path all read one number.
 #define CLONE_ORDER_COST 10000
 
+// If defined, the server launches the Discord status bot
+// (scripts/discord_status_bot.py) on startup and kills it when the server
+// actually closes -- see discordStatusBotStart()/Stop() (persistence.dm).
+// Requires config/discord_status_bot.json (a bot token), Python with
+// discord.py installed, AND a TGS security level of Trusted, since this is a
+// raw OS shell-out that BYOND refuses under Safe/Ultrasafe. All three are
+// checked at runtime; a missing one skips the launch with a logged reason
+// rather than failing the round.
+//
+// Off by default -- it spawns an OS process that outlives the call, so opting
+// in should be deliberate. Leave undefined to keep starting the bot by hand.
+#define DISCORD_STATUS_BOT_AUTOSTART
+
 // If defined, faction-tagged equipment can only be WORN by people employed by
 // that faction (can_use_faction_equipment(), persistence_factions.dm) -- gated
 // in mob_can_equip() (items.dm) so every equip route is covered at once.

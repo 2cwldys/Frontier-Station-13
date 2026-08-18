@@ -34,15 +34,35 @@ Usage:
 """
 
 import argparse
+import asyncio
 import json
+import os
 import pathlib
 import socket
 import struct
 import sys
+import time
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 CONFIG_PATH = REPO / "config" / "discord_status_bot.json"
 EXAMPLE_PATH = REPO / "config" / "example" / "discord_status_bot.json"
+
+# Two files, two different questions -- one cannot answer both, because a
+# hand-started bot has to be invisible to reaping but still visible to
+# duplicate detection.
+#
+#   .lock  written by EVERY instance   -> "a bot is already running, here's its PID"
+#   .pid   written ONLY when --managed -> "the game started this one, it may be reaped"
+#
+# So the game may only ever kill something it started itself, while still
+# refusing to start a second bot alongside one you launched by hand.
+#
+# Both are written from in here rather than from the launcher: the launcher's
+# own PID is the shell, not Python, and on Windows `start /B` makes it useless
+# for this anyway. data/ is gitignored and is already where world.shelleo()
+# puts its own scratch files.
+PID_PATH = REPO / "data" / "discord_status_bot.pid"
+LOCK_PATH = REPO / "data" / "discord_status_bot.lock"
 
 PLACEHOLDER_TOKEN = "REPLACE_WITH_BOT_TOKEN"
 
@@ -151,7 +171,7 @@ def _flag(value):
     return bool(value) and value != "0"
 
 
-def format_presence(data):
+def format_presence(data, save_window=0):
     """
     Builds the activity line: the player count, and nothing else.
 
@@ -162,6 +182,16 @@ def format_presence(data):
 
     Server health is carried by the status dot instead of the text, via the
     returned state: "up" / "saving" / "down".
+
+    save_window is how many seconds after a save finishes it still counts as
+    "saving". Polling alone misses saves almost every time -- a full save runs
+    roughly 18 seconds against a 30 second poll interval, so the window it is
+    live in usually falls entirely between two samples -- and a poll that DOES
+    land inside one can time out, because the same thread that answers is the
+    one doing the saving. So the server also reports `saved_ago`, and a save
+    that finished within the window still shows yellow. The caller passes
+    poll + timeout, so raising the poll interval cannot silently reopen the
+    blind spot.
     """
     players = data.get("players", 0)
     try:
@@ -170,8 +200,113 @@ def format_presence(data):
         players = 0
 
     text = f"{players} player{'' if players == 1 else 's'}"
-    state = "saving" if _flag(data.get("saving")) else "up"
-    return text, state
+
+    saving = _flag(data.get("saving"))
+    if not saving and save_window > 0:
+        try:
+            # -1 means no save yet this round; anything >= 0 is seconds since.
+            saved_ago = float(data.get("saved_ago", -1))
+        except (TypeError, ValueError):
+            saved_ago = -1
+        saving = 0 <= saved_ago < save_window
+
+    return text, ("saving" if saving else "up")
+
+
+def _pid_alive(pid):
+    """
+    TRUE if a process with this PID currently exists.
+
+    No new dependency for this -- os.kill(pid, 0) on POSIX, and a short
+    OpenProcess call on Windows where os.kill cannot do a no-op signal.
+    """
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        handle = ctypes.windll.kernel32.OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+        )
+        if not handle:
+            return False
+        # Still open == still running. A process that has exited but whose
+        # handle lingers reports STILL_ACTIVE (259) as its exit code.
+        exit_code = ctypes.c_ulong()
+        ok = ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return bool(ok) and exit_code.value == 259
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Exists, just not ours to signal.
+        return True
+    return True
+
+
+def _read_pid(path):
+    try:
+        return int(path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return 0
+
+
+def claim_lock():
+    """
+    Refuses to start a second bot alongside a live one.
+
+    Returns True if we now hold the lock. Returns False if another instance is
+    already running -- which is an ordinary outcome, not an error: the caller
+    exits 0. Deliberately checks liveness rather than mere file existence, so a
+    lock left behind by a crash names a dead PID and is simply reclaimed.
+
+    Note this applies to hand-started bots too. That is the point: the game
+    must not launch a duplicate next to one you started yourself. The NEWCOMER
+    backs off -- nothing here ever kills the incumbent.
+    """
+    existing = _read_pid(LOCK_PATH)
+    if existing and existing != os.getpid() and _pid_alive(existing):
+        return False
+    try:
+        LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+        LOCK_PATH.write_text(str(os.getpid()), encoding="utf-8")
+    except OSError as e:
+        # Not fatal -- run without the guard rather than refusing to start.
+        print(f"[warn] could not write {LOCK_PATH}: {e}", flush=True)
+    return True
+
+
+def write_pid_file():
+    """
+    Marks this bot as game-owned so discord_bot_stop may reap it.
+
+    Only called for --managed runs. A bot started by hand deliberately leaves
+    no PID file, which is exactly what keeps the server's stop/orphan-sweep
+    from ever touching it.
+    """
+    try:
+        PID_PATH.parent.mkdir(parents=True, exist_ok=True)
+        PID_PATH.write_text(str(os.getpid()), encoding="utf-8")
+    except OSError as e:
+        # Not fatal: the bot still works, it just cannot be stopped by script.
+        print(f"[warn] could not write {PID_PATH}: {e}", flush=True)
+
+
+def release_files():
+    """
+    Clears our lock and PID file on the way out.
+
+    Only removes a file that names OUR pid -- if another instance has since
+    claimed the lock, deleting it would let a third start alongside them.
+    """
+    for path in (PID_PATH, LOCK_PATH):
+        try:
+            if _read_pid(path) == os.getpid():
+                path.unlink()
+        except (OSError, FileNotFoundError):
+            pass
 
 
 def load_config():
@@ -198,21 +333,32 @@ def load_config():
         "token": token,
         "host": cfg.get("game_host", "127.0.0.1"),
         "port": int(cfg.get("game_port", 6666)),
-        "poll": max(5, int(cfg.get("poll_seconds", 30))),
+        # 10s, not 30s: a full persistence save runs ~18 seconds, so anything
+        # slower than that can step straight over one and never observe it
+        # live. Polling closer together than the save is long guarantees at
+        # least one sample lands inside it, which is what makes the yellow dot
+        # line up with the save actually happening rather than trailing it.
+        # The endpoint is cheap and fail2topic-exempt, and presence is only
+        # pushed on change, so the extra polls cost effectively nothing.
+        "poll": max(5, int(cfg.get("poll_seconds", 10))),
         "timeout": max(1.0, float(cfg.get("timeout_seconds", 10))),
         # See the grace-window comment in the poll loop for why this is not 1.
         "offline_after": max(1, int(cfg.get("offline_after_failures", 3))),
+        # Watchdog: seconds unreachable before a --managed bot exits on its
+        # own. 300 is comfortably longer than a hard reboot takes to come back,
+        # so a round restart never trips it. 0 disables it entirely.
+        "exit_after_offline": max(0, int(cfg.get("exit_after_offline_seconds", 300))),
     }
 
 
-def run_once(host, port):
+def run_once(host, port, save_window=40):
     """--once: prove the Topic path works without involving Discord at all."""
     try:
         data = fetch_status(host, port)
     except TopicError as e:
         print(f"UNREACHABLE: {e}")
         return 1
-    text, state = format_presence(data)
+    text, state = format_presence(data, save_window)
     print(f"presence: Watching {text}")
     print(f"state:    {state}")
     print(f"raw:      {json.dumps(data, indent=2, sort_keys=True)}")
@@ -226,6 +372,11 @@ def main():
                          "use this to check host/port and the Topic wire format first.")
     ap.add_argument("--host", help="Override game_host from the config.")
     ap.add_argument("--port", type=int, help="Override game_port from the config.")
+    ap.add_argument("--managed", action="store_true",
+                    help="Marks this as a SERVER-started bot: writes the PID file so the "
+                         "server may stop it, and enables the self-exit watchdog. Passed "
+                         "by scripts/discord_bot_start. Run WITHOUT it and the server "
+                         "will never stop, reap or otherwise touch this bot.")
     args = ap.parse_args()
 
     # --once needs no token, so don't demand one just to test connectivity.
@@ -245,10 +396,23 @@ def main():
     host = args.host or cfg["host"]
     port = args.port or cfg["port"]
 
+    # Refuse to become a second bot. Two instances sharing one token both push
+    # presence and fight over it. Checked here rather than in the wrappers so
+    # it holds however the bot was launched -- including catching a bot YOU
+    # started by hand, which the server otherwise knows nothing about.
+    #
+    # The newcomer is the one that backs off. Nothing here ever kills the bot
+    # that is already running.
+    if not claim_lock():
+        print(f"Another Discord status bot is already running (PID "
+              f"{_read_pid(LOCK_PATH)}). Not starting a second one.", flush=True)
+        return 0
+
     try:
         import discord
         from discord.ext import tasks
     except ImportError:
+        release_files()
         sys.exit("ERROR: discord.py is not installed.  pip install discord.py")
 
     # No privileged intents: this bot only ever sets its own presence. Asking
@@ -267,6 +431,9 @@ def main():
     last = {"text": None, "state": None}
     # Consecutive failed polls, for the grace window below.
     misses = {"count": 0}
+    # When the server first went unreachable, for the watchdog below. None
+    # whenever the server is answering.
+    offline_since = {"at": None}
 
     async def apply(text, state):
         if last["text"] == text and last["state"] == state:
@@ -281,7 +448,12 @@ def main():
     @tasks.loop(seconds=cfg["poll"])
     async def poll():
         try:
-            data = fetch_status(host, port, cfg["timeout"])
+            # Off the event loop: fetch_status() is a blocking socket call, and
+            # during a save the server can take the full timeout to answer.
+            # Calling it inline would stall discord.py's gateway heartbeat for
+            # that whole time, which at a short poll interval is enough to get
+            # the bot disconnected.
+            data = await asyncio.to_thread(fetch_status, host, port, cfg["timeout"])
         except TopicError as e:
             # A failed poll is expected, not exceptional -- the server is down,
             # restarting, or busy. Crucially it does NOT immediately mean
@@ -296,6 +468,28 @@ def main():
             # before declaring offline. A genuinely dead server still goes red,
             # just a poll or two later; a save-induced blip never shows at all.
             misses["count"] += 1
+            if offline_since["at"] is None:
+                offline_since["at"] = time.monotonic()
+
+            # Watchdog. A server-started bot outlives its server whenever the
+            # server goes away by a route that never runs SSpersistence's
+            # Shutdown() -- DreamDaemon being closed directly, a taskkill, a
+            # crash. There is no reliable in-game hook for those, so the bot
+            # reaps itself instead.
+            #
+            # ONLY for --managed bots. One started by hand is meant to outlive
+            # the server for as long as its owner wants, and must never be
+            # reaped by this.
+            if args.managed and cfg["exit_after_offline"]:
+                gone_for = time.monotonic() - offline_since["at"]
+                if gone_for >= cfg["exit_after_offline"]:
+                    print(f"[watchdog] server unreachable for {int(gone_for)}s "
+                          f"(limit {cfg['exit_after_offline']}s) -- shutting down.",
+                          flush=True)
+                    poll.cancel()
+                    await client.close()
+                    return
+
             # Nothing to hold on to if we have never had a good poll (bot
             # started while the server was down), and nothing worth holding if
             # we are already showing offline -- otherwise a long outage would
@@ -314,7 +508,11 @@ def main():
             return
 
         misses["count"] = 0
-        text, state = format_presence(data)
+        offline_since["at"] = None
+        # Window = one full poll cycle plus the timeout, so a save is still
+        # reported as current on the next poll even when the poll that would
+        # have caught it live timed out against the busy world thread.
+        text, state = format_presence(data, cfg["poll"] + cfg["timeout"])
         await apply(text, state)
 
     @poll.before_loop
@@ -328,11 +526,21 @@ def main():
         if not poll.is_running():
             poll.start()
 
+    # Only a server-started bot gets a PID file, and the PID file is the sole
+    # thing the server's stop/orphan-sweep will act on. A hand-started bot
+    # writes none and is therefore untouchable by the game.
+    if args.managed:
+        write_pid_file()
+
     try:
         client.run(cfg["token"], log_handler=None)
     except discord.LoginFailure:
         sys.exit("ERROR: Discord rejected the token. Check 'token' in "
                  f"{CONFIG_PATH.relative_to(REPO).as_posix()}.")
+    finally:
+        # Covers Ctrl-C, SIGTERM and the watchdog as well as a normal return --
+        # a stale lock would make the next start think a bot is still running.
+        release_files()
     return 0
 
 

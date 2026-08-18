@@ -48,6 +48,14 @@ GLOBAL_VAR_INIT(auto_backup_on_autosave, FALSE)
 /// restarts via ss13_min_client_build, enforced in client_procs.dm.
 GLOBAL_VAR_INIT(min_client_build_override, 0)
 
+/// TRUE when the shutdown currently running ends the OS process, FALSE when it
+/// is a soft round reboot the world comes straight back from. Set by
+/// /world/Reboot() (world.dm) immediately before Master.Shutdown(), because a
+/// subsystem's Shutdown() runs identically for both and cannot tell them
+/// apart. Defaults TRUE so a shutdown path that never went through Reboot()
+/// still cleans up rather than silently leaking a child process.
+GLOBAL_VAR_INIT(world_shutdown_is_hard, TRUE)
+
 /// Z levels whose numbers appear in this list are SKIPPED by turf/object/worldstate persistence.
 /// Populated from ss13_zlevel_persistence WHERE enabled = 0 at startup.
 /// Empty by default = all Z levels persist.
@@ -129,6 +137,15 @@ SUBSYSTEM_DEF(persistence)
 	flags = SS_POST_FIRE_TIMING
 	var/prevent_saving = FALSE // Toggle to prevent saving at round end, changed by toggle_persistence proc, used for admin purposes.
 	var/save_in_progress = FALSE // Set TRUE while a save is running to prevent concurrent saves.
+	/// world.realtime the last save finished, or 0 if none has this round.
+	///
+	/// Exists because save_in_progress alone is unobservable from outside: a
+	/// full save runs ~18s and external status pollers sample far less often
+	/// than that, so the flag is almost always already back to FALSE by the
+	/// time anyone looks. get_serverstatus (server_query.dm) reports the age of
+	/// this instead, which a poller can use to notice a save it never actually
+	/// caught in progress.
+	var/last_save_completed = 0
 	var/autosave_paused = FALSE
 	var/autosave_pause_remaining = 0
 	/// TRUE only when _autosave_empty_reconcile() (below) is what caused the
@@ -194,6 +211,7 @@ SUBSYSTEM_DEF(persistence)
 		log_and_message_admins("EVENT periodic persistence autosave FAILED: [e]", null)
 
 	save_in_progress = FALSE
+	last_save_completed = world.realtime
 	SSstatistics.update_status()
 	log_subsystem_persistence_info("Persistence: Periodic save complete.")
 	to_world(SPAN_GOOD(SPAN_BOLD("World save complete.")))
@@ -263,6 +281,7 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_error("Lobby-empty autosave failed: [e]")
 		log_and_message_admins("EVENT lobby-empty persistence autosave FAILED: [e]", null)
 	save_in_progress = FALSE
+	last_save_completed = world.realtime
 	log_subsystem_persistence_info("Persistence: Lobby-empty autosave complete.")
 	// Discord-only (log_admin(), not log_and_message_admins()) -- this proc
 	// is deliberately silent to players/live chat (nobody's left in a body
@@ -521,6 +540,7 @@ SUBSYSTEM_DEF(persistence)
 		to_chat(usr, SPAN_WARNING("Persistence save failed partway through -- see the persistence log. save_in_progress has still been cleared."))
 
 	SSpersistence.save_in_progress = FALSE
+	SSpersistence.last_save_completed = world.realtime
 	// Same post-save queue kick as the periodic fire() -- stash/retrieve
 	// requests that arrived during this save are waiting on it.
 	SSpersistence._drydockProcessNextQueued()
@@ -1130,6 +1150,14 @@ SUBSYSTEM_DEF(persistence)
 	// Prevent an immediate fire() right after init  first autosave should be 30 min after startup
 	next_fire = world.time + wait
 
+#ifdef DISCORD_STATUS_BOT_AUTOSTART
+	log_subsystem_persistence_info("Starting Discord status bot...")
+	try
+		discordStatusBotStart()
+	catch(var/exception/discord_bot_e)
+		log_subsystem_persistence_error("Unhandled exception starting the Discord status bot: [discord_bot_e]")
+#endif
+
 	log_subsystem_persistence_info("Persistence initialization: all steps completed in [(world.time - init_start_time) / 10] seconds. Check the lines above for any PANIC/ERROR entries from individual steps.")
 	return SS_INIT_SUCCESS
 
@@ -1138,6 +1166,16 @@ SUBSYSTEM_DEF(persistence)
  * The shutdown consists of finalization steps for each persistent data type.
  */
 /datum/controller/subsystem/persistence/Shutdown()
+#ifdef DISCORD_STATUS_BOT_AUTOSTART
+	// Before the early returns below -- stopping the bot has nothing to do
+	// with whether this round's state is being saved, and leaking the process
+	// on a prevent_saving or DB-failure shutdown would be a silent orphan.
+	try
+		discordStatusBotStop()
+	catch(var/exception/discord_bot_e)
+		log_subsystem_persistence_error("Unhandled exception stopping the Discord status bot: [discord_bot_e]")
+#endif
+
 	if(prevent_saving)
 		log_subsystem_persistence_warning("Persistence subsystem was toggled to not save. Skipping subsystem finalization.")
 		return

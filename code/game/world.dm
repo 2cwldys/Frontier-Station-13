@@ -267,6 +267,12 @@ GLOBAL_LIST_INIT(world_api_rate_limit, list())
 		hard_reset = FALSE
 
 	SSpersistent_configuration.save_to_file("data/persistent_config.json")
+	// Master.Shutdown() runs on EVERY reboot, soft or hard, so a subsystem's
+	// Shutdown() cannot tell "the round is restarting" from "this process is
+	// going away" on its own. Reboot() already knows, so hand it over -- see
+	// SSpersistence.Shutdown()'s Discord bot stop, which must not fire on a
+	// soft reboot that the world is about to come straight back from.
+	GLOB.world_shutdown_is_hard = hard_reset
 	Master.Shutdown()
 
 	for(var/thing in GLOB.clients)

@@ -458,6 +458,7 @@
 #include "code\controllers\subsystems\persistence\persistence_client_build.dm"
 #include "code\controllers\subsystems\persistence\persistence_closets.dm"
 #include "code\controllers\subsystems\persistence\persistence_cryo.dm"
+#include "code\controllers\subsystems\persistence\persistence_discord_bot.dm"
 #include "code\controllers\subsystems\persistence\persistence_decals.dm"
 #include "code\controllers\subsystems\persistence\persistence_drydock_ship_prices.dm"
 #include "code\controllers\subsystems\persistence\persistence_economy.dm"

@@ -35,6 +35,15 @@
 	// identical to "fine" from the outside -- update_status() surfaces it on the
 	// hub for that reason, so surface it here too.
 	s["saving"] = (SSpersistence && SSpersistence.save_in_progress) ? TRUE : FALSE
+	// Seconds since the last save FINISHED, or -1 if none has this round.
+	//
+	// "saving" on its own is close to unobservable: a full save runs ~18s and
+	// pollers sample less often than that, so the flag is usually back to
+	// FALSE again before anyone looks and the save goes entirely unnoticed.
+	// This lets a poller spot a save it never caught in progress.
+	s["saved_ago"] = (SSpersistence && SSpersistence.last_save_completed) \
+		? round((world.realtime - SSpersistence.last_save_completed) / 10) \
+		: -1
 
 	var/admin_count = 0
 
