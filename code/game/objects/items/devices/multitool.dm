@@ -163,10 +163,12 @@
 		data["has_interior_sensor"] = controller.has_interior_sensor
 		data["internal_pressure"] = round(controller.program.memory["internal_sensor_pressure"])
 
-	// Door button (blast_door_button.dm) -- covers both blast doors/shutters
-	// and airlocks, whatever mix is currently linked (_get_linked_doors()
-	// is the same shared scan trigger()/the multi-door picker use).
-	var/obj/structure/machinery/button/remote/blast_door/buildable/door_button = get_buffer(/obj/structure/machinery/button/remote/blast_door/buildable)
+	// Door button (door_control.dm/blast_door_button.dm) -- covers both
+	// blast doors/shutters and airlocks, whatever mix is currently linked
+	// (_get_linked_doors() is the same shared scan trigger()/the multi-door
+	// picker use). Base type, not just the buildable subtype, so this
+	// checklist also populates for an already-mapped button.
+	var/obj/structure/machinery/button/remote/blast_door/door_button = get_buffer(/obj/structure/machinery/button/remote/blast_door)
 	if(door_button)
 		var/list/checklist = list()
 		for(var/obj/structure/machinery/door/D in door_button._get_linked_doors())
