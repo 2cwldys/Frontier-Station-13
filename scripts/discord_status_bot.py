@@ -62,6 +62,11 @@ EXAMPLE_PATH = REPO / "config" / "example" / "discord_status_bot.json"
 PID_PATH = REPO / "data" / "discord_status_bot.pid"
 LOCK_PATH = REPO / "data" / "discord_status_bot.lock"
 
+MILESTONE_STATE_PATH = REPO / "data" / "discord_status_bot_milestones.json"
+
+# Tens up to 50, then fifties. Must stay sorted ascending.
+MILESTONES = (10, 20, 30, 40, 50, 100, 150, 200)
+
 PLACEHOLDER_TOKEN = "REPLACE_WITH_BOT_TOKEN"
 
 # BYOND's topic wire format. A request is:
@@ -310,6 +315,102 @@ def release_files():
             pass
 
 
+class MilestoneTracker:
+    """
+    Decides when a player-count milestone is worth announcing.
+
+    Fires only when the count is EXACTLY a milestone -- 10, 20, 30 and so on.
+    In-between figures say nothing, and climbing past an announced milestone
+    says nothing either.
+
+    That exactness is what keeps the message honest: the embed reads
+    "20 players are online right now", so it may only be posted when there
+    genuinely are 20. Announcing "30 players" at a count of 35 -- which
+    a nearest-milestone rule would do -- would simply be false.
+
+    Each milestone announces at most once per window, so a count bobbing
+    across 20 posts once rather than every time it re-touches it. The window
+    resets after `window_hours`, at which point a milestone reached again
+    announces again -- the point being to mark "we're busy" roughly once per
+    session, not once ever.
+
+    State is persisted because the bot restarts on every server boot now, and
+    an 8-hour window kept only in memory would re-announce after each one.
+    """
+
+    def __init__(self, window_hours=8, path=MILESTONE_STATE_PATH):
+        self.window_seconds = max(0, float(window_hours)) * 3600
+        self.path = path
+        self.window_start = 0.0
+        self.highest = 0
+        self.announced = set()
+        self._load()
+
+    def _load(self):
+        try:
+            raw = json.loads(self.path.read_text(encoding="utf-8"))
+            self.window_start = float(raw.get("window_start", 0))
+            self.highest = int(raw.get("highest", 0))
+            self.announced = {int(m) for m in raw.get("announced", [])}
+        except (OSError, ValueError, TypeError, AttributeError):
+            # Missing or corrupt state is a fresh window, not a fatal error --
+            # the worst case is one duplicate announcement.
+            self.window_start = 0.0
+            self.highest = 0
+            self.announced = set()
+
+    def _save(self):
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_text(json.dumps({
+                "window_start": self.window_start,
+                "highest": self.highest,
+                "announced": sorted(self.announced),
+            }), encoding="utf-8")
+        except OSError as e:
+            print(f"[warn] could not write {self.path}: {e}", flush=True)
+
+    def check(self, players, now=None):
+        """
+        Returns the milestone to announce for this player count, or None.
+
+        `now` is injectable so the window logic can be tested without waiting
+        eight hours.
+        """
+        if now is None:
+            now = time.time()
+        try:
+            players = int(players)
+        except (TypeError, ValueError):
+            return None
+
+        # Window expiry. window_start of 0 means we have never run, which is
+        # treated as an expired window so the first observation starts a clean
+        # one rather than inheriting an epoch-old timestamp.
+        if self.window_seconds and (now - self.window_start) >= self.window_seconds:
+            self.window_start = now
+            self.highest = 0
+            self.announced = set()
+
+        # Exact match only. A count of 35 is not a milestone and announces
+        # nothing -- neither 30 (which would be a false statement) nor 40.
+        if players not in MILESTONES:
+            if players > self.highest:
+                self.highest = players
+                self._save()
+            return None
+
+        # Already said this window -- covers sitting on the number across many
+        # polls, and dipping off it and back on.
+        if players in self.announced:
+            return None
+
+        self.announced.add(players)
+        self.highest = max(self.highest, players)
+        self._save()
+        return players
+
+
 def load_config():
     if not CONFIG_PATH.exists():
         sys.exit(
@@ -349,6 +450,13 @@ def load_config():
         # own. 300 is comfortably longer than a hard reboot takes to come back,
         # so a round restart never trips it. 0 disables it entirely.
         "exit_after_offline": max(0, int(cfg.get("exit_after_offline_seconds", 300))),
+        # Milestone announcements are opt-in twice over: the explicit switch
+        # must be on AND a channel must be set. Either left alone means the bot
+        # behaves exactly as it did before, so an existing config that predates
+        # this feature needs no edits at all.
+        "milestone_enabled": bool(cfg.get("milestone_announcements", False)),
+        "milestone_channel": int(cfg.get("milestone_channel_id", 0) or 0),
+        "milestone_window": float(cfg.get("milestone_window_hours", 8) or 0),
     }
 
 
@@ -436,6 +544,35 @@ def main():
     # whenever the server is answering.
     offline_since = {"at": None}
 
+    milestones = (MilestoneTracker(cfg["milestone_window"])
+                  if (cfg["milestone_enabled"] and cfg["milestone_channel"]) else None)
+    if cfg["milestone_enabled"] and not cfg["milestone_channel"]:
+        print("[milestone] milestone_announcements is on but milestone_channel_id "
+              "is unset -- no announcements will be posted.", flush=True)
+    # Resolved once on ready rather than per poll -- see announce_channel().
+    channel = {"obj": None}
+
+    async def announce(players):
+        """Posts a milestone embed, if one is due. Never raises."""
+        if not milestones or not channel["obj"]:
+            return
+        milestone = milestones.check(players)
+        if not milestone:
+            return
+        try:
+            embed = discord.Embed(
+                # No title/author of any kind -- description only.
+                description=f"**{milestone} players** are online right now.",
+                colour=0x3B83BD,
+            )
+            await channel["obj"].send(embed=embed)
+            print(f"[milestone] announced {milestone} (count {players})", flush=True)
+        except Exception as e:
+            # Bad channel, missing Send Messages, rate limit -- log and carry
+            # on. The presence line is this bot's actual job and must not go
+            # down because an announcement channel is misconfigured.
+            print(f"[milestone] could not post {milestone}: {e}", flush=True)
+
     async def apply(text, state):
         if last["text"] == text and last["state"] == state:
             return
@@ -510,6 +647,8 @@ def main():
 
         misses["count"] = 0
         offline_since["at"] = None
+        # Only on a successful poll -- an unreachable server has no count.
+        await announce(data.get("players", 0))
         # Window = one full poll cycle plus the timeout, so a save is still
         # reported as current on the next poll even when the poll that would
         # have caught it live timed out against the busy world thread.
@@ -524,6 +663,21 @@ def main():
     async def on_ready():
         print(f"Connected as {client.user}. Polling {host}:{port} "
               f"every {cfg['poll']}s.", flush=True)
+
+        # Resolved once, not per poll -- a REST round-trip every 10s would be
+        # needless traffic. fetch_channel() rather than get_channel(): the
+        # client runs on Intents.none(), so there is no guild cache for
+        # get_channel() to read and it would silently return None forever.
+        # fetch_channel() is a REST call and needs no intents at all.
+        if milestones and not channel["obj"]:
+            try:
+                channel["obj"] = await client.fetch_channel(cfg["milestone_channel"])
+                print(f"Milestone announcements -> #{channel['obj']} "
+                      f"(every {cfg['milestone_window']}h, {MILESTONES})", flush=True)
+            except Exception as e:
+                print(f"[milestone] channel {cfg['milestone_channel']} unusable, "
+                      f"announcements disabled: {e}", flush=True)
+
         if not poll.is_running():
             poll.start()
 
