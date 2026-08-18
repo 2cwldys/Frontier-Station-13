@@ -287,8 +287,18 @@
 			// Scan everything on the telepad turf (skip the telepad machinery itself,
 			// and anything else is_cargo_export_excluded() rules out -- structural
 			// framework like girders/lattice, not just machinery)
+			//
+			// Refused computers are named back to the operator rather than
+			// silently passed over: a PDA left sitting on the pad after a sale
+			// looks exactly like a bug ("why didn't it sell?"), and the answer
+			// -- that selling it would have destroyed the ID card inside it --
+			// is worth saying out loud.
+			var/list/refused_computers = list()
 			for(var/atom/movable/A in pad_turf)
-				if(is_cargo_export_excluded(A)) continue
+				if(is_cargo_export_excluded(A))
+					if(istype(A, /obj/item/modular_computer))
+						refused_computers |= A.name
+					continue
 				SScargo.export_item_and_contents(A)
 
 			// Collect results
@@ -297,8 +307,14 @@
 			for(var/item_name in SScargo.generic_export_lines)
 				exp_lines += "[item_name]: [SScargo.generic_export_lines[item_name]] cr"
 
+			var/refusal_note = length(refused_computers) \
+				? " Refused to export [jointext(refused_computers, ", ")] -- computers and PDAs carry ID cards and stored data, and are never sold." \
+				: ""
+
 			if(!exp_total)
-				status_message = "No exportable items found on the telepad. Place items or crates on the telepad first."
+				status_message = length(refused_computers) \
+					? "Nothing exportable on the telepad.[refusal_note]" \
+					: "No exportable items found on the telepad. Place items or crates on the telepad first."
 				return TRUE
 
 			var/summary = exp_lines.len ? jointext(exp_lines, "; ") : "miscellaneous items"
@@ -333,6 +349,11 @@
 				faction_credit(net, exp_total, "Cargo export by [user.ckey]")
 				status_message = "Exported [exp_total] cr: [summary]. Credited to [get_faction_name(net)]."
 				log_game("[key_name(user)] exported [exp_total] cr of goods to faction [net] via cargo exports terminal.")
+
+			// Appended after every crediting branch rather than inside each, so
+			// the operator is told what stayed behind regardless of which
+			// account the sale went to.
+			status_message += refusal_note
 
 			// Send-off feedback -- matches the sound persistence_telepad_deliver()
 			// already plays for an INCOMING order arriving at this same pad

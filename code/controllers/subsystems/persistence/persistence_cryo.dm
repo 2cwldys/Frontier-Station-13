@@ -604,7 +604,7 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 /**
  * Find an available cryopod using the priority cascade:
  *   1. Faction pod matching faction_uid (exclusive to that faction)
- *   2. Public or unrestricted pod (persistent_network = "public" or "", persistent_spawn = TRUE)
+ *   2. Public spawn pod (persistent_network == "public" AND persistent_spawn == TRUE)
  * Returns the chosen POD, or null (callers handle landmark fallbacks).
  */
 /proc/persistence_find_available_cryopod(faction_uid = null, ckey = null, char_name = null)
@@ -642,9 +642,11 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 		if(length(faction_pods))
 			return pick(faction_pods)
 
-	// Priority 2: public or unrestricted spawn pods (open to everyone)
-	// Accepts both persistent_network == "public" (explicitly public) and
-	// persistent_network == "" (unrestricted  no faction restriction set)
+	// Priority 2: public spawn pods (open to everyone). Requires BOTH
+	// persistent_network == "public" (explicitly tagged public) AND
+	// persistent_spawn == TRUE (separately flagged as a spawn point via
+	// the faction tagger's "Mark Public Spawn Point" toggle) -- an
+	// unassigned pod (persistent_network == "") does NOT qualify.
 	var/list/public_pods = list()
 	var/total_pods = 0
 	for(var/obj/structure/machinery/cryopod/pod in world)

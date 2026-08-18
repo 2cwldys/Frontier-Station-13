@@ -12,27 +12,45 @@
  * This does the whole set in one pass.
  */
 
-/// Every table carrying a character-name column, mapped to the column(s) that
-/// hold it. Taken from the live schema rather than assumed; ss13_drydock_ships
-/// is the one table with TWO such columns (current owner and permanent title),
-/// both of which have to move together or a renamed owner loses their ship.
+/// Every table carrying a character-name column, mapped to
+/// "name column" = "the ckey column that pairs with it".
+///
+/// The owner column is stated per name column rather than assumed to be
+/// "ckey", because four of these tables name it something else and an earlier
+/// version of this list hardcoded it. Those four threw
+/// "Unknown column 'ckey' in 'WHERE'" on every rename, were swallowed by
+/// databaseCheckQueryResult(), and left a quarter of the rename silently
+/// unapplied while the admin was told it worked. Verified against
+/// information_schema, not assumed:
+///
+///   ss13_faction_members    -> real_name, not char_name
+///   ss13_neural_lace_vault  -> registered_ckey / registered_name
+///   ss13_drydock_ships*     -> owner_ckey / title_ckey / prev_owner_ckey
+///
+/// ss13_drydock_ships carries THREE identity pairs (current owner, permanent
+/// title, and the previous owner kept for provenance). All three have to move
+/// together or a renamed owner loses their ship, or their claim to it.
 GLOBAL_LIST_INIT(persistence_char_name_columns, list(
-	"ss13_char_health"             = list("char_name"),
-	"ss13_char_identity"           = list("char_name"),
-	"ss13_char_inventory"          = list("char_name"),
-	"ss13_crew_records"            = list("char_name"),
-	"ss13_mob_position"            = list("char_name"),
-	"ss13_money_accounts"          = list("char_name"),
-	"ss13_faction_members"         = list("char_name"),
-	"ss13_faction_shareholders"    = list("char_name"),
-	"ss13_ship_crew"               = list("char_name"),
-	"ss13_stock_holdings"          = list("char_name"),
-	"ss13_stock_trade_log"         = list("char_name"),
-	"ss13_neural_lace_vault"       = list("char_name"),
-	"ss13_personal_cargo_category" = list("char_name"),
-	"ss13_antag_log"               = list("char_name"),
-	"ss13_drydock_ships_backup"    = list("owner_char_name"),
-	"ss13_drydock_ships"           = list("owner_char_name", "title_char_name")
+	"ss13_char_health"             = list("char_name" = "ckey"),
+	"ss13_char_identity"           = list("char_name" = "ckey"),
+	"ss13_char_inventory"          = list("char_name" = "ckey"),
+	"ss13_crew_records"            = list("char_name" = "ckey"),
+	"ss13_mob_position"            = list("char_name" = "ckey"),
+	"ss13_money_accounts"          = list("char_name" = "ckey"),
+	"ss13_faction_members"         = list("real_name" = "ckey"),
+	"ss13_faction_shareholders"    = list("char_name" = "ckey"),
+	"ss13_ship_crew"               = list("char_name" = "ckey"),
+	"ss13_stock_holdings"          = list("char_name" = "ckey"),
+	"ss13_stock_trade_log"         = list("char_name" = "ckey"),
+	"ss13_neural_lace_vault"       = list("registered_name" = "registered_ckey"),
+	"ss13_personal_cargo_category" = list("char_name" = "ckey"),
+	"ss13_antag_log"               = list("char_name" = "ckey"),
+	"ss13_drydock_ships_backup"    = list("owner_char_name" = "owner_ckey"),
+	"ss13_drydock_ships"           = list(
+		"owner_char_name"      = "owner_ckey",
+		"title_char_name"      = "title_ckey",
+		"prev_owner_char_name" = "prev_owner_ckey"
+	)
 ))
 
 /**
@@ -105,25 +123,42 @@ GLOBAL_LIST_INIT(persistence_char_name_columns, list(
 		changed["ss13_characters"] = chargen.affected
 	qdel(chargen)
 
+	// Tables whose UPDATE actually threw. Collected rather than only logged:
+	// a rename that half-applies leaves the character split across two names,
+	// and the acting admin is the only one in a position to do anything about
+	// it -- so they get told, instead of reading "success" while four tables
+	// quietly failed (which is exactly what happened before this list carried
+	// its own ckey columns).
+	var/list/failed = list()
+
 	for(var/table in GLOB.persistence_char_name_columns)
 		var/list/columns = GLOB.persistence_char_name_columns[table]
 		var/table_rows = 0
 		for(var/column in columns)
+			var/ckey_column = columns[column]
 			// Table and column names are from the compile-time list above,
 			// never from user input -- only the values are bound.
 			var/datum/db_query/q = SSdbcore.NewQuery(
-				"UPDATE [table] SET [column] = :new_name WHERE ckey = :ckey AND [column] = :old_name",
+				"UPDATE [table] SET [column] = :new_name WHERE [ckey_column] = :ckey AND [column] = :old_name",
 				list("new_name" = new_name, "ckey" = ckey, "old_name" = old_name)
 			)
 			q.Execute()
 			if(databaseCheckQueryResult(q, "renameCharacter [table].[column]"))
 				table_rows += q.affected
+			else
+				failed += "[table].[column]"
 			qdel(q)
 		if(table_rows)
 			changed[table] = table_rows
 
+	if(length(failed))
+		var/failure_text = "Rename [old_name] -> [new_name] ([ckey]) was PARTIAL -- [length(failed)] column(s) failed to update: [jointext(failed, ", ")]. This character is now split across two names in those tables and needs fixing by hand."
+		log_subsystem_persistence_error("Rename: [failure_text]")
+		if(user)
+			to_chat(user, SPAN_DANGER(failure_text))
+
 	_renameCharacterCaches(ckey, old_name, new_name)
-	_renameCharacterLiveState(ckey, old_name, new_name)
+	_renameCharacterLiveState(ckey, old_name, new_name, user)
 	return changed
 
 /// Re-keys the in-memory caches. Restores read these, not the DB, so without
@@ -133,7 +168,11 @@ GLOBAL_LIST_INIT(persistence_char_name_columns, list(
 	PRIVATE_PROC(TRUE)
 	var/old_key = "[ckey]|[old_name]"
 	var/new_key = "[ckey]|[new_name]"
-	for(var/list/cache in list(GLOB.persistence_position_cache, GLOB.persistence_health_cache, GLOB.persistence_inventory_cache, GLOB.persistence_identity_cache))
+	// Every cache keyed "[ckey]|[char_name]". The economy, records and stock
+	// caches were missed originally, which left a renamed character's money,
+	// crew record and share holdings sitting under a key nothing would ever
+	// look up again until the next reboot reloaded them from SQL.
+	for(var/list/cache in list(GLOB.persistence_position_cache, GLOB.persistence_health_cache, GLOB.persistence_inventory_cache, GLOB.persistence_identity_cache, GLOB.persistence_economy_cache, GLOB.persistence_records_cache, GLOB.persistence_stock_holdings_cache))
 		if(!islist(cache) || !(old_key in cache))
 			continue
 		cache[new_key] = cache[old_key]
@@ -141,7 +180,7 @@ GLOBAL_LIST_INIT(persistence_char_name_columns, list(
 
 /// Anything still holding the old name in the running round. The DB rename
 /// alone would be undone the next time one of these saved itself back out.
-/datum/controller/subsystem/persistence/proc/_renameCharacterLiveState(ckey, old_name, new_name)
+/datum/controller/subsystem/persistence/proc/_renameCharacterLiveState(ckey, old_name, new_name, mob/user)
 	PRIVATE_PROC(TRUE)
 	// Drydock ships: both the current owner and the permanent title.
 	for(var/sid in GLOB.drydock_ships)
@@ -165,6 +204,55 @@ GLOBAL_LIST_INIT(persistence_char_name_columns, list(
 			H.real_name = new_name
 			H.name = new_name
 
+	// Crew records. The card console's replacement-ID path looks its holder up
+	// with find_record("name", user.real_name) (card.dm), which searches THESE
+	// in-memory datums, not ss13_crew_records. Renaming only the DB row left
+	// the mob answering to the new name while the record still answered to the
+	// old one, so the console found nobody at all -- "No crew record found for
+	// [name]", with no way to print a replacement ID.
+	//
+	// The nested medical/security records inherit var/name from /datum/record
+	// and keep their own copy, so they move too.
+	var/renamed_records = 0
+	for(var/list/record_list in list(SSrecords.records, SSrecords.records_locked))
+		if(!islist(record_list))
+			continue
+		for(var/datum/record/general/R in record_list)
+			if(R.ckey != ckey || R.name != old_name)
+				continue
+			R.name = new_name
+			if(R.medical)
+				R.medical.name = new_name
+			if(R.security)
+				R.security.name = new_name
+			renamed_records++
+
+	// Shuttle manifest entries are matched back to a general record by name
+	// (records.dm), so a manifest left on the old name detaches from its owner.
+	if(islist(SSrecords.shuttle_manifests))
+		for(var/datum/record/shuttle_manifest/M in SSrecords.shuttle_manifests)
+			if(M.name == old_name)
+				M.name = new_name
+
+	// The crew manifest is cached and only rebuilt when cleared, so it would
+	// otherwise keep displaying the old name for the rest of the round.
+	if(renamed_records)
+		SSrecords.reset_manifest()
+
+	// The live money account. economyFinalize() saves using owner_name, so a
+	// stale one did more than mislabel the ATM: on the next save it upserted
+	// under the OLD name against UNIQUE(ckey, char_name), found no conflict
+	// with the freshly-renamed row, and INSERTED a duplicate empty account.
+	//
+	// Historical transactions are deliberately NOT rewritten -- they are a
+	// ledger of what happened at the time, and back-dating a name onto them
+	// would falsify the record. Only the holder name and future entries change.
+	for(var/account_key in SSeconomy.all_money_accounts)
+		var/datum/money_account/account = SSeconomy.all_money_accounts[account_key]
+		if(!account || account.ckey != ckey || account.owner_name != old_name)
+			continue
+		account.owner_name = new_name
+
 	// Every ID card still bearing the old name is REVOKED rather than
 	// relabelled -- the same treatment a card gets when a replacement is
 	// printed (_revoke_member_id_now(), faction_manage.dm). A card is a
@@ -178,6 +266,7 @@ GLOBAL_LIST_INIT(persistence_char_name_columns, list(
 	// covers the whole world, not just the mob's own slot -- spares in
 	// lockers, bags and on the floor all have to lose access too.
 	var/revoked_cards = 0
+	var/revoked_in_computers = 0
 	for(var/obj/item/card/id/card in world)
 		if(card.revoked || card.registered_name != old_name)
 			continue
@@ -185,8 +274,20 @@ GLOBAL_LIST_INIT(persistence_char_name_columns, list(
 		card.access = list()
 		card.update_name()
 		revoked_cards++
+		// A card seated in a PDA/laptop card slot is the case that looks like
+		// nothing happened: the computer keeps its own name and icon, so the
+		// holder sees an ordinary ID while the credential inside it is dead.
+		// Count these separately so the admin can tell "no cards found" apart
+		// from "revoked, but you won't see it on the outside".
+		if(istype(card.loc, /obj/item/modular_computer))
+			revoked_in_computers++
 	if(revoked_cards)
-		log_subsystem_persistence_info("Rename: revoked [revoked_cards] ID card\s still registered to '[old_name]'.")
+		var/where = revoked_in_computers \
+			? " ([revoked_in_computers] of them inside a PDA/computer card slot -- the device keeps its own name, so it will still look normal from the outside)" \
+			: ""
+		log_subsystem_persistence_info("Rename: revoked [revoked_cards] ID card\s still registered to '[old_name]'[where].")
+		if(user)
+			to_chat(user, SPAN_NOTICE("Revoked [revoked_cards] ID card\s registered to '[old_name]'[where]."))
 
 /datum/admins/proc/rename_persistent_character()
 	set name = "Rename Character"

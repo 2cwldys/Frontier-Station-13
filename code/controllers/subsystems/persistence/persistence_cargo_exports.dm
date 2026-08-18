@@ -128,12 +128,28 @@ GLOBAL_LIST_EMPTY(cargo_export_prices)
 		unit_price *= max(stack.amount, 1)
 	return unit_price
 
-/// Structural/infrastructure that should never be scooped up and sold by a
-/// cargo export scan, even packed inside a crate placed on the pad --
-/// installed machinery (including atmos pipe networks) and bare structural
-/// framework are part of the ship/station, not cargo.
+/// Things that should never be scooped up and sold by a cargo export scan,
+/// even packed inside a crate placed on the pad.
+///
+/// Two categories:
+///  - Structural/infrastructure -- installed machinery (including atmos pipe
+///    networks) and bare structural framework are part of the ship/station,
+///    not cargo.
+///  - Modular computers (PDAs, laptops, consoles, telescreens). These are
+///    containers for credentials and persistent data, not goods:
+///    export_item_and_contents() sells an item AND everything inside it, so
+///    exporting a PDA silently destroys the ID card in its card slot along
+///    with its access, its stored programs and whatever the persistence layer
+///    had saved for it. One istype() on the base type covers every subtype.
+///
+/// Checked at BOTH levels -- the pad's top-level scan and the nested sweep in
+/// export_item_and_contents() -- so this also protects a PDA buried in a bag
+/// inside a crate, which is the case nobody notices until the card is gone.
 /proc/is_cargo_export_excluded(atom/movable/thing)
-	return istype(thing, /obj/structure/machinery) || istype(thing, /obj/structure/lattice) || istype(thing, /obj/structure/girder)
+	return istype(thing, /obj/structure/machinery) \
+		|| istype(thing, /obj/structure/lattice) \
+		|| istype(thing, /obj/structure/girder) \
+		|| istype(thing, /obj/item/modular_computer)
 
 /**
  * Sets (or clears, if price is null) the export price for a type path,
