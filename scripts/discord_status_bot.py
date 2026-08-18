@@ -2,14 +2,12 @@
 Frontier-Station-13 -- Discord server-status bot.
 
 Mirrors the live server status onto a Discord bot's presence, the same way the
-Rich Presence helper mirrors it onto a player's profile. The activity line is
-the player count; the status dot carries server health:
+Rich Presence helper mirrors it onto a player's profile. The activity line and
+the status dot both follow the server's state:
 
-    Watching  14 players
-
-    green  (online)  server up and answering
-    yellow (idle)    persistence save in progress
-    red    (dnd)     unreachable -- down, restarting, or wrong host/port
+    green  (online)  Watching 14 players
+    yellow (idle)    Watching save in progress
+    red    (dnd)     Watching server offline
 
 Data comes from the game server's own `get_serverstatus` Topic command
 (code/modules/world_api/commands/server_query.dm), which is `no_auth` and
@@ -199,8 +197,6 @@ def format_presence(data, save_window=0):
     except (TypeError, ValueError):
         players = 0
 
-    text = f"{players} player{'' if players == 1 else 's'}"
-
     saving = _flag(data.get("saving"))
     if not saving and save_window > 0:
         try:
@@ -210,7 +206,12 @@ def format_presence(data, save_window=0):
             saved_ago = -1
         saving = 0 <= saved_ago < save_window
 
-    return text, ("saving" if saving else "up")
+    # The text follows the state rather than always showing the count: a
+    # yellow dot alone is easy to miss and says nothing about why, whereas
+    # "save in progress" is unambiguous at a glance.
+    if saving:
+        return "save in progress", "saving"
+    return f"{players} player{'' if players == 1 else 's'}", "up"
 
 
 def _pid_alive(pid):

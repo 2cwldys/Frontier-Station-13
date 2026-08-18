@@ -36,9 +36,17 @@
 ///
 /// script_name is a fixed literal from the callers below, never built from
 /// user input, so there is no injection surface here.
+///
+/// The UNIX branch invokes the script THROUGH bash rather than executing it
+/// directly. shelleo() runs "sh -c \"<command>\"" (shell.dm), which needs the
+/// script to carry the executable bit -- and that bit does not survive a
+/// Windows checkout (core.filemode is false there), a zip download, or a file
+/// copy. Naming the interpreter makes the launch work regardless of file mode,
+/// so a server deployed from a Windows-side clone does not silently fail to
+/// start its bot with a bare "Permission denied".
 /datum/controller/subsystem/persistence/proc/_discordBotCommand(script_name)
 	var/command = (world.system_type == UNIX) \
-		? "scripts/[script_name].sh" \
+		? "bash scripts/[script_name].sh" \
 		: "scripts\\[script_name].bat"
 	return prefix_server_root_cd(command)
 

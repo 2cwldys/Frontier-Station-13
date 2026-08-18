@@ -758,10 +758,20 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		set_frequency(frequency)
 
 /obj/structure/machinery/door/blast
-	// "id" -- so a button link made via multitool (blast_door_button.dm's
+	// "id" -- so a button link made via multitool (door_control.dm's
 	// _link_door()) survives a restart; every other blast door still
 	// defaults to the class's own initial(id), unaffected.
 	worldstate_vars = list("density", "persistent_network", "id")
+
+/obj/structure/machinery/button/remote/blast_door
+	// "id" -- multitool-linking (door_control.dm's _link_door()/_link_airlock())
+	// now applies to every mapped button, not just the buildable subtype
+	// below, and it OVERWRITES the button's own id with a freshly generated
+	// one on first link. Without this, that generated id reverts to the
+	// map's original hardcoded value on the next restart while the door side
+	// (already persisted, above) keeps the generated one -- silently
+	// breaking every multitool-made link one restart after it was made.
+	worldstate_vars = list("id")
 
 /obj/structure/machinery/button/remote/blast_door/buildable
 	worldstate_vars = list("id")
