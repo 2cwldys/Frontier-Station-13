@@ -25,6 +25,17 @@
 	s["players"] = GLOB.clients.len
 	s["staff"] = GLOB.staff.len
 
+	// Same three toggles the BYOND hub status block shows
+	// (/world/proc/update_status(), world.dm) -- deliberately reading the exact
+	// same globals so the hub and any external status tool can never disagree.
+	// "enter" above is the third of them (the GATE).
+	s["whitelist"] = GLOB.persistence_join_whitelist_enabled
+	s["raiding"] = GLOB.faction_raiding_enabled
+	// A save is the state where the server is up but unresponsive, which looks
+	// identical to "fine" from the outside -- update_status() surfaces it on the
+	// hub for that reason, so surface it here too.
+	s["saving"] = (SSpersistence && SSpersistence.save_in_progress) ? TRUE : FALSE
+
 	var/admin_count = 0
 
 	for(var/S in GLOB.staff)
