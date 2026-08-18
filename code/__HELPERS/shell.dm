@@ -4,11 +4,9 @@
 #define SHELLEO_ERR ".err"
 #define SHELLEO_OUT ".out"
 /world/proc/shelleo(command)
-	var/static/list/shelleo_ids = list()
 	var/stdout = ""
 	var/stderr = ""
 	var/errorcode = 1
-	var/shelleo_id
 	var/out_file = ""
 	var/err_file = ""
 	// Windows: wscript (not cmd) so the two shelleo() callers (Trigger
@@ -19,15 +17,25 @@
 	var/static/list/interpreters = list("[MS_WINDOWS]" = "wscript //nologo //B scripts\\hidden_run.vbs", "[UNIX]" = "sh -c")
 	var/interpreter = interpreters["[world.system_type]"]
 	if(interpreter)
-		for(var/seo_id in shelleo_ids)
-			if(!shelleo_ids[seo_id])
-				shelleo_ids[seo_id] = TRUE
-				shelleo_id = "[seo_id]"
-				break
-		if(!shelleo_id)
-			shelleo_id = "[shelleo_ids.len + 1]"
-			shelleo_ids += shelleo_id
-			shelleo_ids[shelleo_id] = TRUE
+		// Ever-incrementing, GLOB.round_id-qualified -- never a reused small
+		// integer pool. That reused-slot scheme (shelleo_ids, a free-list of
+		// "1", "2", ...) is what let a call that never returned (a child
+		// process wedged on an interactive prompt with no console to answer
+		// it, holding its "> out_file" handle open forever) permanently
+		// contaminate the SAME filename for every future boot, since a fresh
+		// DreamDaemon process's own pool always starts back at "1" too.
+		// CONFIRMED live: a "Trigger Database Backup" run read back a Discord
+		// bot launch's stdout -- including its "Press any key to continue"
+		// prompt -- from a zombie cmd.exe that had been sitting on
+		// data/shelleo.1.out since a boot hours earlier. Same fix already
+		// applied to the wrapper .bat filenames in prefix_server_root_cd();
+		// this is the sibling naming scheme that was missed. These are tiny
+		// (~100 byte) scratch files, so never reusing a name is not a real
+		// disk-space concern -- scripts/cleanup_shelleo_zombies.ps1 sweeps
+		// leftovers if it ever is.
+		var/static/shelleo_counter = 0
+		shelleo_counter++
+		var/shelleo_id = "[GLOB.round_id]_[shelleo_counter]"
 		out_file = "[SHELLEO_NAME][shelleo_id][SHELLEO_OUT]"
 		err_file = "[SHELLEO_NAME][shelleo_id][SHELLEO_ERR]"
 		if(world.system_type == UNIX)
@@ -40,7 +48,6 @@
 		if(fexists(err_file))
 			stderr = file2text(err_file)
 			fdel(err_file)
-		shelleo_ids[shelleo_id] = FALSE
 	else
 		CRASH("Operating System: [world.system_type] not supported") // If you encounter this error, you are encouraged to update this proc with support for the new operating system
 	. = list(errorcode, stdout, stderr)

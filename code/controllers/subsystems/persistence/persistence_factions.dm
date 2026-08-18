@@ -947,7 +947,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 	if(announce)
 		// See the restore branch above -- same treatment as the manual verb,
 		// worded so it reads as automatic rather than as an admin's decision.
-		to_world(FONT_LARGE(EXAMINE_BLOCK_RED("Faction raiding has been automatically [SPAN_GOOD("disabled")] -- no staff are currently online. Non-members can no longer enter claimed faction territory.")))
+		to_world(FONT_LARGE(EXAMINE_BLOCK_RED("Faction raiding has been automatically [SPAN_GOOD("disabled")] -- no staff are currently online.<br>Non-members can no longer enter claimed faction territory.")))
 		play_announcer_voice_to_all('sound/AI/announcements/raiding_prohibited.ogg')
 		// See the restore branch -- admin log + Discord admin-log webhook, not
 		// just in-game admin chat.
@@ -1038,7 +1038,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 	if(GLOB.faction_raiding_suspended)
 		GLOB.faction_raiding_presuspend = new_state
 #endif
-	to_world(FONT_LARGE(EXAMINE_BLOCK_RED("Faction raiding has been [new_state ? SPAN_WARNING("enabled") : SPAN_GOOD("disabled")] by an administrator.[new_state ? "" : " Non-members can no longer enter claimed faction territory."]")))
+	to_world(FONT_LARGE(EXAMINE_BLOCK_RED("Faction raiding has been [new_state ? SPAN_WARNING("enabled") : SPAN_GOOD("disabled")] by an administrator.[new_state ? "" : "<br>Non-members can no longer enter claimed faction territory."]")))
 	play_announcer_voice_to_all(new_state ? 'sound/AI/announcements/raiding_allowed.ogg' : 'sound/AI/announcements/raiding_prohibited.ogg')
 	log_and_message_admins("[new_state ? "enabled" : "disabled"] faction raiding.", usr)
 

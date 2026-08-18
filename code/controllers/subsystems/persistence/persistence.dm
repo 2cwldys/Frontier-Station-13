@@ -830,6 +830,19 @@ SUBSYSTEM_DEF(persistence)
  */
 /datum/controller/subsystem/persistence/Initialize()
 	. = ..()
+	// Cleared here, at the START of boot, not just left however the LAST
+	// round left it. GLOB.persistence_ready only ever gets set TRUE, by
+	// start_persistent_world() (ticker.dm) at the very END of boot -- fine
+	// on a genuine fresh process start (every global begins at its declared
+	// initial value regardless), but this server has no TGS, and
+	// /world/Reboot() (world.dm) forces every restart to be a SOFT reboot
+	// (same process, same memory) whenever TGS is unavailable. A soft
+	// reboot re-runs every subsystem's Initialize() but never resets an
+	// already-TRUE global on its own, so without this the flag stays stuck
+	// TRUE from the previous round for this new round's entire boot --
+	// get_serverstatus (server_query.dm) would report the world as fully
+	// ready long before it actually is, on every round after the first.
+	GLOB.persistence_ready = FALSE
 	if(!GLOB.config.sql_enabled)
 		log_subsystem_persistence_warning("SQL configuration not enabled. Persistence subsystem requires SQL. Skipping init.")
 		return SS_INIT_SUCCESS

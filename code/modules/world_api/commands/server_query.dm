@@ -21,6 +21,14 @@
 	s["gameid"] = GLOB.round_id
 	s["game_state"] = SSticker ? SSticker.current_state : 0
 	s["transferring"] = GLOB.evacuation_controller?.is_evacuating()
+	// FALSE for a while after the world already answers Topic queries fine --
+	// SSpersistence_world_ready is deliberately the LAST subsystem to
+	// Initialize() (init_order = -100, after away sites/Z-levels/faction
+	// sweeps), so a poller checking only "did I get a 200" can report a
+	// server as fully up several minutes before it actually is. External
+	// tools (the Discord status bot) should show this as still-initializing,
+	// not as live and ready.
+	s["persistence_ready"] = GLOB.persistence_ready ? TRUE : FALSE
 
 	s["players"] = GLOB.clients.len
 	s["staff"] = GLOB.staff.len

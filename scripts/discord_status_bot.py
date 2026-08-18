@@ -7,6 +7,7 @@ the status dot both follow the server's state:
 
     green  (online)  Watching 14 players
     yellow (idle)    Watching save in progress
+    yellow (idle)    Watching server initializing
     red    (dnd)     Watching server offline
 
 Data comes from the game server's own `get_serverstatus` Topic command
@@ -17,8 +18,11 @@ without tripping abuse detection. It reads the same globals as
 can never disagree.
 
 Run it alongside the server, by hand or as a service. Nothing in the round
-depends on it; if the bot dies the game does not care, and if the game dies the
-bot goes red and keeps polling until it comes back.
+depends on it; if the bot dies the game does not care. If the game goes
+down (or is still coming up), the bot goes red/yellow and just keeps
+polling -- forever, no matter how long that takes -- and picks the session
+back up automatically the instant the server answers again. It never gives
+up and never needs a manual restart.
 
 Config: config/discord_status_bot.json -- see config/example/ for a documented
 template. config/ is gitignored in full, so the token stays out of the repo.
@@ -202,6 +206,19 @@ def format_presence(data, save_window=0):
     poll + timeout, so raising the poll interval cannot silently reopen the
     blind spot.
     """
+    # Still-initializing takes priority over everything else below. The world
+    # can answer Topic queries (a 200, not a connection failure) well before
+    # SSpersistence_world_ready finishes -- it's deliberately the LAST
+    # subsystem to Initialize(), after away sites/Z-levels/faction sweeps,
+    # which can take several minutes on its own. Without this check the bot
+    # would show a live player count/green during that whole window, which is
+    # misleading -- the world isn't actually open for play yet. Checked for
+    # PRESENCE, not just truthiness: an older game server that predates this
+    # field simply won't send it, and must not be permanently treated as
+    # "still initializing" forever just because the key is missing.
+    if "persistence_ready" in data and not _flag(data.get("persistence_ready")):
+        return "server initializing", "saving"
+
     players = data.get("players", 0)
     try:
         players = int(float(players))
@@ -452,10 +469,6 @@ def load_config():
         "timeout": max(1.0, float(cfg.get("timeout_seconds", 10))),
         # See the grace-window comment in the poll loop for why this is not 1.
         "offline_after": max(1, int(cfg.get("offline_after_failures", 3))),
-        # Watchdog: seconds unreachable before a --managed bot exits on its
-        # own. 300 is comfortably longer than a hard reboot takes to come back,
-        # so a round restart never trips it. 0 disables it entirely.
-        "exit_after_offline": max(0, int(cfg.get("exit_after_offline_seconds", 300))),
         # Milestone announcements are opt-in twice over: the explicit switch
         # must be on AND a channel must be set. Either left alone means the bot
         # behaves exactly as it did before, so an existing config that predates
@@ -489,9 +502,9 @@ def main():
     ap.add_argument("--port", type=int, help="Override game_port from the config.")
     ap.add_argument("--managed", action="store_true",
                     help="Marks this as a SERVER-started bot: writes the PID file so the "
-                         "server may stop it, and enables the self-exit watchdog. Passed "
-                         "by scripts/discord_bot_start. Run WITHOUT it and the server "
-                         "will never stop, reap or otherwise touch this bot.")
+                         "server may stop it. Passed by scripts/discord_bot_start. Run "
+                         "WITHOUT it and the server will never stop or otherwise touch "
+                         "this bot.")
     args = ap.parse_args()
 
     # --once needs no token, so don't demand one just to test connectivity.
@@ -546,9 +559,6 @@ def main():
     last = {"text": None, "state": None}
     # Consecutive failed polls, for the grace window below.
     misses = {"count": 0}
-    # When the server first went unreachable, for the watchdog below. None
-    # whenever the server is answering.
-    offline_since = {"at": None}
     # Has this bot EVER reached the server? Until it has, "unreachable" means
     # "not up yet", not "went down" -- see the cold-start handling in poll().
     contacted = {"ever": False}
@@ -670,13 +680,12 @@ def main():
         # Every line below runs inside this one try, right down to the final
         # apply() -- discord.py's @tasks.loop silently CANCELS the whole loop
         # on any exception it doesn't catch itself, with no further callback.
-        # The watchdog below only runs from the TopicError branch, so a loop
-        # that dies from something else would take the watchdog down with it
-        # -- an immortal --managed process that never reaps itself no matter
-        # how long the server stays gone, which defeats the entire point of
-        # having a watchdog in the first place. Catching Exception broadly
-        # here is deliberate: this loop's job is to keep running forever,
-        # cycle after cycle, and NOTHING it does justifies letting that stop.
+        # This bot is meant to poll forever, for however long the server stays
+        # down, with no self-termination and no manual restart ever required --
+        # so nothing this loop does may be allowed to quietly stop it running.
+        # Catching Exception broadly here is deliberate: this loop's job is to
+        # keep running forever, cycle after cycle, and NOTHING it does
+        # justifies letting that stop.
         try:
             # Off the event loop: fetch_status() is a blocking socket call, and
             # during a save the server can take the full timeout to answer.
@@ -686,8 +695,8 @@ def main():
             data = await asyncio.to_thread(fetch_status, host, port, cfg["timeout"])
         except Exception as e:
             if not isinstance(e, TopicError):
-                print(f"[poll] unexpected error (treating as a miss so the "
-                      f"watchdog still runs): {e!r}", flush=True)
+                print(f"[poll] unexpected error (treating as a miss so "
+                      f"polling keeps running): {e!r}", flush=True)
             # A failed poll is expected, not exceptional -- the server is down,
             # restarting, or busy. Crucially it does NOT immediately mean
             # "offline": BYOND is single-threaded and serves world.Topic() on
@@ -701,52 +710,25 @@ def main():
             # before declaring offline. A genuinely dead server still goes red,
             # just a poll or two later; a save-induced blip never shows at all.
             misses["count"] += 1
-            if offline_since["at"] is None:
-                offline_since["at"] = time.monotonic()
 
             # COLD START: the bot has never once reached the server. That is
             # not an outage, it is a server still coming up -- BYOND is
             # single-threaded and does not answer world.Topic() at all while
             # it initialises, which for a full persistence boot is a long time.
             #
-            # Two things must NOT happen while waiting for first contact:
-            #
-            #  * Reporting "server offline". The server is booting perfectly
-            #    normally, and saying it is down is simply false -- at exactly
-            #    the moment people are watching for it to come back.
-            #  * Running the watchdog. offline_since is set on the very first
-            #    failed poll, so a bot that starts before the server would
-            #    count down and REAP ITSELF mid-boot, then never return. That
-            #    is what made this look like "offline forever": the bot was
-            #    gone, not the server.
-            #
-            # So hold a neutral "waiting" state indefinitely until the server
-            # answers once. After that, every rule below applies normally --
-            # a server that genuinely dies later still goes red and is still
-            # watchdogged.
+            # Reporting "server offline" here would simply be false -- the
+            # server is booting perfectly normally, at exactly the moment
+            # someone is most likely to be watching for it to come back. So
+            # hold a neutral "waiting" state indefinitely until it answers
+            # once. There is no timeout on this, deliberately: the bot never
+            # gives up and never kills itself over an outage of any length,
+            # managed or hand-started -- it just keeps polling and picks the
+            # session back up the instant the server answers again, whether
+            # that's ten seconds or ten hours later.
             if not contacted["ever"]:
                 await apply("waiting for server", "saving")
                 print(f"[poll] no contact yet (server still starting?): {e}", flush=True)
                 return
-
-            # Watchdog. A server-started bot outlives its server whenever the
-            # server goes away by a route that never runs SSpersistence's
-            # Shutdown() -- DreamDaemon being closed directly, a taskkill, a
-            # crash. There is no reliable in-game hook for those, so the bot
-            # reaps itself instead.
-            #
-            # ONLY for --managed bots. One started by hand is meant to outlive
-            # the server for as long as its owner wants, and must never be
-            # reaped by this.
-            if args.managed and cfg["exit_after_offline"]:
-                gone_for = time.monotonic() - offline_since["at"]
-                if gone_for >= cfg["exit_after_offline"]:
-                    print(f"[watchdog] server unreachable for {int(gone_for)}s "
-                          f"(limit {cfg['exit_after_offline']}s) -- shutting down.",
-                          flush=True)
-                    poll.cancel()
-                    await client.close()
-                    return
 
             # Nothing to hold on to if we have never had a good poll (bot
             # started while the server was down), and nothing worth holding if
@@ -766,7 +748,6 @@ def main():
             return
 
         misses["count"] = 0
-        offline_since["at"] = None
         if not contacted["ever"]:
             contacted["ever"] = True
             print("[poll] first contact with the server -- normal reporting from here.",
@@ -774,12 +755,11 @@ def main():
         # A separate try from here down: the GAME poll already succeeded, so
         # nothing past this point is a connectivity miss -- an error in
         # announce()/apply() is a Discord-side problem (rate limit, bad
-        # permissions, a gateway hiccup), and must not be folded into
-        # misses/offline_since or it would make an unrelated Discord issue
-        # look like the game server going down, possibly even triggering the
-        # watchdog to kill a bot whose actual connection to the game is fine.
-        # It still can't be allowed to escape uncaught, for the same reason
-        # as the fetch above -- any escaping exception cancels this whole loop.
+        # permissions, a gateway hiccup), and must not be folded into misses
+        # or it would make an unrelated Discord issue look like the game
+        # server going down. It still can't be allowed to escape uncaught, for
+        # the same reason as the fetch above -- any escaping exception cancels
+        # this whole loop.
         try:
             # Only on a successful poll -- an unreachable server has no count.
             await announce(data.get("players", 0))
@@ -831,8 +811,8 @@ def main():
         sys.exit("ERROR: Discord rejected the token. Check 'token' in "
                  f"{CONFIG_PATH.relative_to(REPO).as_posix()}.")
     finally:
-        # Covers Ctrl-C, SIGTERM and the watchdog as well as a normal return --
-        # a stale lock would make the next start think a bot is still running.
+        # Covers Ctrl-C, SIGTERM and a normal return alike -- a stale lock
+        # would make the next start think a bot is still running.
         release_files()
     return 0
 
