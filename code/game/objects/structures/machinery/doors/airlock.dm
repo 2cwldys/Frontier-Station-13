@@ -1817,7 +1817,40 @@ About the new airlock wires panel:
 	else if(attacking_item.tool_behaviour == TOOL_WIRECUTTER)
 		return src.attack_hand(user)
 	else if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
-		return src.attack_hand(user)
+		// Wire panel open takes priority -- a multitool's normal job here is
+		// pulsing/probing wires (wires.interact(), reached via attack_hand()
+		// below), not buffer-linking. Only buffer/link while the panel is
+		// closed, same as a door button's own attackby() only ever deals with
+		// linking and never the wire dialog.
+		//
+		// NOTE: this used to also be defined a second time, separately, in
+		// airlock_control.dm -- two full definitions of the same proc on the
+		// same type, which DM silently resolves by discarding one of them
+		// entirely (no compile error/warning). That copy only handled the
+		// airlock-cycler-controller linking below; merged in here so there is
+		// now exactly one definition and neither feature can go silently dead
+		// again. See airlock_control.dm's _link_to_controller() doc comment.
+		if(src.p_open)
+			return src.attack_hand(user)
+		var/obj/item/multitool/MT = attacking_item
+		// Buffered door button (door_control.dm/blast_door_button.dm) --
+		// checked first, same non-invasive "extra consumer type" shape as the
+		// airlock cycler controller check right below, so buffering this door
+		// either applies just the same (whichever the multitool is used on
+		// second decides which link happens; neither check touches the other).
+		var/obj/structure/machinery/button/remote/blast_door/door_button = MT.get_buffer(/obj/structure/machinery/button/remote/blast_door)
+		if(door_button)
+			door_button._link_airlock(src, user)
+			MT.set_buffer(null)
+			return TRUE
+		var/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller = MT.get_buffer(/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller)
+		if(!controller)
+			MT.set_buffer(src)
+			to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
+			return TRUE
+		_link_to_controller(controller, user)
+		MT.set_buffer(null)
+		return TRUE
 	else if(istype(attacking_item, /obj/item/assembly/signaler))
 		return src.attack_hand(user)
 	else if(istype(attacking_item, /obj/item/paint_sprayer))

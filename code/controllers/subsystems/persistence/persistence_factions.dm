@@ -834,9 +834,16 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 	catch(var/exception/toggle_e)
 		log_subsystem_persistence_error("Factions: failed to load faction raiding toggle: [toggle_e]")
 
-/datum/controller/subsystem/persistence/proc/setFactionRaidingEnabled(enabled)
+/// persist = FALSE changes only the live global, leaving
+/// ss13_faction_raiding_toggle alone. Used by the automatic
+/// staff-presence suspension (raidingUpdateForStaffPresence(), below), which
+/// must not overwrite the setting staff chose by hand -- that stored value is
+/// exactly what a later restore reads back.
+/datum/controller/subsystem/persistence/proc/setFactionRaidingEnabled(enabled, persist = TRUE)
 	GLOB.faction_raiding_enabled = enabled
 	SSstatistics.update_status()
+	if(!persist)
+		return
 	if(!databaseCheckConnection("setFactionRaidingEnabled"))
 		return
 	var/datum/db_query/q = SSdbcore.NewQuery(
@@ -846,6 +853,107 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 	q.Execute()
 	databaseCheckQueryResult(q, "setFactionRaidingEnabled")
 	qdel(q)
+
+#ifdef AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
+
+/// TRUE if this client counts as supervising staff for raiding purposes.
+///
+/// Fakekey/stealthed staff deliberately still count: they are present and
+/// watching even though players cannot see them. That differs from
+/// get_serverstatus's admin figure, which excludes them -- but that is a
+/// public display count, and this is a supervision check.
+/proc/_raiding_staff_qualifies(client/C)
+	if(!C || !C.holder)
+		return FALSE
+	switch(GLOB.config?.raiding_staff_rights)
+		if("admin")
+			return C.holder.rights & R_ADMIN
+		if("mod")
+			return C.holder.rights & (R_ADMIN|R_MOD)
+	// "any", and anything unrecognised -- holding an admin datum at all.
+	return TRUE
+
+/// How many qualifying staff must be online. 0 and 1 both mean one is enough
+/// -- a minimum of zero would mean "never suspend", which is what leaving the
+/// compile gate undefined already does, so it is treated as 1 rather than
+/// silently disabling the feature from a config typo.
+/proc/_raiding_staff_minimum()
+	return max(1, GLOB.config?.raiding_staff_minimum || 1)
+
+/// Suspends faction raiding while too few staff are online, and restores it
+/// once enough return. Called from every GLOB.staff transition
+/// (client_procs.dm's connect/disconnect, holder2.dm's de-admin/re-admin) and
+/// once at boot.
+///
+/// The two config settings compose: RAIDING_STAFF_RIGHTS decides WHO counts,
+/// RAIDING_STAFF_MINIMUM decides HOW MANY of those are needed. So
+/// "admin" + 2 means two full admins, and a room full of mods will not
+/// satisfy it.
+///
+/// Idempotent by design: it fires on EVERY transition, so staff joining above
+/// the threshold must not overwrite the remembered pre-suspension value, and
+/// one leaving while enough remain must do nothing at all.
+///
+/// The suspension is live-only (persist = FALSE). Staff's own stored setting
+/// is left untouched in ss13_faction_raiding_toggle, which is what makes
+/// "staff deliberately turned raiding off" survive an unattended stretch
+/// instead of being silently re-enabled by whoever logs in next.
+///
+/// announce = FALSE suppresses the message_admins() chatter, for the boot-time
+/// evaluation: that runs inside Initialize() with nobody connected to read it.
+///
+/// MUST NOT be called inline from /client/New() or /client/Del() -- see the
+/// INVOKE_ASYNC call sites in client_procs.dm for why.
+/datum/controller/subsystem/persistence/proc/raidingUpdateForStaffPresence(announce = TRUE)
+	var/needed = _raiding_staff_minimum()
+	var/count = 0
+	for(var/client/C in GLOB.staff)
+		if(_raiding_staff_qualifies(C))
+			count++
+			if(count >= needed)
+				break
+
+	if(count >= needed)
+		if(!GLOB.faction_raiding_suspended)
+			return
+		GLOB.faction_raiding_suspended = FALSE
+		setFactionRaidingEnabled(GLOB.faction_raiding_presuspend, FALSE)
+		log_subsystem_persistence_info("Raiding: [count]/[needed] qualifying staff online -- restoring faction raiding to [GLOB.faction_raiding_presuspend ? "ENABLED" : "DISABLED"].")
+		if(announce)
+			// Same channel, same presentation and the same voice line the
+			// manual verb uses (toggle_faction_raiding(), below) -- an
+			// automatic change is exactly as visible as an admin's. Only the
+			// wording differs, so a player can tell at a glance whether a
+			// human made the call or the server did.
+			var/restored_on = GLOB.faction_raiding_presuspend
+			to_world(FONT_LARGE(EXAMINE_BLOCK_RED("Faction raiding has been automatically [restored_on ? SPAN_WARNING("re-enabled") : SPAN_GOOD("left disabled")] -- staff are online again.[restored_on ? "" : " Non-members still cannot enter claimed faction territory."]")))
+			play_announcer_voice_to_all(restored_on ? 'sound/AI/announcements/raiding_allowed.ogg' : 'sound/AI/announcements/raiding_prohibited.ogg')
+			// log_and_message_admins(), not bare message_admins(): this also
+			// runs log_admin(), which is what puts it in the admin log and
+			// mirrors it to the Discord admin-log webhook
+			// (EXPORT_ADMIN_LOG_TO_DISCORD). Same proc the manual verb uses.
+			// Passing null for the user is deliberate -- there is no acting
+			// mob, and null makes it log as "EVENT ..." rather than blaming
+			// whichever usr happened to be in scope on a timer.
+			log_and_message_admins("faction raiding automatically restored to [restored_on ? "ENABLED" : "DISABLED"] -- [count]/[needed] qualifying staff online.", null)
+		return
+
+	if(GLOB.faction_raiding_suspended)
+		return
+	GLOB.faction_raiding_suspended = TRUE
+	GLOB.faction_raiding_presuspend = GLOB.faction_raiding_enabled
+	setFactionRaidingEnabled(FALSE, FALSE)
+	log_subsystem_persistence_info("Raiding: only [count]/[needed] qualifying staff online -- faction raiding suspended (was [GLOB.faction_raiding_presuspend ? "ENABLED" : "DISABLED"]; stored setting untouched).")
+	if(announce)
+		// See the restore branch above -- same treatment as the manual verb,
+		// worded so it reads as automatic rather than as an admin's decision.
+		to_world(FONT_LARGE(EXAMINE_BLOCK_RED("Faction raiding has been automatically [SPAN_GOOD("disabled")] -- no staff are currently online.<br>Non-members can no longer enter claimed faction territory.")))
+		play_announcer_voice_to_all('sound/AI/announcements/raiding_prohibited.ogg')
+		// See the restore branch -- admin log + Discord admin-log webhook, not
+		// just in-game admin chat.
+		log_and_message_admins("faction raiding automatically SUSPENDED -- only [count]/[needed] qualifying staff online (stored setting [GLOB.faction_raiding_presuspend ? "ENABLED" : "DISABLED"] left untouched).", null)
+
+#endif
 
 /// Admin kill-switch: when disabled, non-members are blocked outright from
 /// entering any claimed (non-Hub) faction's own Z-level(s) -- see
@@ -909,11 +1017,28 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 		return
 
 	var/new_state = !GLOB.faction_raiding_enabled
-	if(tgui_alert(usr, "Faction raiding is currently [GLOB.faction_raiding_enabled ? "ENABLED" : "DISABLED"]. [new_state ? "Enable" : "Disable"] it? Disabling blocks non-members from entering any claimed faction's territory (Hub excluded).", "Toggle Faction Raiding", list("Yes", "No")) != "Yes")
+	// While a staff-presence suspension is active, "currently DISABLED" is
+	// indistinguishable from an admin having turned it off -- say which it is,
+	// otherwise the prompt is quietly misleading.
+	var/suspended_note = ""
+#ifdef AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
+	if(GLOB.faction_raiding_suspended)
+		suspended_note = " NOTE: raiding is currently AUTO-SUSPENDED because too few staff are online; the stored setting is [GLOB.faction_raiding_presuspend ? "ENABLED" : "DISABLED"] and will be restored when enough return."
+#endif
+	if(tgui_alert(usr, "Faction raiding is currently [GLOB.faction_raiding_enabled ? "ENABLED" : "DISABLED"]. [new_state ? "Enable" : "Disable"] it? Disabling blocks non-members from entering any claimed faction's territory (Hub excluded).[suspended_note]", "Toggle Faction Raiding", list("Yes", "No")) != "Yes")
 		return
 
 	SSpersistence.setFactionRaidingEnabled(new_state)
-	to_world(FONT_LARGE(EXAMINE_BLOCK_RED("Faction raiding has been [new_state ? SPAN_WARNING("enabled") : SPAN_GOOD("disabled")] by an administrator.[new_state ? "" : " Non-members can no longer enter claimed faction territory."]")))
+#ifdef AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
+	// A deliberate choice made DURING a suspension has to become the value the
+	// restore hands back, or the stale pre-suspension value silently undoes it
+	// the moment the next staff member connects. Only reachable when
+	// RAIDING_STAFF_MINIMUM is above 1 -- an admin can be online and the server
+	// still be under the threshold.
+	if(GLOB.faction_raiding_suspended)
+		GLOB.faction_raiding_presuspend = new_state
+#endif
+	to_world(FONT_LARGE(EXAMINE_BLOCK_RED("Faction raiding has been [new_state ? SPAN_WARNING("enabled") : SPAN_GOOD("disabled")] by an administrator.[new_state ? "" : "<br>Non-members can no longer enter claimed faction territory."]")))
 	play_announcer_voice_to_all(new_state ? 'sound/AI/announcements/raiding_allowed.ogg' : 'sound/AI/announcements/raiding_prohibited.ogg')
 	log_and_message_admins("[new_state ? "enabled" : "disabled"] faction raiding.", usr)
 

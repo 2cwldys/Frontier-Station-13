@@ -39,8 +39,10 @@
 		var/turf/T = get_turf(src)
 		if(!istype(T))
 			return
-		add_underlay(T, node1, get_dir(src, node1))
-		add_underlay(T, node2, get_dir(src, node2))
+		// Neighbour's pipe flavour, not the plain default -- see the same fix on
+		// tvalve.dm's update_underlays().
+		add_underlay(T, node1, get_dir(src, node1), node1?.icon_connect_type)
+		add_underlay(T, node2, get_dir(src, node2), node2?.icon_connect_type)
 
 /obj/structure/machinery/atmospherics/valve/hide(var/i)
 	update_underlays()

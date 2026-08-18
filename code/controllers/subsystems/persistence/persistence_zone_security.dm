@@ -536,6 +536,20 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 		if(length(GLOB.highsec_offense_log) > HIGHSEC_OFFENSE_LOG_MAX)
 			GLOB.highsec_offense_log.Cut(1, 2)
 		zone_security_alert_responders(attacker, anchor)
+		// Mirrored to the law-enforcement channel on the SAME path as the PDA
+		// alert -- i.e. only for offenses that actually got tracked, past the
+		// per-attacker cooldown above. Posting alongside the message_admins()
+		// at the top instead would re-fire on every blow of a sustained
+		// beating and flood the channel with one incident.
+		// Character names, not key_name() -- this is an in-character security
+		// feed, and key_name() leads with the ckey ("ckey/(Character Name)")
+		// which is accountability information for the admin log, not something
+		// a responding officer reads. The admin-facing message_admins() above
+		// still carries the full key_name for exactly that reason.
+		var/area/offense_area = get_area(anchor)
+		var/attacker_name = attacker ? (attacker.real_name || attacker.name) : "Unknown"
+		var/victim_name = victim ? (victim.real_name || victim.name) : "Unknown"
+		log_law_enforcement("[attacker_name] against [victim_name] in [offense_area ? offense_area.name : "unknown location"]: [admin_message]", "Highsec offense")
 
 /// ckey -> world.time of their last distress call. Separate from the offense
 /// tracking map so a distress can't be swallowed by an unrelated offense cooldown.
@@ -577,6 +591,7 @@ GLOBAL_LIST_EMPTY(hub_distress_last_called)
 		GLOB.highsec_offense_log.Cut(1, 2)
 	// Same PDA-beep alert path a normal offense uses (zone_security_alert_responders below).
 	zone_security_alert_responders(caller, caller, "DISTRESS CALL: [caller.name] requests Hub security in [A ? A.name : "unknown location"]! Open First Responder to respond.")
+	log_law_enforcement("[caller.real_name || caller.name] requests Hub security in [A ? A.name : "unknown location"].", "Distress call")
 	return TRUE
 
 /// ckey -> world.time of their last recorded death emergency. Separate from

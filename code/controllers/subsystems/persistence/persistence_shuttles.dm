@@ -160,6 +160,48 @@ GLOBAL_VAR_INIT(drydock_op_active, FALSE)
 /// is mid-retrieve/stash somewhere else.
 GLOBAL_VAR_INIT(drydock_op_active_shuttle_id, null)
 
+/// Per-instance uniqueness suffix (e.g. "#42") applied to every shuttle datum
+/// name and landable marker created during a drydock template load, so more
+/// than one hull of the same class can be deployed at once.
+///
+/// Shuttle datum names and the home landmark tags derived from them
+/// (/obj/effect/shuttle_landmark/ship/Initialize() builds "ship_[shuttle_name]")
+/// are otherwise per-TEMPLATE: a second instance made /datum/shuttle/New()
+/// hard-CRASH on the duplicate name, and made register_landmark() silently
+/// skip the second ship's landmark so it believed it was parked where the
+/// first one was. Naming has to be unique BEFORE the load builds any of that,
+/// which is why this is a load-scoped global rather than the post-load rename
+/// that drydockRetrieve() already does.
+///
+/// Set immediately before template.load_new_z()/load_into_z() and cleared
+/// immediately after -- that whole call is synchronous through init_atoms()
+/// and init_shuttles(), so the window never spans a yield.
+GLOBAL_VAR_INIT(drydock_loading_suffix, null)
+
+/// Area instances created for the drydock load currently in flight, keyed by
+/// area type. Populated by the maploader (reader.dm) and consumed by
+/// /datum/shuttle/New() (shuttle.dm); cleared with the suffix above.
+///
+/// BYOND areas are singletons keyed by type (GLOB.areas_by_type), so two hulls
+/// of the same class would otherwise share one set of area objects -- and
+/// everything area-scoped (ownership checks, APC/power, atmos alarms) would
+/// treat both as a single ship. Giving each drydock load its own area
+/// instances is what makes same-class deployment actually independent rather
+/// than merely non-crashing. Safe to clone: /area/New() (areas.dm) only
+/// records the FIRST instance of a type as canonical, so extra instances never
+/// displace it.
+GLOBAL_LIST_EMPTY(drydock_loading_areas)
+
+/// Appends GLOB.drydock_loading_suffix to a name when a drydock load is in
+/// flight, skipping names that already carry it (a retrieve of an already
+/// suffixed hull, or the post-load rename running over the top).
+/proc/drydock_apply_instance_suffix(base_name)
+	if(!GLOB.drydock_loading_suffix || !base_name)
+		return base_name
+	if(findtext(base_name, GLOB.drydock_loading_suffix))
+		return base_name
+	return "[base_name] [GLOB.drydock_loading_suffix]"
+
 /// Pending retrieve/stash requests that arrived while drydock_op_active was
 /// TRUE, each an assoc list of the args needed to re-invoke the matching
 /// public proc. Drained one at a time by _drydockProcessNextQueued().
@@ -314,6 +356,27 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		var/user_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
 		return user_faction == title_faction_uid
 	return title_ckey && user.ckey == title_ckey && user.real_name == title_char_name
+
+/// Who may sign this ship's title over to someone else.
+///
+/// Deliberately stricter than is_title_holder() for FACTION-titled ships:
+/// that check is plain membership, which is right for "is this your ship"
+/// questions (stolen-flag clearing, examining) but would let any rank-0
+/// civilian member give away faction property. Signing over a faction ship
+/// requires officer (rank 1) or command (rank 2) --
+/// can_configure_faction_shackle()'s standard "officer or better" idiom, which
+/// also covers a faction master card holder.
+///
+/// Personally-titled ships are unchanged: only their own title holder.
+/// Admins always.
+/datum/drydock_ship/proc/can_transfer_title(mob/user)
+	if(check_rights(R_ADMIN, 0, user))
+		return TRUE
+	if(!user)
+		return FALSE
+	if(title_faction_uid)
+		return can_configure_faction_shackle(user, title_faction_uid, 1)
+	return is_title_holder(user)
 
 /// Shown everywhere a ship's own name appears (overmap marker, admin logs,
 /// chat messages, the Drydock program's own list, the schematic item's own
@@ -1007,47 +1070,74 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 /// Lets shuttle_id's CURRENT owner (not necessarily its permanent
 /// title-holder -- see the gate below) formally sign the ship's title over
-/// to someone else -- console-only (requires the ship already banked), the
-/// deliberate "sign over the title" counterpart to just physically handing
-/// someone the schematic (which, per is_title_holder(), never moves title on
-/// its own). Personal-target only. Refuses outright while reported_stolen --
+/// to someone else -- driven from the schematic's own UI, the deliberate
+/// "sign over the title" counterpart to just physically handing someone the
+/// schematic (which, per is_title_holder(), never moves title on its own).
+/// The recipient may be a single character (target_ckey/target_char_name) or
+/// a whole faction (target_faction_uid); ownership follows title either way.
+/// Refuses outright while reported_stolen --
 /// handing off a stolen ship is still handing off a stolen ship, so this can
 /// never be used to launder one; it only ever succeeds on a ship that was
 /// never stolen (or already recovered by its title-holder, clearing the
 /// flag), never as a shortcut around that.
-/datum/controller/subsystem/persistence/proc/drydockGiveSchematic(shuttle_id, target_ckey, target_char_name, mob/user)
+/datum/controller/subsystem/persistence/proc/drydockGiveSchematic(shuttle_id, target_ckey, target_char_name, mob/user, target_faction_uid = null)
 	var/acting = user ? key_name(user) : "SYSTEM"
 	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
-	if(!DS || !DS.schematic_banked || DS.repossessed)
+	// schematic_banked is deliberately NOT required any more: this is now
+	// driven from the physical schematic's own UI (ship_schematic.dm), so the
+	// schematic is in the holder's hand rather than banked in a console.
+	if(!DS || DS.repossessed)
 		return FALSE
-	// Gated on the CURRENT owner identity, same as drydockWithdrawSchematic()'s
-	// caller-side check -- NOT the permanent title. Whoever the system
-	// currently recognizes as owner controls this ship's fate, including a
-	// thief who successfully banked a stolen ship (drydockBankSchematic()
-	// already reassigned current ownership to them). The title-holder alone,
-	// having lost current ownership, has no say here anymore.
-	if(!(check_rights(R_ADMIN, 0, user) || (DS.owner_ckey == user.ckey && DS.owner_char_name == user.real_name) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
+	// Gated on the PERMANENT title holder, not current ownership. The old
+	// console action let whoever currently owned the hull sign the title over,
+	// which meant a thief who banked a stolen ship could launder its
+	// provenance. is_title_holder() covers both the personally-titled and
+	// faction-titled cases.
+	if(!DS.can_transfer_title(user))
 		if(user)
-			to_chat(user, SPAN_WARNING("You don't have permission to give away this ship's title."))
-		log_drydock_warning("drydockGiveSchematic: refused -- [acting] isn't the current owner of shuttle_id=[shuttle_id].")
+			to_chat(user, DS.title_faction_uid \
+				? SPAN_WARNING("Only an officer or command member of [get_faction_name(DS.title_faction_uid)] can sign this ship's title over.") \
+				: SPAN_WARNING("Only this ship's title holder can sign its title over."))
+		log_drydock_warning("drydockGiveSchematic: refused -- [acting] may not transfer the title of shuttle_id=[shuttle_id].")
 		return FALSE
 	if(DS.reported_stolen && !check_rights(R_ADMIN, 0, user))
 		if(user)
 			to_chat(user, SPAN_WARNING("This ship is reported stolen -- its title can't be legitimately transferred until it's back with its rightful owner."))
 		log_drydock_warning("drydockGiveSchematic: refused -- shuttle_id=[shuttle_id] is reported_stolen (acting=[acting]).")
 		return FALSE
-	target_ckey = ckey(target_ckey)
-	if(!target_ckey || !target_char_name)
-		return FALSE
+	// Two mutually exclusive targets. target_faction_uid signs the ship over to
+	// a faction as a whole (title AND current ownership both become the
+	// faction's, and the personal identity columns are cleared); otherwise the
+	// ckey/char_name pair names one character. Ownership follows title in both
+	// cases -- a transfer hands over the ship, not just its provenance.
+	var/datum/db_query/q
+	if(target_faction_uid)
+		target_faction_uid = normalize_faction_uid(target_faction_uid)
+		if(!target_faction_uid || !(target_faction_uid in GLOB.persistence_faction_cache))
+			if(user)
+				to_chat(user, SPAN_WARNING("That faction doesn't exist."))
+			return FALSE
+		if(!databaseCheckConnection("drydockGiveSchematic"))
+			if(user)
+				to_chat(user, SPAN_WARNING("Database connection failed."))
+			return FALSE
+		q = SSdbcore.NewQuery(
+			"UPDATE ss13_drydock_ships SET title_ckey = NULL, title_char_name = NULL, title_faction_uid = :fid, owner_ckey = NULL, owner_char_name = NULL, faction_uid = :fid, reported_stolen = 0 WHERE shuttle_id = :id",
+			list("fid" = target_faction_uid, "id" = shuttle_id)
+		)
+	else
+		target_ckey = ckey(target_ckey)
+		if(!target_ckey || !target_char_name)
+			return FALSE
+		if(!databaseCheckConnection("drydockGiveSchematic"))
+			if(user)
+				to_chat(user, SPAN_WARNING("Database connection failed."))
+			return FALSE
+		q = SSdbcore.NewQuery(
+			"UPDATE ss13_drydock_ships SET title_ckey = :ck, title_char_name = :cn, title_faction_uid = NULL, owner_ckey = :ck, owner_char_name = :cn, faction_uid = NULL, reported_stolen = 0 WHERE shuttle_id = :id",
+			list("ck" = target_ckey, "cn" = target_char_name, "id" = shuttle_id)
+		)
 
-	if(!databaseCheckConnection("drydockGiveSchematic"))
-		if(user)
-			to_chat(user, SPAN_WARNING("Database connection failed."))
-		return FALSE
-	var/datum/db_query/q = SSdbcore.NewQuery(
-		"UPDATE ss13_drydock_ships SET title_ckey = :ck, title_char_name = :cn, title_faction_uid = NULL, owner_ckey = :ck, owner_char_name = :cn, faction_uid = NULL, reported_stolen = 0 WHERE shuttle_id = :id",
-		list("ck" = target_ckey, "cn" = target_char_name, "id" = shuttle_id)
-	)
 	q.Execute()
 	if(!databaseCheckQueryResult(q, "drydockGiveSchematic update"))
 		qdel(q)
@@ -1056,17 +1146,42 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return FALSE
 	qdel(q)
 
-	DS.title_ckey = target_ckey
-	DS.title_char_name = target_char_name
-	DS.title_faction_uid = null
-	DS.owner_ckey = target_ckey
-	DS.owner_char_name = target_char_name
-	DS.faction_uid = null
+	if(target_faction_uid)
+		DS.title_ckey = null
+		DS.title_char_name = null
+		DS.title_faction_uid = target_faction_uid
+		DS.owner_ckey = null
+		DS.owner_char_name = null
+		DS.faction_uid = target_faction_uid
+	else
+		DS.title_ckey = target_ckey
+		DS.title_char_name = target_char_name
+		DS.title_faction_uid = null
+		DS.owner_ckey = target_ckey
+		DS.owner_char_name = target_char_name
+		DS.faction_uid = null
 	DS.reported_stolen = FALSE
 
+	// Wipe the crew roster along with the title. Boarding rights resolve as
+	// owned_by() OR faction match OR membership of crew_ckeys
+	// (_drydock_full_access_check(), telepad_drydock_boarding.dm) -- so
+	// reassigning ownership alone left the PREVIOUS owner and everyone they
+	// had added still able to board, and still hearing that ship's boarding
+	// audio. The new title holder starts with a clean roster and re-adds whom
+	// they want via the schematic's own Add Crew.
+	var/datum/db_query/crew_wipe = SSdbcore.NewQuery(
+		"DELETE FROM ss13_ship_crew WHERE shuttle_id = :id",
+		list("id" = shuttle_id)
+	)
+	crew_wipe.Execute()
+	databaseCheckQueryResult(crew_wipe, "drydockGiveSchematic crew wipe")
+	qdel(crew_wipe)
+	DS.crew_ckeys = list()
+
+	var/recipient_desc = target_faction_uid ? "[get_faction_name(target_faction_uid)] (faction)" : "'[target_char_name]' ([target_ckey])"
 	if(user)
-		to_chat(user, SPAN_GOOD("Title for [DS.display_name()] transferred to '[target_char_name]'."))
-	log_drydock("drydockGiveSchematic: [acting] transferred title for shuttle_id=[shuttle_id] to '[target_char_name]' ([target_ckey]).")
+		to_chat(user, SPAN_GOOD("Title for [DS.display_name()] transferred to [recipient_desc]. Its crew roster has been cleared."))
+	log_drydock("drydockGiveSchematic: [acting] transferred title for shuttle_id=[shuttle_id] to [recipient_desc].")
 	return TRUE
 
 /// Reverses drydockBankSchematic() -- mints a fresh /obj/item/ship_schematic
@@ -1865,6 +1980,12 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	var/new_z
 	var/bounds
 	SSair.can_fire = FALSE
+	// Same per-instance naming the retrieve path uses -- a commissioned hull
+	// is built from the same shared shell template as every other one, so
+	// without this the second commission collides exactly as a second
+	// retrieve would. See GLOB.drydock_loading_suffix.
+	GLOB.drydock_loading_suffix = "#[new_id]"
+	GLOB.drydock_loading_areas = list()
 	if(pool_z)
 		bounds = template.load_into_z(pool_z, TRUE)
 		new_z = pool_z
@@ -1872,6 +1993,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		var/z_before = world.maxz
 		bounds = template.load_new_z(FALSE, TRUE)
 		new_z = z_before + 1
+	GLOB.drydock_loading_suffix = null
+	// Cleared only AFTER the load returns -- init_shuttles() runs inside it,
+	// and /datum/shuttle/New() reads this list to bind its own areas.
+	GLOB.drydock_loading_areas = list()
 	SSair.can_fire = TRUE
 	if(!bounds)
 		GLOB.drydock_ships -= "[new_id]"
@@ -2359,11 +2484,12 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			to_chat(user, SPAN_WARNING("Rename this ship before retrieving it -- use the schematic's Rename Ship option."))
 		log_drydock_warning("drydockRetrieve: refused -- shuttle_id=[shuttle_id] hasn't been renamed from its default yet (acting=[acting]).")
 		return FALSE
-	if(ship_template_already_deployed(DS.template_id))
-		if(user)
-			to_chat(user, SPAN_WARNING("A ship of this class is already deployed somewhere -- stash it first."))
-		log_drydock_warning("drydockRetrieve: refused -- template '[DS.template_id]' already has a deployed instance (acting=[acting]).")
-		return FALSE
+	// The old "a ship of this class is already deployed" refusal lived here.
+	// It existed only because shuttle datum names and their derived landmark
+	// tags were per-TEMPLATE; GLOB.drydock_loading_suffix now makes both
+	// per-instance at load time, so any number of hulls of one class can be
+	// deployed at once. The per-OWNER limit immediately below is unrelated and
+	// still applies.
 	var/datum/drydock_ship/other_deployed = _drydock_owner_other_deployed_ship(DS)
 	if(other_deployed)
 		if(user)
@@ -2485,6 +2611,13 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	var/new_z
 	var/bounds
 	SSair.can_fire = FALSE
+	// Per-instance naming for everything this load creates -- the shuttle
+	// datum(s) and the landable marker, which in turn names the home landmark.
+	// Without it a second hull of the same class CRASHes on the duplicate
+	// shuttle name and loses its landmark to the first one's tag. Cleared
+	// immediately after the load, before any of the failure returns below.
+	GLOB.drydock_loading_suffix = "#[shuttle_id]"
+	GLOB.drydock_loading_areas = list()
 	if(pool_z)
 		bounds = template.load_into_z(pool_z, TRUE)
 		new_z = pool_z
@@ -2492,6 +2625,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		var/z_before = world.maxz
 		bounds = template.load_new_z(FALSE, TRUE)
 		new_z = z_before + 1
+	GLOB.drydock_loading_suffix = null
+	// Cleared only AFTER the load returns -- init_shuttles() runs inside it,
+	// and /datum/shuttle/New() reads this list to bind its own areas.
+	GLOB.drydock_loading_areas = list()
 	SSair.can_fire = TRUE
 	if(!bounds)
 		DS.stashed = TRUE // revert -- retrieve never actually happened

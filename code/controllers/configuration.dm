@@ -400,6 +400,30 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 	var/client_warn_version = 0
 	var/client_warn_message = ""
 	var/list/client_blacklist_version = list()
+	/// Minimum BYOND *build* (the 1687 of 516.1687) a client may connect with.
+	/// 0 disables the gate. Distinct from client_error_version above, which
+	/// only ever sees the major version (516) and so cannot express "516.1687
+	/// or later". Enforced in client_procs.dm; SSpersistence.min_client_build
+	/// overrides this at runtime when set.
+	var/min_client_build = 0
+	var/min_client_build_message = ""
+
+	/// Which staff presence keeps faction raiding available while
+	/// AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED is defined (_compile_options.dm).
+	/// "any" (default) counts anyone holding an admin datum, "mod" requires
+	/// R_ADMIN or R_MOD, "admin" requires R_ADMIN. See
+	/// raidingUpdateForStaffPresence() (persistence_factions.dm).
+	var/raiding_staff_rights = "any"
+	/// How many qualifying staff must be online to keep faction raiding
+	/// available. 0 and 1 both mean "one is enough"; higher values require a
+	/// fuller staff presence. See raidingUpdateForStaffPresence().
+	var/raiding_staff_minimum = 1
+
+	/// Minutes between uses of the "Advertise to Players" admin verb
+	/// (persistence_advertise.dm). Shared by all admins, not per-admin -- the
+	/// point is to rate-limit an @here ping, which a per-admin allowance would
+	/// defeat. 0 disables the cooldown entirely.
+	var/advertise_cooldown_minutes = 30
 
 	//Mark-up enabling
 	var/allow_chat_markup = 0
@@ -1002,6 +1026,21 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 
 				if("client_blacklist_version")
 					GLOB.config.client_blacklist_version = splittext(value, ";")
+
+				if("min_client_build")
+					GLOB.config.min_client_build = text2num(value)
+
+				if("min_client_build_message")
+					GLOB.config.min_client_build_message = value
+
+				if("raiding_staff_rights")
+					GLOB.config.raiding_staff_rights = lowertext(value)
+
+				if("raiding_staff_minimum")
+					GLOB.config.raiding_staff_minimum = text2num(value)
+
+				if("advertise_cooldown_minutes")
+					GLOB.config.advertise_cooldown_minutes = text2num(value)
 
 				if("allow_chat_markup")
 					GLOB.config.allow_chat_markup = 1

@@ -152,40 +152,12 @@
 			SSpersistence.drydockWithdrawSchematic(shuttle_id, user)
 			return TRUE
 
-		if("give_schematic")
-			// Same CURRENT owner identity gate as withdraw_schematic above --
-			// whoever the system currently recognizes as this ship's owner
-			// controls its fate, including a thief who successfully banked a
-			// stolen ship. The permanent title never grants this on its own.
-			var/shuttle_id = text2num(params["shuttle_id"])
-			var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
-			if(!DS)
-				return TRUE
-			if(!(check_rights(R_ADMIN, 0, user) || (DS.owner_ckey == user.ckey && DS.owner_char_name == user.real_name) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
-				to_chat(user, SPAN_WARNING("You don't have permission to give away this ship's title."))
-				log_drydock_warning("drydock ui_act: [key_name(user)] lacks permission to give the title for shuttle_id=[shuttle_id].")
-				return TRUE
-			// Handing off a stolen ship is still handing off a stolen ship --
-			// refuse outright rather than let this launder reported_stolen.
-			if(DS.reported_stolen && !check_rights(R_ADMIN, 0, user))
-				to_chat(user, SPAN_WARNING("This ship is reported stolen -- its title can't be legitimately transferred until it's back with its rightful owner."))
-				log_drydock_warning("drydock ui_act: [key_name(user)] tried to give away reported_stolen shuttle_id=[shuttle_id].")
-				return TRUE
-			// Same two-prompt ckey + exact-character-name pattern as
-			// ship_schematic.dm's "add_crew" -- title is a character
-			// identity, not an account.
-			var/target_ckey = tgui_input_text(user, "Ckey to give this ship's title to:", "Give Title", "", max_length = 32)
-			if(!target_ckey)
-				return TRUE
-			// encode = FALSE -- identity key compared raw against real_name
-			// elsewhere, not display text. See ship_schematic.dm's own
-			// "add_crew" comment for the same reasoning.
-			var/target_char_name = tgui_input_text(user, "Exact character name for '[target_ckey]' to title the ship to:", "Give Title", "", max_length = 64, encode = FALSE)
-			if(!target_char_name)
-				return TRUE
-			log_drydock("drydock ui_act: [key_name(user)] requested give_schematic for shuttle_id=[shuttle_id] to '[target_char_name]' ([target_ckey]).")
-			SSpersistence.drydockGiveSchematic(shuttle_id, target_ckey, target_char_name, user)
-			return TRUE
+		// "give_schematic" deliberately no longer lives here -- title transfer
+		// moved to the schematic item's own UI (ship_schematic.dm), where it is
+		// gated on the PERMANENT title holder (is_title_holder()) rather than
+		// whoever currently happens to own the hull. Handing over provenance is
+		// the title holder's call alone; a thief who banked a stolen ship
+		// should not be able to launder the title from any console.
 
 		if("board")
 			log_drydock("drydock ui_act: [key_name(user)] requested Enter Ship.")

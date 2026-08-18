@@ -12,14 +12,18 @@
 	if (use_check_and_message(user))
 		return
 
+	// Messages match the sprite each branch actually switches TO -- they used
+	// to be the wrong way round, so the balaclava announced "roll up" as it
+	// went down and vice versa. Only the text was inverted; the sprites and
+	// the concealment flags below were already correct for their states.
 	if(src.icon_state == initial(icon_state))
 		src.icon_state = "[icon_state]_r"
-		to_chat(user, "You roll up \the [src].")
+		to_chat(user, "You lower \the [src].")
 		body_parts_covered = HEAD
 		flags_inv = BLOCKHAIR
 	else
 		src.icon_state = initial(icon_state)
-		to_chat(user, "You lower \the [src].")
+		to_chat(user, "You roll up \the [src].")
 		flags_inv = HIDEFACE|BLOCKHAIR
 		body_parts_covered = HEAD|FACE|EYES
 

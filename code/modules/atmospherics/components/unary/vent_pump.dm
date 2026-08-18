@@ -451,12 +451,20 @@
 	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
 		var/obj/item/multitool/MT = attacking_item
 		var/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller = MT.get_buffer(/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller)
-		if(!controller)
-			MT.set_buffer(src)
-			to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
+		if(controller)
+			controller._link_to_airpump(src, user)
+			MT.set_buffer(null)
 			return TRUE
-		controller._link_to_airpump(src, user)
-		MT.set_buffer(null)
+		// Tank control console (atmo_control.dm) -- an additional consumer of a
+		// buffered vent pump, checked alongside the cycler above rather than
+		// replacing it, so this pump can serve as a console's Output.
+		var/obj/structure/machinery/computer/general_air_control/large_tank_control/tank_console = MT.get_buffer(/obj/structure/machinery/computer/general_air_control/large_tank_control)
+		if(tank_console)
+			tank_console._link_atmos_device(src, user)
+			MT.set_buffer(null)
+			return TRUE
+		MT.set_buffer(src)
+		to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
 		return TRUE
 
 	if(attacking_item.tool_behaviour == TOOL_WELDER)

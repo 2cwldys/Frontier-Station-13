@@ -39,6 +39,43 @@ GLOBAL_VAR_INIT(hub_law_text, "")
 /// across restarts via ss13_auto_backup_toggle.
 GLOBAL_VAR_INIT(auto_backup_on_autosave, FALSE)
 
+/// Runtime override for config.txt's MIN_CLIENT_BUILD -- the minimum BYOND
+/// build (the 1687 of 516.1687) a client may connect with. 0 means "no
+/// override", in which case the config value applies. Exists because config
+/// is only read once at startup (configuration.dm load()), so without this a
+/// change to the minimum would need a server restart. Admin-set
+/// (set_min_client_build(), persistence_client_build.dm), persists across
+/// restarts via ss13_min_client_build, enforced in client_procs.dm.
+GLOBAL_VAR_INIT(min_client_build_override, 0)
+
+/// TRUE when the CALLER of /world/Reboot() (world.dm) asked for a genuine,
+/// process-ending shutdown, FALSE when it's a soft round reboot the world
+/// comes straight back from. Set immediately before Master.Shutdown(),
+/// because a subsystem's Shutdown() runs identically for both and cannot
+/// tell them apart otherwise. Defaults TRUE so a shutdown path that never
+/// went through Reboot() still cleans up rather than silently leaking a
+/// child process.
+///
+/// Deliberately the CALLER's original request, not whether BYOND actually
+/// went on to perform an OS-level restart -- Reboot() also forces its own
+/// local hard_reset FALSE whenever TGS isn't available (a real OS restart
+/// is unsafe with nothing present to relaunch the process), which is a
+/// different question with a different answer: on any non-TGS deployment,
+/// using that post-override value here made this permanently FALSE on
+/// every single shutdown, soft or genuinely final, silently skipping the
+/// Discord bot stop below every time.
+GLOBAL_VAR_INIT(world_shutdown_is_hard, TRUE)
+
+/// TRUE while faction raiding is suspended because no staff are online
+/// (AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED, _compile_options.dm). Separate from
+/// GLOB.faction_raiding_enabled so the two states stay distinguishable:
+/// "off because staff turned it off" and "off because nobody is watching" get
+/// restored very differently.
+GLOBAL_VAR_INIT(faction_raiding_suspended, FALSE)
+/// The value GLOB.faction_raiding_enabled held when suspension began, restored
+/// when staff return. Meaningless unless faction_raiding_suspended is TRUE.
+GLOBAL_VAR_INIT(faction_raiding_presuspend, TRUE)
+
 /// Z levels whose numbers appear in this list are SKIPPED by turf/object/worldstate persistence.
 /// Populated from ss13_zlevel_persistence WHERE enabled = 0 at startup.
 /// Empty by default = all Z levels persist.
@@ -120,6 +157,15 @@ SUBSYSTEM_DEF(persistence)
 	flags = SS_POST_FIRE_TIMING
 	var/prevent_saving = FALSE // Toggle to prevent saving at round end, changed by toggle_persistence proc, used for admin purposes.
 	var/save_in_progress = FALSE // Set TRUE while a save is running to prevent concurrent saves.
+	/// world.realtime the last save finished, or 0 if none has this round.
+	///
+	/// Exists because save_in_progress alone is unobservable from outside: a
+	/// full save runs ~18s and external status pollers sample far less often
+	/// than that, so the flag is almost always already back to FALSE by the
+	/// time anyone looks. get_serverstatus (server_query.dm) reports the age of
+	/// this instead, which a poller can use to notice a save it never actually
+	/// caught in progress.
+	var/last_save_completed = 0
 	var/autosave_paused = FALSE
 	var/autosave_pause_remaining = 0
 	/// TRUE only when _autosave_empty_reconcile() (below) is what caused the
@@ -185,6 +231,7 @@ SUBSYSTEM_DEF(persistence)
 		log_and_message_admins("EVENT periodic persistence autosave FAILED: [e]", null)
 
 	save_in_progress = FALSE
+	last_save_completed = world.realtime
 	SSstatistics.update_status()
 	log_subsystem_persistence_info("Persistence: Periodic save complete.")
 	to_world(SPAN_GOOD(SPAN_BOLD("World save complete.")))
@@ -254,6 +301,7 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_error("Lobby-empty autosave failed: [e]")
 		log_and_message_admins("EVENT lobby-empty persistence autosave FAILED: [e]", null)
 	save_in_progress = FALSE
+	last_save_completed = world.realtime
 	log_subsystem_persistence_info("Persistence: Lobby-empty autosave complete.")
 	// Discord-only (log_admin(), not log_and_message_admins()) -- this proc
 	// is deliberately silent to players/live chat (nobody's left in a body
@@ -512,6 +560,7 @@ SUBSYSTEM_DEF(persistence)
 		to_chat(usr, SPAN_WARNING("Persistence save failed partway through -- see the persistence log. save_in_progress has still been cleared."))
 
 	SSpersistence.save_in_progress = FALSE
+	SSpersistence.last_save_completed = world.realtime
 	// Same post-save queue kick as the periodic fire() -- stash/retrieve
 	// requests that arrived during this save are waiting on it.
 	SSpersistence._drydockProcessNextQueued()
@@ -781,6 +830,19 @@ SUBSYSTEM_DEF(persistence)
  */
 /datum/controller/subsystem/persistence/Initialize()
 	. = ..()
+	// Cleared here, at the START of boot, not just left however the LAST
+	// round left it. GLOB.persistence_ready only ever gets set TRUE, by
+	// start_persistent_world() (ticker.dm) at the very END of boot -- fine
+	// on a genuine fresh process start (every global begins at its declared
+	// initial value regardless), but this server has no TGS, and
+	// /world/Reboot() (world.dm) forces every restart to be a SOFT reboot
+	// (same process, same memory) whenever TGS is unavailable. A soft
+	// reboot re-runs every subsystem's Initialize() but never resets an
+	// already-TRUE global on its own, so without this the flag stays stuck
+	// TRUE from the previous round for this new round's entire boot --
+	// get_serverstatus (server_query.dm) would report the world as fully
+	// ready long before it actually is, on every round after the first.
+	GLOB.persistence_ready = FALSE
 	if(!GLOB.config.sql_enabled)
 		log_subsystem_persistence_warning("SQL configuration not enabled. Persistence subsystem requires SQL. Skipping init.")
 		return SS_INIT_SUCCESS
@@ -979,6 +1041,19 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/faction_raiding_toggle_e)
 		log_subsystem_persistence_panic("Unhandled exception during faction raiding toggle initialization: [faction_raiding_toggle_e]")
 
+#ifdef AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
+	// Immediately after the stored value is loaded, so a server that boots
+	// unattended starts suspended rather than waiting for the first staff
+	// transition to notice. Any staff already connected keeps it as loaded.
+	try
+		// announce = FALSE -- this runs inside Initialize() with nobody
+		// connected to read a message_admins(); the subsystem log line is the
+		// useful record at boot.
+		raidingUpdateForStaffPresence(FALSE)
+	catch(var/exception/raiding_presence_e)
+		log_subsystem_persistence_error("Unhandled exception during raiding staff-presence evaluation: [raiding_presence_e]")
+#endif
+
 	log_subsystem_persistence_info("Starting hub law text initialization...")
 	try
 		hubLawTextInitialize()
@@ -990,6 +1065,12 @@ SUBSYSTEM_DEF(persistence)
 		autoBackupToggleInitialize()
 	catch(var/exception/auto_backup_toggle_e)
 		log_subsystem_persistence_panic("Unhandled exception during auto-backup-on-autosave toggle initialization: [auto_backup_toggle_e]")
+
+	log_subsystem_persistence_info("Starting minimum client build initialization...")
+	try
+		minClientBuildInitialize()
+	catch(var/exception/min_client_build_e)
+		log_subsystem_persistence_panic("Unhandled exception during minimum client build initialization: [min_client_build_e]")
 
 	log_subsystem_persistence_info("Starting stock market initialization...")
 	try
@@ -1123,6 +1204,16 @@ SUBSYSTEM_DEF(persistence)
  * The shutdown consists of finalization steps for each persistent data type.
  */
 /datum/controller/subsystem/persistence/Shutdown()
+#ifdef DISCORD_STATUS_BOT_AUTOSTART
+	// Before the early returns below -- stopping the bot has nothing to do
+	// with whether this round's state is being saved, and leaking the process
+	// on a prevent_saving or DB-failure shutdown would be a silent orphan.
+	try
+		discordStatusBotStop()
+	catch(var/exception/discord_bot_e)
+		log_subsystem_persistence_error("Unhandled exception stopping the Discord status bot: [discord_bot_e]")
+#endif
+
 	if(prevent_saving)
 		log_subsystem_persistence_warning("Persistence subsystem was toggled to not save. Skipping subsystem finalization.")
 		return

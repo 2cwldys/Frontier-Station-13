@@ -13,6 +13,7 @@ type ShipSchematicData = {
   ready?: BooleanLike;
   title_holder_name?: string;
   reported_stolen?: BooleanLike;
+  can_give_title?: BooleanLike;
   needs_rename?: BooleanLike;
   away_from_home?: BooleanLike;
   shuttle_id?: number;
@@ -36,6 +37,7 @@ export const ShipSchematic = (props) => {
     ready,
     title_holder_name,
     reported_stolen,
+    can_give_title,
     needs_rename,
     away_from_home,
     save_in_progress,
@@ -218,6 +220,22 @@ export const ShipSchematic = (props) => {
                   onClick={() => act('rename_subship')}
                 >
                   Rename Sub-ship
+                </Button>
+              )}
+              {!!can_give_title && (
+                <Button
+                  fluid
+                  mt={1}
+                  icon="right-left"
+                  disabled={!!reported_stolen}
+                  tooltip={
+                    reported_stolen
+                      ? 'This ship is reported stolen -- return it to its rightful owner first.'
+                      : "Signs this ship's title over to another character, or to a faction. Also clears the crew roster."
+                  }
+                  onClick={() => act('give_title')}
+                >
+                  Give Title
                 </Button>
               )}
             </Section>

@@ -576,6 +576,27 @@ GLOBAL_VAR_INIT(log_player_connections, TRUE)
 	if(holder)
 		GLOB.staff += src
 		holder.owner = src
+#ifdef AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
+		// A staff member arriving is what un-suspends faction raiding --
+		// raidingUpdateForStaffPresence(), persistence_factions.dm.
+		//
+		// addtimer, not INVOKE_ASYNC, and never inline. Two separate reasons:
+		//
+		//  * Inline would sleep inside /client/New() (that proc reaches
+		//    to_chat()) and stall the login itself -- the same class of bug
+		//    that froze the character-select menu until show_persistent_menu()
+		//    was dispatched asynchronously.
+		//  * INVOKE_ASYNC runs it on the very next tick, which is still too
+		//    early: this client's chat output does not exist yet, so the
+		//    announcement it triggers was silently dropped for the one admin
+		//    who caused it -- they connect, raiding is restored, and they see
+		//    nothing. A few seconds' delay is what actually gets it delivered.
+		//
+		// The disconnect path below stays on INVOKE_ASYNC: there is no client
+		// left to deliver to, and delaying a suspension serves nothing.
+		if(SSpersistence)
+			addtimer(CALLBACK(SSpersistence, TYPE_PROC_REF(/datum/controller/subsystem/persistence, raidingUpdateForStaffPresence)), 5 SECONDS)
+#endif
 
 	log_client_to_db()
 
@@ -589,6 +610,34 @@ GLOBAL_VAR_INIT(log_player_connections, TRUE)
 			to_chat_immediate(src, "Admins get a free pass. However, <b>please</b> update your BYOND as soon as possible. Certain things may cause crashes if you play with your present version.")
 		else
 			log_access("Failed Login: [key] [computer_id] [address] - Outdated BYOND major version: [byond_version].")
+			del(src)
+			return 0
+
+	// Build-level version gate, the security-relevant one. The check above
+	// only ever sees byond_version -- the MAJOR (516) -- so it cannot express
+	// "516.1687 or later", which is exactly what refusing a client build with
+	// a known problem requires. byond_build is the separate build number.
+	//
+	// Resolution order: the admin-set database override wins when non-zero,
+	// otherwise config.txt's MIN_CLIENT_BUILD, otherwise the gate is off. The
+	// override exists because config is read once at startup and there is no
+	// reload, so without it every change here would need a restart --
+	// see persistence_client_build.dm.
+	var/required_build = GLOB.min_client_build_override || GLOB.config.min_client_build
+	// byond_build is unreported by some webclient sessions (connection ==
+	// "web"). A missing build must read as "unknown", never as "ancient" --
+	// otherwise enabling this gate silently locks out every webclient player.
+	if (required_build && byond_build && byond_version >= 516 && byond_build < required_build)
+		to_chat_immediate(src, SPAN_DANGER("<b>Your BYOND build is too old!</b>"))
+		if (GLOB.config.min_client_build_message)
+			to_chat_immediate(src, GLOB.config.min_client_build_message)
+		to_chat_immediate(src, "Your build: [byond_version].[byond_build].")
+		to_chat_immediate(src, "Required build: [byond_version].[required_build] or later.")
+		to_chat_immediate(src, "Visit http://www.byond.com/download/ to get the latest version of BYOND.")
+		if (holder)
+			to_chat_immediate(src, "Admins get a free pass. However, <b>please</b> update your BYOND as soon as possible -- this minimum exists for a reason.")
+		else
+			log_access("Failed Login: [key] [computer_id] [address] - Outdated BYOND build: [byond_version].[byond_build] (minimum [required_build]).")
 			del(src)
 			return 0
 
@@ -666,6 +715,24 @@ GLOBAL_VAR_INIT(log_player_connections, TRUE)
 	if(holder)
 		holder.owner = null
 		GLOB.staff -= src
+#ifdef AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
+	// Once, after BOTH GLOB.staff removals above -- this proc drops src from
+	// the list twice (unconditionally, then again under if(holder)), and the
+	// check only means anything after the last of them.
+	//
+	// INVOKE_ASYNC is NOT optional here. This is /client/Del(), BYOND's raw
+	// deletion hook, and raidingUpdateForStaffPresence() reaches
+	// message_admins() -> to_chat(), which can sleep. Yielding part-way
+	// through destroying a client can wedge the teardown and leave
+	// half-deleted clients behind -- which is what broke the server when this
+	// was called inline. runLobbyEmptyAutosave() carries the same
+	// "dispatch async, never inline" warning for the same reason.
+	//
+	// Running a tick later is also slightly more correct: GLOB.staff has
+	// fully settled by then.
+	if(SSpersistence)
+		INVOKE_ASYNC(SSpersistence, TYPE_PROC_REF(/datum/controller/subsystem/persistence, raidingUpdateForStaffPresence))
+#endif
 
 	if(mob)
 		mob.clear_important_client_contents()

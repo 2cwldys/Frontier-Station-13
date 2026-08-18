@@ -131,12 +131,67 @@
 // leave undefined to keep admin logs server-local only.
 #define EXPORT_ADMIN_LOG_TO_DISCORD
 
+// If defined, security events are mirrored to a separate law-enforcement
+// Discord channel via the "law_enforcement" webhook tag
+// (WEBHOOK_LAW_ENFORCEMENT, __DEFINES/webhook.dm) -- highsec offenses and
+// distress calls as they reach responders' PDAs, plus First Responder
+// enforcement actions (repossession, force-stash, scuttling, schematic
+// withdrawal, stolen-flag clearing). Separate from EXPORT_ADMIN_LOG_TO_DISCORD
+// so a security channel can get these WITHOUT being handed the whole admin
+// log; admin logging is unaffected either way. Add a webhook carrying that
+// tag to config/webhooks.json (its optional "mention" field is what pings a
+// role). On by default -- harmless when no such webhook is configured, since
+// post_webhook_event() only delivers to webhooks that carry the tag.
+#define EXPORT_LAW_ENFORCEMENT_TO_DISCORD
+
 // If defined, the last active player character going to cryo immediately
 // triggers a full persistence autosave (runLobbyEmptyAutosave(),
 // persistence.dm) instead of waiting for the next periodic save. Comment
 // out to disable -- lobby-empty saves then only happen on the regular
 // periodic timer.
 #define LOBBY_EMPTY_AUTOSAVE
+
+// If defined, growing a clone through the resleeving pipeline
+// (order_clone_from_lace(), resleever_cloning.dm) charges CLONE_ORDER_COST --
+// to the faction when the cloning pod and resleever are both tagged to the
+// same faction, otherwise to the ordering character's own account. Comment
+// out to make cloning free: the charge, the refund-on-failure path, and the
+// affordability checks are all skipped, and the resleever's UI stops showing
+// a price. On by default.
+#define CLONING_COSTS_CREDITS
+/// Credits charged per clone while CLONING_COSTS_CREDITS is enabled. Lives
+/// here rather than beside the pipeline so the machine, its UI data and the
+/// billing path all read one number.
+#define CLONE_ORDER_COST 10000
+
+// If defined, the server launches the Discord status bot
+// (scripts/discord_status_bot.py) on startup and kills it when the server
+// actually closes -- see discordStatusBotStart()/Stop() (persistence.dm).
+// Requires config/discord_status_bot.json (a bot token), Python with
+// discord.py installed, AND a TGS security level of Trusted, since this is a
+// raw OS shell-out that BYOND refuses under Safe/Ultrasafe. All three are
+// checked at runtime; a missing one skips the launch with a logged reason
+// rather than failing the round.
+//
+// Off by default -- it spawns an OS process that outlives the call, so opting
+// in should be deliberate. Leave undefined to keep starting the bot by hand.
+#define DISCORD_STATUS_BOT_AUTOSTART
+
+// If defined, faction raiding is SUSPENDED whenever no staff are online and
+// restored when one returns -- raidingUpdateForStaffPresence()
+// (persistence_factions.dm), driven off the GLOB.staff transitions in
+// client_procs.dm and holder2.dm. Two config.txt settings tune it:
+// RAIDING_STAFF_RIGHTS (who counts -- any/mod/admin) and
+// RAIDING_STAFF_MINIMUM (how many of those are needed).
+//
+// Suspension is deliberately LIVE-ONLY: it never writes
+// ss13_faction_raiding_toggle, so staff's own setting survives an unattended
+// stretch and is what gets restored. Raiding turned off on purpose therefore
+// stays off when an admin logs back in, rather than being silently re-enabled.
+//
+// Off by default -- it changes live gameplay behaviour with no admin action,
+// so opting in should be deliberate.
+#define AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
 
 // If defined, faction-tagged equipment can only be WORN by people employed by
 // that faction (can_use_faction_equipment(), persistence_factions.dm) -- gated

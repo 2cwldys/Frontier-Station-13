@@ -1390,6 +1390,24 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		var/obj/item/stack/ST = I
 		data["stack_amount"] = ST.amount
 
+	// Gas tanks -- contents, distribution pressure, tamper marker. Without
+	// this a tank saved only its typepath, and Initialize()'s
+	// adjust_initial_gas() (tanks.dm) refilled the restored copy to that
+	// type's default: a part-used tank came back full (a quiet infinite-air
+	// exploit), a custom distribution pressure reverted to ONE_ATMOSPHERE,
+	// and a sabotaged tank's manipulated_by marker -- which internals.dm
+	// reads to decide whether to trust the label -- was laundered clean.
+	// Same gas round-trip the canister worldstate override already uses
+	// (persistence_worldstate.dm).
+	if(istype(I, /obj/item/tank))
+		var/obj/item/tank/TK = I
+		data["tank_distribute_pressure"] = TK.distribute_pressure
+		if(TK.manipulated_by)
+			data["tank_manipulated_by"] = TK.manipulated_by
+		if(TK.air_contents)
+			data["tank_air_gas"] = json_encode(TK.air_contents.gas)
+			data["tank_air_temperature"] = TK.air_contents.temperature
+
 	// Fingerprints/forensics
 	if(length(I.fingerprints))
 		data["fingerprints"] = json_encode(I.fingerprints)
@@ -1802,6 +1820,26 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		var/obj/item/stack/ST = I
 		ST.amount = text2num(data["stack_amount"]) || ST.amount
 		ST.update_icon()
+
+	// Gas tank contents/settings -- overwrites the full default fill
+	// Initialize()'s adjust_initial_gas() just applied. See the matching
+	// serialize block for why each field matters.
+	if(istype(I, /obj/item/tank))
+		var/obj/item/tank/TK = I
+		if(!isnull(data["tank_distribute_pressure"]))
+			TK.distribute_pressure = data["tank_distribute_pressure"] + 0
+		if(data["tank_manipulated_by"])
+			TK.manipulated_by = data["tank_manipulated_by"]
+		if(TK.air_contents && data["tank_air_gas"])
+			var/list/tank_gases = json_decode(data["tank_air_gas"])
+			if(islist(tank_gases))
+				TK.air_contents.gas = tank_gases
+			if(!isnull(data["tank_air_temperature"]))
+				TK.air_contents.temperature = data["tank_air_temperature"] + 0
+			TK.air_contents.update_values()
+		// Same refresh the tank's own Initialize() ends on -- without it the
+		// gauge sprite keeps showing the pre-overwrite full reading.
+		TK.update_gauge()
 
 	// Fingerprints/forensics
 	if(data["fingerprints"])

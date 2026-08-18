@@ -1108,6 +1108,15 @@ var/global/enabled_spooking = 0
 	else
 		new chosen(usr.loc)
 
+	// Materialisation flourish, so something appearing out of thin air reads as
+	// a deliberate event rather than a glitch. Opt-out per admin via the
+	// "Spawn Effect" setting (Preferences -> Settings); the flag's absence
+	// means shown, so nobody has to opt in -- see ADMIN_SPAWN_NO_VFX (misc.dm).
+	var/turf/spawn_turf = get_turf(usr.loc)
+	if(spawn_turf && !(usr.client?.prefs?.toggles_secondary & ADMIN_SPAWN_NO_VFX))
+		new /obj/effect/portal/decorative/fading(spawn_turf, null, null, 5 SECONDS, 0)
+		spark(spawn_turf, 3, GLOB.alldirs)
+
 	log_and_message_admins("spawned [chosen] at ([usr.x],[usr.y],[usr.z])")
 	feedback_add_details("admin_verb","SA") //If you are copy-pasting this, ensure the 2nd parameter is unique to the new proc!
 

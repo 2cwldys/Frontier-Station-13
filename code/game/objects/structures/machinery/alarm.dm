@@ -801,7 +801,12 @@ pixel_x = 10;
 			environment_data += list(list("name" = "Temperature",     "value" = environment.temperature,                   "unit" = "K",   "danger_level" = temperature_dangerlevel))
 	data["environment"] = environment_data
 	data["total_danger"] = danger_level
-	data["atmos_alarm"] = alarm_area.atmosalm
+	// Safe-navigated, matching the existing alarm_area?.atmosalm at the top of
+	// this file. Unguarded, an alarm whose area never resolved runtimed HERE
+	// and aborted ui_data() partway, so the payload shipped with environment
+	// but no modes/vents/scrubbers/thresholds -- the Home tab rendered and
+	// every other tab white-screened on an undefined array.
+	data["atmos_alarm"] = alarm_area?.atmosalm
 	data["target_temperature"] = round(target_temperature - T0C, 0.1)
 
 	// Access
@@ -821,9 +826,11 @@ pixel_x = 10;
 		list("name" = "Off",          "description" = "Shuts off vents and scrubbers",        "mode" = AALARM_MODE_OFF,         "danger" = FALSE)
 	)
 
-	// Vents
+	// Vents -- the key is emitted unconditionally, even with no area to read
+	// from. An empty array is what keeps the interface on its "no vents" path
+	// instead of indexing undefined.
 	var/list/vents = list()
-	for(var/id_tag in alarm_area.air_vent_names)
+	for(var/id_tag in alarm_area?.air_vent_names)
 		var/list/info = alarm_area.air_vent_info[id_tag]
 		if(!info)
 			continue
@@ -837,9 +844,9 @@ pixel_x = 10;
 		))
 	data["vents"] = vents
 
-	// Scrubbers
+	// Scrubbers -- same unconditional-key reasoning as the vents block above.
 	var/list/scrubbers = list()
-	for(var/id_tag in alarm_area.air_scrub_names)
+	for(var/id_tag in alarm_area?.air_scrub_names)
 		var/list/info = alarm_area.air_scrub_info[id_tag]
 		if(!info)
 			continue

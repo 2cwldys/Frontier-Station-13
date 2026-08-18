@@ -22,7 +22,11 @@ type Datapoint = {
 
 export const AtmosControl = (props) => {
   const { act, data } = useBackend<AtmosData>();
-  return data.sensors.length ? (
+  // Optional-chained: a payload missing `sensors` entirely (e.g. a backend
+  // ui_data() that aborted partway) used to take the whole window down with
+  // "Cannot read properties of undefined". Falling through to the existing
+  // notice is a far better failure than a white screen.
+  return data.sensors?.length ? (
     <SensorData />
   ) : (
     <NoticeBox>No sensors connected.</NoticeBox>
@@ -33,7 +37,7 @@ export const SensorData = (props) => {
   const { act, data } = useBackend<AtmosData>();
   return (
     <>
-      {data.sensors.map((sensor) => (
+      {(data.sensors ?? []).map((sensor) => (
         <Section title={sensor.name} key={sensor.id_tag}>
           <LabeledList>
             {sensor.datapoints.map((datapoint) =>

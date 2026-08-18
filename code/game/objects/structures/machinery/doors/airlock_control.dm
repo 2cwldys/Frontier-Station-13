@@ -144,32 +144,13 @@
 
 /// Multitool linking to an airlock cycler controller -- buffer the
 /// controller, then click the door (or vice versa) to toggle-link/unlink,
-/// mirroring the buffer-toggle pattern in contact_sensors.dm. Does not
-/// interfere with any of the door's other tool interactions (repair, hit,
-/// open/close), which are all handled by the parent attackby.
-/obj/structure/machinery/door/airlock/attackby(obj/item/attacking_item, mob/user, params)
-	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
-		var/obj/item/multitool/MT = attacking_item
-		// Buffered door button (blast_door_button.dm) -- checked first, same
-		// non-invasive "extra consumer type" shape as the controller check
-		// right below, so buffering this door either applies just the same
-		// (whichever the multitool is used on second decides which link
-		// happens; neither check touches the other).
-		var/obj/structure/machinery/button/remote/blast_door/buildable/door_button = MT.get_buffer(/obj/structure/machinery/button/remote/blast_door/buildable)
-		if(door_button)
-			door_button._link_airlock(src, user)
-			MT.set_buffer(null)
-			return TRUE
-		var/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller = MT.get_buffer(/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller)
-		if(!controller)
-			MT.set_buffer(src)
-			to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
-			return TRUE
-		_link_to_controller(controller, user)
-		MT.set_buffer(null)
-		return TRUE
-	return ..()
-
+/// mirroring the buffer-toggle pattern in contact_sensors.dm. The actual
+/// TOOL_MULTITOOL handling lives in airlock.dm's attackby() (which calls
+/// _link_to_controller() below) -- it used to also be duplicated here as a
+/// second, separate attackby() definition on this same type, which DM
+/// silently lets happen by discarding one definition entirely (no compile
+/// error). Kept as one definition now so this feature can't go silently
+/// dead again.
 /// Unlinks src from controller if it's currently linked anywhere -- primary
 /// or extra slot, either side. Returns TRUE if it was linked (and has now
 /// been unlinked), FALSE if it wasn't linked at all.

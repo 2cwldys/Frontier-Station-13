@@ -461,16 +461,62 @@ SQL_SAVES
 # WEBINT_URL http://www.address.com/
 
 ## Client version control settings.
-## Sets the minimum required BYOND version to play, as well as a warning version, and a message for both.
-## These checks are non-inclusive, so 510 will trigger on 509 or lower.
+## Sets the minimum required BYOND MAJOR version to play (516, 515, ...), as well as a
+## warning version, and a message for both. These only ever see the major version -- to
+## require a specific BUILD (the 1687 of 516.1687), use MIN_CLIENT_BUILD further down.
+## These checks are non-inclusive, so 516 will trigger on 515 or lower.
 ## If the error version is triggered, access is denied. Warning message will simply pester.
-#CLIENT_ERROR_VERSION 509
+#CLIENT_ERROR_VERSION 516
 #CLIENT_ERROR_MESSAGE Your version of BYOND is not supported. Please upgrade.
-#CLIENT_WARN_VERSION 510
-#CLIENT_WARN_MESSAGE BYOND is really close to releasing 510 beta as a stable release, please take time to try it out. Reports are that the client preforms better then the version you are using, and also handles network lag better. Shortly after it's release we will end up using 510 client features and you will be forced to update.
+#CLIENT_WARN_VERSION 516
+#CLIENT_WARN_MESSAGE This server targets BYOND 516. Please update at http://www.byond.com/download/ -- older clients may crash or misbehave.
 ## These versions are never permitted to join. Only works if the server is compiled in and running 512.
 ## Keep the list semi-colon separated, in format of MAJOR.MINOR;MAJOR.MINOR
 #CLIENT_BLACKLIST_VERSION 123.4567
+
+## Minimum BYOND BUILD required to connect, i.e. the 1687 of 516.1687.
+## This is the security-relevant gate: it is what lets you refuse clients running a build
+## with a known problem, which CLIENT_ERROR_VERSION above cannot do (it only sees "516").
+## Set to 0 or comment out to disable the check entirely.
+##
+## Behaviour when enabled:
+##   - Clients below the build are refused with a message and an access-log entry.
+##   - Admins are exempt -- they are nagged but still let in, so a wrong value here can
+##     never lock staff out of their own server.
+##   - Webclient sessions that report no build are skipped rather than refused.
+##
+## This value is only read at startup. To change the minimum on a LIVE server with no
+## restart and no recompile, use the "Set Minimum Client Build" admin verb -- the value
+## it stores in the database overrides this one, and 0 there clears the override.
+MIN_CLIENT_BUILD 1687
+MIN_CLIENT_BUILD_MESSAGE This server requires BYOND build 516.1687 or newer. Please update via the BYOND pager, or from http://www.byond.com/download/
+
+## Which staff presence keeps faction raiding available, while the server is compiled
+## with AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED (code/_compile_options.dm). With no
+## qualifying staff online, raiding is suspended; it is restored when one returns.
+##   any   - anyone holding an admin datum (mods and trial staff included). Default.
+##   mod   - R_ADMIN or R_MOD only.
+##   admin - R_ADMIN only. A mod-only server leaves raiding suspended.
+## Stealthed/fakekey staff always count -- they are present and supervising even
+## though players cannot see them.
+## Suspension NEVER writes the database, so whatever staff last set by hand is what
+## gets restored; turning raiding off on purpose stays off when an admin logs in.
+RAIDING_STAFF_RIGHTS any
+
+## How many of those qualifying staff must be online. 0 and 1 both mean one is
+## enough. The two settings compose: RAIDING_STAFF_RIGHTS decides WHO counts, this
+## decides HOW MANY of them are needed -- so "admin" with 2 requires two full admins,
+## and a room full of mods will not satisfy it.
+RAIDING_STAFF_MINIMUM 1
+
+## Minutes between uses of the "Advertise to Players" admin verb, which asks the
+## Discord status bot to post an @here saying the server could use more players.
+## Shared by ALL admins rather than per-admin -- the point is to rate-limit the
+## ping itself, which a per-admin allowance would defeat. 0 disables the cooldown.
+## Requires the status bot to be running with milestone_announcements enabled and
+## milestone_channel_id set (config/discord_status_bot.json) -- the bot is what
+## actually posts it; the game has no Discord token of its own.
+ADVERTISE_COOLDOWN_MINUTES 30
 
 ## Uncomment to enable simple Skype/Discord style markup over OOC, LOOC, say, and me.
 #ALLOW_CHAT_MARKUP

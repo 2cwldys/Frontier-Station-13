@@ -37,14 +37,19 @@
 		var/turf/T = get_turf(src)
 		if(!istype(T))
 			return
-		add_underlay(T, node1, turn(dir, -180))
+		// node?.icon_connect_type -- the connecting stub has to be drawn in the
+		// NEIGHBOUR's pipe flavour ("-supply"/"-scrubbers"/etc, atmospherics.dm),
+		// same as pump.dm/portables_connector.dm already do. Omitting it always
+		// drew the plain-air stub, so a t-valve joined to a supply or scrubber
+		// line rendered a mismatched connection.
+		add_underlay(T, node1, turn(dir, -180), node1?.icon_connect_type)
 
 		if(istype(src, /obj/structure/machinery/atmospherics/tvalve/mirrored))
-			add_underlay(T, node2, turn(dir, 90))
+			add_underlay(T, node2, turn(dir, 90), node2?.icon_connect_type)
 		else
-			add_underlay(T, node2, turn(dir, -90))
+			add_underlay(T, node2, turn(dir, -90), node2?.icon_connect_type)
 
-		add_underlay(T, node3, dir)
+		add_underlay(T, node3, dir, node3?.icon_connect_type)
 
 /obj/structure/machinery/atmospherics/tvalve/hide(var/i)
 	update_underlays()

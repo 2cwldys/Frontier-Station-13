@@ -884,9 +884,16 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 	if(!spawn_pod)
 		spawn_pod = persistence_find_available_cryopod(spawner_faction, ckey_lower, character.real_name)
 	if(!spawn_pod)
+		// Broader net than persistence_find_available_cryopod()'s own Priority
+		// 2 -- ignores the separate persistent_spawn admin toggle, but still
+		// refuses any pod explicitly claimed by a faction. A pod with no
+		// network set at all, or explicitly tagged public, is fair game; a
+		// faction's own pod (Hub included) never is -- that's the line a
+		// factionless civilian must not cross even as an absolute last resort.
 		for(var/obj/structure/machinery/cryopod/pod in world)
 			if(_cryopod_ignored_for_discovery(pod)) continue
 			if(pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
+			if(pod.persistent_network && pod.persistent_network != "public") continue
 			var/turf/pt = get_turf(pod)
 			if(!pt || !pt.z) continue
 			spawn_pod = pod
