@@ -152,6 +152,37 @@
 	var/root_windows = replacetext(GLOB.config.server_root_path, "/", "\\")
 	return "[root_windows]\\[bat_file]"
 
+/// Deletes every leftover shelleo()/prefix_server_root_cd() scratch file --
+/// data/shelleo.<id>.out, data/shelleo.<id>.err, data/shelleo_cd_<id>.bat --
+/// from data/. Called from SSpersistence's Initialize() and Shutdown()
+/// (persistence.dm), NOT periodically and NOT tied to any single shelleo()
+/// call's own completion.
+///
+/// That timing matters: both callers generate a NEVER-repeating name for the
+/// live duration of a session specifically because shell()'s return does not
+/// guarantee every descendant process is actually gone (a wrapper stuck on
+/// an interactive prompt, or the Discord bot's deliberately-detached
+/// grandchild) -- reusing/overwriting a name on that signal is what caused a
+/// confirmed, hours-long production corruption once already (see the header
+/// comments on shelleo()/prefix_server_root_cd() above). Sweeping at
+/// Initialize() is safe because nothing THIS session could still be using
+/// exists yet -- every match found there is unconditionally a leftover from
+/// before this boot. Sweeping again at Shutdown() (hard shutdowns only,
+/// gated by the caller) leaves a clean slate for whichever boot comes next,
+/// rather than making every boot the only place cleanup ever happens.
+/proc/sweep_shelleo_scratch_files()
+	var/swept = 0
+	for(var/filename in flist("data/"))
+		if(copytext(filename, 1, 8) != "shelleo")
+			continue
+		var/extension = copytext(filename, -4)
+		if(extension != ".out" && extension != ".err" && extension != ".bat")
+			continue
+		fdel("data/[filename]")
+		swept++
+	if(swept)
+		log_world("sweep_shelleo_scratch_files: removed [swept] leftover shelleo scratch file\s.")
+
 /proc/shell_url_scrub(url)
 	var/static/regex/bad_chars_regex = regex("\[^#%&./:=?\\w]*", "g")
 	var/scrubbed_url = ""

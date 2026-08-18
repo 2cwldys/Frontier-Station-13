@@ -843,6 +843,17 @@ SUBSYSTEM_DEF(persistence)
 	// get_serverstatus (server_query.dm) would report the world as fully
 	// ready long before it actually is, on every round after the first.
 	GLOB.persistence_ready = FALSE
+
+	// Same reasoning as above -- the very start of boot, before this session
+	// has made a single shelleo() call, is the one point where every
+	// data/shelleo* scratch file found is unconditionally a leftover from
+	// before now, safe to clear regardless of age. See
+	// sweep_shelleo_scratch_files()'s own doc comment (shell.dm) for why this
+	// is NOT done mid-session or per-call.
+	try
+		sweep_shelleo_scratch_files()
+	catch(var/exception/sweep_e)
+		log_subsystem_persistence_error("Unhandled exception sweeping shelleo scratch files at boot: [sweep_e]")
 	if(!GLOB.config.sql_enabled)
 		log_subsystem_persistence_warning("SQL configuration not enabled. Persistence subsystem requires SQL. Skipping init.")
 		return SS_INIT_SUCCESS
@@ -1213,6 +1224,19 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/discord_bot_e)
 		log_subsystem_persistence_error("Unhandled exception stopping the Discord status bot: [discord_bot_e]")
 #endif
+
+	// Hard shutdowns only -- same GLOB.world_shutdown_is_hard gate the
+	// Discord bot stop above effectively relies on internally, checked
+	// explicitly here since this proc has no such gate of its own. A soft
+	// round reboot is about to immediately start a new session that will do
+	// its own boot-time sweep anyway (Initialize(), above); running it here
+	// too would just be redundant, not wrong, so this is purely to avoid
+	// pointless work, not a safety requirement.
+	if(GLOB.world_shutdown_is_hard)
+		try
+			sweep_shelleo_scratch_files()
+		catch(var/exception/sweep_e)
+			log_subsystem_persistence_error("Unhandled exception sweeping shelleo scratch files at shutdown: [sweep_e]")
 
 	if(prevent_saving)
 		log_subsystem_persistence_warning("Persistence subsystem was toggled to not save. Skipping subsystem finalization.")
