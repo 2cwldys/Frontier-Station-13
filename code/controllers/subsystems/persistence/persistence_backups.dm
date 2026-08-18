@@ -21,6 +21,21 @@
  * two callers (the admin verb and fire()'s automatic post-autosave hook,
  * persistence.dm) each report success/failure in whatever way fits their own
  * context (one to the calling admin, the other to the subsystem log/admins).
+ *
+ * Retries once after a short delay on failure. This whole call chain
+ * (world.shelleo() -> wscript -> cmd -> PowerShell -> docker exec ->
+ * mysqldump) is several nested OS process launches deep, and any one of them
+ * can transiently fail for reasons that have nothing to do with this code --
+ * most concretely, aurora-db reporting "running" in `docker ps` before
+ * MariaDB inside it has actually finished starting, which is normal after
+ * any host reboot and especially likely after an unclean one (e.g. a power
+ * outage). scripts/db_backup.ps1 and .sh both now wait for a real DB
+ * readiness ping before attempting the dump, which is the primary fix for
+ * that specific case; this retry is a second, cheap layer of defense against
+ * anything else transient in the chain (a fresh boot only happens once, but
+ * the process-spawn chain runs on every single attempt, automatic or
+ * manual). One short backoff and one retry turns a one-off blip into a
+ * non-event instead of an admin-alerting failure.
  */
 /datum/controller/subsystem/persistence/proc/run_database_backup()
 	// Fixed literal chosen only by world.system_type -- never built from admin- or
@@ -34,6 +49,25 @@
 	// GLOB.config.server_root_path's doc comment, configuration.dm). Prefix an
 	// explicit cd when configured so this doesn't depend on how DD was launched.
 	command = prefix_server_root_cd(command)
+
+	var/list/result = _run_database_backup_attempt(command)
+	if(!result["success"])
+		log_subsystem_persistence_warning("Persistence: Database backup attempt 1 failed (exit [result["errorcode"]])[(result["stdout"] || result["stderr"]) ? ": [result["stdout"]][result["stderr"]]" : " -- no output captured"]. Retrying once after a short delay...")
+		sleep(30)
+		result = _run_database_backup_attempt(command)
+		if(result["success"])
+			log_subsystem_persistence_info("Persistence: Database backup succeeded on retry.")
+
+	if(!result["success"] && !result["stdout"] && !result["stderr"])
+		// Both attempts produced nothing to go on -- the failure is happening
+		// before db_backup.ps1's own error handling ever runs (i.e. somewhere
+		// in the shell/wscript/cmd launch chain itself, not inside the script),
+		// which is exactly what a transient OS/AV/process-spawn hiccup looks
+		// like rather than a real script bug. Say so instead of a bare exit code.
+		result["stderr"] = "(no output captured on either attempt -- failed before the backup script itself ran; likely a transient OS/security-software interruption rather than a script error. Check Docker/antivirus logs for this timestamp if it recurs.)"
+	return result
+
+/datum/controller/subsystem/persistence/proc/_run_database_backup_attempt(command)
 	var/list/result = world.shelleo(command)
 	var/errorcode = result[1]
 	var/stdout = result[2]

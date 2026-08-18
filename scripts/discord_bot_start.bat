@@ -8,10 +8,19 @@
 :: Kills any previously-recorded bot first, so the process that ends up running
 :: always matches the current script -- including an orphan left behind by a
 :: DreamDaemon that died without running Shutdown().
+::
+:: That kill is taskkill /F -- see discord_bot_stop.bat's header for why that
+:: means the OLD bot's own .pid/.lock cleanup never runs, and why this script
+:: (like that one) deletes both files itself rather than trusting it to.
+::
+:: Pass "silent" as %1 (the game always does, via _discordBotCommand()) to
+:: skip the trailing pause -- a human running this by hand gets to actually
+:: read the output before the window disappears.
 
 setlocal
 set "ROOT=%~dp0.."
 set "PIDFILE=%ROOT%\data\discord_status_bot.pid"
+set "LOCKFILE=%ROOT%\data\discord_status_bot.lock"
 set "CONFIG=%ROOT%\config\discord_status_bot.json"
 set "LOG=%ROOT%\data\discord_status_bot.log"
 
@@ -19,6 +28,7 @@ set "LOG=%ROOT%\data\discord_status_bot.log"
 :: later -- an unconfigured server should launch nothing at all.
 if not exist "%CONFIG%" (
     echo discord_bot_start: no config at "%CONFIG%" -- not starting.
+    if /i not "%~1"=="silent" pause
     exit /b 1
 )
 
@@ -30,6 +40,7 @@ if exist "%PIDFILE%" (
         taskkill /F /PID %OLDPID% >nul 2>&1
     )
     del /q "%PIDFILE%" >nul 2>&1
+    del /q "%LOCKFILE%" >nul 2>&1
 )
 
 if not exist "%ROOT%\data" mkdir "%ROOT%\data"
@@ -41,4 +52,6 @@ if not exist "%ROOT%\data" mkdir "%ROOT%\data"
 :: server. The bot also refuses to start if another instance already holds the
 :: lock, so this cannot double up on one you started yourself.
 start "" /B pythonw "%ROOT%\scripts\discord_status_bot.py" --managed >> "%LOG%" 2>&1
+echo discord_bot_start: launch requested. Check "%LOG%" for whether it actually connected.
+if /i not "%~1"=="silent" pause
 exit /b 0

@@ -408,6 +408,17 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 	var/min_client_build = 0
 	var/min_client_build_message = ""
 
+	/// Which staff presence keeps faction raiding available while
+	/// AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED is defined (_compile_options.dm).
+	/// "any" (default) counts anyone holding an admin datum, "mod" requires
+	/// R_ADMIN or R_MOD, "admin" requires R_ADMIN. See
+	/// raidingUpdateForStaffPresence() (persistence_factions.dm).
+	var/raiding_staff_rights = "any"
+	/// How many qualifying staff must be online to keep faction raiding
+	/// available. 0 and 1 both mean "one is enough"; higher values require a
+	/// fuller staff presence. See raidingUpdateForStaffPresence().
+	var/raiding_staff_minimum = 1
+
 	//Mark-up enabling
 	var/allow_chat_markup = 0
 
@@ -1015,6 +1026,12 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 
 				if("min_client_build_message")
 					GLOB.config.min_client_build_message = value
+
+				if("raiding_staff_rights")
+					GLOB.config.raiding_staff_rights = lowertext(value)
+
+				if("raiding_staff_minimum")
+					GLOB.config.raiding_staff_minimum = text2num(value)
 
 				if("allow_chat_markup")
 					GLOB.config.allow_chat_markup = 1

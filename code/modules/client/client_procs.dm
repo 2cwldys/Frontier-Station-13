@@ -576,6 +576,27 @@ GLOBAL_VAR_INIT(log_player_connections, TRUE)
 	if(holder)
 		GLOB.staff += src
 		holder.owner = src
+#ifdef AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
+		// A staff member arriving is what un-suspends faction raiding --
+		// raidingUpdateForStaffPresence(), persistence_factions.dm.
+		//
+		// addtimer, not INVOKE_ASYNC, and never inline. Two separate reasons:
+		//
+		//  * Inline would sleep inside /client/New() (that proc reaches
+		//    to_chat()) and stall the login itself -- the same class of bug
+		//    that froze the character-select menu until show_persistent_menu()
+		//    was dispatched asynchronously.
+		//  * INVOKE_ASYNC runs it on the very next tick, which is still too
+		//    early: this client's chat output does not exist yet, so the
+		//    announcement it triggers was silently dropped for the one admin
+		//    who caused it -- they connect, raiding is restored, and they see
+		//    nothing. A few seconds' delay is what actually gets it delivered.
+		//
+		// The disconnect path below stays on INVOKE_ASYNC: there is no client
+		// left to deliver to, and delaying a suspension serves nothing.
+		if(SSpersistence)
+			addtimer(CALLBACK(SSpersistence, TYPE_PROC_REF(/datum/controller/subsystem/persistence, raidingUpdateForStaffPresence)), 5 SECONDS)
+#endif
 
 	log_client_to_db()
 
@@ -694,6 +715,24 @@ GLOBAL_VAR_INIT(log_player_connections, TRUE)
 	if(holder)
 		holder.owner = null
 		GLOB.staff -= src
+#ifdef AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
+	// Once, after BOTH GLOB.staff removals above -- this proc drops src from
+	// the list twice (unconditionally, then again under if(holder)), and the
+	// check only means anything after the last of them.
+	//
+	// INVOKE_ASYNC is NOT optional here. This is /client/Del(), BYOND's raw
+	// deletion hook, and raidingUpdateForStaffPresence() reaches
+	// message_admins() -> to_chat(), which can sleep. Yielding part-way
+	// through destroying a client can wedge the teardown and leave
+	// half-deleted clients behind -- which is what broke the server when this
+	// was called inline. runLobbyEmptyAutosave() carries the same
+	// "dispatch async, never inline" warning for the same reason.
+	//
+	// Running a tick later is also slightly more correct: GLOB.staff has
+	// fully settled by then.
+	if(SSpersistence)
+		INVOKE_ASYNC(SSpersistence, TYPE_PROC_REF(/datum/controller/subsystem/persistence, raidingUpdateForStaffPresence))
+#endif
 
 	if(mob)
 		mob.clear_important_client_contents()

@@ -48,13 +48,33 @@ GLOBAL_VAR_INIT(auto_backup_on_autosave, FALSE)
 /// restarts via ss13_min_client_build, enforced in client_procs.dm.
 GLOBAL_VAR_INIT(min_client_build_override, 0)
 
-/// TRUE when the shutdown currently running ends the OS process, FALSE when it
-/// is a soft round reboot the world comes straight back from. Set by
-/// /world/Reboot() (world.dm) immediately before Master.Shutdown(), because a
-/// subsystem's Shutdown() runs identically for both and cannot tell them
-/// apart. Defaults TRUE so a shutdown path that never went through Reboot()
-/// still cleans up rather than silently leaking a child process.
+/// TRUE when the CALLER of /world/Reboot() (world.dm) asked for a genuine,
+/// process-ending shutdown, FALSE when it's a soft round reboot the world
+/// comes straight back from. Set immediately before Master.Shutdown(),
+/// because a subsystem's Shutdown() runs identically for both and cannot
+/// tell them apart otherwise. Defaults TRUE so a shutdown path that never
+/// went through Reboot() still cleans up rather than silently leaking a
+/// child process.
+///
+/// Deliberately the CALLER's original request, not whether BYOND actually
+/// went on to perform an OS-level restart -- Reboot() also forces its own
+/// local hard_reset FALSE whenever TGS isn't available (a real OS restart
+/// is unsafe with nothing present to relaunch the process), which is a
+/// different question with a different answer: on any non-TGS deployment,
+/// using that post-override value here made this permanently FALSE on
+/// every single shutdown, soft or genuinely final, silently skipping the
+/// Discord bot stop below every time.
 GLOBAL_VAR_INIT(world_shutdown_is_hard, TRUE)
+
+/// TRUE while faction raiding is suspended because no staff are online
+/// (AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED, _compile_options.dm). Separate from
+/// GLOB.faction_raiding_enabled so the two states stay distinguishable:
+/// "off because staff turned it off" and "off because nobody is watching" get
+/// restored very differently.
+GLOBAL_VAR_INIT(faction_raiding_suspended, FALSE)
+/// The value GLOB.faction_raiding_enabled held when suspension began, restored
+/// when staff return. Meaningless unless faction_raiding_suspended is TRUE.
+GLOBAL_VAR_INIT(faction_raiding_presuspend, TRUE)
 
 /// Z levels whose numbers appear in this list are SKIPPED by turf/object/worldstate persistence.
 /// Populated from ss13_zlevel_persistence WHERE enabled = 0 at startup.
@@ -1008,6 +1028,19 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/faction_raiding_toggle_e)
 		log_subsystem_persistence_panic("Unhandled exception during faction raiding toggle initialization: [faction_raiding_toggle_e]")
 
+#ifdef AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
+	// Immediately after the stored value is loaded, so a server that boots
+	// unattended starts suspended rather than waiting for the first staff
+	// transition to notice. Any staff already connected keeps it as loaded.
+	try
+		// announce = FALSE -- this runs inside Initialize() with nobody
+		// connected to read a message_admins(); the subsystem log line is the
+		// useful record at boot.
+		raidingUpdateForStaffPresence(FALSE)
+	catch(var/exception/raiding_presence_e)
+		log_subsystem_persistence_error("Unhandled exception during raiding staff-presence evaluation: [raiding_presence_e]")
+#endif
+
 	log_subsystem_persistence_info("Starting hub law text initialization...")
 	try
 		hubLawTextInitialize()
@@ -1149,14 +1182,6 @@ SUBSYSTEM_DEF(persistence)
 
 	// Prevent an immediate fire() right after init  first autosave should be 30 min after startup
 	next_fire = world.time + wait
-
-#ifdef DISCORD_STATUS_BOT_AUTOSTART
-	log_subsystem_persistence_info("Starting Discord status bot...")
-	try
-		discordStatusBotStart()
-	catch(var/exception/discord_bot_e)
-		log_subsystem_persistence_error("Unhandled exception starting the Discord status bot: [discord_bot_e]")
-#endif
 
 	log_subsystem_persistence_info("Persistence initialization: all steps completed in [(world.time - init_start_time) / 10] seconds. Check the lines above for any PANIC/ERROR entries from individual steps.")
 	return SS_INIT_SUCCESS

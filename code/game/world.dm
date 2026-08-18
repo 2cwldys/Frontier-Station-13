@@ -250,6 +250,22 @@ GLOBAL_LIST_INIT(world_api_rate_limit, list())
 	world.Reboot()
 
 /world/Reboot(reason, hard_reset = FALSE)
+	// Captured before either branch below can override hard_reset, which
+	// they do for a NARROWER reason than what GLOB.world_shutdown_is_hard
+	// (read a few lines down) actually needs to know.
+	//
+	// The override two lines down forces hard_reset FALSE whenever TGS
+	// isn't available, because an OS-level restart is unsafe with nothing
+	// present to relaunch the process -- that's a real, correct safety
+	// call, and it MUST keep controlling whether TgsEndProcess() actually
+	// runs below. But it has nothing to do with whether THIS shutdown is
+	// the caller's genuine, intentional one, which is the only thing
+	// world_shutdown_is_hard needs to answer. Feeding it the post-override
+	// value made it FALSE on every single shutdown on any non-TGS server --
+	// soft reboot or a deliberately requested one -- which silently skipped
+	// SSpersistence.Shutdown()'s Discord bot stop every time, forever, on
+	// exactly this kind of deployment.
+	var/requested_hard_shutdown = hard_reset
 	if (!hard_reset && world.TgsAvailable())
 		switch (GLOB.config.rounds_until_hard_restart)
 			if (-1)
@@ -272,7 +288,7 @@ GLOBAL_LIST_INIT(world_api_rate_limit, list())
 	// going away" on its own. Reboot() already knows, so hand it over -- see
 	// SSpersistence.Shutdown()'s Discord bot stop, which must not fire on a
 	// soft reboot that the world is about to come straight back from.
-	GLOB.world_shutdown_is_hard = hard_reset
+	GLOB.world_shutdown_is_hard = requested_hard_shutdown
 	Master.Shutdown()
 
 	for(var/thing in GLOB.clients)

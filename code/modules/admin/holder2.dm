@@ -54,6 +54,12 @@ var/list/admin_datums = list()
 		owner.remove_admin_verbs()
 		owner.deadmin_holder = owner.holder
 		owner.holder = null
+#ifdef AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
+		// De-adminning can leave the server unstaffed just as surely as
+		// disconnecting -- raidingUpdateForStaffPresence(), persistence_factions.dm.
+		if(SSpersistence)
+			SSpersistence.raidingUpdateForStaffPresence()
+#endif
 
 /datum/admins/proc/reassociate()
 	if(owner)
@@ -61,6 +67,10 @@ var/list/admin_datums = list()
 		owner.holder = src
 		owner.deadmin_holder = null
 		owner.add_admin_verbs()
+#ifdef AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
+		if(SSpersistence)
+			SSpersistence.raidingUpdateForStaffPresence()
+#endif
 
 /datum/admins/proc/update_newscaster_sig()
 	if (!admincaster_signature)

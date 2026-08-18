@@ -45,9 +45,14 @@
 /// so a server deployed from a Windows-side clone does not silently fail to
 /// start its bot with a bare "Permission denied".
 /datum/controller/subsystem/persistence/proc/_discordBotCommand(script_name)
+	// "silent" -- the Windows .bat wrappers pause for a keypress at the end
+	// when run by hand, so whoever ran them gets to actually read the output
+	// before the window closes. world.shelleo() has no keyboard behind it;
+	// without this the call would block the entire world forever waiting on
+	// a keypress that can never come.
 	var/command = (world.system_type == UNIX) \
-		? "bash scripts/[script_name].sh" \
-		: "scripts\\[script_name].bat"
+		? "bash scripts/[script_name].sh silent" \
+		: "scripts\\[script_name].bat silent"
 	return prefix_server_root_cd(command)
 
 /// Launches the status bot. Called from Initialize().

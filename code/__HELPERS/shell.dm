@@ -78,26 +78,72 @@
 		return command
 	if(world.system_type == UNIX)
 		return "cd \"[GLOB.config.server_root_path]\" && [command]"
-	// One fixed filename, cleaned up on the way IN rather than by a trailing
-	// `& del` in the shell command itself. That old form had two problems, both
-	// of which silently reported success for a failed run:
+	// A never-repeating filename, not a reused fixed name or a small rotating
+	// pool of them (both tried before, both wrong). CONFIRMED live, not
+	// theoretical: with an 8-slot rotating pool, a database backup's call
+	// landed on the same slot number a Discord-bot-start call had just used,
+	// and read back the Discord bot's own leftover output as if it were the
+	// backup's -- fdel()/rustg_file_write()'s return values are never
+	// checked, so a write that silently fails to actually overwrite a reused
+	// slot leaves its previous, completely unrelated content in place for
+	// shelleo() to dutifully execute. Any reused name -- one fixed name or a
+	// handful cycled through -- has this same failure mode; it's just a
+	// matter of how often it collides. A name that is NEVER reused for the
+	// life of the process has no stale prior content to ever fall back to:
+	// if the write fails, shelleo() gets "file not found" and fails cleanly,
+	// instead of silently running a stranger's command.
 	//
-	//  * `cmd /c "A & B"` exits with **B's** code, not A's -- so errorcode was
-	//    always `del`'s (0), never the actual command's, and every failure
-	//    looked like a clean backup.
-	//  * with `del` as the last statement, the real command's own output was no
-	//    longer what the caller was inspecting.
+	// These are tiny (~100 bytes) plaintext files, so never deleting the old
+	// ones is not a real disk-space concern for how long a server actually
+	// runs between restarts.
 	//
-	// Running the .bat as the ONLY statement makes shelleo()'s captured exit
-	// code and output genuinely those of the command. `shell()` blocks until
-	// the process exits, so no two calls can ever overlap on this filename.
-	var/bat_file = "data\\shelleo_cd.bat"
-	fdel(bat_file) // leftover from the previous call
+	// The counter alone is NOT enough, and getting that wrong broke every
+	// shelled command on this server: it is a per-process static, so it resets
+	// to 0 on every restart and boot N+1 reuses boot N's filenames. With the
+	// fdel() below also removed, a write that failed to overwrite the existing
+	// file left the PREVIOUS BOOT's command sitting there to be run instead.
+	// Confirmed from disk, not theory: data\shelleo_cd_1.bat still carried an
+	// 01:56 mtime during an 05:52 boot -- the write had silently done nothing
+	// for hours. GLOB.round_id is regenerated per boot, so including it makes
+	// the name unique across restarts as well as within one.
+	var/static/bat_counter = 0
+	bat_counter++
+	var/bat_file = "data\\shelleo_cd_[GLOB.round_id]_[bat_counter].bat"
+	// Restored from the pre-rewrite version. Belt and braces next to the
+	// unique name above: if a file somehow does exist, it is gone before the
+	// write rather than a candidate for silently surviving it.
+	fdel(bat_file)
 	// `call` so control RETURNS here when command is itself a .bat (without it
 	// cmd transfers permanently and the exit line below never runs), then
 	// propagate that command's real errorlevel as this script's exit code.
 	rustg_file_write("@echo off\ncd /d \"[GLOB.config.server_root_path]\"\ncall [command]\nexit /b %errorlevel%\n", bat_file)
-	return bat_file
+	// rustg_file_write()'s return value is not trustworthy enough to gate on,
+	// so confirm the file is actually THERE. Without this a failed write is
+	// invisible: shelleo() runs a nonexistent .bat, cmd returns 1 with no
+	// output at all, and the caller reports a bare "exit 1" that looks like
+	// the command itself failed -- which is exactly how this presented, as
+	// "Backup failed (exit code 1):" with nothing after the colon.
+	if(!fexists(bat_file))
+		log_world("ERROR: prefix_server_root_cd() could not write [bat_file] -- shelling out [command] would fail with a bare exit 1. Running it without the cd prefix instead.")
+		return command
+	// Hand back an ABSOLUTE path, not the relative one the file was written
+	// with. BYOND's file APIs resolve relative to the WORLD directory, so
+	// rustg_file_write() above put the file exactly where intended -- but the
+	// cmd.exe that eventually runs it resolves relative paths against
+	// DreamDaemon's OS working directory, and those two being different is the
+	// entire reason server_root_path and this proc exist. Returning a relative
+	// path meant this helper handed back something that only resolved if the
+	// cwd was already what it was written to correct.
+	//
+	// A wrapper cmd cannot find produces precisely the reported signature:
+	// exit 1, no stdout, no stderr. Verified the other way round too -- run
+	// with a correct cwd, the identical chain exits 0 and writes a real backup.
+	//
+	// Backslashes throughout: this is a Windows-only branch, and mixing
+	// separators in a path that gets quoted and re-parsed by cmd is not worth
+	// the risk.
+	var/root_windows = replacetext(GLOB.config.server_root_path, "/", "\\")
+	return "[root_windows]\\[bat_file]"
 
 /proc/shell_url_scrub(url)
 	var/static/regex/bad_chars_regex = regex("\[^#%&./:=?\\w]*", "g")

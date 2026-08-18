@@ -543,6 +543,9 @@ def main():
     # When the server first went unreachable, for the watchdog below. None
     # whenever the server is answering.
     offline_since = {"at": None}
+    # Has this bot EVER reached the server? Until it has, "unreachable" means
+    # "not up yet", not "went down" -- see the cold-start handling in poll().
+    contacted = {"ever": False}
 
     milestones = (MilestoneTracker(cfg["milestone_window"])
                   if (cfg["milestone_enabled"] and cfg["milestone_channel"]) else None)
@@ -585,6 +588,16 @@ def main():
 
     @tasks.loop(seconds=cfg["poll"])
     async def poll():
+        # Every line below runs inside this one try, right down to the final
+        # apply() -- discord.py's @tasks.loop silently CANCELS the whole loop
+        # on any exception it doesn't catch itself, with no further callback.
+        # The watchdog below only runs from the TopicError branch, so a loop
+        # that dies from something else would take the watchdog down with it
+        # -- an immortal --managed process that never reaps itself no matter
+        # how long the server stays gone, which defeats the entire point of
+        # having a watchdog in the first place. Catching Exception broadly
+        # here is deliberate: this loop's job is to keep running forever,
+        # cycle after cycle, and NOTHING it does justifies letting that stop.
         try:
             # Off the event loop: fetch_status() is a blocking socket call, and
             # during a save the server can take the full timeout to answer.
@@ -592,7 +605,10 @@ def main():
             # that whole time, which at a short poll interval is enough to get
             # the bot disconnected.
             data = await asyncio.to_thread(fetch_status, host, port, cfg["timeout"])
-        except TopicError as e:
+        except Exception as e:
+            if not isinstance(e, TopicError):
+                print(f"[poll] unexpected error (treating as a miss so the "
+                      f"watchdog still runs): {e!r}", flush=True)
             # A failed poll is expected, not exceptional -- the server is down,
             # restarting, or busy. Crucially it does NOT immediately mean
             # "offline": BYOND is single-threaded and serves world.Topic() on
@@ -608,6 +624,31 @@ def main():
             misses["count"] += 1
             if offline_since["at"] is None:
                 offline_since["at"] = time.monotonic()
+
+            # COLD START: the bot has never once reached the server. That is
+            # not an outage, it is a server still coming up -- BYOND is
+            # single-threaded and does not answer world.Topic() at all while
+            # it initialises, which for a full persistence boot is a long time.
+            #
+            # Two things must NOT happen while waiting for first contact:
+            #
+            #  * Reporting "server offline". The server is booting perfectly
+            #    normally, and saying it is down is simply false -- at exactly
+            #    the moment people are watching for it to come back.
+            #  * Running the watchdog. offline_since is set on the very first
+            #    failed poll, so a bot that starts before the server would
+            #    count down and REAP ITSELF mid-boot, then never return. That
+            #    is what made this look like "offline forever": the bot was
+            #    gone, not the server.
+            #
+            # So hold a neutral "waiting" state indefinitely until the server
+            # answers once. After that, every rule below applies normally --
+            # a server that genuinely dies later still goes red and is still
+            # watchdogged.
+            if not contacted["ever"]:
+                await apply("waiting for server", "saving")
+                print(f"[poll] no contact yet (server still starting?): {e}", flush=True)
+                return
 
             # Watchdog. A server-started bot outlives its server whenever the
             # server goes away by a route that never runs SSpersistence's
@@ -647,13 +688,30 @@ def main():
 
         misses["count"] = 0
         offline_since["at"] = None
-        # Only on a successful poll -- an unreachable server has no count.
-        await announce(data.get("players", 0))
-        # Window = one full poll cycle plus the timeout, so a save is still
-        # reported as current on the next poll even when the poll that would
-        # have caught it live timed out against the busy world thread.
-        text, state = format_presence(data, cfg["poll"] + cfg["timeout"])
-        await apply(text, state)
+        if not contacted["ever"]:
+            contacted["ever"] = True
+            print("[poll] first contact with the server -- normal reporting from here.",
+                  flush=True)
+        # A separate try from here down: the GAME poll already succeeded, so
+        # nothing past this point is a connectivity miss -- an error in
+        # announce()/apply() is a Discord-side problem (rate limit, bad
+        # permissions, a gateway hiccup), and must not be folded into
+        # misses/offline_since or it would make an unrelated Discord issue
+        # look like the game server going down, possibly even triggering the
+        # watchdog to kill a bot whose actual connection to the game is fine.
+        # It still can't be allowed to escape uncaught, for the same reason
+        # as the fetch above -- any escaping exception cancels this whole loop.
+        try:
+            # Only on a successful poll -- an unreachable server has no count.
+            await announce(data.get("players", 0))
+            # Window = one full poll cycle plus the timeout, so a save is still
+            # reported as current on the next poll even when the poll that would
+            # have caught it live timed out against the busy world thread.
+            text, state = format_presence(data, cfg["poll"] + cfg["timeout"])
+            await apply(text, state)
+        except Exception as e:
+            print(f"[poll] error applying presence (game poll succeeded -- "
+                  f"this is Discord-side, not connectivity): {e!r}", flush=True)
 
     @poll.before_loop
     async def before_poll():

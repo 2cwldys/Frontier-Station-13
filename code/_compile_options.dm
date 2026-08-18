@@ -177,6 +177,22 @@
 // in should be deliberate. Leave undefined to keep starting the bot by hand.
 #define DISCORD_STATUS_BOT_AUTOSTART
 
+// If defined, faction raiding is SUSPENDED whenever no staff are online and
+// restored when one returns -- raidingUpdateForStaffPresence()
+// (persistence_factions.dm), driven off the GLOB.staff transitions in
+// client_procs.dm and holder2.dm. Two config.txt settings tune it:
+// RAIDING_STAFF_RIGHTS (who counts -- any/mod/admin) and
+// RAIDING_STAFF_MINIMUM (how many of those are needed).
+//
+// Suspension is deliberately LIVE-ONLY: it never writes
+// ss13_faction_raiding_toggle, so staff's own setting survives an unattended
+// stretch and is what gets restored. Raiding turned off on purpose therefore
+// stays off when an admin logs back in, rather than being silently re-enabled.
+//
+// Off by default -- it changes live gameplay behaviour with no admin action,
+// so opting in should be deliberate.
+#define AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
+
 // If defined, faction-tagged equipment can only be WORN by people employed by
 // that faction (can_use_faction_equipment(), persistence_factions.dm) -- gated
 // in mob_can_equip() (items.dm) so every equip route is covered at once.
