@@ -908,26 +908,66 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	if(frequency)
 		set_frequency(frequency)
 
-// ------- Omni mixers/filters (port config is rebuilt from the tag vars) -------
-// The live `ports` list (datum/omni_port instances) is regenerated from these
-// tag vars rather than stored, so the apply override has to re-run
-// update_ports() (omni_base.dm -- sort_ports() + update_port_icons()) or the
-// restored tags never take effect and the port icons stay stale.
-// Subtypes restate the base list because worldstate_vars is a plain var
-// override, not additive; they inherit the apply override from the base.
+// ------------------- Omni mixers/filters (port config) -----------------------
+// Port configuration is serialized off the LIVE ports list, not the tag_north/
+// tag_south/tag_east/tag_west vars.
+//
+// Those tag vars look like the config but are write-once SEEDS: Initialize()
+// reads them exactly once to build the /datum/omni_port instances
+// (omni_base.dm), and nothing ever writes back to them. Player configuration
+// goes to P.mode and P.concentration on the port datums themselves
+// (mixer.dm ui_act). Saving the tags therefore recorded the mapper/compile
+// default forever -- every row in the live DB read
+// {"tag_north":0,...,"tag_north_con":null} while set_flow_rate, an ordinary
+// live var, saved correctly -- and restore rebuilt every port unconfigured.
+//
+// Ports are keyed by P.dir (a stable cardinal), not list position, so a
+// reordered ports list can't silently shuffle a mixer's inputs and output.
+// Subtypes restate worldstate_vars because it is a plain var override, not
+// additive; they inherit the get/apply overrides from the base.
 
 /obj/structure/machinery/atmospherics/omni
-	worldstate_vars = list("tag_north", "tag_south", "tag_east", "tag_west", "use_power")
+	worldstate_vars = list("use_power")
+
+/obj/structure/machinery/atmospherics/omni/worldstate_get_content()
+	var/list/content = ..()
+	if(!islist(content))
+		content = list()
+	var/list/port_data = list()
+	for(var/datum/omni_port/P in ports)
+		port_data["[P.dir]"] = list("mode" = P.mode, "concentration" = P.concentration)
+	if(length(port_data))
+		content["ports"] = port_data
+	return content
 
 /obj/structure/machinery/atmospherics/omni/worldstate_apply_content(list/content)
 	..()
+	var/list/port_data = content["ports"]
+	if(islist(port_data))
+		for(var/datum/omni_port/P in ports)
+			var/list/saved = port_data["[P.dir]"]
+			if(!islist(saved))
+				continue
+			P.mode = saved["mode"]
+			P.concentration = saved["concentration"]
+	// Rebuilds the derived state from the port modes just written --
+	// sort_ports() + update_port_icons() (omni_base.dm). Without it the modes
+	// are set but nothing acts on them and the icons stay stale.
 	update_ports()
 
 /obj/structure/machinery/atmospherics/omni/mixer
-	worldstate_vars = list("tag_north", "tag_south", "tag_east", "tag_west", "use_power", "tag_north_con", "tag_south_con", "tag_east_con", "tag_west_con", "set_flow_rate")
+	worldstate_vars = list("use_power", "set_flow_rate")
 
 /obj/structure/machinery/atmospherics/omni/filter
-	worldstate_vars = list("tag_north", "tag_south", "tag_east", "tag_west", "use_power", "set_flow_rate")
+	worldstate_vars = list("use_power", "set_flow_rate")
+
+/obj/structure/machinery/atmospherics/omni/filter/worldstate_apply_content(list/content)
+	..()
+	// update_ports() does NOT rebuild filtering_outputs -- that is a separate
+	// proc (filter.dm), and P.mode is what encodes which gas each port filters.
+	// Skipping this leaves a filter whose ports look correctly configured while
+	// it routes no gas at all.
+	rebuild_filtering_list()
 
 /obj/structure/machinery/portable_atmospherics/canister
 	worldstate_vars = list("valve_open", "release_pressure", "release_flow_rate", "can_label")

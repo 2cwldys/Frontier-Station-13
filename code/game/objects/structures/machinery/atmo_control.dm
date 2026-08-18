@@ -333,6 +333,14 @@
 			return
 		input_tag = injector.id
 		injector.set_frequency(frequency)
+		// Ask for a status broadcast on the device's next tick. Without this the
+		// link is real but invisible: this console only fills input_info from a
+		// RECEIVED signal, ui_data() omits the whole input block while that is
+		// null, and an injector only broadcasts when it receives a command --
+		// which the UI can't offer until data has arrived. That deadlock is why
+		// a linked injector looked like it hadn't linked at all, while a gas
+		// sensor (which broadcasts every tick unconditionally) worked fine.
+		injector.broadcast_status_next_process = TRUE
 		to_chat(user, SPAN_NOTICE("You link \the [injector] to \the [src] as its input."))
 		return
 
@@ -346,6 +354,8 @@
 			return
 		output_tag = pump.id_tag
 		pump.set_frequency(frequency)
+		// Same reason as the injector above -- see that comment.
+		pump.broadcast_status_next_process = TRUE
 		to_chat(user, SPAN_NOTICE("You link \the [pump] to \the [src] as its output."))
 		return
 
