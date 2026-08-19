@@ -123,7 +123,7 @@
 			return
 
 		var/material_name = attacking_item.get_material_name()
-		if(material_name in list(MATERIAL_GLASS_REINFORCED, MATERIAL_GLASS_REINFORCED_PHORON))
+		if(material_name in list(MATERIAL_GLASS, MATERIAL_GLASS_REINFORCED, MATERIAL_GLASS_REINFORCED_PHORON))
 			if(has_glass_installed)
 				to_chat(user, SPAN_NOTICE("\The [src] already has glass installed."))
 				return
@@ -143,6 +143,8 @@
 			to_chat(user, SPAN_NOTICE("You place the [material_name] in the window frame."))
 
 			switch(material_name)
+				if(MATERIAL_GLASS)
+					new /obj/structure/window/full(get_turf(src), constructed = TRUE)
 				if(MATERIAL_GLASS_REINFORCED)
 					new /obj/structure/window/full/reinforced(get_turf(src), constructed = TRUE)
 				if(MATERIAL_GLASS_REINFORCED_PHORON)

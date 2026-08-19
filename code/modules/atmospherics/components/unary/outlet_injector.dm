@@ -123,13 +123,16 @@
 		id = "injector_[REF(src)]"
 	return id
 
-/// Multitool linking to a tank control console (atmo_control.dm) -- buffer
-/// either end, click the other. Same buffer-toggle shape vent_pump.dm already
-/// uses for airlock cyclers.
+/// Multitool linking to any atmos console with device-linking support
+/// (atmo_control.dm) -- buffer either end, click the other. Same
+/// buffer-toggle shape vent_pump.dm already uses for airlock cyclers. Base
+/// console type, not just large_tank_control specifically, so this also
+/// covers supermatter_core (get_buffer() matches via istype(), so a
+/// base-type request matches every subtype).
 /obj/structure/machinery/atmospherics/unary/outlet_injector/attackby(obj/item/attacking_item, mob/user, params)
 	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
 		var/obj/item/multitool/MT = attacking_item
-		var/obj/structure/machinery/computer/general_air_control/large_tank_control/console = MT.get_buffer(/obj/structure/machinery/computer/general_air_control/large_tank_control)
+		var/obj/structure/machinery/computer/general_air_control/console = MT.get_buffer(/obj/structure/machinery/computer/general_air_control)
 		if(!console)
 			MT.set_buffer(src)
 			to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))

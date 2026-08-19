@@ -455,10 +455,13 @@
 			controller._link_to_airpump(src, user)
 			MT.set_buffer(null)
 			return TRUE
-		// Tank control console (atmo_control.dm) -- an additional consumer of a
-		// buffered vent pump, checked alongside the cycler above rather than
-		// replacing it, so this pump can serve as a console's Output.
-		var/obj/structure/machinery/computer/general_air_control/large_tank_control/tank_console = MT.get_buffer(/obj/structure/machinery/computer/general_air_control/large_tank_control)
+		// Any atmos console with device-linking support (atmo_control.dm) -- an
+		// additional consumer of a buffered vent pump, checked alongside the
+		// cycler above rather than replacing it, so this pump can serve as a
+		// console's Output. Base type, not just large_tank_control specifically,
+		// so this also covers supermatter_core (get_buffer() matches via
+		// istype(), so a base-type request matches every subtype).
+		var/obj/structure/machinery/computer/general_air_control/tank_console = MT.get_buffer(/obj/structure/machinery/computer/general_air_control)
 		if(tank_console)
 			tank_console._link_atmos_device(src, user)
 			MT.set_buffer(null)

@@ -910,6 +910,16 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 /obj/structure/machinery/computer/general_air_control/large_tank_control
 	worldstate_vars = list("sensors", "input_tag", "output_tag", "frequency")
 
+// Same shape as large_tank_control just above -- input_tag/output_tag are
+// now on the shared base type (atmo_control.dm), but each subtype still
+// needs its OWN worldstate_vars override to actually persist them; a
+// subtype with none just inherits the base's own narrower list ("sensors",
+// "frequency" only). Without this, a device linked to a supermatter core
+// console -- now possible at all for the first time -- would survive the
+// rest of the round but silently unlink on every restart.
+/obj/structure/machinery/computer/general_air_control/supermatter_core
+	worldstate_vars = list("sensors", "input_tag", "output_tag", "frequency")
+
 /obj/structure/machinery/atmospherics/unary/outlet_injector
 	worldstate_vars = list("id", "frequency", "volume_rate", "use_power")
 
