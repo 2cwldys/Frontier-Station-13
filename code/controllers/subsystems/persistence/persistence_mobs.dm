@@ -1487,6 +1487,16 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			log_subsystem_persistence_error("MobInventory: Could not equip [restored.type] to slot [slot_name] for [real_name] -- dropped at their feet rather than deleted.")
 			continue
 
+		// equip_to_slot_if_possible() above is called with redraw_mob = FALSE (a batch-equip
+		// optimization -- see the callers' own follow-up regenerate_icons()), so nothing composited
+		// the mob yet. That's fine for state baked into the worn icon_state/mob_icon themselves, but
+		// an item whose worn sprite is built from its OWN current contents (e.g. belt.dm's
+		// content_overlays -- tools shown sticking out of a restored belt) needs a fresh, live redraw
+		// AFTER the equip, not merely after the class-level defaults. update_worn_icon() is exactly
+		// that: a cheap, item-driven "my visible state just changed" refresh, the same idiom every
+		// other worn item in this codebase already uses (update_clothing_icon()).
+		restored.update_worn_icon()
+
 		// A voidsuit's equipped() immediately deploys its helmet/boots/tank/cooler
 		// back out into head/shoes/s_store. Retract them so everything installed in
 		// a suit comes back inside that suit, the way it would after taking the suit
