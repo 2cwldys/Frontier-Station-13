@@ -1,0 +1,221 @@
+SHARDS FOR DUMMIES
+==================
+
+What this is: running a SECOND (third, fourth...) game server on this same
+machine, sharing the same central database as your main server (admins,
+player counts, whatever's centrally configured) but with its own totally
+fresh local world -- empty turfs/objects/machinery, its own local DB. Good
+for overflow when your server's full, or just for testing.
+
+Full details: docs/cross_server_persistence.md
+This file is just "what do I actually run" -- no coding knowledge needed
+for anything below except the ONE one-time setup step in part 2 below.
+
+Where you type these commands: a PowerShell window (right-click in your
+server's folder -> "Open in Terminal", or search "PowerShell" in the Start
+menu and cd into your server's folder). "Container" just means an isolated
+little copy of the server running in Docker -- you don't need to know more
+than that to follow this.
+
+-------------------------------------------------------------------
+QUICK START (the short version)
+-------------------------------------------------------------------
+
+1. Make sure Docker Desktop is installed and running (same as you already
+   needed for the central database itself).
+2. One-time only: get someone who can edit/recompile the server's code to
+   turn on ALLOW_CENTRAL_SHARD_SPAWNING (part 2 below). If that's already
+   done for you, skip to step 3.
+3. In-game, as an admin: run the "Manage Shards" verb, type a name and a
+   port number, click Create. Wait a bit (the first one takes longer).
+4. That's it -- a link appears in chat for players to click and join it.
+
+Everything past this point is the detail behind those 4 steps, plus how to
+stop/back up/remove a shard later.
+
+-------------------------------------------------------------------
+BEFORE ANY OF THIS WORKS AT ALL
+-------------------------------------------------------------------
+
+1. Your server must already be part of a central DB group --
+   CENTRAL_SQL_ENABLED on in config\config.txt. See "central for
+   dummies.txt" first if you haven't done that yet.
+
+2. This whole feature is OFF by a hard switch in the server's SOURCE CODE,
+   not just a config setting -- because unlike everything else central,
+   this lets the game shell out to Docker on its own, so it's locked
+   behind an extra, more deliberate step. This part DOES need whoever
+   normally builds/updates your server (if that's not you, ask them to do
+   this once): in the file code\_compile_options.dm, remove the // in
+   front of this line so it reads:
+     #define ALLOW_CENTRAL_SHARD_SPAWNING
+   Then rebuild the server the same way you always do after a code change.
+   Do NOT turn this on unless you actually mean to use shards.
+
+3. Your server's security level must be Trusted (this is what lets it
+   shell out to Docker at all -- Safe/Ultrasafe blocks it outright, same
+   as the deploy/backup features already do). If you've never touched
+   this setting, it's probably already Trusted by default.
+
+-------------------------------------------------------------------
+CREATING A SHARD
+-------------------------------------------------------------------
+
+In-game (the normal way): admin verb "Manage Shards"
+(category Persistence.Misc) -- opens a panel listing every shard, with a
+Create box (shard name + port) and Start/Stop/Remove per row.
+
+Naming: YOU pick the shard's name every time you create one manually (panel
+or script) -- there's no auto-naming for that path. The only exception is
+automatic population-triggered spawning (see below), which invents one
+itself (auto-<timestamp>) since nobody's there to type a name.
+
+The panel above is all most people ever need. The rest of this section is
+the alternative way to do the exact same thing from outside the game --
+skip it if the panel already works for you.
+
+From the host machine directly (the "additional trigger" -- no need to be
+in-game, useful for scripting/automation):
+     scripts\central\db_central_add_shard.ps1 -ShardId myshard -Port 27600
+     scripts\central\db_central_start_shard.ps1 -ShardId myshard
+     scripts\central\db_central_stop_shard.ps1 -ShardId myshard
+     scripts\central\db_central_stop_all_shards.ps1     (stops every running one)
+     scripts\central\db_central_remove_shard.ps1 -ShardId myshard
+     scripts\central\db_central_list_shards.ps1
+
+On Linux, use the matching .sh (same flags, double-dash style:
+--shard-id myshard --port 27600). There's also
+scripts\central\shard_manager_gui.py -- a small point-and-click window over
+these same scripts, if you don't want the in-game panel or a terminal.
+Requires: pip install pymysql.
+
+First creation takes a while (builds the shard runtime image once, reused
+by every shard after that). Stop/Start on an EXISTING shard is fast --
+it's just resuming the same container, not rebuilding anything.
+
+-------------------------------------------------------------------
+WHAT MAKES A SHARD DIFFERENT FROM A REAL SEPARATE SERVER
+-------------------------------------------------------------------
+
+Nothing, from the central DB's point of view -- a shard is just a normal
+authorized server with its own login (same as db_central_add_server.ps1
+gives a real, separately-hosted server). The only difference is
+db_central_add_shard.ps1 ALSO handles the Docker container, local DB, and
+port for you, because it's meant for "another instance on THIS box." A
+shard someone is actively playing a character on is exactly as protected
+as any other server -- their character can't be picked up elsewhere until
+they cryo out or otherwise resolve it there.
+
+-------------------------------------------------------------------
+AUTOMATIC SPAWNING (optional -- off by default)
+-------------------------------------------------------------------
+
+In config\config.txt:
+     #AUTO_CENTRAL_SHARD_POPULATION_THRESHOLD 40
+
+Uncomment and set a number to auto-create a new shard once your player
+count crosses it. Needs the compile-time switch above AND
+CENTRAL_SQL_ENABLED both on -- if either is off, this setting does
+nothing. There's a 30-minute cooldown between automatic spawns so it can't
+fire repeatedly while population stays high. The "Manage Shards" panel
+always works regardless of this setting.
+
+-------------------------------------------------------------------
+THE JOIN ANNOUNCEMENT
+-------------------------------------------------------------------
+
+When a shard successfully comes up, players currently sitting in the lobby
+(not mid-round) get a chat message with a clickable join link. If you run
+scripts/discord_status_bot.py with a milestone_channel_id configured, it
+also posts the same link there automatically -- no extra setup needed
+beyond what that bot already requires. Starting and stopping that same
+shard later also posts a short line there ("myshard started." / "myshard
+stopped.") so the channel reflects what's actually running, not just what
+was created once.
+
+-------------------------------------------------------------------
+BACKING UP A SHARD
+-------------------------------------------------------------------
+
+     scripts\central\db_central_backup_shard.ps1 -ShardId myshard
+
+Dumps just that shard's LOCAL database (never central data -- characters/
+admins/etc. are never in this file) to backups\shards\myshard\
+backup_<timestamp>.sql. Keeps the 7 most recent per shard, same rotation
+scripts\db_backup.ps1 already does for the main server. It's a plain SQL
+dump -- hand it to another server/shard and apply it with a normal
+`docker exec -i <container> mariadb -u aurora -paurora aurora_persist <
+backup_....sql`.
+
+     scripts\central\db_central_open_backups.bat myshard
+
+Opens that shard's backup folder (omit the name to open backups\shards\
+and see every shard's backups at once).
+
+You can also just connect to the shard itself and use "Trigger Database
+Backup" (or the auto-backup toggle) like on any normal server -- it
+automatically knows it's running inside a shard and backs up that shard
+instead, landing in this same backups\shards\myshard\ folder either way.
+
+-------------------------------------------------------------------
+API TOKEN (for automation)
+-------------------------------------------------------------------
+
+When db_central_add_shard creates a shard, it also silently generates a
+token that lets an external tool trigger a save on that shard's behalf
+without a human admin logged in (useful for something like an idle-shard
+watchdog you write yourself -- nothing in this repo uses it yet). You'll
+see it printed once at the end of creation, and it's saved for later at:
+
+     shards\myshard\config\api_token.txt
+
+That's the only copy kept outside the database -- back it up like any
+other credential if you're building something around it. See "Topic API /
+tokens" in docs/cross_server_persistence.md for how a tool actually uses
+this token to talk to the server.
+
+-------------------------------------------------------------------
+TESTING THIS END TO END
+-------------------------------------------------------------------
+
+1. Create a shard with an explicit id + free port. Confirm both containers
+   are up (docker ps), its local DB is empty, and its
+   config\central_dbconfig.txt points at the SAME central DB with a unique
+   CENTRAL_SERVER_ID.
+2. Confirm the join message only shows to players in the lobby, and (if
+   configured) posts to the Discord milestone channel too.
+3. Join it. Confirm it's a genuinely empty local world, but the same
+   character list and admin roster as your main server.
+4. While a character is active on your main server, try to play it on the
+   shard -- confirm it's refused, naming the main server. Cryo out on the
+   main server, confirm the shard now allows it.
+5. Build something on the shard, Stop it, Start it again -- confirm the
+   build is still there. This is the actual "not disposable" guarantee.
+6. Remove a DIFFERENT test shard, confirm full teardown and that nothing
+   else (other shards, the main server, aurora-db/aurora-central-db) was
+   affected.
+7. With 2+ shards running, run db_central_stop_all_shards -- confirm all
+   stop, main server untouched.
+8. If testing automatic spawning: temporarily set
+   AUTO_CENTRAL_SHARD_POPULATION_THRESHOLD low, cross it with test clients,
+   confirm an auto-<timestamp> shard spawns on an auto-picked port, and
+   that crossing it again within 30 minutes does NOT spawn a second one
+   (cooldown).
+9. Recompile with ALLOW_CENTRAL_SHARD_SPAWNING commented back out. Confirm
+   the admin verb no longer exists and nothing else changed -- this must
+   be a complete no-op by default.
+
+-------------------------------------------------------------------
+GOTCHAS
+-------------------------------------------------------------------
+
+- A shard's local database is NEVER reachable from outside Docker -- only
+  its own server container can see it. Nothing to secure there.
+- Removing a shard (not stopping -- REMOVING) deletes its local data
+  permanently. Stop preserves everything; Remove does not.
+- Each shard needs its own free port. The scripts refuse a port that's
+  already registered, but a port used by something ELSE outside this
+  system isn't checked -- pick one you know is free.
+- All shard containers/data live under the shards\ folder in your repo and
+  are never committed -- back them up yourself if you care about a
+  shard's local state surviving a full wipe.

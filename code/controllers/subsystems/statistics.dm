@@ -127,6 +127,15 @@ GENERAL_PROTECT_DATUM(/datum/controller/subsystem/statistics)
 					central_server_count = text2num(central_total_query.item[2]) || 0
 				qdel(central_total_query)
 
+#ifdef ALLOW_CENTRAL_SHARD_SPAWNING
+				// See code/modules/admin/verbs/shards.dm -- kept there, not
+				// here, so every shard-specific piece stays in that one
+				// ifdef'd file. _check_auto_shard_spawn() re-checks
+				// central_sql_enabled itself, so this isn't relying solely
+				// on the outer if() above.
+				_check_auto_shard_spawn()
+#endif
+
 	if (status_needs_update)
 		// Update world status.
 		world.update_status()

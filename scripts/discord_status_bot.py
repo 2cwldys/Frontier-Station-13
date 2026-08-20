@@ -74,6 +74,15 @@ MILESTONE_STATE_PATH = REPO / "data" / "discord_status_bot_milestones.json"
 # again by the fresh process.
 ADVERT_STATE_PATH = REPO / "data" / "discord_status_bot_advert.json"
 
+# Same reasoning as ADVERT_STATE_PATH, for shard-creation announcements
+# (ALLOW_CENTRAL_SHARD_SPAWNING, shards.dm) -- a separate file since the two
+# are independent event streams with their own dedup ids.
+SHARD_ADVERT_STATE_PATH = REPO / "data" / "discord_status_bot_shard_advert.json"
+
+# Same reasoning again, for shard start/stop (a separate event stream from
+# shard creation above -- shard_advert_id only ever fires once per shard).
+SHARD_LIFECYCLE_STATE_PATH = REPO / "data" / "discord_status_bot_shard_lifecycle.json"
+
 # Tens up to 50, then fifties. Must stay sorted ascending.
 MILESTONES = (10, 20, 30, 40, 50, 100, 150, 200)
 
@@ -239,6 +248,26 @@ def format_presence(data, save_window=0):
     # "save in progress" is unambiguous at a glance.
     if saving:
         return "save in progress", "saving"
+
+    # Network-wide total across every server sharing this one's central
+    # database -- same optional fields tools/discord_rpc/main.py already
+    # shows on the player's own Rich Presence card. Present only when the
+    # polled server has CENTRAL_SQL_ENABLED on (get_serverstatus omits both
+    # keys entirely otherwise, not zero -- see server_query.dm), so this
+    # falls back to the plain count unchanged for a non-central server.
+    central_players = data.get("central_players")
+    central_servers = data.get("central_server_count")
+    if central_players is not None:
+        try:
+            central_players = int(float(central_players))
+            central_servers = int(float(central_servers))
+        except (TypeError, ValueError):
+            central_players = None
+    if central_players is not None:
+        return (
+            f"{players} here ({central_players} across {central_servers} servers)",
+            "up",
+        )
     return f"{players} player{'' if players == 1 else 's'}", "up"
 
 
@@ -580,6 +609,118 @@ def main():
 
     advert = {"last_id": _load_last_advert()}
 
+    def _load_last_shard_advert():
+        try:
+            return str(json.loads(SHARD_ADVERT_STATE_PATH.read_text(encoding="utf-8"))
+                       .get("last_shard_advert_id", ""))
+        except (OSError, ValueError, TypeError, AttributeError):
+            return ""
+
+    shard_advert = {"last_id": _load_last_shard_advert()}
+
+    def _load_last_shard_lifecycle():
+        try:
+            return str(json.loads(SHARD_LIFECYCLE_STATE_PATH.read_text(encoding="utf-8"))
+                       .get("last_shard_lifecycle_id", ""))
+        except (OSError, ValueError, TypeError, AttributeError):
+            return ""
+
+    shard_lifecycle = {"last_id": _load_last_shard_lifecycle()}
+
+    async def post_shard_advert(data):
+        """
+        Posts a new shard's join link, if there's one this bot hasn't
+        already posted -- same delivery reasoning as post_advert() (the
+        game has no bot token, only webhook URLs). Unlike post_advert(),
+        there's no expiry check on the DM side (see GLOB.shard_advert_id's
+        own doc comment, shards.dm) -- dedup here is purely "is this a
+        newer id than the last one I posted", so a shard created while this
+        bot was offline still gets announced once it reconnects.
+
+        Never raises: a failed post must not take down the presence loop.
+        """
+        if not channel["obj"]:
+            return
+        shard_advert_id = str(data.get("shard_advert_id") or "")
+        if not shard_advert_id or shard_advert_id == shard_advert["last_id"]:
+            return
+
+        # Recorded BEFORE the send, same reasoning as post_advert().
+        shard_advert["last_id"] = shard_advert_id
+        try:
+            SHARD_ADVERT_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            SHARD_ADVERT_STATE_PATH.write_text(
+                json.dumps({"last_shard_advert_id": shard_advert_id}), encoding="utf-8"
+            )
+        except OSError as e:
+            print(f"[shard_advert] could not persist {SHARD_ADVERT_STATE_PATH}: {e}", flush=True)
+
+        shard_id = str(data.get("shard_advert_shard_id") or "a new shard")
+        host = str(data.get("shard_advert_host") or "")
+        port = str(data.get("shard_advert_port") or "")
+        join_url = f"byond://{host}:{port}" if host and port else None
+
+        try:
+            # Join link as a markdown hyperlink inside the description, not
+            # a native Discord Button -- Discord's button URL validation
+            # commonly rejects non-http(s) schemes like byond:// (the same
+            # reason tools/discord_rpc's own Rich Presence button needs an
+            # https-redirector workaround), while a plain markdown link in
+            # an embed/message renders and works fine with any scheme.
+            description = f"**{shard_id}** is now available."
+            if join_url:
+                description += f"\n[Click to join]({join_url})"
+            embed = discord.Embed(
+                description=description,
+                colour=0x3B83BD,
+            )
+            await channel["obj"].send(embed=embed)
+            print(f"[shard_advert] posted shard advert {shard_advert_id} ({shard_id})", flush=True)
+        except Exception as e:
+            print(f"[shard_advert] could not post {shard_advert_id}: {e}", flush=True)
+
+    async def post_shard_lifecycle(data):
+        """
+        Posts a shard start/stop, if there's one this bot hasn't already
+        posted -- same delivery/dedup reasoning as post_shard_advert(), just
+        a separate event stream (start/stop happen repeatedly for the same
+        shard, unlike creation).
+
+        Never raises: a failed post must not take down the presence loop.
+        """
+        if not channel["obj"]:
+            return
+        shard_lifecycle_id = str(data.get("shard_lifecycle_id") or "")
+        if not shard_lifecycle_id or shard_lifecycle_id == shard_lifecycle["last_id"]:
+            return
+
+        # Recorded BEFORE the send, same reasoning as post_shard_advert().
+        shard_lifecycle["last_id"] = shard_lifecycle_id
+        try:
+            SHARD_LIFECYCLE_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            SHARD_LIFECYCLE_STATE_PATH.write_text(
+                json.dumps({"last_shard_lifecycle_id": shard_lifecycle_id}), encoding="utf-8"
+            )
+        except OSError as e:
+            print(f"[shard_lifecycle] could not persist {SHARD_LIFECYCLE_STATE_PATH}: {e}", flush=True)
+
+        shard_id = str(data.get("shard_lifecycle_shard_id") or "a shard")
+        event = str(data.get("shard_lifecycle_event") or "changed")
+
+        try:
+            # Green for started, grey for stopped -- distinct from the blue
+            # creation advert so the three shard-related posts read
+            # differently from each other at a glance.
+            colour = 0x57F287 if event == "started" else 0x99AAB5
+            embed = discord.Embed(
+                description=f"**{shard_id}** {event}.",
+                colour=colour,
+            )
+            await channel["obj"].send(embed=embed)
+            print(f"[shard_lifecycle] posted shard lifecycle {shard_lifecycle_id} ({shard_id} {event})", flush=True)
+        except Exception as e:
+            print(f"[shard_lifecycle] could not post {shard_lifecycle_id}: {e}", flush=True)
+
     async def post_advert(data):
         """
         Posts a pending "Advertise to Players" request, if there is a new one.
@@ -614,10 +755,18 @@ def main():
         except (TypeError, ValueError):
             players = 0
 
+        # Names which specific server is asking, only when it's part of a
+        # central group (central_server_id, get_serverstatus) -- otherwise
+        # this is exactly the same single-line message as before this
+        # existed. Without it, two different central-linked servers/shards
+        # advertising to the same channel would be indistinguishable.
+        server_id = data.get("central_server_id")
+        on_server = f" on **{server_id}**" if server_id else ""
+
         try:
             embed = discord.Embed(
                 # No title/author -- description only, same shape as milestones.
-                description=f"**{who}** is looking for more players -- "
+                description=f"**{who}** is looking for more players{on_server} -- "
                             f"{players} online right now.",
                 colour=0x3B83BD,
             )
@@ -764,6 +913,8 @@ def main():
             # Only on a successful poll -- an unreachable server has no count.
             await announce(data.get("players", 0))
             await post_advert(data)
+            await post_shard_advert(data)
+            await post_shard_lifecycle(data)
             # Window = one full poll cycle plus the timeout, so a save is still
             # reported as current on the next poll even when the poll that would
             # have caught it live timed out against the busy world thread.

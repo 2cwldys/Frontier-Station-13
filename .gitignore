@@ -78,6 +78,11 @@ define_sanity_output.txt
 **/node_modules
 /backups
 
+# Per-shard generated config (db_central_add_shard.ps1/.sh) -- each shard's
+# dbconfig.txt/central_dbconfig.txt/api_token.txt carries live credentials
+# that should never end up committed.
+/shards
+
 # Discord Rich Presence tool -- PyInstaller build output. The distributable
 # .exe is a build artifact (hosted for players to download), not source.
 /tools/discord_rpc/build/

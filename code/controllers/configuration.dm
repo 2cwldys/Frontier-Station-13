@@ -195,6 +195,14 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 	/// that automatically, since the servers authorized to connect are
 	/// exactly the ones trusted to be configured correctly.
 	var/central_server_id = ""
+	/// Set only inside a local game-server shard's own config.txt (written
+	/// by scripts/central/db_central_add_shard.ps1/.sh at creation, never
+	/// hand-edited) -- identical to central_server_id above. Lets
+	/// shard-unaware code (e.g. the backup verb/auto-toggle,
+	/// persistence_backups.dm) detect it's running inside a shard and
+	/// refuse cleanly instead of failing confusingly. Empty on every
+	/// server that isn't a shard.
+	var/shard_id = ""
 
 	/// Per-subject toggles for what actually gets shared once a call site
 	/// exists to route it through SScentraldb instead of SSdbcore -- each
@@ -651,6 +659,9 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 				if ("central_server_id")
 					GLOB.config.central_server_id = value
 
+				if ("shard_id")
+					GLOB.config.shard_id = value
+
 				if ("central_sync_characters")
 					GLOB.config.central_sync_characters = 1
 
@@ -662,6 +673,11 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 
 				if ("central_sync_money")
 					GLOB.config.central_sync_money = 1
+
+#ifdef ALLOW_CENTRAL_SHARD_SPAWNING
+				if ("auto_central_shard_population_threshold")
+					GLOB.config.auto_central_shard_population_threshold = text2num(value)
+#endif
 
 				if ("debug_paranoid")
 					GLOB.config.debugparanoid = 1

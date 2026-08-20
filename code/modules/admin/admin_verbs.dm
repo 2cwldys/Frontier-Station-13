@@ -215,6 +215,9 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/toggle_faction_raiding,
 	/datum/admins/proc/modify_hub_laws,
 	/client/proc/sync_deployment_branch,
+#ifdef ALLOW_CENTRAL_SHARD_SPAWNING
+	/datum/admins/proc/open_shard_panel,
+#endif
 	/datum/admins/proc/manage_stock_market,
 	/datum/admins/proc/toggle_zlevel_persistence,
 	/datum/admins/proc/manage_manual_save_list,

@@ -44,6 +44,15 @@
 	if(GLOB.config.central_sql_enabled)
 		s["central_players"] = SSstatistics.central_player_total
 		s["central_server_count"] = SSstatistics.central_server_count
+		// This server's own identity within the central group -- lets the
+		// "Advertise to Players" embed (discord_status_bot.py's
+		// post_advert()) name which specific server is asking, so two
+		// different central-linked servers/shards advertising to the same
+		// channel don't look identical. Omitted (not blank) when central
+		// is off, same as the two fields above -- a non-central server's
+		// advert embed is byte-identical to before this existed.
+		if(GLOB.config.central_server_id)
+			s["central_server_id"] = GLOB.config.central_server_id
 
 	// Same three toggles the BYOND hub status block shows
 	// (/world/proc/update_status(), world.dm) -- deliberately reading the exact
@@ -70,6 +79,27 @@
 	s["advert_id"] = advertising ? GLOB.advert_id : ""
 	s["advert_by"] = advertising ? GLOB.advert_by : ""
 	s["advert_players"] = advertising ? GLOB.advert_players : 0
+
+#ifdef ALLOW_CENTRAL_SHARD_SPAWNING
+	// Most recent shard creation, if any -- same delivery mechanism as the
+	// advert fields just above (DM has no bot token, only webhook URLs, so
+	// scripts/discord_status_bot.py is what actually posts this). Unlike
+	// advert_id, deliberately no expiry check here -- see GLOB.shard_advert_id's
+	// own doc comment, code/modules/admin/verbs/shards.dm.
+	if(GLOB.shard_advert_id)
+		s["shard_advert_id"] = GLOB.shard_advert_id
+		s["shard_advert_shard_id"] = GLOB.shard_advert_shard_id
+		s["shard_advert_port"] = GLOB.shard_advert_port
+		s["shard_advert_host"] = world.internet_address || world.address
+
+	// Most recent start/stop, if any -- same delivery mechanism, separate
+	// from shard_advert_* above (that's creation-only). See
+	// GLOB.shard_lifecycle_id's own doc comment, shards.dm.
+	if(GLOB.shard_lifecycle_id)
+		s["shard_lifecycle_id"] = GLOB.shard_lifecycle_id
+		s["shard_lifecycle_shard_id"] = GLOB.shard_lifecycle_shard_id
+		s["shard_lifecycle_event"] = GLOB.shard_lifecycle_event
+#endif
 
 	s["saved_ago"] = (SSpersistence && SSpersistence.last_save_completed) \
 		? round((world.realtime - SSpersistence.last_save_completed) / 10) \

@@ -17,10 +17,16 @@
 
 /**
  * Shared backup runner -- shells out to scripts/db_backup (mysqldump + 7-backup
- * rotation) and hands back the raw result. No chat/log reporting in here; the
- * two callers (the admin verb and fire()'s automatic post-autosave hook,
- * persistence.dm) each report success/failure in whatever way fits their own
- * context (one to the calling admin, the other to the subsystem log/admins).
+ * rotation) and hands back the raw result, EXCEPT inside a local game-server
+ * shard (GLOB.config.shard_id set), where it transparently runs
+ * scripts/central/shard_backup_self.sh instead -- same idea, but mysqldump
+ * straight over the network to the shard's own sibling DB container, since a
+ * shard's container has no Docker CLI to run scripts/db_backup with at all.
+ * Both callers below stay oblivious to which one actually ran. No chat/log
+ * reporting in here; the two callers (the admin verb and fire()'s automatic
+ * post-autosave hook, persistence.dm) each report success/failure in
+ * whatever way fits their own context (one to the calling admin, the other
+ * to the subsystem log/admins).
  *
  * Retries once after a short delay on failure. This whole call chain
  * (world.shelleo() -> wscript -> cmd -> PowerShell -> docker exec ->
@@ -38,12 +44,14 @@
  * non-event instead of an admin-alerting failure.
  */
 /datum/controller/subsystem/persistence/proc/run_database_backup()
-	// Fixed literal chosen only by world.system_type -- never built from admin- or
-	// player-supplied text, so there is no injection surface here.
-	// Backslashes on Windows -- cmd.exe parses a leading "scripts/..." token as
-	// a command plus switches rather than a path, the same misparse Part 34's
-	// `del` fix already had to work around.
-	var/command = (world.system_type == UNIX) ? "scripts/db_backup.sh" : "scripts\\db_backup.bat"
+	// scripts/db_backup targets the main server's aurora-db container by
+	// fixed name -- unreachable from inside a shard's own container (a
+	// different local DB entirely, aurora-shard-<id>-db), which also has no
+	// Docker CLI installed to run it with regardless. Transparently run the
+	// shard's own in-container backup script instead (mysqldump straight
+	// over the network to its sibling DB container -- no docker CLI needed),
+	// so the verb/auto-toggle both just work the same either way.
+	var/command = GLOB.config.shard_id ? "scripts/central/shard_backup_self.sh" : ((world.system_type == UNIX) ? "scripts/db_backup.sh" : "scripts\\db_backup.bat")
 	// Relative -- the shelled-out process's cwd comes from DreamDaemon's own OS
 	// process cwd, which isn't guaranteed to be the repo root (see
 	// GLOB.config.server_root_path's doc comment, configuration.dm). Prefix an
@@ -182,7 +190,7 @@
 		to_chat(usr, SPAN_WARNING("Auto-backup-on-autosave can't be enabled while this server's security level is Safe/Ultrasafe -- it shells out to run the backup script, which BYOND blocks under anything but Trusted. Set the server's security level to Trusted first."))
 		return
 
-	var/script_name = (world.system_type == UNIX) ? "scripts/db_backup.sh" : "scripts\\db_backup.bat"
+	var/script_name = GLOB.config.shard_id ? "scripts/central/shard_backup_self.sh" : ((world.system_type == UNIX) ? "scripts/db_backup.sh" : "scripts\\db_backup.bat")
 	if(tgui_alert(usr, "Auto-backup-on-autosave is currently [GLOB.auto_backup_on_autosave ? "ON" : "OFF"]. [new_state ? "Enable" : "Disable"] it? When on, every periodic autosave (every 30 minutes) also runs a full database backup ([script_name]).", "Toggle Auto Backup On Autosave", list("Yes", "No")) != "Yes")
 		return
 

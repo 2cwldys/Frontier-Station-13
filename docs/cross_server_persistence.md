@@ -331,17 +331,87 @@ nothing in-game. They exist now so the routing decision for each subject
 type is already in place, in one obvious spot, before the code that would
 consult it is built.
 
+## Local game-server shards
+
+Full guide: `docs/shards for dummies.txt`. Summary here for anyone reading
+this doc top to bottom: a shard is a second (third, ...) DreamDaemon
+instance on the *same machine*, sharing this server's central database but
+with completely fresh local data. Structurally it's just another
+authorized server -- `db_central_add_shard.ps1`/`.sh` provisions it the
+same DML-only central login `db_central_add_server.ps1` gives any real,
+separately-hosted server, then additionally handles the Docker container,
+local DB, and port that a genuinely separate machine wouldn't need.
+
+Gated at two independent levels: a compile-time switch
+(`ALLOW_CENTRAL_SHARD_SPAWNING`, `code/_compile_options.dm` -- off by
+default, since unlike everything else here this lets the game shell out to
+Docker on its own) and, underneath that, the same `CENTRAL_SQL_ENABLED`
+runtime check every other central feature already uses. The presence lock
+above applies to shards automatically, with no shard-specific code needed
+-- a shard is just another server as far as that mechanism is concerned.
+
+A shard's `config.txt` is a one-time snapshot of the host's own, taken at
+creation (`SQL_ENABLED`/`CENTRAL_SQL_ENABLED` forced on, a unique
+`CENTRAL_SERVER_ID` set) -- not a live link. Its local saves
+(`forceSaveAll()`) only ever touch its own local database, same as any
+other server.
+
+Creation, and every start/stop after that, relays to Discord's milestone
+channel via `scripts/discord_status_bot.py` (see `docs/shards for
+dummies.txt` for what that looks like) -- same delivery path as
+`get_serverstatus`/`post_advert()`, just its own dedup'd event stream.
+
+The existing "Trigger Database Backup" verb and auto-backup-on-autosave
+toggle (`persistence_backups.dm`) are hardcoded to `docker exec aurora-db
+...`, which is unreachable and unrunnable from inside a shard's container
+(different local DB container name, no Docker CLI installed there at all).
+A shard's own config.txt carries a `SHARD_ID` value (written once at
+creation by `db_central_add_shard.ps1`/`.sh`) that both transparently
+switch on: inside a shard they instead run
+`scripts/central/shard_backup_self.sh`, a network-only mysqldump straight
+to the shard's own sibling DB container (no Docker CLI needed), writing
+into the same `backups/shards/<ShardId>/` directory
+`db_central_backup_shard.ps1`/`.sh` uses from the host. Either command
+works from either place -- an admin connected directly to a shard can just
+use its in-game verb/toggle like normal, or back it up from the host
+without connecting at all.
+
+### Topic API / tokens
+
+Shard automation (the backup redirect above, and any future external tool)
+authenticates through this codebase's existing Topic API
+(`code/modules/world_api/api_command.dm`), not anything new. A request is
+a JSON payload sent over `world/Topic()`: `{"query":"<command>","auth":"<token>"}`
+-- `query` picks the `/datum/topic_command` to run, `auth` is checked
+against `ss13_api_tokens`/`ss13_api_commands`/`ss13_api_token_command` (the
+LOCAL game DB) unless the command sets `no_auth = TRUE` (e.g.
+`get_serverstatus`, which is meant to be publicly pollable). Commands that
+change state instead of just reporting it -- so far, just
+`force_persistence_save` (`code/modules/world_api/commands/force_save.dm`,
+triggers `SSpersistence.forceSaveAll()` with no admin mob needed) -- are
+NOT `no_auth`, and require a real token scoped to that exact command name.
+
+`db_central_add_shard.ps1`/`.sh` provisions one such token per shard at
+creation time, scoped only to `force_persistence_save` (never `_ANY`), and
+both prints it once and saves it to the shard's own
+`shards\<ShardId>\config\api_token.txt` -- nowhere else keeps a copy, so
+back it up like any other credential if you're relying on it. This exists
+for a future external tool (an idle-shard watchdog, or anything else that
+needs to trigger a save without a human admin present) -- nothing in this
+repo consumes it yet.
+
 ## What's built vs. not
 
 | Built | Not built |
 |---|---|
-| `SScentraldb` connection, its config, its own query bookkeeping | Anything actually querying it |
+| `SScentraldb` connection, its config, its own query bookkeeping | Anything actually querying it for characters/money/factions/ships |
 | `ss13_presence_lock` schema, character acquire/release hooks (spawn, cryo, disconnect), fail-closed | Ship acquire/release (drydock retrieve/stash) |
 | Per-server credential provisioning + revocation, verified live | Money/factions/ships actually living on the central DB (characters' *presence* is locked; character *data* itself still isn't centrally stored) |
 | `databaseCheckCentralConnection()` (persistence.dm) for future callers to gate on | Faction treasury's atomic-write fix (needed once factions move central -- see the presence-lock section above) |
 | `CENTRAL_SYNC_CHARACTERS`/`_SHIPS`/`_FACTIONS`/`_MONEY` config toggles | Any code that reads those toggles to actually decide where a subject's data goes |
 | Centralized admin authorization (`ss13_central_admins`), fail-closed, live | -- fully built, not a placeholder |
 | Network-wide player count (`ss13_central_population`, `get_serverstatus`, `tools/discord_rpc`) | -- fully built, not a placeholder |
+| Local game-server shards, containerized, admin/auto-spawned, backed up (backup verb/auto-toggle are shard-aware too, see above) | -- fully built, not a placeholder |
 
 A second server could point valid credentials at a real central database
 today and it would connect successfully -- and nothing would happen, because
