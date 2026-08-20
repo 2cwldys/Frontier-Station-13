@@ -166,6 +166,11 @@ DISABLE_ROUND_END
 ## site, pin it, reboot, confirm only the pinned site survives.
 # PERSISTENCE_DISABLE_STATION
 
+## Skips spawning the CentCom overmap marker ("Frontier Beacon Depot") --
+## it simply never appears on the overmap, making that sector unreachable
+## by normal overmap travel. Off by default.
+# DISABLE_FRONTIER_BEACON
+
 ## allow players to initiate a restart vote
 ALLOW_VOTE_RESTART
 
