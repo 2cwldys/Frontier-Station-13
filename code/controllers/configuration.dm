@@ -176,6 +176,41 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 
 	var/log_world_output = 0			// log world.log <<  messages
 	var/sql_enabled = 0					// for sql switching
+
+	/// Enables the SECOND database connection (SScentraldb, centraldb.dm) used
+	/// for cross-server shared persistence -- characters, money, factions, and
+	/// ship schematics shared with other authorized servers, as opposed to the
+	/// local-only SSdbcore connection above which always stays per-server
+	/// (worldstate, turfs, atmos, floor items). Off by default: only servers
+	/// deliberately authorized against a shared central database should ever
+	/// set this. Config lives in config/central_dbconfig.txt, mirroring how
+	/// the local DB's own config/dbconfig.txt is kept out of config.txt
+	/// itself (both carry credentials).
+	var/central_sql_enabled = 0
+	/// This server's own identity when acquiring a presence lock
+	/// (ss13_presence_lock) on the central database -- what a SECOND server
+	/// displays to explain why a character or ship it tried to load is
+	/// refused ("already active on [central_server_id]"). Must be unique
+	/// across every server sharing one central database; nothing enforces
+	/// that automatically, since the servers authorized to connect are
+	/// exactly the ones trusted to be configured correctly.
+	var/central_server_id = ""
+
+	/// Per-subject toggles for what actually gets shared once a call site
+	/// exists to route it through SScentraldb instead of SSdbcore -- each
+	/// one is independent so, e.g., a server can share characters/ships
+	/// with the group without also sharing money or faction data. Every
+	/// one of these is inert until the matching persistence code is built
+	/// (see docs/cross_server_persistence.md's "What's built vs not"
+	/// table); flipping one on today does nothing by itself. Kept as
+	/// separate #KEY toggles in config.txt, same as central_sql_enabled
+	/// above, rather than one combined switch, so each can be
+	/// commented/uncommented on its own.
+	var/central_sync_characters = 0
+	var/central_sync_ships = 0
+	var/central_sync_factions = 0
+	var/central_sync_money = 0
+
 	var/allow_admin_ooccolor = 0		// Allows admins with relevant permissions to have their own ooc colour
 	var/disable_round_end = 0			// disables shuttle calls, round-end votes, and nuke round-end while persistence (sql_enabled) is active
 	var/manual_area_save = 0			// persistence only saves/loads z-levels explicitly enabled via the Toggle Z-Level Persistence verb (ss13_zlevel_persistence)
@@ -608,6 +643,24 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 
 				if ("sql_enabled")
 					GLOB.config.sql_enabled = 1
+
+				if ("central_sql_enabled")
+					GLOB.config.central_sql_enabled = 1
+
+				if ("central_server_id")
+					GLOB.config.central_server_id = value
+
+				if ("central_sync_characters")
+					GLOB.config.central_sync_characters = 1
+
+				if ("central_sync_ships")
+					GLOB.config.central_sync_ships = 1
+
+				if ("central_sync_factions")
+					GLOB.config.central_sync_factions = 1
+
+				if ("central_sync_money")
+					GLOB.config.central_sync_money = 1
 
 				if ("debug_paranoid")
 					GLOB.config.debugparanoid = 1

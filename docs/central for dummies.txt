@@ -1,0 +1,80 @@
+CENTRAL DB FOR DUMMIES
+======================
+
+What this is: a second, separate database a few of YOUR OWN servers can
+share, so a character/faction/ship isn't stuck on one server. Nothing
+uses it yet -- it's plumbing only, as of now.
+
+Full details: docs/cross_server_persistence.md
+This file is just "what do I actually run."
+
+-------------------------------------------------------------------
+IF YOU'RE HOSTING THE CENTRAL DATABASE (only one person does this)
+-------------------------------------------------------------------
+
+1. First time only:
+     scripts\central\db_central_setup.ps1
+
+   Starts the container, creates the schema, turns on
+   CENTRAL_SQL_ENABLED for THIS server. Set CENTRAL_SERVER_ID yourself
+   in config\config.txt afterward -- it's not done for you.
+
+2. To authorize another server:
+     scripts\central\db_central_add_server.ps1 -ServerId theirname
+
+   Prints a config block. Send that block (and only that block) to
+   whoever runs that server. It contains a password -- don't post it
+   anywhere public.
+
+   Optional: add -SourceIP <their IP> so the login only works from that
+   address (not just password-gated). Needs a stable IP on their end.
+
+3. To cut a server off:
+     scripts\central\db_central_remove_server.ps1 -ServerId theirname
+
+   Only affects that one server. Nobody else notices. If you used
+   -SourceIP when adding them, pass the SAME -SourceIP here too --
+   otherwise it silently does nothing and their login stays active.
+
+   To change a server's allowed IP: remove them (old IP), then add them
+   again (new IP). There's no "edit" -- MariaDB ties one IP per login.
+
+4. Day to day:
+     scripts\central\db_central_start.ps1   (start the container)
+     scripts\central\db_central_stop.ps1    (stop it)
+
+-------------------------------------------------------------------
+IF YOU'RE JUST JOINING SOMEONE ELSE'S CENTRAL DATABASE
+-------------------------------------------------------------------
+
+1. You do NOT need Docker or any container for this. You're a client,
+   not the host.
+
+2. Get the config block from whoever hosts (see above). It goes in:
+     config\central_dbconfig.txt
+
+3. In config\config.txt, turn on:
+     CENTRAL_SQL_ENABLED
+     CENTRAL_SERVER_ID   <-- must be unique, pick your own name
+
+   Also pick which subjects you want to share (comment/uncomment each
+   on its own -- these don't do anything yet, see GOTCHAS below):
+     CENTRAL_SYNC_CHARACTERS
+     CENTRAL_SYNC_SHIPS
+     CENTRAL_SYNC_FACTIONS
+     CENTRAL_SYNC_MONEY
+
+4. Restart your server. That's it.
+
+-------------------------------------------------------------------
+GOTCHAS
+-------------------------------------------------------------------
+
+- Never send the ADMIN credentials (central_dbconfig_admin.txt) to
+  another server. Only the per-server runtime config block.
+- This doesn't do anything in-game yet -- no character/money/faction/
+  ship actually lives on the central DB. It's just the wiring, including
+  the CENTRAL_SYNC_* toggles -- they're placeholders for when that wiring
+  is actually used.
+- Put the central DB behind a VPN if it's reachable over the open
+  internet. There's no encryption on the connection yet.

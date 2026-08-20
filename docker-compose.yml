@@ -13,5 +13,27 @@ services:
     volumes:
       - aurora_db_data:/var/lib/mysql
 
+  # Central (cross-server) database -- see docs/cross_server_persistence.md.
+  # Separate container, port, and volume from "db" above on purpose: that's
+  # this server's own local database; this one is only useful if you're
+  # actually hosting the shared central database on this machine (a real
+  # designated central host, or local testing of db_central_*.ps1). Every
+  # local script that manages "db" always names it explicitly
+  # (`docker compose up -d db`), so this being in the same file never starts
+  # it by accident -- only `docker compose up` with no service name would
+  # bring up both, and nothing here does that.
+  central-db:
+    image: mariadb:10.11
+    container_name: aurora-central-db
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: aurora_central_root
+      MARIADB_DATABASE: aurora_central
+    ports:
+      - "13306:3306"
+    volumes:
+      - aurora_central_db_data:/var/lib/mysql
+
 volumes:
   aurora_db_data:
+  aurora_central_db_data:

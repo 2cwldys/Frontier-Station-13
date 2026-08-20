@@ -381,6 +381,31 @@ SUBSYSTEM_DEF(persistence)
 	return TRUE
 
 /**
+ * Same as databaseCheckConnection() above, but for SScentraldb
+ * (centraldb.dm) -- the shared cross-server connection carrying characters,
+ * money, factions, and ship schematics. Every proc that queries a
+ * central-backed table should gate on this instead, exactly like local-only
+ * persistence code already gates on databaseCheckConnection() -- so a
+ * central outage refuses just that one action (with a clear reason) rather
+ * than erroring partway through a query, and never blocks anything that
+ * only touches this server's own local tables.
+ *
+ * Also fails closed (returns FALSE) when central_sql_enabled is off, which
+ * is the normal state for any server that isn't part of a shared central
+ * setup -- so cross-server features quietly do nothing on an ordinary
+ * standalone server instead of logging a stream of connection failures for
+ * a connection nobody configured.
+ */
+/datum/controller/subsystem/persistence/proc/databaseCheckCentralConnection(action = "unlabeled action")
+	PRIVATE_PROC(TRUE)
+	if(!GLOB.config.central_sql_enabled)
+		return FALSE
+	if(!SScentraldb.Connect())
+		log_subsystem_persistence_error("Central SQL error during [action], connection failed.")
+		return FALSE
+	return TRUE
+
+/**
  * Helper method to check the SQL query result and log possible errors.
  * RETURN: True if no error occured, false if an error was found.
  */
