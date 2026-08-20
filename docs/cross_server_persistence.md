@@ -194,6 +194,83 @@ against a real MariaDB instance: provisioned a login, confirmed it could
 read/write but was refused on `CREATE TABLE`/`DROP TABLE`, revoked it,
 confirmed the login was then refused while a separate login kept working.
 
+## Centralized admin authorization
+
+Unlike everything else in this doc, this one is **not opt-in per subject**
+-- it's on the moment `CENTRAL_SQL_ENABLED` is. Every server's admin roster
+normally comes from its own local storage (`config/admins.txt` or a local
+`ss13_admins` table) -- with `CENTRAL_SQL_ENABLED` on, that local storage is
+no longer consulted at all. Instead `SSauth.load_admins()`
+(`code/controllers/subsystems/initialization/auth.dm`) loads the roster from
+`ss13_central_admins` on the central database, and does so **fail-closed**:
+if the central DB isn't reachable at boot, no admins are loaded anywhere on
+that server, full stop -- no fallback to local storage. This was a deliberate
+choice, not a default: the point is that a server operator can't just decide
+locally who their admins are once they're part of a central-admin group.
+
+Two local bypasses that would otherwise defeat this outright are closed at
+the same time: `AUTO_LOCAL_ADMIN` (instant admin for any localhost
+connection) is disabled whenever `CENTRAL_SQL_ENABLED` is on, and the
+in-game Permissions Panel refuses to edit ranks (it would otherwise write to
+the now-unused local table and silently do nothing). What this can't close:
+someone who controls a server's own source and can recompile it can always
+delete these checks -- true of any self-hosted software. This closes every
+*practical* local vector (file edits, DB edits, the localhost shortcut,
+in-game self-promotion), not that one.
+
+`ss13_central_admins` mirrors the local `ss13_admins` table's shape
+(`ckey`, `rank` as a display label only, `flags` as the actual enforced
+`R_*` bitmask -- not resolved through any server's own
+`config/admin_ranks.json`, so one row means the same thing everywhere).
+Manage it with:
+
+```
+scripts\central\db_central_add_admin.ps1 -Ckey someone -Rank "Head Admin" -Flags 32767
+scripts\central\db_central_remove_admin.ps1 -Ckey someone
+scripts\central\db_central_list_admins.ps1
+```
+
+Each has a `.sh` (native POSIX shell, no PowerShell dependency) and `.bat`
+(thin `powershell.exe` wrapper, forwards all arguments) sibling too, same
+convention the rest of `scripts/` already uses (`db_update.sh`/`.bat`,
+etc.) -- e.g. `db_central_add_admin.sh --ckey someone --rank "Head Admin"
+--flags 32767`. `db_central_list_admins.*` is read-only -- prints the
+current roster (`ckey`, `rank`, `flags`, `added_by`, `added_at`), nothing
+else. All three use the admin credential tier, same as every other
+`db_central_*` script. Every server's own *runtime* login can `SELECT` from
+`ss13_central_admins` (it has to, to load the roster) but never
+`INSERT`/`UPDATE`/`DELETE` on it -- granted per-table by
+`db_central_add_server.ps1` rather than as part of its usual database-wide
+write grant, specifically so a server can never grant itself admin by
+writing to that table directly. Re-run `db_central_add_server.ps1` for
+already-authorized servers after adding any new central table (including
+this one, for servers authorized before it existed) to pick up write access
+to it -- MySQL/MariaDB grants are additive across scopes, so this can't be
+expressed as a single wildcard grant with an exception.
+
+## Network-wide player count
+
+Also automatic once `CENTRAL_SQL_ENABLED` is on -- no separate toggle, same
+as the admin authorization above. `SSstatistics.fire()`
+(`code/controllers/subsystems/statistics.dm`) upserts this server's live
+player/admin count into `ss13_central_population` once a minute (one row
+per `CENTRAL_SERVER_ID`, not a growing log), then caches the summed total
+across every server with a row updated in the last 5 minutes (a freshness
+cutoff -- a crashed server's last-known count doesn't count forever).
+`get_serverstatus` (`code/modules/world_api/commands/server_query.dm`, the
+same Topic() endpoint the Discord tools and any external status poller
+already use) reports that cached total as `central_players`/
+`central_server_count` -- **only present when central is on**; a
+non-central server's response is unchanged. `players` itself always means
+only this server, never the group.
+
+`tools/discord_rpc` ("FrontierRPC," a player-side Discord Rich Presence
+tool -- see its own README) shows the network-wide total on the player's
+Discord card when the one server it's configured to poll reports it,
+falling back to a plain single-server count otherwise. No changes to how
+that tool connects -- it still only ever talks to the one server baked into
+its `.env` at `build.bat` packaging time; that server does the aggregating.
+
 ## Config reference
 
 In `config.txt`:
@@ -236,6 +313,8 @@ consult it is built.
 | Per-server credential provisioning + revocation, verified live | Characters/money/factions/ships actually living on the central DB |
 | `databaseCheckCentralConnection()` (persistence.dm) for future callers to gate on | Faction treasury's atomic-write fix (needed once factions move central -- see the presence-lock section above) |
 | `CENTRAL_SYNC_CHARACTERS`/`_SHIPS`/`_FACTIONS`/`_MONEY` config toggles | Any code that reads those toggles to actually decide where a subject's data goes |
+| Centralized admin authorization (`ss13_central_admins`), fail-closed, live | -- fully built, not a placeholder |
+| Network-wide player count (`ss13_central_population`, `get_serverstatus`, `tools/discord_rpc`) | -- fully built, not a placeholder |
 
 A second server could point valid credentials at a real central database
 today and it would connect successfully -- and nothing would happen, because

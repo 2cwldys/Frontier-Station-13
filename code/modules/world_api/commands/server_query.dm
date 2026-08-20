@@ -33,6 +33,18 @@
 	s["players"] = GLOB.clients.len
 	s["staff"] = GLOB.staff.len
 
+	// Network-wide total across every server sharing this one's central
+	// database (see docs/cross_server_persistence.md) -- omitted entirely,
+	// not zero, when central_sql_enabled is off, so a non-central server's
+	// response is byte-identical to before this existed, and "players"
+	// above always means only this server, never the group. Cached by
+	// SSstatistics.fire() once a minute, not queried live here -- this
+	// endpoint is deliberately cheap and polled frequently by external
+	// tools (see no_fail2topic above).
+	if(GLOB.config.central_sql_enabled)
+		s["central_players"] = SSstatistics.central_player_total
+		s["central_server_count"] = SSstatistics.central_server_count
+
 	// Same three toggles the BYOND hub status block shows
 	// (/world/proc/update_status(), world.dm) -- deliberately reading the exact
 	// same globals so the hub and any external status tool can never disagree.

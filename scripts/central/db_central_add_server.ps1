@@ -18,6 +18,21 @@
     DATA at worst, never the structure everyone else's data lives in.
     Schema changes stay the admin login's job alone (db_central_update.ps1).
 
+    ss13_central_admins (the centralized admin roster -- see
+    load_admins_from_central_database(), auth.dm) is the one exception:
+    every server's runtime login gets SELECT on it like anything else (it
+    has to be able to READ the roster), but never INSERT/UPDATE/DELETE --
+    a server must never be able to grant itself admin by writing directly to
+    that table. MySQL/MariaDB privileges are additive across scopes (a
+    table-level REVOKE can't narrow a database-level GRANT that already
+    covers it), so this can't be done as one wildcard GRANT plus an
+    exception -- SELECT is granted database-wide, but INSERT/UPDATE/DELETE
+    is granted per-table, for every table except that one, computed live
+    from the schema below. This means re-running this script for an
+    already-authorized server picks up write access to any NEW central
+    table added since it was last run -- worth doing after applying a
+    migration that adds one.
+
     Connects using config\central_dbconfig_admin.txt -- the ADMIN tier, not
     the per-server runtime file this script is busy creating logins for.
     See that file's own header for why the two must never be the same
@@ -127,16 +142,34 @@ if (-not $Password) {
     $Password = -join ($bytes | ForEach-Object { $chars[$_ % $chars.Length] })
 }
 
-$sql = @"
-CREATE USER IF NOT EXISTS '$ServerId'@'$SourceIP' IDENTIFIED BY '$Password';
-GRANT SELECT, INSERT, UPDATE, DELETE ON ``$($dbConfig.database)``.* TO '$ServerId'@'$SourceIP';
-FLUSH PRIVILEGES;
-"@
-
 Write-Host "Target: $($dbConfig.address):$($dbConfig.port)/$($dbConfig.database) via $($client.Name)" -ForegroundColor DarkGray
 if ($SourceIP -eq '%') {
     Write-Host "SourceIP not set -- this login will be accepted from any IP. Pass -SourceIP <their IP> to restrict it." -ForegroundColor DarkYellow
 }
+
+# Live table list, not a hardcoded one -- see the DESCRIPTION above for why
+# this can't just be one wildcard GRANT. ss13_central_admins is excluded so
+# it never receives a write grant at all, no matter how many other central
+# tables exist.
+$tableListSql = "SELECT table_name FROM information_schema.tables WHERE table_schema = '$($dbConfig.database)' AND table_name != 'ss13_central_admins';"
+$tableListResult = $tableListSql | & $client.Source -h $dbConfig.address -P $dbConfig.port -u $dbConfig.login "-p$($dbConfig.password)" -N 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Failed to list central tables:" -ForegroundColor Red
+    Write-Host "  $tableListResult" -ForegroundColor DarkRed
+    exit 1
+}
+$tables = @($tableListResult -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+
+$sqlLines = @(
+    "CREATE USER IF NOT EXISTS '$ServerId'@'$SourceIP' IDENTIFIED BY '$Password';",
+    "GRANT SELECT ON ``$($dbConfig.database)``.* TO '$ServerId'@'$SourceIP';"
+)
+foreach ($table in $tables) {
+    $sqlLines += "GRANT INSERT, UPDATE, DELETE ON ``$($dbConfig.database)``.``$table`` TO '$ServerId'@'$SourceIP';"
+}
+$sqlLines += "FLUSH PRIVILEGES;"
+$sql = $sqlLines -join "`n"
+
 Write-Host ""
 Write-Host "SQL to run:" -ForegroundColor Cyan
 Write-Host $sql -ForegroundColor DarkGray
@@ -153,7 +186,7 @@ if ($WhatIf) {
         Write-Host "  $result" -ForegroundColor DarkRed
         exit 1
     }
-    Write-Host "Created '$ServerId'@'$SourceIP' with data-only access to $($dbConfig.database)." -ForegroundColor Green
+    Write-Host "Created '$ServerId'@'$SourceIP' -- read access to everything, write access to everything except ss13_central_admins." -ForegroundColor Green
 }
 
 Write-Host ""

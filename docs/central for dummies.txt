@@ -43,6 +43,16 @@ IF YOU'RE HOSTING THE CENTRAL DATABASE (only one person does this)
      scripts\central\db_central_start.ps1   (start the container)
      scripts\central\db_central_stop.ps1    (stop it)
 
+5. To manage who's admin across the WHOLE group (not per-server -- see
+   IMPORTANT note below):
+     scripts\central\db_central_list_admins.ps1    (see who's on the list)
+     scripts\central\db_central_add_admin.ps1 -Ckey theirckey -Rank "Head Admin" -Flags 32767
+     scripts\central\db_central_remove_admin.ps1 -Ckey theirckey
+
+   32767 = full admin (R_ALL). Takes effect on each server's next reboot.
+   On Linux, use the matching .sh instead (same flags, double-dash style:
+   --ckey theirckey --rank "Head Admin" --flags 32767).
+
 -------------------------------------------------------------------
 IF YOU'RE JUST JOINING SOMEONE ELSE'S CENTRAL DATABASE
 -------------------------------------------------------------------
@@ -65,6 +75,13 @@ IF YOU'RE JUST JOINING SOMEONE ELSE'S CENTRAL DATABASE
      CENTRAL_SYNC_MONEY
 
 4. Restart your server. That's it.
+
+   IMPORTANT: turning CENTRAL_SQL_ENABLED on ALSO switches who your
+   admins are. Your local admins.txt/admin list stops being read
+   entirely -- only ss13_central_admins (on the central DB) decides who's
+   admin, on every server in the group. Ask whoever hosts the central DB
+   to add your ckey with db_central_add_admin.ps1 BEFORE you flip this
+   on, or you'll boot with zero admins until they do.
 
 -------------------------------------------------------------------
 GOTCHAS
