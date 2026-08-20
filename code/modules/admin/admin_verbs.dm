@@ -111,6 +111,7 @@ GLOBAL_LIST_INIT(admin_verbs_admin, list(
 	/datum/admins/proc/manage_hostile_npc_presets,
 	/datum/admins/proc/modify_outfit_templates,
 	/datum/admins/proc/spawn_hostile_npc,
+	/datum/admins/proc/open_hostile_spawn_panel,
 	/client/proc/toggle_aooc,
 	/client/proc/force_away_mission,
 	/client/proc/alooc,
