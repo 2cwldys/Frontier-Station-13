@@ -140,6 +140,17 @@
 // a runtime check.
 //#define ALLOW_CENTRAL_SHARD_SPAWNING
 
+// If defined (default), the periodic persistence autosave (SSpersistence)
+// reschedules itself to the next real-world wall-clock boundary (e.g. every
+// :00/:30, via _next_aligned_fire(), persistence.dm) instead of a flat
+// "wait minutes from whenever this save finished" -- see
+// docs/cross_server_persistence.md. This is what lets every central-linked
+// server land its autosave within seconds of each other instead of
+// drifting apart by boot time. Undefine to fall back to the old flat
+// schedule (no alignment query against the local DB) -- useful to compare
+// behavior against, or as a quick rollback without reverting code.
+//#define CENTRAL_AUTOSAVE_ALIGNMENT
+
 // If defined, every log_admin() entry is also mirrored to Discord via a new
 // "admin_log" webhook tag (WEBHOOK_ADMIN_LOG, __DEFINES/webhook.dm) -- add a
 // webhook to config/webhooks.json (or ss13_webhooks) with "admin_log" in its

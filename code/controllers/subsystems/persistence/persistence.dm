@@ -188,13 +188,25 @@ SUBSYSTEM_DEF(persistence)
 	return msg
 
 /// Honors a short drydock-deferral retry (deferred_retry_at) when fire() set
-/// one; otherwise defers to the normal SS_POST_FIRE_TIMING recompute.
+/// one; otherwise realigns to the next wall-clock boundary (or, with
+/// CENTRAL_AUTOSAVE_ALIGNMENT undefined, the original flat schedule).
 /datum/controller/subsystem/persistence/update_nextfire(reset_time = FALSE)
 	if(!reset_time && deferred_retry_at)
 		next_fire = deferred_retry_at
 		deferred_retry_at = 0
 		return
+#ifdef CENTRAL_AUTOSAVE_ALIGNMENT
+	// Deliberately does NOT fall through to ..() -- the base
+	// SS_POST_FIRE_TIMING formula (world.time + wait, unaligned) is exactly
+	// what _next_aligned_fire() exists to replace. master.dm calls
+	// update_nextfire() unconditionally right after every fire() completes,
+	// which was silently overwriting the aligned next_fire fire() itself
+	// had just set two lines earlier -- alignment never actually survived
+	// past the first autosave.
+	next_fire = _next_aligned_fire()
+#else
 	..()
+#endif
 
 /// Small (0..interval_seconds) delay until the next aligned wall-clock
 /// boundary, e.g. every 30 minutes on the dot -- computed by the shared DB
@@ -242,6 +254,21 @@ SUBSYSTEM_DEF(persistence)
 		delay_seconds += interval_seconds
 	return world.time + (delay_seconds SECONDS)
 
+/// Single choke point for "what should next_fire become for a normal
+/// reschedule" -- returns the wall-clock-aligned time when
+/// CENTRAL_AUTOSAVE_ALIGNMENT is defined (the default), or `old_value`
+/// (whatever the pre-alignment code at that call site used to compute)
+/// unchanged otherwise. Used by Initialize(), fire()'s own end-of-save
+/// reschedule, and the resume paths, so the original flat-schedule
+/// behavior stays exactly reproducible via the ifdef at every call site
+/// without duplicating the branch each time.
+/datum/controller/subsystem/persistence/proc/_scheduled_next_fire(old_value, min_grace_seconds = 0)
+#ifdef CENTRAL_AUTOSAVE_ALIGNMENT
+	return _next_aligned_fire(min_grace_seconds)
+#else
+	return old_value
+#endif
+
 /**
  * Periodic save  fires every 30 minutes and saves all persistence data.
  * Since the world runs continuously with no round end, this is the primary save mechanism.
@@ -252,13 +279,14 @@ SUBSYSTEM_DEF(persistence)
 		return
 	if(save_in_progress)
 		log_subsystem_persistence_warning("Persistence: Periodic save skipped -- save already in progress.")
-		// Without this, returning here leaves next_fire untouched, and
-		// SS_POST_FIRE_TIMING's own default fallback (master/subsystem.dm)
-		// silently reschedules it 30 minutes from THIS moment instead --
-		// un-aligned, quietly dropping this shard off the shared schedule
-		// for one cycle (e.g. colliding with an admin's manual Force
-		// Persistence Save). Re-align instead of falling through.
+#ifdef CENTRAL_AUTOSAVE_ALIGNMENT
+		// Re-align rather than leaving next_fire untouched here -- with
+		// CENTRAL_AUTOSAVE_ALIGNMENT off, update_nextfire() (which always
+		// runs right after this returns) already reschedules it via the
+		// original flat formula on its own, so there's nothing to do here
+		// in that mode.
 		next_fire = _next_aligned_fire()
+#endif
 		return
 	// Never save mid-stash/retrieve -- a save walking turfs/objects while a
 	// Z-level is being torn down or loaded is how half-state saves happen.
@@ -314,15 +342,18 @@ SUBSYSTEM_DEF(persistence)
 	// does sleep across real time (CHECK_TICK) for a save this size -- so
 	// Master's RunQueue() gets control back (and calls update_nextfire())
 	// at the FIRST yield, i.e. essentially when the save STARTED, not when
-	// it finished ~1-2 minutes later. SS_POST_FIRE_TIMING can't fix this on
-	// its own since it's computed at that same premature moment. Setting
-	// next_fire explicitly here, now that the save is actually done, is
-	// what makes the HUD countdown (screen_objects.dm) show a real 30
-	// minutes instead of 30 minutes minus however long the save took.
-	// Wall-clock-aligned (_next_aligned_fire()) rather than a flat +30min so
-	// this lands on the same real-world moment on every shard sharing this
-	// DB, instead of drifting apart based on when each one last saved.
-	next_fire = _next_aligned_fire()
+	// it finished ~1-2 minutes later. Setting next_fire explicitly here,
+	// now that the save is actually done, is what makes the HUD countdown
+	// (screen_objects.dm) show a real 30 minutes instead of 30 minutes
+	// minus however long the save took -- this line runs LAST (after the
+	// save truly completes) so it's always the final word regardless of
+	// whatever update_nextfire() computed at that earlier, premature
+	// moment. Wall-clock-aligned by default (_scheduled_next_fire()) rather
+	// than a flat +30min so this lands on the same real-world moment on
+	// every shard sharing this DB, instead of drifting apart based on when
+	// each one last saved -- CENTRAL_AUTOSAVE_ALIGNMENT off restores the
+	// original flat schedule for comparison/rollback.
+	next_fire = _scheduled_next_fire(world.time + wait)
 	// Kick anything that queued behind save_in_progress (the drydock gates
 	// now queue stash/retrieve requests arriving mid-save) -- the normal
 	// drain only runs after another drydock op, never after a save.
@@ -422,7 +453,9 @@ SUBSYSTEM_DEF(persistence)
 		// -- resuming with a pure relative-elapsed-time add would re-drift
 		// this shard off the shared boundary every time a pause/resume cycle
 		// happens, defeating the whole point of the alignment.
-		SSpersistence.next_fire = SSpersistence._next_aligned_fire(5 MINUTES)
+		// CENTRAL_AUTOSAVE_ALIGNMENT off restores the original
+		// replay-the-stashed-remaining-time behavior.
+		SSpersistence.next_fire = SSpersistence._scheduled_next_fire(world.time + max(0, SSpersistence.autosave_pause_remaining), 5 MINUTES)
 		SSpersistence.autosave_paused = FALSE
 		SSpersistence.autosave_auto_paused = FALSE
 		log_subsystem_persistence_info("Persistence: Autosave auto-resumed -- a player character is active again.")
@@ -560,7 +593,8 @@ SUBSYSTEM_DEF(persistence)
 		// Realigns to the next wall-clock boundary rather than replaying the
 		// stashed autosave_pause_remaining offset -- see the matching note
 		// in _autosave_empty_reconcile()'s own resume branch above.
-		SSpersistence.next_fire = SSpersistence._next_aligned_fire(5 MINUTES)
+		// (Same CENTRAL_AUTOSAVE_ALIGNMENT fallback via _scheduled_next_fire().)
+		SSpersistence.next_fire = SSpersistence._scheduled_next_fire(world.time + max(0, SSpersistence.autosave_pause_remaining), 5 MINUTES)
 		SSpersistence.autosave_paused = FALSE
 		to_world(FONT_LARGE(SPAN_GOOD("Autosave RESUMED. Next save in approximately [round(max(0, SSpersistence.next_fire - world.time) / (1 MINUTE))] minute(s).")))
 		log_and_message_admins("resumed the autosave timer", usr)
@@ -1294,11 +1328,12 @@ SUBSYSTEM_DEF(persistence)
 	addtimer(CALLBACK(src, PROC_REF(powerstateFinalize)), 30 SECONDS)
 
 	// Prevent an immediate fire() right after init  first autosave should be
-	// at least 5 minutes out, aligned to the next real-world wait-boundary
-	// (e.g. :00/:30 past the hour) so every shard sharing this DB saves
-	// within seconds of each other instead of drifting apart based on when
-	// each one happened to boot.
-	next_fire = _next_aligned_fire(5 MINUTES)
+	// at least 5 minutes out, aligned (by default) to the next real-world
+	// wait-boundary (e.g. :00/:30 past the hour) so every shard sharing
+	// this DB saves within seconds of each other instead of drifting apart
+	// based on when each one happened to boot. CENTRAL_AUTOSAVE_ALIGNMENT
+	// off restores the original flat "30 min after startup" schedule.
+	next_fire = _scheduled_next_fire(world.time + wait, 5 MINUTES)
 
 	log_subsystem_persistence_info("Persistence initialization: all steps completed in [(world.time - init_start_time) / 10] seconds. Check the lines above for any PANIC/ERROR entries from individual steps.")
 	return SS_INIT_SUCCESS
