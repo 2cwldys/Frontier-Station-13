@@ -252,6 +252,13 @@ SUBSYSTEM_DEF(persistence)
 		return
 	if(save_in_progress)
 		log_subsystem_persistence_warning("Persistence: Periodic save skipped -- save already in progress.")
+		// Without this, returning here leaves next_fire untouched, and
+		// SS_POST_FIRE_TIMING's own default fallback (master/subsystem.dm)
+		// silently reschedules it 30 minutes from THIS moment instead --
+		// un-aligned, quietly dropping this shard off the shared schedule
+		// for one cycle (e.g. colliding with an admin's manual Force
+		// Persistence Save). Re-align instead of falling through.
+		next_fire = _next_aligned_fire()
 		return
 	// Never save mid-stash/retrieve -- a save walking turfs/objects while a
 	// Z-level is being torn down or loaded is how half-state saves happen.
