@@ -9,7 +9,7 @@ services:
       MARIADB_USER: aurora
       MARIADB_PASSWORD: aurora
     ports:
-      - "3306:3306"
+      - "${DB_PORT:-3306}:3306"
     volumes:
       - aurora_db_data:/var/lib/mysql
 
