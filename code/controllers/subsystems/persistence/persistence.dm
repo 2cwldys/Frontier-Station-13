@@ -196,6 +196,52 @@ SUBSYSTEM_DEF(persistence)
 		return
 	..()
 
+/// Small (0..interval_seconds) delay until the next aligned wall-clock
+/// boundary, e.g. every 30 minutes on the dot -- computed by the shared DB
+/// so every shard sharing it (see the map_path-keyed persistence tables)
+/// aligns its autosave to the same clock instead of drifting apart based on
+/// when each one happened to boot. Falls back to this host's own clock if
+/// the DB is unreachable, so a connectivity hiccup doesn't break scheduling
+/// -- it just tries DB alignment again next reschedule.
+///
+/// Deliberately never brings a raw Unix epoch (~1.7 billion) into DM: that
+/// magnitude exceeds what DM's float num can represent at one-second
+/// precision, and subtracting two such nearly-equal large floats to get a
+/// small delay is exactly the kind of computation that silently loses that
+/// precision. MySQL does the modulo in real 64-bit integer math instead,
+/// and only the small (0..interval_seconds) result crosses into DM. The
+/// local fallback uses the same trick with world.timeofday (deciseconds
+/// since local midnight -- already small) instead of a raw epoch.
+/datum/controller/subsystem/persistence/proc/_get_aligned_delay_seconds(interval_seconds)
+	if(databaseCheckConnection("_get_aligned_delay_seconds"))
+		var/datum/db_query/q = SSdbcore.NewQuery(
+			"SELECT :interval - (UNIX_TIMESTAMP() % :interval)",
+			list("interval" = interval_seconds))
+		q.Execute()
+		if(databaseCheckQueryResult(q, "_get_aligned_delay_seconds") && q.NextRow())
+			var/delay = text2num(q.item[1])
+			qdel(q)
+			if(!isnull(delay))
+				return delay
+		else
+			qdel(q)
+	var/local_seconds_today = round(world.timeofday / 10)
+	return interval_seconds - (local_seconds_today % interval_seconds)
+
+/// world.time to next-fire at, aligned to the next wall-clock boundary of
+/// `wait` (see _get_aligned_delay_seconds()). min_grace_seconds pushes to
+/// the *following* boundary instead if the naive one is too close (e.g.
+/// booting 2 seconds before :30) -- used at boot/resume so "first autosave"
+/// still means "give the round some time," not "almost immediately."
+/// fire()'s own end-of-save reschedule doesn't need grace -- there's no risk
+/// of firing right after itself.
+/datum/controller/subsystem/persistence/proc/_next_aligned_fire(min_grace_seconds = 0)
+	var/interval_seconds = wait / (1 SECOND)
+	var/delay_seconds = _get_aligned_delay_seconds(interval_seconds)
+	if(delay_seconds < min_grace_seconds)
+		delay_seconds += interval_seconds
+	return world.time + (delay_seconds SECONDS)
+
 /**
  * Periodic save  fires every 30 minutes and saves all persistence data.
  * Since the world runs continuously with no round end, this is the primary save mechanism.
@@ -266,7 +312,10 @@ SUBSYSTEM_DEF(persistence)
 	// next_fire explicitly here, now that the save is actually done, is
 	// what makes the HUD countdown (screen_objects.dm) show a real 30
 	// minutes instead of 30 minutes minus however long the save took.
-	next_fire = world.time + wait
+	// Wall-clock-aligned (_next_aligned_fire()) rather than a flat +30min so
+	// this lands on the same real-world moment on every shard sharing this
+	// DB, instead of drifting apart based on when each one last saved.
+	next_fire = _next_aligned_fire()
 	// Kick anything that queued behind save_in_progress (the drydock gates
 	// now queue stash/retrieve requests arriving mid-save) -- the normal
 	// drain only runs after another drydock op, never after a save.
@@ -361,7 +410,12 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_info("Persistence: Autosave auto-paused -- no active player characters.")
 		log_admin("EVENT periodic autosave auto-paused -- no active player characters.")
 	else if(playing && SSpersistence.autosave_auto_paused)
-		SSpersistence.next_fire = world.time + max(0, SSpersistence.autosave_pause_remaining)
+		// Realigns to the next wall-clock boundary (_next_aligned_fire())
+		// rather than replaying the stashed autosave_pause_remaining offset
+		// -- resuming with a pure relative-elapsed-time add would re-drift
+		// this shard off the shared boundary every time a pause/resume cycle
+		// happens, defeating the whole point of the alignment.
+		SSpersistence.next_fire = SSpersistence._next_aligned_fire(5 MINUTES)
 		SSpersistence.autosave_paused = FALSE
 		SSpersistence.autosave_auto_paused = FALSE
 		log_subsystem_persistence_info("Persistence: Autosave auto-resumed -- a player character is active again.")
@@ -496,9 +550,12 @@ SUBSYSTEM_DEF(persistence)
 		return
 
 	if(SSpersistence.autosave_paused)
-		SSpersistence.next_fire = world.time + max(0, SSpersistence.autosave_pause_remaining)
+		// Realigns to the next wall-clock boundary rather than replaying the
+		// stashed autosave_pause_remaining offset -- see the matching note
+		// in _autosave_empty_reconcile()'s own resume branch above.
+		SSpersistence.next_fire = SSpersistence._next_aligned_fire(5 MINUTES)
 		SSpersistence.autosave_paused = FALSE
-		to_world(FONT_LARGE(SPAN_GOOD("Autosave RESUMED. Next save in approximately [round(max(0, SSpersistence.autosave_pause_remaining) / (1 MINUTE))] minute(s).")))
+		to_world(FONT_LARGE(SPAN_GOOD("Autosave RESUMED. Next save in approximately [round(max(0, SSpersistence.next_fire - world.time) / (1 MINUTE))] minute(s).")))
 		log_and_message_admins("resumed the autosave timer", usr)
 	else
 		SSpersistence.autosave_pause_remaining = max(0, SSpersistence.next_fire - world.time)
@@ -1229,8 +1286,12 @@ SUBSYSTEM_DEF(persistence)
 	// on->auto cycle used to fix.
 	addtimer(CALLBACK(src, PROC_REF(powerstateFinalize)), 30 SECONDS)
 
-	// Prevent an immediate fire() right after init  first autosave should be 30 min after startup
-	next_fire = world.time + wait
+	// Prevent an immediate fire() right after init  first autosave should be
+	// at least 5 minutes out, aligned to the next real-world wait-boundary
+	// (e.g. :00/:30 past the hour) so every shard sharing this DB saves
+	// within seconds of each other instead of drifting apart based on when
+	// each one happened to boot.
+	next_fire = _next_aligned_fire(5 MINUTES)
 
 	log_subsystem_persistence_info("Persistence initialization: all steps completed in [(world.time - init_start_time) / 10] seconds. Check the lines above for any PANIC/ERROR entries from individual steps.")
 	return SS_INIT_SUCCESS
