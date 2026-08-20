@@ -16,6 +16,79 @@
 	var/persistence_cryo_timer   = null
 	var/persistence_stored_ckey  = ""
 
+/**
+ * Presence lock -- see docs/cross_server_persistence.md. Prevents a
+ * character from being played simultaneously (or, if dead/lace-vaulted,
+ * resumed) on two servers sharing one central database. ss13_presence_lock
+ * (SQL/migrate-central/V001__presence_lock.sql): row existence is the
+ * lock -- no enabled flag, no timestamp expiry.
+ */
+
+/// Cheap reachability check for UI gating (character-select TGUI) -- no
+/// logging, unlike databaseCheckCentralConnection(), since this is safe to
+/// call on every TGUI refresh. TRUE when central is off (never gates
+/// anything in that case) or when it's on and currently reachable.
+/datum/controller/subsystem/persistence/proc/centralDatabaseReachable()
+	if(!GLOB.config.central_sql_enabled)
+		return TRUE
+	return SScentraldb.Connect()
+
+/**
+ * Attempts to acquire the presence lock for subject_type/subject_id (e.g.
+ * "character", "[ckey]|[real_name]"). Returns:
+ *   ""    lock is now held by (or already belonged to) THIS server --
+ *         includes the immediate no-op case where central_sql_enabled is off
+ *   null  central DB unreachable, or the lookup itself failed -- callers
+ *         MUST treat this as fail-closed, never as "unlocked"
+ *   else  the OTHER server's central_server_id currently holding it
+ */
+/datum/controller/subsystem/persistence/proc/presenceLockAcquire(subject_type, subject_id)
+	if(!GLOB.config.central_sql_enabled)
+		return ""
+	if(!databaseCheckCentralConnection("presenceLockAcquire"))
+		return null
+
+	var/datum/db_query/insert_q = SScentraldb.NewQuery(
+		"INSERT INTO `ss13_presence_lock` (subject_type, subject_id, server_id) VALUES (:type, :id, :sid)",
+		list("type" = subject_type, "id" = subject_id, "sid" = GLOB.config.central_server_id))
+	insert_q.Execute()
+	if(databaseCheckQueryResult(insert_q, "presenceLockAcquire insert"))
+		qdel(insert_q)
+		return ""
+	qdel(insert_q)
+
+	// Insert failed -- the primary key (subject_type, subject_id) almost
+	// certainly already exists. Find out who actually holds it before
+	// deciding whether that's a real conflict or this server reclaiming
+	// its own prior lock (e.g. after a restart).
+	var/datum/db_query/select_q = SScentraldb.NewQuery(
+		"SELECT server_id FROM `ss13_presence_lock` WHERE subject_type = :type AND subject_id = :id",
+		list("type" = subject_type, "id" = subject_id))
+	select_q.Execute()
+	if(!databaseCheckQueryResult(select_q, "presenceLockAcquire select"))
+		qdel(select_q)
+		return null // couldn't determine who holds it -- fail closed, never guess
+	var/holder = select_q.NextRow() ? select_q.item[1] : null
+	qdel(select_q)
+
+	if(!holder || holder == GLOB.config.central_server_id)
+		return "" // already ours, or the conflicting row vanished in between (rare release race)
+	return holder
+
+/// Releases a lock this server holds -- scoped to server_id = our own, so
+/// a server can only ever release its own lock. No-op if central is off,
+/// unreachable, or no lock is held.
+/datum/controller/subsystem/persistence/proc/presenceLockRelease(subject_type, subject_id)
+	if(!GLOB.config.central_sql_enabled)
+		return
+	if(!databaseCheckCentralConnection("presenceLockRelease"))
+		return
+	var/datum/db_query/q = SScentraldb.NewQuery(
+		"DELETE FROM `ss13_presence_lock` WHERE subject_type = :type AND subject_id = :id AND server_id = :sid",
+		list("type" = subject_type, "id" = subject_id, "sid" = GLOB.config.central_server_id))
+	q.Execute()
+	qdel(q)
+
 /mob/living/carbon/human/proc/persistence_cryo_despawn()
 	if(!persistence_in_cryo || ckey)
 		return
@@ -23,6 +96,12 @@
 	if(stat == DEAD)
 		_persistence_dead_despawn()
 		return
+
+	// Alive and finishing the grace-timer despawn -- this character is now
+	// fully out of any server's active memory, safe to release the
+	// presence lock (see its own doc comment above). _persistence_dead_despawn()
+	// deliberately never does this -- a dead/vaulted character stays locked.
+	SSpersistence.presenceLockRelease("character", "[persistence_stored_ckey]|[real_name]")
 
 	// Find a hold turf  prefer player storage telepads, fall back to any latejoin point
 	var/turf/hold_turf = null
@@ -181,6 +260,11 @@
 		log_subsystem_persistence_info("Cryo: [H.real_name] ([H.ckey]) store deferred -- a persistence save is in progress.")
 		return FALSE
 
+	// Captured before the success branch below overwrites H.stat with
+	// UNCONSCIOUS -- presence-lock release (further down) must reflect
+	// whatever state actually got saved, not the post-store cosmetic one.
+	var/was_dead = (H.stat == DEAD)
+
 	// Save all character data
 	mobPositionSave(H)
 	mobsHealthSaveOne(H)
@@ -226,6 +310,14 @@
 		if(cryo_pod.occupant == H)
 			cryo_pod.occupant = null
 			cryo_pod.update_icon()
+
+	// The character save above already fully completed and covers both
+	// outcomes below (a telepad found or not) -- release now rather than
+	// duplicating this in each branch. Dead stays locked, matching
+	// persistence_cryo_despawn()'s own release call (see that proc's
+	// comment, and this proc's own presence-lock doc comment above).
+	if(!was_dead)
+		SSpersistence.presenceLockRelease("character", "[H.ckey]|[H.real_name]")
 
 	// Move mob immediately to the player storage telepad (or latejoin fallback)
 	var/turf/hold_turf = null

@@ -51,6 +51,33 @@ multiple different characters possibly on different servers at once -- that
 needs its own fix (atomic SQL-side balance updates) when factions actually
 move to the central DB, not a lock.
 
+**Characters: built and live** (ships/drydock retrieve-stash still not --
+see the table below). `presenceLockAcquire()`/`Release()`
+(`code/controllers/subsystems/persistence/persistence_cryo.dm`) are the two
+procs everything funnels through:
+
+- **Acquire** -- `PersistentAutoSpawn()` (`code/modules/mob/abstract/
+  new_player/new_player.dm`), right after the player's character selection
+  is resolved, before any reattach/spawn actually happens. Refuses cleanly
+  (kicks back to the character menu with a message naming the other server)
+  if the lock is held elsewhere; fails closed (refuses, doesn't guess) if
+  the central DB can't be reached at all.
+- **Release** -- only when a character finishes being stored/logged-out
+  **while alive**. `persistStoreCharacter()` and `persistence_cryo_despawn()`
+  (both same file) release; `_persistence_dead_despawn()` deliberately never
+  does. This one rule covers "out of cryo" (never released while active),
+  "dead" (`char_state` would be `"dead_body"` at store time -- release
+  skipped), and "neural lace vaulted" (a subset of dead -- vaulting only
+  ever happens to an already-dead character's extracted lace, so it's
+  covered by the same skip) in one place, without needing separate handling
+  per case.
+- **Outage UX** -- the character-select TGUI (`persistent_menu.dm` /
+  `PersistentMenu.tsx`) disables Play outright while the central DB is
+  unreachable (`centralDatabaseReachable()`), rather than letting a player
+  click through to a runtime refusal. Both always come back "everything's
+  fine, proceed" the instant `central_sql_enabled` is off, so this is a
+  complete no-op on an ordinary standalone server.
+
 ## Setting up the central database
 
 **Yes -- a separate Docker container (or any separate MariaDB/MySQL
@@ -309,8 +336,8 @@ consult it is built.
 | Built | Not built |
 |---|---|
 | `SScentraldb` connection, its config, its own query bookkeeping | Anything actually querying it |
-| `ss13_presence_lock` schema | The acquire/release hooks (spawn, cryo, disconnect, drydock retrieve/stash) |
-| Per-server credential provisioning + revocation, verified live | Characters/money/factions/ships actually living on the central DB |
+| `ss13_presence_lock` schema, character acquire/release hooks (spawn, cryo, disconnect), fail-closed | Ship acquire/release (drydock retrieve/stash) |
+| Per-server credential provisioning + revocation, verified live | Money/factions/ships actually living on the central DB (characters' *presence* is locked; character *data* itself still isn't centrally stored) |
 | `databaseCheckCentralConnection()` (persistence.dm) for future callers to gate on | Faction treasury's atomic-write fix (needed once factions move central -- see the presence-lock section above) |
 | `CENTRAL_SYNC_CHARACTERS`/`_SHIPS`/`_FACTIONS`/`_MONEY` config toggles | Any code that reads those toggles to actually decide where a subject's data goes |
 | Centralized admin authorization (`ss13_central_admins`), fail-closed, live | -- fully built, not a placeholder |
