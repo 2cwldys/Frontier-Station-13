@@ -458,6 +458,35 @@ GLOBAL_LIST_EMPTY(hostile_spawn_groups)
 			return G
 	return null
 
+/// TRUE if H is tracked by ANY admin/faction-infrastructure spawn source --
+/// the panel's own spawn groups (find_hostile_spawn_group(), above), or a
+/// faction barracks/commander beacon/guard beacon's active_mobs. Used by the
+/// placement eye's right-click removal (hostile_spawn_eye.dm's remove_at())
+/// so it also reaches barracks/beacon-spawned "faction AI" soldiers, not
+/// just its own placement/batch spawns -- those track membership in their
+/// own separate active_mobs lists that find_hostile_spawn_group() alone
+/// never looks at. Deliberately NOT "is this any hostile_npc" -- mission
+/// kill-targets, away-site population, and map-placed encounter spawners
+/// use the same mob type and must stay off-limits to admin right-click
+/// removal; none of them track their mobs in a list checked here.
+/// All three active_mobs owners already remove a mob from their own list
+/// automatically when it's qdel()'d from anywhere (soldier_died(), each
+/// registered on COMSIG_QDELETING), so this only needs to find the mob --
+/// not clean up after it.
+/proc/is_admin_spawned_hostile(mob/living/carbon/human/npc/hostile/H)
+	if(find_hostile_spawn_group(H))
+		return TRUE
+	for(var/obj/structure/machinery/faction_barracks/FB in world)
+		if(H in FB.active_mobs)
+			return TRUE
+	for(var/obj/item/commander_beacon/CB in world)
+		if(H in CB.active_mobs)
+			return TRUE
+	for(var/obj/structure/machinery/guard_beacon/GB in world)
+		if(H in GB.active_mobs)
+			return TRUE
+	return FALSE
+
 /// Bare invisible parent object for the placement eye's /datum/component/eye
 /// to attach to -- every other eye component in this codebase (blueprints,
 /// base_planner) hangs off a physical held item instead, but an admin

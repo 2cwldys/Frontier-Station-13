@@ -20,6 +20,15 @@
 	/// to (persistence_hostile_npcs.dm) -- deleted in release() so it never
 	/// lingers after the placement session ends.
 	var/obj/effect/eye_anchor/anchor
+	/// Own click-handler subtype (see below) -- BYOND's native right-click
+	/// popup menu (client.show_popup_menus) intercepts right-clicks on any
+	/// mob with an applicable verb (which is any mob, for an admin) before
+	/// ClickOn() below ever runs, so remove_at() never fired on an actual
+	/// mob. Only place_at()'s empty-turf right-clicks worked. Suppressing
+	/// the popup for the duration this eye is possessed (Enter()/Exit(),
+	/// below) fixes that -- same mechanism buildmode already uses
+	/// (code/modules/admin/buildmode/click_handler.dm).
+	click_handler_type = /datum/click_handler/eye/hostile_spawn
 
 /mob/abstract/eye/hostile_spawn/Initialize(mapload, list/preset_ids, faction_uid, pack_id, datum/hostile_spawn_group/spawn_group)
 	. = ..(mapload)
@@ -74,9 +83,21 @@
 
 /mob/abstract/eye/hostile_spawn/proc/remove_at(turf/T)
 	for(var/mob/living/carbon/human/npc/hostile/H in T)
-		if(!find_hostile_spawn_group(H))
+		if(!is_admin_spawned_hostile(H))
 			continue
 		_telepad_phase_arrival(T, H.dir)
 		qdel(H)
 		return
 	to_chat(owner, SPAN_WARNING("Nothing here was spawned by the admin spawn system."))
+
+/// Suppresses BYOND's native right-click popup menu (client.show_popup_menus)
+/// for the duration this eye is possessed, so right-clicks on a mob reach
+/// ClickOn() above instead of being swallowed by the popup -- see the
+/// click_handler_type comment on /mob/abstract/eye/hostile_spawn.
+/datum/click_handler/eye/hostile_spawn/Enter()
+	. = ..()
+	user.client.show_popup_menus = FALSE
+
+/datum/click_handler/eye/hostile_spawn/Exit()
+	. = ..()
+	user.client.show_popup_menus = TRUE
