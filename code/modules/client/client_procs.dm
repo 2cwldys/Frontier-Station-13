@@ -564,7 +564,12 @@ GLOBAL_VAR_INIT(log_player_connections, TRUE)
 
 	to_chat_immediate(src, SPAN_ALERT("If the title screen is black, resources are still downloading. Please be patient until the title screen appears."))
 
-	var/local_connection = (GLOB.config.auto_local_admin && !GLOB.config.use_authentik_api && (isnull(address) || GLOB.localhost_addresses[address]))
+	// central_sql_enabled excluded deliberately -- once a server's admin
+	// roster is centrally authoritative (load_admins_from_central_database(),
+	// auth.dm), an instant local R_ALL grant for anyone on localhost would
+	// bypass that entirely; a server's own host always has localhost access
+	// to their own machine.
+	var/local_connection = (GLOB.config.auto_local_admin && !GLOB.config.use_authentik_api && !GLOB.config.central_sql_enabled && (isnull(address) || GLOB.localhost_addresses[address]))
 	// Automatic admin rights for people connecting locally.
 	// Concept stolen from /tg/ with deepest gratitude.
 	// And ported from Nebula with love.

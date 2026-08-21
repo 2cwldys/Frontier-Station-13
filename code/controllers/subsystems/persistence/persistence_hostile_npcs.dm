@@ -385,3 +385,313 @@ GLOBAL_LIST_EMPTY(hostile_npc_presets)
 		return
 	log_and_message_admins("spawned hostile NPC preset '[preset["name"]]' at ([T.x],[T.y],[T.z])", usr)
 	to_chat(usr, SPAN_GOOD("Spawned '[preset["name"]]'."))
+
+/*
+ * Hostile Spawn Panel -- a real TGUI panel (unlike every chat-wizard verb
+ * above) for spawning a tracked, force-removable BATCH of hostile NPCs at
+ * once, either allied to a real player faction or hostile to everyone but
+ * itself. Reuses spawn_hostile_npc_from_preset() (and its transport-phase
+ * VFX/sound) as the actual spawn choke point -- this file only adds the
+ * batching, tracking, and click-to-place layers on top of it.
+ */
+
+/// One admin-spawned batch of hostile NPCs, tracked so it can be observed
+/// and force-removed later. Self-prunes as members die (mirrors
+/// faction_barracks.dm's active_mobs/soldier_died() pattern) -- a group only
+/// ever appears in GLOB.hostile_spawn_groups once it has at least one member
+/// (see add_member()), and quietly falls out of it again once the last one
+/// dies, with nothing left to force-remove.
+/datum/hostile_spawn_group
+	var/label
+	var/creator_name
+	var/faction_uid
+	var/pack_id
+	var/turf/spawn_turf
+	var/spawn_time
+	var/list/members = list()
+
+/datum/hostile_spawn_group/Destroy()
+	for(var/mob/living/M in members)
+		UnregisterSignal(M, COMSIG_QDELETING)
+	members = null
+	GLOB.hostile_spawn_groups -= src
+	return ..()
+
+/datum/hostile_spawn_group/proc/add_member(mob/living/carbon/human/npc/hostile/H)
+	members += H
+	RegisterSignal(H, COMSIG_QDELETING, PROC_REF(_on_member_gone))
+	if(!(src in GLOB.hostile_spawn_groups))
+		GLOB.hostile_spawn_groups += src
+
+/datum/hostile_spawn_group/proc/_on_member_gone(mob/living/mob_ref)
+	SIGNAL_HANDLER
+	UnregisterSignal(mob_ref, COMSIG_QDELETING)
+	members -= mob_ref
+	if(!length(members))
+		GLOB.hostile_spawn_groups -= src
+
+/// Force-removes every remaining live member, phase-out VFX and all, same as
+/// dismiss_soldiers() (faction_barracks.dm). Safe to call on an
+/// already-empty group.
+/datum/hostile_spawn_group/proc/dismiss(mob/user)
+	for(var/mob/living/M in members)
+		UnregisterSignal(M, COMSIG_QDELETING)
+		if(!QDELETED(M))
+			var/turf/origin = get_turf(M)
+			_telepad_phase_arrival(origin, M.dir)
+			qdel(M)
+	members.Cut()
+	GLOB.hostile_spawn_groups -= src
+	if(user)
+		to_chat(user, SPAN_NOTICE("Dismissed '[label]'."))
+
+/// Every currently-tracked hostile_spawn_group, server-wide.
+GLOBAL_LIST_EMPTY(hostile_spawn_groups)
+
+/// The tracked group that spawned M, or null if M wasn't spawned through this
+/// system (e.g. a mapped-in or mission-spawned hostile). Used by the
+/// placement eye's right-click removal so it only ever touches admin-spawned
+/// mobs.
+/proc/find_hostile_spawn_group(mob/living/M)
+	for(var/datum/hostile_spawn_group/G in GLOB.hostile_spawn_groups)
+		if(M in G.members)
+			return G
+	return null
+
+/// TRUE if H is tracked by ANY admin/faction-infrastructure spawn source --
+/// the panel's own spawn groups (find_hostile_spawn_group(), above), or a
+/// faction barracks/commander beacon/guard beacon's active_mobs. Used by the
+/// placement eye's right-click removal (hostile_spawn_eye.dm's remove_at())
+/// so it also reaches barracks/beacon-spawned "faction AI" soldiers, not
+/// just its own placement/batch spawns -- those track membership in their
+/// own separate active_mobs lists that find_hostile_spawn_group() alone
+/// never looks at. Deliberately NOT "is this any hostile_npc" -- mission
+/// kill-targets, away-site population, and map-placed encounter spawners
+/// use the same mob type and must stay off-limits to admin right-click
+/// removal; none of them track their mobs in a list checked here.
+/// All three active_mobs owners already remove a mob from their own list
+/// automatically when it's qdel()'d from anywhere (soldier_died(), each
+/// registered on COMSIG_QDELETING), so this only needs to find the mob --
+/// not clean up after it.
+/proc/is_admin_spawned_hostile(mob/living/carbon/human/npc/hostile/H)
+	if(find_hostile_spawn_group(H))
+		return TRUE
+	for(var/obj/structure/machinery/faction_barracks/FB in world)
+		if(H in FB.active_mobs)
+			return TRUE
+	for(var/obj/item/commander_beacon/CB in world)
+		if(H in CB.active_mobs)
+			return TRUE
+	for(var/obj/structure/machinery/guard_beacon/GB in world)
+		if(H in GB.active_mobs)
+			return TRUE
+	return FALSE
+
+/// Bare invisible parent object for the placement eye's /datum/component/eye
+/// to attach to -- every other eye component in this codebase (blueprints,
+/// base_planner) hangs off a physical held item instead, but an admin
+/// placement mode has no item to hold, so this stands in as a minimal
+/// anchor. Deleted by /mob/abstract/eye/hostile_spawn/release() once the
+/// admin stops looking, so it never lingers after the session ends.
+/obj/effect/eye_anchor
+	name = "eye anchor"
+	anchored = TRUE
+	density = FALSE
+	unacidable = TRUE
+	simulated = FALSE
+	invisibility = INVISIBILITY_ABSTRACT
+
+/datum/tgui_module/admin/hostile_spawn_panel
+
+/datum/tgui_module/admin/hostile_spawn_panel/ui_interact(mob/user, datum/tgui/ui)
+	ui = SStgui.try_update_ui(user, src, ui)
+	if(!ui)
+		ui = new(user, src, "HostileSpawnPanel", "Spawn Faction AI", 480, 600)
+		ui.open()
+
+/datum/tgui_module/admin/hostile_spawn_panel/ui_data(mob/user)
+	var/list/data = list()
+
+	data["presets"] = list()
+	for(var/list/preset in GLOB.hostile_npc_presets)
+		if(!preset["enabled"])
+			continue
+		data["presets"] += list(list("id" = preset["id"], "name" = preset["name"]))
+
+	data["factions"] = list()
+	for(var/uid in GLOB.persistence_faction_cache)
+		data["factions"] += list(list("uid" = uid, "name" = get_faction_name(uid)))
+
+	data["placing"] = !!(user.eyeobj && istype(user.eyeobj, /mob/abstract/eye/hostile_spawn))
+
+	data["groups"] = list()
+	for(var/datum/hostile_spawn_group/G in GLOB.hostile_spawn_groups)
+		var/alive = 0
+		for(var/mob/living/M in G.members)
+			if(!QDELETED(M) && M.stat != DEAD)
+				alive++
+		data["groups"] += list(list(
+			"ref" = REF(G),
+			"label" = G.label,
+			"creator_name" = G.creator_name,
+			"faction_name" = G.faction_uid ? get_faction_name(G.faction_uid) : "Hostile (pack)",
+			"alive" = alive,
+			"total" = length(G.members),
+			"location" = G.spawn_turf ? "([G.spawn_turf.x],[G.spawn_turf.y],[G.spawn_turf.z])" : "unknown",
+		))
+	return data
+
+/// Shared by "spawn" and "enter_placement_mode" -- validates the picked
+/// preset POOL (one or more presets; each individual spawn later picks a
+/// random one from this list, see _pick_pool_preset(), so a batch or a
+/// placement-mode session doesn't drop the same exact loadout every time)
+/// plus the relationship/faction, and resolves them into what
+/// spawn_hostile_npc_from_preset() and pack tagging actually need. Returns
+/// null (having already messaged the user) on any validation failure.
+/datum/tgui_module/admin/hostile_spawn_panel/proc/_resolve_spawn_params(mob/user, list/params)
+	var/list/preset_ids = params["preset_ids"]
+	if(!islist(preset_ids) || !length(preset_ids))
+		to_chat(user, SPAN_WARNING("Select at least one preset first."))
+		return null
+	var/list/presets = list()
+	for(var/id in preset_ids)
+		var/list/preset = get_hostile_npc_preset(text2num(id))
+		if(!preset || !preset["enabled"])
+			to_chat(user, SPAN_WARNING("One of the selected presets is no longer valid."))
+			return null
+		presets += list(preset)
+
+	var/override_faction_uid = null
+	var/pack_id = null
+	if(params["relationship"] == "allied")
+		override_faction_uid = params["faction_uid"]
+		if(!override_faction_uid || !(override_faction_uid in GLOB.persistence_faction_cache))
+			to_chat(user, SPAN_WARNING("Select a faction to ally with first."))
+			return null
+	else
+		pack_id = "adminspawn_[REF(user)]_[world.time]"
+
+	return list("presets" = presets, "faction_uid" = override_faction_uid, "pack_id" = pack_id)
+
+/// One random preset from a resolved pool -- the actual "variety" mechanism:
+/// every individual spawn (one member of a batch, or one placement-mode
+/// click) calls this fresh, so a multi-preset pool doesn't produce a batch
+/// of identical clones.
+/proc/_pick_pool_preset(list/presets)
+	return pick(presets)
+
+/// Group label for a resolved preset pool -- just the preset's name if only
+/// one was picked, otherwise a count plus the full name list so admins can
+/// still tell at a glance what a mixed group is drawing from.
+/proc/_hostile_spawn_pool_label(list/presets)
+	if(length(presets) == 1)
+		var/list/preset = presets[1]
+		return preset["name"]
+	var/list/names = list()
+	for(var/list/preset in presets)
+		names += preset["name"]
+	return "[length(presets)] variants ([english_list(names)])"
+
+/datum/tgui_module/admin/hostile_spawn_panel/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
+	. = ..()
+	if(.)
+		return
+	if(!check_rights(R_ADMIN, 0, usr))
+		return
+
+	switch(action)
+		if("spawn")
+			var/list/resolved = _resolve_spawn_params(usr, params)
+			if(!resolved)
+				return TRUE
+			var/list/presets = resolved["presets"]
+			var/count = between(1, text2num(params["count"]) || 1, 20)
+			var/turf/T = get_turf(usr)
+			if(!T)
+				return TRUE
+
+			var/datum/hostile_spawn_group/group = new()
+			group.label = "[_hostile_spawn_pool_label(presets)] x[count] -- [worldtime2text()]"
+			group.creator_name = usr.name
+			group.faction_uid = resolved["faction_uid"]
+			group.pack_id = resolved["pack_id"]
+			group.spawn_turf = T
+			group.spawn_time = world.time
+
+			var/spawned = 0
+			for(var/i in 1 to count)
+				var/list/preset = _pick_pool_preset(presets)
+				var/mob/living/carbon/human/npc/hostile/H = spawn_hostile_npc_from_preset(preset["id"], T, resolved["faction_uid"])
+				if(!H)
+					continue
+				if(resolved["pack_id"])
+					H.pack_id = resolved["pack_id"]
+				group.add_member(H)
+				spawned++
+
+			if(!spawned)
+				qdel(group)
+				to_chat(usr, SPAN_WARNING("Failed to spawn -- preset may have been disabled."))
+				return TRUE
+
+			log_and_message_admins("spawned [spawned]x hostile NPC pool '[_hostile_spawn_pool_label(presets)]' ([resolved["faction_uid"] ? "allied to [get_faction_name(resolved["faction_uid"])]" : "hostile to all"]) at ([T.x],[T.y],[T.z])", usr)
+			to_chat(usr, SPAN_GOOD("Spawned [spawned]x '[_hostile_spawn_pool_label(presets)]'."))
+			. = TRUE
+
+		if("enter_placement_mode")
+			if(usr.eyeobj)
+				to_chat(usr, SPAN_WARNING("You're already using another eye."))
+				return TRUE
+			var/list/resolved = _resolve_spawn_params(usr, params)
+			if(!resolved)
+				return TRUE
+			var/list/presets = resolved["presets"]
+
+			var/datum/hostile_spawn_group/group = new()
+			group.label = "[_hostile_spawn_pool_label(presets)] (placement mode) -- [worldtime2text()]"
+			group.creator_name = usr.name
+			group.faction_uid = resolved["faction_uid"]
+			group.pack_id = resolved["pack_id"]
+			group.spawn_turf = get_turf(usr)
+			group.spawn_time = world.time
+
+			var/list/preset_ids = list()
+			for(var/list/preset in presets)
+				preset_ids += preset["id"]
+
+			var/obj/effect/eye_anchor/anchor = new(get_turf(usr))
+			var/datum/component/eye/hostile_spawn/eye_component = anchor.AddComponent(/datum/component/eye/hostile_spawn)
+			if(!eye_component.look(usr, list(preset_ids, resolved["faction_uid"], resolved["pack_id"], group)))
+				qdel(anchor)
+				qdel(group)
+				to_chat(usr, SPAN_WARNING("Couldn't enter placement mode -- you may already be using another eye."))
+				return TRUE
+			var/mob/abstract/eye/hostile_spawn/eye_mob = eye_component.component_eye
+			eye_mob.anchor = anchor
+			to_chat(usr, SPAN_NOTICE("Entering placement mode for '[_hostile_spawn_pool_label(presets)]'. Left click a tile to spawn one there (randomly picked from your selected presets), right click an admin-spawned hostile to remove it, use the 'Stop looking' eye action to exit."))
+			. = TRUE
+
+		if("dismiss_group")
+			var/datum/hostile_spawn_group/group = locate(params["ref"])
+			if(!istype(group) || !(group in GLOB.hostile_spawn_groups))
+				return TRUE
+			log_and_message_admins("dismissed hostile NPC spawn group '[group.label]'", usr)
+			group.dismiss(usr)
+			. = TRUE
+
+/// Opens the hostile spawn panel -- spawn tracked, removable batches of
+/// hostile faction AI (or place them one at a time via a click-to-place eye
+/// mode), allied to a real faction or hostile to everyone but itself.
+/datum/admins/proc/open_hostile_spawn_panel()
+	set name = "Spawn Faction AI"
+	set category = "Persistence.Away Sites & Missions"
+	set desc = "Spawn a tracked group of hostile faction AI at your location, choosing count, preset, and faction relationship."
+
+	if(!check_rights(R_ADMIN))
+		return
+	if(!length(GLOB.hostile_npc_presets))
+		to_chat(usr, SPAN_WARNING("No hostile NPC presets exist -- create one via 'Manage Hostile NPC Presets' first."))
+		return
+
+	var/static/datum/tgui_module/admin/hostile_spawn_panel/global_hostile_spawn_panel = new()
+	global_hostile_spawn_panel.ui_interact(usr)

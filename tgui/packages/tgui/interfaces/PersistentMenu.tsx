@@ -19,6 +19,7 @@ type PersistentMenuData = {
   enter_allowed: BooleanLike;
   save_in_progress: BooleanLike;
   whitelisted: BooleanLike;
+  central_reachable: BooleanLike;
 };
 
 const formatRemaining = (seconds: number) => {
@@ -41,6 +42,7 @@ export const PersistentMenu = (props) => {
     enter_allowed,
     save_in_progress,
     whitelisted,
+    central_reachable,
   } = data;
 
   const emptySlots = Math.max(0, slot_limit - characters.length);
@@ -63,20 +65,23 @@ export const PersistentMenu = (props) => {
                       !persistence_ready ||
                       !enter_allowed ||
                       !!save_in_progress ||
-                      !whitelisted
+                      !whitelisted ||
+                      !central_reachable
                     }
                     tooltip={
                       char.imprisoned
                         ? char.indefinite
                           ? 'This character is imprisoned indefinitely.'
                           : `This character is imprisoned, time left: ${formatRemaining(char.remaining_seconds)}`
-                        : save_in_progress
-                          ? 'Cannot join server while a save is in progress.'
-                          : !whitelisted
-                            ? 'You are not whitelisted to join this server.'
-                            : !enter_allowed
-                              ? 'Joining is currently disabled by an administrator.'
-                              : 'Enter the world as this character'
+                        : !central_reachable
+                          ? 'The shared character database is unreachable -- try again shortly.'
+                          : save_in_progress
+                            ? 'Cannot join server while a save is in progress.'
+                            : !whitelisted
+                              ? 'You are not whitelisted to join this server.'
+                              : !enter_allowed
+                                ? 'Joining is currently disabled by an administrator.'
+                                : 'Enter the world as this character'
                     }
                     onClick={() => act('play', { name: char.name })}
                   >

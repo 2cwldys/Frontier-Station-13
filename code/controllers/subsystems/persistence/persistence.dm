@@ -188,13 +188,86 @@ SUBSYSTEM_DEF(persistence)
 	return msg
 
 /// Honors a short drydock-deferral retry (deferred_retry_at) when fire() set
-/// one; otherwise defers to the normal SS_POST_FIRE_TIMING recompute.
+/// one; otherwise realigns to the next wall-clock boundary (or, with
+/// CENTRAL_AUTOSAVE_ALIGNMENT undefined, the original flat schedule).
 /datum/controller/subsystem/persistence/update_nextfire(reset_time = FALSE)
 	if(!reset_time && deferred_retry_at)
 		next_fire = deferred_retry_at
 		deferred_retry_at = 0
 		return
+#ifdef CENTRAL_AUTOSAVE_ALIGNMENT
+	// Deliberately does NOT fall through to ..() -- the base
+	// SS_POST_FIRE_TIMING formula (world.time + wait, unaligned) is exactly
+	// what _next_aligned_fire() exists to replace. master.dm calls
+	// update_nextfire() unconditionally right after every fire() completes,
+	// which was silently overwriting the aligned next_fire fire() itself
+	// had just set two lines earlier -- alignment never actually survived
+	// past the first autosave.
+	next_fire = _next_aligned_fire()
+#else
 	..()
+#endif
+
+/// Small (0..interval_seconds) delay until the next aligned wall-clock
+/// boundary, e.g. every 30 minutes on the dot -- computed by the shared DB
+/// so every shard sharing it (see the map_path-keyed persistence tables)
+/// aligns its autosave to the same clock instead of drifting apart based on
+/// when each one happened to boot. Falls back to this host's own clock if
+/// the DB is unreachable, so a connectivity hiccup doesn't break scheduling
+/// -- it just tries DB alignment again next reschedule.
+///
+/// Deliberately never brings a raw Unix epoch (~1.7 billion) into DM: that
+/// magnitude exceeds what DM's float num can represent at one-second
+/// precision, and subtracting two such nearly-equal large floats to get a
+/// small delay is exactly the kind of computation that silently loses that
+/// precision. MySQL does the modulo in real 64-bit integer math instead,
+/// and only the small (0..interval_seconds) result crosses into DM. The
+/// local fallback uses the same trick with world.timeofday (deciseconds
+/// since local midnight -- already small) instead of a raw epoch.
+/datum/controller/subsystem/persistence/proc/_get_aligned_delay_seconds(interval_seconds)
+	if(databaseCheckConnection("_get_aligned_delay_seconds"))
+		var/datum/db_query/q = SSdbcore.NewQuery(
+			"SELECT :interval - (UNIX_TIMESTAMP() % :interval)",
+			list("interval" = interval_seconds))
+		q.Execute()
+		if(databaseCheckQueryResult(q, "_get_aligned_delay_seconds") && q.NextRow())
+			var/delay = text2num(q.item[1])
+			qdel(q)
+			if(!isnull(delay))
+				return delay
+		else
+			qdel(q)
+	var/local_seconds_today = round(world.timeofday / 10)
+	return interval_seconds - (local_seconds_today % interval_seconds)
+
+/// world.time to next-fire at, aligned to the next wall-clock boundary of
+/// `wait` (see _get_aligned_delay_seconds()). min_grace_seconds pushes to
+/// the *following* boundary instead if the naive one is too close (e.g.
+/// booting 2 seconds before :30) -- used at boot/resume so "first autosave"
+/// still means "give the round some time," not "almost immediately."
+/// fire()'s own end-of-save reschedule doesn't need grace -- there's no risk
+/// of firing right after itself.
+/datum/controller/subsystem/persistence/proc/_next_aligned_fire(min_grace_seconds = 0)
+	var/interval_seconds = wait / (1 SECOND)
+	var/delay_seconds = _get_aligned_delay_seconds(interval_seconds)
+	if(delay_seconds < min_grace_seconds)
+		delay_seconds += interval_seconds
+	return world.time + (delay_seconds SECONDS)
+
+/// Single choke point for "what should next_fire become for a normal
+/// reschedule" -- returns the wall-clock-aligned time when
+/// CENTRAL_AUTOSAVE_ALIGNMENT is defined (the default), or `old_value`
+/// (whatever the pre-alignment code at that call site used to compute)
+/// unchanged otherwise. Used by Initialize(), fire()'s own end-of-save
+/// reschedule, and the resume paths, so the original flat-schedule
+/// behavior stays exactly reproducible via the ifdef at every call site
+/// without duplicating the branch each time.
+/datum/controller/subsystem/persistence/proc/_scheduled_next_fire(old_value, min_grace_seconds = 0)
+#ifdef CENTRAL_AUTOSAVE_ALIGNMENT
+	return _next_aligned_fire(min_grace_seconds)
+#else
+	return old_value
+#endif
 
 /**
  * Periodic save  fires every 30 minutes and saves all persistence data.
@@ -206,6 +279,14 @@ SUBSYSTEM_DEF(persistence)
 		return
 	if(save_in_progress)
 		log_subsystem_persistence_warning("Persistence: Periodic save skipped -- save already in progress.")
+#ifdef CENTRAL_AUTOSAVE_ALIGNMENT
+		// Re-align rather than leaving next_fire untouched here -- with
+		// CENTRAL_AUTOSAVE_ALIGNMENT off, update_nextfire() (which always
+		// runs right after this returns) already reschedules it via the
+		// original flat formula on its own, so there's nothing to do here
+		// in that mode.
+		next_fire = _next_aligned_fire()
+#endif
 		return
 	// Never save mid-stash/retrieve -- a save walking turfs/objects while a
 	// Z-level is being torn down or loaded is how half-state saves happen.
@@ -261,12 +342,18 @@ SUBSYSTEM_DEF(persistence)
 	// does sleep across real time (CHECK_TICK) for a save this size -- so
 	// Master's RunQueue() gets control back (and calls update_nextfire())
 	// at the FIRST yield, i.e. essentially when the save STARTED, not when
-	// it finished ~1-2 minutes later. SS_POST_FIRE_TIMING can't fix this on
-	// its own since it's computed at that same premature moment. Setting
-	// next_fire explicitly here, now that the save is actually done, is
-	// what makes the HUD countdown (screen_objects.dm) show a real 30
-	// minutes instead of 30 minutes minus however long the save took.
-	next_fire = world.time + wait
+	// it finished ~1-2 minutes later. Setting next_fire explicitly here,
+	// now that the save is actually done, is what makes the HUD countdown
+	// (screen_objects.dm) show a real 30 minutes instead of 30 minutes
+	// minus however long the save took -- this line runs LAST (after the
+	// save truly completes) so it's always the final word regardless of
+	// whatever update_nextfire() computed at that earlier, premature
+	// moment. Wall-clock-aligned by default (_scheduled_next_fire()) rather
+	// than a flat +30min so this lands on the same real-world moment on
+	// every shard sharing this DB, instead of drifting apart based on when
+	// each one last saved -- CENTRAL_AUTOSAVE_ALIGNMENT off restores the
+	// original flat schedule for comparison/rollback.
+	next_fire = _scheduled_next_fire(world.time + wait)
 	// Kick anything that queued behind save_in_progress (the drydock gates
 	// now queue stash/retrieve requests arriving mid-save) -- the normal
 	// drain only runs after another drydock op, never after a save.
@@ -361,7 +448,14 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_info("Persistence: Autosave auto-paused -- no active player characters.")
 		log_admin("EVENT periodic autosave auto-paused -- no active player characters.")
 	else if(playing && SSpersistence.autosave_auto_paused)
-		SSpersistence.next_fire = world.time + max(0, SSpersistence.autosave_pause_remaining)
+		// Realigns to the next wall-clock boundary (_next_aligned_fire())
+		// rather than replaying the stashed autosave_pause_remaining offset
+		// -- resuming with a pure relative-elapsed-time add would re-drift
+		// this shard off the shared boundary every time a pause/resume cycle
+		// happens, defeating the whole point of the alignment.
+		// CENTRAL_AUTOSAVE_ALIGNMENT off restores the original
+		// replay-the-stashed-remaining-time behavior.
+		SSpersistence.next_fire = SSpersistence._scheduled_next_fire(world.time + max(0, SSpersistence.autosave_pause_remaining), 5 MINUTES)
 		SSpersistence.autosave_paused = FALSE
 		SSpersistence.autosave_auto_paused = FALSE
 		log_subsystem_persistence_info("Persistence: Autosave auto-resumed -- a player character is active again.")
@@ -377,6 +471,31 @@ SUBSYSTEM_DEF(persistence)
 	PRIVATE_PROC(TRUE)
 	if(!SSdbcore.Connect())
 		log_subsystem_persistence_error("SQL error during [action], connection failed.")
+		return FALSE
+	return TRUE
+
+/**
+ * Same as databaseCheckConnection() above, but for SScentraldb
+ * (centraldb.dm) -- the shared cross-server connection carrying characters,
+ * money, factions, and ship schematics. Every proc that queries a
+ * central-backed table should gate on this instead, exactly like local-only
+ * persistence code already gates on databaseCheckConnection() -- so a
+ * central outage refuses just that one action (with a clear reason) rather
+ * than erroring partway through a query, and never blocks anything that
+ * only touches this server's own local tables.
+ *
+ * Also fails closed (returns FALSE) when central_sql_enabled is off, which
+ * is the normal state for any server that isn't part of a shared central
+ * setup -- so cross-server features quietly do nothing on an ordinary
+ * standalone server instead of logging a stream of connection failures for
+ * a connection nobody configured.
+ */
+/datum/controller/subsystem/persistence/proc/databaseCheckCentralConnection(action = "unlabeled action")
+	PRIVATE_PROC(TRUE)
+	if(!GLOB.config.central_sql_enabled)
+		return FALSE
+	if(!SScentraldb.Connect())
+		log_subsystem_persistence_error("Central SQL error during [action], connection failed.")
 		return FALSE
 	return TRUE
 
@@ -471,9 +590,13 @@ SUBSYSTEM_DEF(persistence)
 		return
 
 	if(SSpersistence.autosave_paused)
-		SSpersistence.next_fire = world.time + max(0, SSpersistence.autosave_pause_remaining)
+		// Realigns to the next wall-clock boundary rather than replaying the
+		// stashed autosave_pause_remaining offset -- see the matching note
+		// in _autosave_empty_reconcile()'s own resume branch above.
+		// (Same CENTRAL_AUTOSAVE_ALIGNMENT fallback via _scheduled_next_fire().)
+		SSpersistence.next_fire = SSpersistence._scheduled_next_fire(world.time + max(0, SSpersistence.autosave_pause_remaining), 5 MINUTES)
 		SSpersistence.autosave_paused = FALSE
-		to_world(FONT_LARGE(SPAN_GOOD("Autosave RESUMED. Next save in approximately [round(max(0, SSpersistence.autosave_pause_remaining) / (1 MINUTE))] minute(s).")))
+		to_world(FONT_LARGE(SPAN_GOOD("Autosave RESUMED. Next save in approximately [round(max(0, SSpersistence.next_fire - world.time) / (1 MINUTE))] minute(s).")))
 		log_and_message_admins("resumed the autosave timer", usr)
 	else
 		SSpersistence.autosave_pause_remaining = max(0, SSpersistence.next_fire - world.time)
@@ -843,6 +966,17 @@ SUBSYSTEM_DEF(persistence)
 	// get_serverstatus (server_query.dm) would report the world as fully
 	// ready long before it actually is, on every round after the first.
 	GLOB.persistence_ready = FALSE
+
+	// Same reasoning as above -- the very start of boot, before this session
+	// has made a single shelleo() call, is the one point where every
+	// data/shelleo* scratch file found is unconditionally a leftover from
+	// before now, safe to clear regardless of age. See
+	// sweep_shelleo_scratch_files()'s own doc comment (shell.dm) for why this
+	// is NOT done mid-session or per-call.
+	try
+		sweep_shelleo_scratch_files()
+	catch(var/exception/sweep_e)
+		log_subsystem_persistence_error("Unhandled exception sweeping shelleo scratch files at boot: [sweep_e]")
 	if(!GLOB.config.sql_enabled)
 		log_subsystem_persistence_warning("SQL configuration not enabled. Persistence subsystem requires SQL. Skipping init.")
 		return SS_INIT_SUCCESS
@@ -1193,8 +1327,13 @@ SUBSYSTEM_DEF(persistence)
 	// on->auto cycle used to fix.
 	addtimer(CALLBACK(src, PROC_REF(powerstateFinalize)), 30 SECONDS)
 
-	// Prevent an immediate fire() right after init  first autosave should be 30 min after startup
-	next_fire = world.time + wait
+	// Prevent an immediate fire() right after init  first autosave should be
+	// at least 5 minutes out, aligned (by default) to the next real-world
+	// wait-boundary (e.g. :00/:30 past the hour) so every shard sharing
+	// this DB saves within seconds of each other instead of drifting apart
+	// based on when each one happened to boot. CENTRAL_AUTOSAVE_ALIGNMENT
+	// off restores the original flat "30 min after startup" schedule.
+	next_fire = _scheduled_next_fire(world.time + wait, 5 MINUTES)
 
 	log_subsystem_persistence_info("Persistence initialization: all steps completed in [(world.time - init_start_time) / 10] seconds. Check the lines above for any PANIC/ERROR entries from individual steps.")
 	return SS_INIT_SUCCESS
@@ -1213,6 +1352,19 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/discord_bot_e)
 		log_subsystem_persistence_error("Unhandled exception stopping the Discord status bot: [discord_bot_e]")
 #endif
+
+	// Hard shutdowns only -- same GLOB.world_shutdown_is_hard gate the
+	// Discord bot stop above effectively relies on internally, checked
+	// explicitly here since this proc has no such gate of its own. A soft
+	// round reboot is about to immediately start a new session that will do
+	// its own boot-time sweep anyway (Initialize(), above); running it here
+	// too would just be redundant, not wrong, so this is purely to avoid
+	// pointless work, not a safety requirement.
+	if(GLOB.world_shutdown_is_hard)
+		try
+			sweep_shelleo_scratch_files()
+		catch(var/exception/sweep_e)
+			log_subsystem_persistence_error("Unhandled exception sweeping shelleo scratch files at shutdown: [sweep_e]")
 
 	if(prevent_saving)
 		log_subsystem_persistence_warning("Persistence subsystem was toggled to not save. Skipping subsystem finalization.")

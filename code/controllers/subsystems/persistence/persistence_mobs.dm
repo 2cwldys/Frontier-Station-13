@@ -13,6 +13,134 @@
  */
 
 // ============================================================
+// CENTRAL CHARACTER SYNC (CENTRAL_SYNC_CHARACTERS)
+// ============================================================
+//
+// Write-through + read-through-on-miss, shared by the identity/health/
+// inventory/position systems below -- see docs/cross_server_persistence.md.
+// The presence lock (persistenceLockAcquire()/Release(), persistence_cryo.dm)
+// already guarantees only one server has a character active at a time, so
+// there's no concurrent-write conflict to solve here -- whichever server
+// currently holds the lock is the only one ever writing or read-through-
+// hydrating that character's data.
+
+/// Shared upsert builder -- issues the INSERT ... ON DUPLICATE KEY UPDATE
+/// against whichever dbcore instance is passed (SSdbcore for the
+/// self-heal-local write below, SScentraldb for the write-through) so this
+/// SQL-building logic exists exactly once. Callers check
+/// toggles/reachability themselves before calling this -- it always
+/// executes unconditionally. `columns`/`values` are parallel lists; every
+/// column except ckey/char_name is included in the UPDATE half.
+/datum/controller/subsystem/persistence/proc/_characterRowUpsert(datum/controller/subsystem/dbcore/db, table, list/columns, list/values, log_tag)
+	var/list/col_list = list()
+	var/list/val_placeholders = list()
+	var/list/update_clauses = list()
+	var/list/params = list()
+	for(var/i in 1 to length(columns))
+		var/col = columns[i]
+		col_list += "`[col]`"
+		val_placeholders += ":[col]"
+		if(col != "ckey" && col != "char_name")
+			update_clauses += "`[col]` = VALUES(`[col]`)"
+		params[col] = values[i]
+	update_clauses += "`saved_at` = NOW()"
+
+	var/datum/db_query/q = db.NewQuery(
+		"INSERT INTO `[table]` ([jointext(col_list, ", ")]) VALUES ([jointext(val_placeholders, ", ")]) ON DUPLICATE KEY UPDATE [jointext(update_clauses, ", ")]",
+		params
+	)
+	q.Execute()
+	databaseCheckQueryResult(q, "[log_tag]([table])")
+	qdel(q)
+
+/// Shared gate for every central-character-sync helper below -- TRUE only
+/// when BOTH central_sql_enabled AND central_sync_characters are genuinely
+/// on, AND central is reachable right now. central_sql_enabled is checked
+/// explicitly here rather than just leaving it to centralDatabaseReachable()
+/// -- that proc returns TRUE when central is OFF (a no-op shortcut meant
+/// for UI reachability gating), which would let a caller fire a query
+/// against SScentraldb even when it was never connected at all. Existing
+/// local-only saves are completely unaffected either way -- every write-
+/// through/read-through/partial-update call in this file always does its
+/// local work first/regardless, this gate only decides whether the
+/// ADDITIONAL central step also runs.
+/datum/controller/subsystem/persistence/proc/_centralCharacterSyncActive()
+	if(!GLOB.config.central_sql_enabled || !GLOB.config.central_sync_characters)
+		return FALSE
+	return centralDatabaseReachable()
+
+/// Write-through: upserts one row into `table` on the CENTRAL DB. Non-fatal
+/// -- the local save this always runs alongside already succeeded, so a
+/// central sync failure is logged and otherwise ignored, never surfaced
+/// to the player.
+/datum/controller/subsystem/persistence/proc/_centralCharacterWriteThrough(table, list/columns, list/values)
+	if(!_centralCharacterSyncActive())
+		return
+	_characterRowUpsert(SScentraldb, table, columns, values, "_centralCharacterWriteThrough")
+
+/// Partial write-through for the three ss13_mob_position setter procs
+/// below (persistence_set_last_pod/_imprisoned/_faction_bound) -- an
+/// UPDATE, not an upsert, mirroring their own local UPDATE-only shape
+/// exactly (they never INSERT; the row is guaranteed to already exist by
+/// the time any of them runs, since every path into them goes through
+/// mobPositionSave() first -- same assumption their local queries already
+/// make). Using the full upsert builder here would require supplying
+/// values for every NOT NULL column (x/y/z) that these procs don't have,
+/// and would be wrong regardless -- an UPDATE against a row that doesn't
+/// exist centrally yet is correctly a no-op, not a reason to fabricate one.
+/datum/controller/subsystem/persistence/proc/_centralCharacterPartialUpdate(table, list/set_columns, list/set_values, ckey, char_name)
+	if(!_centralCharacterSyncActive())
+		return
+	var/list/set_clauses = list()
+	var/list/params = list("ckey" = ckey, "char_name" = char_name)
+	for(var/i in 1 to length(set_columns))
+		var/col = set_columns[i]
+		set_clauses += "`[col]` = :[col]"
+		params[col] = set_values[i]
+	var/datum/db_query/q = SScentraldb.NewQuery(
+		"UPDATE `[table]` SET [jointext(set_clauses, ", ")] WHERE ckey = :ckey AND char_name = :char_name",
+		params
+	)
+	q.Execute()
+	databaseCheckQueryResult(q, "_centralCharacterPartialUpdate([table])")
+	qdel(q)
+
+/// Self-heal: writes a row just hydrated FROM central into this server's
+/// own LOCAL table, so this server behaves like a normal cache-primed
+/// server for this character from now on (no repeated central round-trips
+/// on every future spawn). Always unconditional -- only ever called right
+/// after a successful _centralCharacterReadThrough() hit.
+/datum/controller/subsystem/persistence/proc/_centralCharacterSelfHealLocal(table, list/columns, list/values)
+	_characterRowUpsert(SSdbcore, table, columns, values, "_centralCharacterSelfHealLocal")
+
+/// Read-through-on-miss: SELECTs `columns` from `table` on the central DB
+/// for this ckey/char_name, when CENTRAL_SYNC_CHARACTERS is on and central
+/// is reachable. Returns a list of raw column values (same order as
+/// `columns`, same raw-string/text2num()-needing shape SQL always returns)
+/// or null if not found/unreachable/off. Callers map the result into their
+/// own cache-entry shape AND write it back into their own local table
+/// (self-heal) -- see each call site.
+/datum/controller/subsystem/persistence/proc/_centralCharacterReadThrough(table, list/columns, ckey, char_name)
+	if(!_centralCharacterSyncActive())
+		return null
+
+	var/list/col_list = list()
+	for(var/col in columns)
+		col_list += "`[col]`"
+
+	var/datum/db_query/q = SScentraldb.NewQuery(
+		"SELECT [jointext(col_list, ", ")] FROM `[table]` WHERE ckey = :ckey AND char_name = :char_name",
+		list("ckey" = ckey, "char_name" = char_name)
+	)
+	q.Execute()
+	if(!databaseCheckQueryResult(q, "_centralCharacterReadThrough([table])") || !q.NextRow())
+		qdel(q)
+		return null
+	var/list/row = q.item.Copy()
+	qdel(q)
+	return row
+
+// ============================================================
 // SYSTEM 8: MOB HEALTH
 // ============================================================
 
@@ -86,7 +214,11 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
  * Called from /mob/living/carbon/human/LateInitialize().
  */
 /mob/living/carbon/human/proc/applyPersistentHealthData()
-	if(!GLOB.config.sql_enabled || !length(GLOB.persistence_health_cache))
+	// !islist(), not !length() -- an empty cache (e.g. a fresh shard that's
+	// never locally saved anyone) must still fall through to the
+	// read-through-on-miss lookup below, not bail out before ever checking
+	// this specific character.
+	if(!GLOB.config.sql_enabled || !islist(GLOB.persistence_health_cache))
 		return
 	if(!ckey || !real_name)
 		return
@@ -94,7 +226,24 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
 	var/key = "[ckey]|[real_name]"
 	var/list/entry = GLOB.persistence_health_cache[key]
 	if(!entry)
-		return
+		var/list/row = SSpersistence._centralCharacterReadThrough("ss13_char_health",
+			list("organ_damage_json", "stamina", "bodytemperature", "on_fire", "fire_stacks", "nutrition", "hydration"),
+			ckey, real_name)
+		if(!row)
+			return
+		entry = list(
+			"organ_damage_json" = row[1],
+			"stamina"           = text2num(row[2]),
+			"bodytemperature"   = text2num(row[3]),
+			"on_fire"           = text2num(row[4]),
+			"fire_stacks"       = text2num(row[5]),
+			"nutrition"         = text2num(row[6]),
+			"hydration"         = text2num(row[7])
+		)
+		GLOB.persistence_health_cache[key] = entry
+		SSpersistence._centralCharacterSelfHealLocal("ss13_char_health",
+			list("ckey", "char_name", "organ_damage_json", "stamina", "bodytemperature", "on_fire", "fire_stacks", "nutrition", "hydration"),
+			list(ckey, real_name, entry["organ_damage_json"], entry["stamina"], entry["bodytemperature"], entry["on_fire"], entry["fire_stacks"], entry["nutrition"], entry["hydration"]))
 
 	// Apply organ state: damage, robolimb, augments
 	if(entry["organ_damage_json"])
@@ -263,6 +412,10 @@ GLOBAL_LIST_EMPTY(persistence_identity_cache)
 		"languages_json" = language_json
 	)
 
+	_centralCharacterWriteThrough("ss13_char_identity",
+		list("ckey", "char_name", "citizenship", "special_voice", "flavor_texts", "languages_json"),
+		list(H.ckey, H.real_name, H.citizenship || null, H.special_voice || null, flavor_json, language_json))
+
 /mob/living/carbon/human/proc/applyPersistentIdentity()
 	if(!GLOB.config.sql_enabled || !islist(GLOB.persistence_identity_cache))
 		return
@@ -272,7 +425,21 @@ GLOBAL_LIST_EMPTY(persistence_identity_cache)
 	var/key = "[ckey]|[real_name]"
 	var/list/entry = GLOB.persistence_identity_cache[key]
 	if(!entry)
-		return
+		var/list/row = SSpersistence._centralCharacterReadThrough("ss13_char_identity",
+			list("citizenship", "special_voice", "flavor_texts", "languages_json"),
+			ckey, real_name)
+		if(!row)
+			return
+		entry = list(
+			"citizenship"    = row[1],
+			"special_voice"  = row[2],
+			"flavor_texts"   = row[3],
+			"languages_json" = row[4]
+		)
+		GLOB.persistence_identity_cache[key] = entry
+		SSpersistence._centralCharacterSelfHealLocal("ss13_char_identity",
+			list("ckey", "char_name", "citizenship", "special_voice", "flavor_texts", "languages_json"),
+			list(ckey, real_name, entry["citizenship"], entry["special_voice"], entry["flavor_texts"], entry["languages_json"]))
 
 	if(entry["citizenship"])
 		citizenship = entry["citizenship"]
@@ -524,6 +691,13 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	entry["lace_pod_y"] = null
 	entry["lace_pod_z"] = null
 
+	// Core position fields only -- last_pod_*/imprisoned*/faction_bound*
+	// (set by separate procs further down, not here) are NOT yet wired to
+	// central. See SQL/migrate-central/V006__character_sync.sql's header.
+	_centralCharacterWriteThrough("ss13_mob_position",
+		list("ckey", "char_name", "x", "y", "z", "char_state", "in_lace", "lace_pod_x", "lace_pod_y", "lace_pod_z"),
+		list(H.ckey, H.real_name, H.x, H.y, H.z, state, 0, null, null, null))
+
 /**
  * Save the "in_lace" position state for a captured consciousness, keyed on the
  * lace's REGISTERED identity (not the disembodied lace_mob's own ckey, which
@@ -561,6 +735,10 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	entry["lace_pod_x"] = T.x
 	entry["lace_pod_y"] = T.y
 	entry["lace_pod_z"] = T.z
+
+	_centralCharacterWriteThrough("ss13_mob_position",
+		list("ckey", "char_name", "x", "y", "z", "char_state", "in_lace", "lace_pod_x", "lace_pod_y", "lace_pod_z"),
+		list(ckey, char_name, T.x, T.y, T.z, "in_lace", 1, T.x, T.y, T.z))
 
 /**
  * Reset a character's persisted state to "alive" without touching position --
@@ -623,6 +801,11 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	entry["last_pod_y"] = pod.y
 	entry["last_pod_z"] = pod.z
 
+	SSpersistence._centralCharacterPartialUpdate("ss13_mob_position",
+		list("last_pod_x", "last_pod_y", "last_pod_z"),
+		list(pod.x, pod.y, pod.z),
+		ckey, char_name)
+
 /**
  * Sets (or clears) a character's imprisonment -- used by the cryogenic
  * prison storage machine (cryopod_prison.dm). until_minutes null/0 combined
@@ -674,6 +857,34 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	// relative expiry is exactly what the database should be doing, not DM.
 	entry["imprisoned_until"] = null
 
+	// Mirrors the 3-branch local query above verbatim, against
+	// SScentraldb instead -- NOT routed through
+	// _centralCharacterPartialUpdate() (persistence_mobs.dm's shared
+	// helper), which only binds plain column=value pairs and can't express
+	// the DATE_ADD(NOW(), ...) expression the timed-sentence branch needs.
+	// Same "let SQL do wall-clock arithmetic, not DM" reasoning as
+	// everywhere else in this codebase that computes an expiry.
+	if(SSpersistence._centralCharacterSyncActive())
+		var/datum/db_query/central_upd
+		if(!imprisoned)
+			central_upd = SScentraldb.NewQuery(
+				"UPDATE ss13_mob_position SET imprisoned = 0, imprisoned_until = NULL, imprisoned_by_faction_uid = NULL WHERE ckey = :ckey AND char_name = :char_name",
+				list("ckey" = ckey, "char_name" = char_name)
+			)
+		else if(isnull(until_minutes) || until_minutes <= 0)
+			central_upd = SScentraldb.NewQuery(
+				"UPDATE ss13_mob_position SET imprisoned = 1, imprisoned_until = NULL, imprisoned_by_faction_uid = :faction WHERE ckey = :ckey AND char_name = :char_name",
+				list("ckey" = ckey, "char_name" = char_name, "faction" = faction_uid)
+			)
+		else
+			central_upd = SScentraldb.NewQuery(
+				"UPDATE ss13_mob_position SET imprisoned = 1, imprisoned_until = DATE_ADD(NOW(), INTERVAL :minutes MINUTE), imprisoned_by_faction_uid = :faction WHERE ckey = :ckey AND char_name = :char_name",
+				list("ckey" = ckey, "char_name" = char_name, "minutes" = until_minutes, "faction" = faction_uid)
+			)
+		central_upd.Execute()
+		SSpersistence.databaseCheckQueryResult(central_upd, "persistence_set_imprisoned (central)")
+		qdel(central_upd)
+
 /**
  * Sets (or clears) a character's faction shackle -- same shape as
  * persistence_set_imprisoned() above, ckey+char_name keyed so it survives
@@ -703,6 +914,11 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		GLOB.persistence_position_cache[key] = entry
 	entry["faction_bound"] = bound ? 1 : 0
 	entry["faction_bound_uid"] = faction_uid
+
+	SSpersistence._centralCharacterPartialUpdate("ss13_mob_position",
+		list("faction_bound", "faction_bound_uid"),
+		list(bound ? 1 : 0, faction_uid),
+		ckey, char_name)
 
 /// Live re-check, mirrored on the in-memory cache populated at boot from
 /// ss13_mob_position -- returns the faction_uid this character is still
@@ -876,8 +1092,48 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	var/key = "[ckey]|[real_name]"
 	var/list/entry = GLOB.persistence_position_cache[key]
 	if(!entry)
-		_persistentSpawnDefault()
-		return
+		// Same column set mobPositionInitialize()'s own boot-time bulk load
+		// selects, plus faction_bound/faction_bound_uid (which that proc's
+		// SELECT omits -- a separate, pre-existing local-only gap, not
+		// something this read-through needs to replicate: central's copy of
+		// faction_bound is kept correct by persistence_set_faction_bound()'s
+		// own write-through regardless of that unrelated boot-load hole).
+		var/list/row = SSpersistence._centralCharacterReadThrough("ss13_mob_position",
+			list("x", "y", "z", "char_state", "in_lace", "lace_pod_x", "lace_pod_y", "lace_pod_z",
+				"last_pod_x", "last_pod_y", "last_pod_z", "imprisoned", "imprisoned_until", "imprisoned_by_faction_uid",
+				"faction_bound", "faction_bound_uid"),
+			ckey, real_name)
+		if(!row)
+			_persistentSpawnDefault()
+			return
+		entry = list(
+			"x"                         = text2num(row[1]),
+			"y"                         = text2num(row[2]),
+			"z"                         = text2num(row[3]),
+			"char_state"                = row[4] || "alive",
+			"in_lace"                   = text2num(row[5]),
+			"lace_pod_x"                = text2num(row[6]),
+			"lace_pod_y"                = text2num(row[7]),
+			"lace_pod_z"                = text2num(row[8]),
+			"last_pod_x"                = text2num(row[9]),
+			"last_pod_y"                = text2num(row[10]),
+			"last_pod_z"                = text2num(row[11]),
+			"imprisoned"                = text2num(row[12]),
+			"imprisoned_until"          = row[13],
+			"imprisoned_by_faction_uid" = row[14],
+			"faction_bound"             = text2num(row[15]),
+			"faction_bound_uid"         = row[16]
+		)
+		GLOB.persistence_position_cache[key] = entry
+		SSpersistence._centralCharacterSelfHealLocal("ss13_mob_position",
+			list("ckey", "char_name", "x", "y", "z", "char_state", "in_lace", "lace_pod_x", "lace_pod_y", "lace_pod_z",
+				"last_pod_x", "last_pod_y", "last_pod_z", "imprisoned", "imprisoned_until", "imprisoned_by_faction_uid",
+				"faction_bound", "faction_bound_uid"),
+			list(ckey, real_name, entry["x"], entry["y"], entry["z"], entry["char_state"], entry["in_lace"],
+				entry["lace_pod_x"], entry["lace_pod_y"], entry["lace_pod_z"],
+				entry["last_pod_x"], entry["last_pod_y"], entry["last_pod_z"],
+				entry["imprisoned"], entry["imprisoned_until"], entry["imprisoned_by_faction_uid"],
+				entry["faction_bound"], entry["faction_bound_uid"]))
 
 	var/sx = text2num(entry["x"]) || entry["x"]
 	var/sy = text2num(entry["y"]) || entry["y"]
@@ -1002,6 +1258,10 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		"nutrition"         = H.nutrition,
 		"hydration"         = H.hydration
 	)
+
+	_centralCharacterWriteThrough("ss13_char_health",
+		list("ckey", "char_name", "organ_damage_json", "stamina", "bodytemperature", "on_fire", "fire_stacks", "nutrition", "hydration"),
+		list(H.ckey, H.real_name, organ_json, H.stamina, H.bodytemperature, H.on_fire ? 1 : 0, H.fire_stacks, H.nutrition, H.hydration))
 
 // ============================================================
 // VITALS ADMIN VERB
@@ -1173,6 +1433,10 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 
 	// Refresh the in-memory cache too -- restore reads the cache, not the DB.
 	GLOB.persistence_inventory_cache["[H.ckey]|[H.real_name]"] = inv_json
+
+	_centralCharacterWriteThrough("ss13_char_inventory",
+		list("ckey", "char_name", "inventory_json"),
+		list(H.ckey, H.real_name, inv_json))
 
 /**
  * Recursively serialize an item as a typepath + contents tree.
@@ -1426,7 +1690,10 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
  * Replaces default job-given items with saved items slot-by-slot.
  */
 /mob/living/carbon/human/proc/applyPersistentInventory()
-	if(!GLOB.config.sql_enabled || !length(GLOB.persistence_inventory_cache))
+	// !islist(), not !length() -- see applyPersistentHealthData()'s matching
+	// comment: an empty cache must still fall through to the
+	// read-through-on-miss lookup below, not bail out early.
+	if(!GLOB.config.sql_enabled || !islist(GLOB.persistence_inventory_cache))
 		return
 	if(!ckey || !real_name)
 		return
@@ -1434,7 +1701,16 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	var/key = "[ckey]|[real_name]"
 	var/json = GLOB.persistence_inventory_cache[key]
 	if(!json)
-		return
+		var/list/row = SSpersistence._centralCharacterReadThrough("ss13_char_inventory", list("inventory_json"), ckey, real_name)
+		if(!row)
+			return
+		json = row[1]
+		if(!json)
+			return
+		GLOB.persistence_inventory_cache[key] = json
+		SSpersistence._centralCharacterSelfHealLocal("ss13_char_inventory",
+			list("ckey", "char_name", "inventory_json"),
+			list(ckey, real_name, json))
 
 	var/list/inv = json_decode(json)
 	if(!inv || !islist(inv))
@@ -1486,6 +1762,16 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			restored.forceMove(get_turf(src))
 			log_subsystem_persistence_error("MobInventory: Could not equip [restored.type] to slot [slot_name] for [real_name] -- dropped at their feet rather than deleted.")
 			continue
+
+		// equip_to_slot_if_possible() above is called with redraw_mob = FALSE (a batch-equip
+		// optimization -- see the callers' own follow-up regenerate_icons()), so nothing composited
+		// the mob yet. That's fine for state baked into the worn icon_state/mob_icon themselves, but
+		// an item whose worn sprite is built from its OWN current contents (e.g. belt.dm's
+		// content_overlays -- tools shown sticking out of a restored belt) needs a fresh, live redraw
+		// AFTER the equip, not merely after the class-level defaults. update_worn_icon() is exactly
+		// that: a cheap, item-driven "my visible state just changed" refresh, the same idiom every
+		// other worn item in this codebase already uses (update_clothing_icon()).
+		restored.update_worn_icon()
 
 		// A voidsuit's equipped() immediately deploys its helmet/boots/tank/cooler
 		// back out into head/shoes/s_store. Retract them so everything installed in

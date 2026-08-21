@@ -5,12 +5,13 @@
  *
  * All of the actual linking logic (_link_door(), _link_airlock(),
  * _get_linked_doors(), _reset_links(), _can_link_faction_door(), the
- * multitool attackby() branch, trigger(), and the multi-door attack_hand()
- * picker) lives on the parent /obj/structure/machinery/button/remote/blast_door
- * type (door_control.dm) so every already-mapped button gets it too, not
- * just a button built from this frame. This subtype only adds the
- * construction lifecycle (mirroring /obj/structure/machinery/access_button,
- * airlock_control.dm) and gates use behind buildstage == 2 (fully wired).
+ * multitool attackby() branch, and trigger() -- a combined toggle across
+ * every linked door/airlock, no picker) lives on the parent
+ * /obj/structure/machinery/button/remote/blast_door type (door_control.dm)
+ * so every already-mapped button gets it too, not just a button built from
+ * this frame. This subtype only adds the construction lifecycle (mirroring
+ * /obj/structure/machinery/access_button, airlock_control.dm) and gates use
+ * behind buildstage == 2 (fully wired).
  *
  * Blast door linking uses /obj/structure/machinery/door/blast's own `id`
  * field. Airlock linking uses a dedicated `door_button_tag` field
@@ -115,7 +116,7 @@
 	return FALSE
 
 /// Only extra behavior needed on top of the parent's (door_control.dm)
-/// multi-door picker: refuse use entirely while still under construction.
+/// combined toggle: refuse use entirely while still under construction.
 /obj/structure/machinery/button/remote/blast_door/buildable/attack_hand(mob/user as mob)
 	if(buildstage < 2)
 		return

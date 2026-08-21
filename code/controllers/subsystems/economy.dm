@@ -363,6 +363,7 @@ SUBSYSTEM_DEF(economy)
 /datum/money_account/proc/adjust_money(delta)
 	money += delta
 	SSpersistence.economySaveAccountNow(src)
+	economyApplyMoneyDeltaCentral(src, delta)
 
 /datum/transaction
 	var/target_name = ""

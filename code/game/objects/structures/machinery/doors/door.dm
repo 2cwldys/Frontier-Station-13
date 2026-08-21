@@ -107,9 +107,13 @@
 		if(dir in list(EAST, WEST))
 			bound_width = width * world.icon_size
 			bound_height = world.icon_size
+			bound_x = (dir == EAST) ? -(width - 1) * world.icon_size : 0
+			bound_y = 0
 		else
 			bound_width = world.icon_size
 			bound_height = width * world.icon_size
+			bound_x = 0
+			bound_y = (dir == NORTH) ? -(width - 1) * world.icon_size : 0
 
 /obj/structure/machinery/door/proc/open_hatch(var/atom/mover = null)
 	if (!hatchstate)

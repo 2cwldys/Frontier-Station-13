@@ -45,6 +45,175 @@
 /// shuttle_id -> /datum/drydock_ship, for every purchased drydock ship (owned, stashed or deployed).
 GLOBAL_LIST_EMPTY(drydock_ships)
 
+// ============================================================
+// CENTRAL SHIP SYNC (CENTRAL_SYNC_SHIPS)
+// ============================================================
+//
+// Core ownership/existence fields only -- see V010__ship_sync.sql's own
+// header for exactly what's covered vs. explicitly deferred (interiors,
+// crew ACLs, schematic banking, deployment position). Write-through +
+// (drydock-terminal-triggered) read-through-on-miss, same shape every
+// other central sync this session uses, keyed by global_ship_id
+// (V154__drydock_global_ship_id.sql) instead of the bare per-server
+// shuttle_id, which has no cross-server meaning at all.
+//
+// No presence-lock-equivalent concern here the way faction treasury had:
+// nothing on this table is a routinely-concurrently-mutated numeric
+// balance -- ownership/name/repossession changes are each a deliberate,
+// one-at-a-time action taken by whoever currently has the ship's
+// schematic in hand or console access, not routine simultaneous
+// multi-party activity. Plain last-write-wins upserts are the right fit,
+// same reasoning as faction metadata.
+
+/// Shared gate, same shape as every other _*CentralSyncActive() this
+/// session.
+/proc/_shipCentralSyncActive()
+	if(!GLOB.config.central_sql_enabled || !GLOB.config.central_sync_ships)
+		return FALSE
+	return SSpersistence.centralDatabaseReachable()
+
+/// Central write-through for core ss13_drydock_ships columns -- a plain
+/// UPDATE (not upsert) for everything except the initial creation, which
+/// goes through _shipCentralCreateWriteThrough() instead (an UPDATE has
+/// nothing to apply against before the row exists). `columns`/`values` are
+/// parallel lists.
+/proc/_shipCentralPartialUpdate(global_ship_id, list/set_columns, list/set_values)
+	if(!global_ship_id || !_shipCentralSyncActive())
+		return
+	var/list/set_clauses = list()
+	var/list/params = list("gsid" = global_ship_id)
+	for(var/i in 1 to length(set_columns))
+		var/col = set_columns[i]
+		set_clauses += "`[col]` = :[col]"
+		params[col] = set_values[i]
+	var/datum/db_query/q = SScentraldb.NewQuery(
+		"UPDATE `ss13_drydock_ships` SET [jointext(set_clauses, ", ")] WHERE global_ship_id = :gsid",
+		params
+	)
+	q.Execute()
+	qdel(q)
+
+/// Deletes a ship's central row -- called from drydockSell()/drydockScuttle(),
+/// alongside their existing local DELETE, when a ship is permanently
+/// destroyed/sold. Without this, a scuttled ship would stay
+/// hydrate-able from another server that had never seen it yet.
+/proc/_shipCentralDelete(global_ship_id)
+	if(!global_ship_id || !_shipCentralSyncActive())
+		return
+	var/datum/db_query/q = SScentraldb.NewQuery(
+		"DELETE FROM `ss13_drydock_ships` WHERE global_ship_id = :gsid",
+		list("gsid" = global_ship_id)
+	)
+	q.Execute()
+	qdel(q)
+
+/// Writes a just-bought ship's full core row centrally -- called from
+/// drydockBuy() once global_ship_id is known. Non-fatal on failure, same
+/// reasoning as every other write-through this session.
+/proc/_shipCentralCreateWriteThrough(datum/drydock_ship/DS)
+	if(!DS.global_ship_id || !_shipCentralSyncActive())
+		return
+	var/datum/db_query/q = SScentraldb.NewQuery(
+		{"INSERT INTO `ss13_drydock_ships`
+		(global_ship_id, origin_server_id, template_id, owner_ckey, owner_char_name, owner_account_number, faction_uid,
+		stashed, custom_name, custom_class, title_ckey, title_char_name, title_faction_uid, purchased_at)
+		VALUES (:gsid, :origin, :tid, :ckey, :cname, :acct, :faction, :stashed, :custom_name, :custom_class, :t_ckey, :t_cname, :t_faction, :purchased)
+		ON DUPLICATE KEY UPDATE template_id = VALUES(template_id)"},
+		list(
+			"gsid" = DS.global_ship_id, "origin" = GLOB.config.central_server_id, "tid" = DS.template_id,
+			"ckey" = DS.owner_ckey, "cname" = DS.owner_char_name, "acct" = DS.owner_account_number, "faction" = DS.faction_uid,
+			"stashed" = DS.stashed ? 1 : 0, "custom_name" = DS.custom_name, "custom_class" = DS.custom_class,
+			"t_ckey" = DS.title_ckey, "t_cname" = DS.title_char_name, "t_faction" = DS.title_faction_uid,
+			"purchased" = DS.purchased_at
+		)
+	)
+	q.Execute()
+	qdel(q)
+
+/// Read-through-on-miss: SELECTs every ship centrally owned by
+/// (ckey, char_name) that ISN'T already in GLOB.drydock_ships (this
+/// server has never seen it), hydrating each into a live
+/// /datum/drydock_ship AND self-healing it into this server's own local
+/// ss13_drydock_ships table -- same pattern as every other central
+/// read-through this session. Called from the drydock terminal's own
+/// ship-listing (drydock.dm) right before it builds "your ships", so a
+/// ship bought on another server just shows up here once its owner opens
+/// a drydock terminal on this one.
+/proc/_shipHydrateOwnedFromCentral(ckey, char_name)
+	if(!ckey || !char_name || !_shipCentralSyncActive())
+		return
+
+	var/datum/db_query/q = SScentraldb.NewQuery(
+		{"SELECT global_ship_id, template_id, owner_account_number, faction_uid, repossessed, prev_owner_ckey,
+		prev_owner_char_name, prev_faction_uid, stashed, custom_name, custom_class, title_ckey, title_char_name,
+		title_faction_uid, reported_stolen, purchased_at
+		FROM `ss13_drydock_ships` WHERE owner_ckey = :ckey AND owner_char_name = :char_name"},
+		list("ckey" = ckey, "char_name" = char_name)
+	)
+	q.Execute()
+
+	var/list/rows = list()
+	while(q.NextRow())
+		rows += list(q.item.Copy())
+	qdel(q)
+
+	for(var/list/row in rows)
+		var/global_ship_id = row[1]
+		var/already_known = FALSE
+		for(var/sid in GLOB.drydock_ships)
+			var/datum/drydock_ship/existing = GLOB.drydock_ships[sid]
+			if(existing && existing.global_ship_id == global_ship_id)
+				already_known = TRUE
+				break
+		if(already_known)
+			continue
+
+		if(!GLOB.config.sql_enabled || !SSdbcore.Connect())
+			return // can't allocate a local shuttle_id without a local DB
+
+		var/datum/db_query/lins = SSdbcore.NewQuery(
+			{"INSERT INTO ss13_drydock_ships
+			(template_id, owner_ckey, owner_char_name, owner_account_number, faction_uid, repossessed, prev_owner_ckey,
+			prev_owner_char_name, prev_faction_uid, stashed, custom_name, custom_class, title_ckey, title_char_name,
+			title_faction_uid, reported_stolen, purchased_at, global_ship_id)
+			VALUES (:tid, :ckey, :cname, :acct, :faction, :repo, :p_ckey, :p_cname, :p_faction, :stashed, :cust_name,
+			:cust_class, :t_ckey, :t_cname, :t_faction, :stolen, :purchased, :gsid)"},
+			list(
+				"tid" = row[2], "ckey" = ckey, "cname" = char_name, "acct" = text2num(row[3]), "faction" = row[4],
+				"repo" = text2num(row[5]), "p_ckey" = row[6], "p_cname" = row[7], "p_faction" = row[8],
+				"stashed" = text2num(row[9]), "cust_name" = row[10], "cust_class" = row[11], "t_ckey" = row[12],
+				"t_cname" = row[13], "t_faction" = row[14], "stolen" = text2num(row[15]), "purchased" = row[16],
+				"gsid" = global_ship_id
+			)
+		)
+		lins.Execute()
+		var/new_local_id = text2num(lins.last_insert_id)
+		qdel(lins)
+		if(!new_local_id)
+			continue
+
+		var/datum/drydock_ship/DS = new()
+		DS.shuttle_id = new_local_id
+		DS.global_ship_id = global_ship_id
+		DS.template_id = row[2]
+		DS.owner_ckey = ckey
+		DS.owner_char_name = char_name
+		DS.owner_account_number = text2num(row[3])
+		DS.faction_uid = row[4]
+		DS.repossessed = !!text2num(row[5])
+		DS.prev_owner_ckey = row[6]
+		DS.prev_owner_char_name = row[7]
+		DS.prev_faction_uid = row[8]
+		DS.stashed = !!text2num(row[9])
+		DS.custom_name = row[10]
+		DS.custom_class = row[11]
+		DS.title_ckey = row[12]
+		DS.title_char_name = row[13]
+		DS.title_faction_uid = row[14]
+		DS.reported_stolen = !!text2num(row[15])
+		DS.purchased_at = row[16]
+		GLOB.drydock_ships["[new_local_id]"] = DS
+
 /// TRUE once the periodic access re-sweep (below) has been armed -- lazily
 /// started from the first drydock retrieve rather than wiring into
 /// SSpersistence's own (30-minute-cadence, far too slow for this) Initialize().
@@ -223,6 +392,12 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 /datum/drydock_ship
 	var/shuttle_id
+	/// Cross-server identity for CENTRAL_SYNC_SHIPS -- "[CENTRAL_SERVER_ID]:[shuttle_id]",
+	/// set once at purchase (drydockBuy()) since shuttle_id alone is a bare
+	/// per-server AUTO_INCREMENT with no cross-server meaning. Null for any
+	/// ship bought before this existed (not backfilled) or on a server that's
+	/// never had CENTRAL_SERVER_ID set.
+	var/global_ship_id
 	var/template_id
 	var/owner_ckey
 	/// Paired with owner_ckey -- ownership belongs to a CHARACTER (real_name),
@@ -621,7 +796,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return
 
 	var/datum/db_query/q = SSdbcore.NewQuery(
-		"SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed, z, overmap_x, overmap_y, custom_name, custom_class, repossessed, prev_owner_ckey, prev_owner_char_name, prev_faction_uid, owner_account_number, purchased_at, schematic_banked, renamed_at, title_ckey, title_char_name, title_faction_uid, reported_stolen FROM ss13_drydock_ships",
+		"SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed, z, overmap_x, overmap_y, custom_name, custom_class, repossessed, prev_owner_ckey, prev_owner_char_name, prev_faction_uid, owner_account_number, purchased_at, schematic_banked, renamed_at, title_ckey, title_char_name, title_faction_uid, reported_stolen, global_ship_id FROM ss13_drydock_ships",
 		list()
 	)
 	q.Execute()
@@ -653,6 +828,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		DS.title_char_name = q.item[21]
 		DS.title_faction_uid = q.item[22]
 		DS.reported_stolen = !!text2num(q.item[23])
+		DS.global_ship_id = q.item[24]
 
 		if(!DS.stashed)
 			log_drydock("drydockShipLedgerRestore: shuttle_id=[DS.shuttle_id] ('[DS.template_id]') was still stashed=0 at boot -- graceful shutdown's auto-stash sweep didn't run (crash/hard kill). Forcing back to stashed; interior recovers from the last autosave.")
@@ -867,6 +1043,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 	DS.custom_name = (new_name != "" ? new_name : null)
 	DS.custom_class = (new_class != "" ? new_class : null)
+	_shipCentralPartialUpdate(DS.global_ship_id, list("custom_name", "custom_class"), list(DS.custom_name, DS.custom_class))
 
 	var/datum/db_query/rq = SSdbcore.NewQuery("SELECT renamed_at FROM ss13_drydock_ships WHERE shuttle_id = :id", list("id" = shuttle_id))
 	rq.Execute()
@@ -921,6 +1098,9 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	DS.owner_char_name = null
 	DS.faction_uid = "hub"
 	DS.repossessed = TRUE
+	_shipCentralPartialUpdate(DS.global_ship_id,
+		list("repossessed", "prev_owner_ckey", "prev_owner_char_name", "prev_faction_uid", "owner_ckey", "owner_char_name", "faction_uid"),
+		list(1, DS.prev_owner_ckey, DS.prev_owner_char_name, DS.prev_faction_uid, null, null, "hub"))
 	// Forced into the bank alongside the seizure -- whatever schematic is out
 	// there (found below, wherever it physically is) gets killed permanently,
 	// and there's deliberately no personal replacement minted for the seizing
@@ -974,6 +1154,9 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	DS.prev_owner_ckey = null
 	DS.prev_owner_char_name = null
 	DS.prev_faction_uid = null
+	_shipCentralPartialUpdate(DS.global_ship_id,
+		list("repossessed", "owner_ckey", "owner_char_name", "faction_uid", "prev_owner_ckey", "prev_owner_char_name", "prev_faction_uid"),
+		list(0, DS.owner_ckey, DS.owner_char_name, DS.faction_uid, null, null, null))
 
 	log_and_message_admins("returned drydock ship #[shuttle_id] ('[DS.display_name()]') to its original owner.", user)
 	log_drydock("drydockReturnToOwner: [acting] returned shuttle_id=[shuttle_id] to its original owner.")
@@ -1022,6 +1205,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		oq.Execute()
 		databaseCheckQueryResult(oq, "drydockBankSchematic ownership transfer")
 		qdel(oq)
+		_shipCentralPartialUpdate(DS.global_ship_id, list("owner_ckey", "owner_char_name", "faction_uid"), list(user.ckey, user.real_name, null))
 		log_drydock("drydockBankSchematic: [key_name(user)] (not the title-holder) banked shuttle_id=[shuttle_id] -- current ownership transferred to them.")
 
 	_drydockFlagIfStolen(DS, user)
@@ -1046,6 +1230,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return
 	qdel(q)
 	DS.reported_stolen = TRUE
+	_shipCentralPartialUpdate(DS.global_ship_id, list("reported_stolen"), list(1))
 	_drydockRefreshDisplayedName(DS)
 	log_drydock("_drydockFlagIfStolen: [key_name(user)] (not the title-holder) flagged shuttle_id=[DS.shuttle_id] as stolen.")
 
@@ -1065,6 +1250,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return
 	qdel(q)
 	DS.reported_stolen = FALSE
+	_shipCentralPartialUpdate(DS.global_ship_id, list("reported_stolen"), list(0))
 	_drydockRefreshDisplayedName(DS)
 	log_drydock("drydockClearStolenFlag: shuttle_id=[shuttle_id] is back with its title-holder -- stolen flag cleared.")
 
@@ -1161,6 +1347,9 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		DS.owner_char_name = target_char_name
 		DS.faction_uid = null
 	DS.reported_stolen = FALSE
+	_shipCentralPartialUpdate(DS.global_ship_id,
+		list("title_ckey", "title_char_name", "title_faction_uid", "owner_ckey", "owner_char_name", "faction_uid", "reported_stolen"),
+		list(DS.title_ckey, DS.title_char_name, DS.title_faction_uid, DS.owner_ckey, DS.owner_char_name, DS.faction_uid, 0))
 
 	// Wipe the crew roster along with the title. Boarding rights resolve as
 	// owned_by() OR faction match OR membership of crew_ckeys
@@ -1617,6 +1806,19 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	DS.title_faction_uid = faction_uid
 	GLOB.drydock_ships["[new_id]"] = DS
 
+	// CENTRAL_SYNC_SHIPS -- both gated inside their own procs (no-op
+	// entirely when central_sql_enabled/central_sync_ships are off), see
+	// this file's "CENTRAL SHIP SYNC" section.
+	if(GLOB.config.central_sql_enabled && GLOB.config.central_server_id)
+		DS.global_ship_id = "[GLOB.config.central_server_id]:[new_id]"
+		var/datum/db_query/gq = SSdbcore.NewQuery(
+			"UPDATE ss13_drydock_ships SET global_ship_id = :gsid WHERE shuttle_id = :id",
+			list("gsid" = DS.global_ship_id, "id" = new_id)
+		)
+		gq.Execute()
+		qdel(gq)
+		_shipCentralCreateWriteThrough(DS)
+
 	if(user)
 		var/obj/item/ship_schematic/schematic = new(get_turf(user))
 		schematic.shuttle_id = new_id
@@ -1971,6 +2173,18 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	DS.title_faction_uid = faction_uid
 	DS.custom_name = new_name
 	GLOB.drydock_ships["[new_id]"] = DS
+
+	// CENTRAL_SYNC_SHIPS -- see drydockBuy()'s matching block and this
+	// file's "CENTRAL SHIP SYNC" section; both gated inside their own procs.
+	if(GLOB.config.central_sql_enabled && GLOB.config.central_server_id)
+		DS.global_ship_id = "[GLOB.config.central_server_id]:[new_id]"
+		var/datum/db_query/gq = SSdbcore.NewQuery(
+			"UPDATE ss13_drydock_ships SET global_ship_id = :gsid WHERE shuttle_id = :id",
+			list("gsid" = DS.global_ship_id, "id" = new_id)
+		)
+		gq.Execute()
+		qdel(gq)
+		_shipCentralCreateWriteThrough(DS)
 
 	// Materialize -- mirrors _drydockRetrieveRun()'s own Z-provisioning
 	// exactly, just sourced from the live capture below instead of a saved
@@ -2778,6 +2992,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		if(!databaseCheckQueryResult(uq, "drydockRetrieve update"))
 			log_drydock_error("drydockRetrieve: DB update failed for shuttle_id=[shuttle_id].")
 		qdel(uq)
+		_shipCentralPartialUpdate(DS.global_ship_id, list("stashed"), list(0))
 
 	if(user)
 		to_chat(user, SPAN_GOOD("Ship retrieved -- fly it in via its nav console. You'll be notified when it's ready to board."))
@@ -3349,6 +3564,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		if(!databaseCheckQueryResult(uq, "drydockStash update"))
 			log_drydock_error("drydockStash: DB write failed for shuttle_id=[shuttle_id].")
 		qdel(uq)
+		_shipCentralPartialUpdate(DS.global_ship_id, list("stashed"), list(1))
 
 	// Grabbed before teardown -- there's no marker left to JMP to afterward.
 	var/turf/stash_location = istype(check_marker) ? get_turf(check_marker) : null
@@ -4049,6 +4265,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		log_drydock_warning("drydockSell: refused -- shuttle_id=[shuttle_id] busy (acting=[acting]).")
 		return FALSE
 
+	_shipCentralDelete(DS.global_ship_id)
 	var/datum/db_query/dq = SSdbcore.NewQuery("DELETE FROM ss13_drydock_ships WHERE shuttle_id = :id", list("id" = shuttle_id))
 	dq.Execute()
 	if(!databaseCheckQueryResult(dq, "drydockSell delete"))
@@ -4144,6 +4361,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// means that check correctly finds nothing to "recover" here.
 	SSpersistence.purgeShipScopeRows("ship:d:[shuttle_id]")
 
+	_shipCentralDelete(DS.global_ship_id)
 	var/datum/db_query/dq = SSdbcore.NewQuery("DELETE FROM ss13_drydock_ships WHERE shuttle_id = :id", list("id" = shuttle_id))
 	dq.Execute()
 	databaseCheckQueryResult(dq, "drydockScuttle delete")

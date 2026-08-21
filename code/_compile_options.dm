@@ -122,6 +122,35 @@
 // leave undefined to require the admin verb to be run manually instead.
 //#define FORCE_COMPILE_ON_MERGE
 
+// ##### Local game-server shards (containerized, admin/auto-spawned) #####
+// DO NOT ENABLE THIS UNLESS YOU KNOW WHAT YOU'RE DOING.
+//
+// If defined, this server can create and manage OTHER local DreamDaemon
+// instances ("shards") on the same machine -- each a fresh-local-data
+// Docker container sharing this server's own central database (see
+// docs/cross_server_persistence.md), triggered by an admin TGUI panel
+// (default) or, optionally, automatically once population crosses a
+// configured threshold. This works by letting the game process shell out
+// to Docker (world.shelleo(), same Trusted-security-level gate every other
+// shelleo() call site in this codebase already requires) -- that's real
+// blast radius beyond anything else compile-gated in this file, which is
+// why this is a compile-time barrier rather than just a config.txt toggle
+// like everything else in the cross-server system. Off by default; a
+// normal build never compiles any of this in, not even as dead code behind
+// a runtime check.
+//#define ALLOW_CENTRAL_SHARD_SPAWNING
+
+// If defined (default), the periodic persistence autosave (SSpersistence)
+// reschedules itself to the next real-world wall-clock boundary (e.g. every
+// :00/:30, via _next_aligned_fire(), persistence.dm) instead of a flat
+// "wait minutes from whenever this save finished" -- see
+// docs/cross_server_persistence.md. This is what lets every central-linked
+// server land its autosave within seconds of each other instead of
+// drifting apart by boot time. Undefine to fall back to the old flat
+// schedule (no alignment query against the local DB) -- useful to compare
+// behavior against, or as a quick rollback without reverting code.
+//#define CENTRAL_AUTOSAVE_ALIGNMENT
+
 // If defined, every log_admin() entry is also mirrored to Discord via a new
 // "admin_log" webhook tag (WEBHOOK_ADMIN_LOG, __DEFINES/webhook.dm) -- add a
 // webhook to config/webhooks.json (or ss13_webhooks) with "admin_log" in its

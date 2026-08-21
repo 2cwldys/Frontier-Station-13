@@ -81,6 +81,11 @@
 	// out for a host-connected account even when the server is locked -- that is
 	// the bypass working as intended, not the lock failing.
 	data["enter_allowed"]     = GLOB.config.enter_allowed || check_rights(R_ADMIN, 0, user)
+	// Presence-lock backing store -- see docs/cross_server_persistence.md.
+	// Always TRUE when central_sql_enabled is off (centralDatabaseReachable()
+	// itself handles that), so this never gates anything on an ordinary
+	// standalone server.
+	data["central_reachable"] = SSpersistence.centralDatabaseReachable()
 
 	return data
 

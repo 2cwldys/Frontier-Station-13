@@ -8,6 +8,17 @@ SUBSYSTEM_DEF(statistics)
 
 	var/kicked_clients = 0
 
+	/// Cached network-wide player/server count across every server sharing
+	/// this one's central database -- recomputed once per fire() (see
+	/// below), read by get_serverstatus (server_query.dm) so that endpoint
+	/// never needs a live SQL query in its own request path (it's polled
+	/// frequently by external tools and deliberately exempt from the
+	/// anti-abuse throttle for that reason). Both stay 0 when
+	/// central_sql_enabled is off -- server_query.dm doesn't even report
+	/// them in that case, so the stale-zero value is never seen.
+	var/central_player_total = 0
+	var/central_server_count = 0
+
 	var/list/messages = list()		//Stores messages of non-standard frequencies
 	var/list/messages_admin = list()
 
@@ -69,18 +80,61 @@ GENERAL_PROTECT_DATUM(/datum/controller/subsystem/statistics)
 			winset(C, null, "command=.update_ping+[num2text(world.time+world.tick_lag*TICK_USAGE_REAL/100, 32)]")
 
 	// Handle population polling.
-	if (GLOB.config.sql_enabled && GLOB.config.sql_stats)
+	// Computed once, unconditionally -- both the local write below (its own
+	// sql_enabled/sql_stats gate) and the central write further down (its
+	// own, independent central_sql_enabled gate) need these, and a server
+	// can have either, both, or neither enabled.
+	if ((GLOB.config.sql_enabled && GLOB.config.sql_stats) || GLOB.config.central_sql_enabled)
 		var/admincount = GLOB.staff.len
 		var/playercount = 0
 		for(var/mob/M in GLOB.player_list)
 			if(M.client)
 				playercount += 1
-		if(!SSdbcore.Connect())
-			log_game("SQL ERROR during population polling. Failed to connect.")
-		else
-			var/datum/db_query/stats_query = SSdbcore.NewQuery("INSERT INTO `ss13_population` (`playercount`, `admincount`, `time`) VALUES (:playercount, :admincount, NOW())",list("playercount"=playercount,"admincount"=admincount))
-			stats_query.Execute()
-			qdel(stats_query)
+
+		if (GLOB.config.sql_enabled && GLOB.config.sql_stats)
+			if(!SSdbcore.Connect())
+				log_game("SQL ERROR during population polling. Failed to connect.")
+			else
+				var/datum/db_query/stats_query = SSdbcore.NewQuery("INSERT INTO `ss13_population` (`playercount`, `admincount`, `time`) VALUES (:playercount, :admincount, NOW())",list("playercount"=playercount,"admincount"=admincount))
+				stats_query.Execute()
+				qdel(stats_query)
+
+		// Central (cross-server) population reporting -- see
+		// docs/cross_server_persistence.md. Mirrors the local write above,
+		// aimed at the shared central DB instead, keyed by this server's own
+		// central_server_id so every server sharing the central DB gets one
+		// upserted row (not an ever-growing log like ss13_population) rather
+		// than fighting over a single shared row. Independent of the local
+		// sql_enabled/sql_stats gate above -- a server can report centrally
+		// without also logging its own local population history.
+		if(GLOB.config.central_sql_enabled && GLOB.config.central_server_id)
+			if(SScentraldb.Connect())
+				var/datum/db_query/central_stats_query = SScentraldb.NewQuery(
+					"INSERT INTO `ss13_central_population` (`server_id`, `playercount`, `admincount`, `updated_at`) VALUES (:sid, :playercount, :admincount, NOW()) ON DUPLICATE KEY UPDATE playercount = VALUES(playercount), admincount = VALUES(admincount), updated_at = VALUES(updated_at)",
+					list("sid" = GLOB.config.central_server_id, "playercount" = playercount, "admincount" = admincount))
+				central_stats_query.Execute()
+				qdel(central_stats_query)
+
+				// Cached here, not queried live from get_serverstatus -- see
+				// central_player_total's own doc comment above. A 5-minute
+				// freshness cutoff keeps a crashed/disconnected server's
+				// last-known count from contributing to the total forever.
+				var/datum/db_query/central_total_query = SScentraldb.NewQuery(
+					"SELECT SUM(playercount), COUNT(*) FROM `ss13_central_population` WHERE updated_at > (NOW() - INTERVAL 5 MINUTE)")
+				central_total_query.Execute()
+				if(central_total_query.NextRow())
+					central_player_total = text2num(central_total_query.item[1]) || 0
+					central_server_count = text2num(central_total_query.item[2]) || 0
+				qdel(central_total_query)
+
+#ifdef ALLOW_CENTRAL_SHARD_SPAWNING
+				// See code/modules/admin/verbs/shards.dm -- kept there, not
+				// here, so every shard-specific piece stays in that one
+				// ifdef'd file. _check_auto_shard_spawn() re-checks
+				// central_sql_enabled itself, so this isn't relying solely
+				// on the outer if() above.
+				_check_auto_shard_spawn()
+#endif
 
 	if (status_needs_update)
 		// Update world status.

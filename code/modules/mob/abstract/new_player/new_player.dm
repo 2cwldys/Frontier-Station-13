@@ -614,6 +614,28 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 			if(selected_char == "-- New Character --")
 				selected_char = null
 
+	// ── Presence lock: refuse if this character is active/dead/vaulted on
+	// another central-linked server -- see docs/cross_server_persistence.md
+	// and presenceLockAcquire()'s own doc comment (persistence_cryo.dm).
+	// Placed after every earlier reattach loop above (live lace_mob, cryo'd
+	// corpse, live mob) -- those only ever match content already present in
+	// THIS server's own memory, so by definition they can't conflict with a
+	// lock held elsewhere; only a genuinely cold rejoin reaches here.
+	// No-op immediately if central_sql_enabled is off (presenceLockAcquire()
+	// itself handles that). Skipped entirely for a brand-new character
+	// (selected_char null here means "-- New Character --" or no saves at
+	// all) -- nothing exists yet to conflict with.
+	if(selected_char)
+		var/lock_holder = SSpersistence.presenceLockAcquire("character", "[client.ckey]|[selected_char]")
+		if(isnull(lock_holder))
+			to_chat(src, SPAN_WARNING("Cannot join right now -- the shared character database is unreachable. Try again shortly."))
+			reopen_menu_after_failed_spawn()
+			return
+		if(lock_holder != "")
+			to_chat(src, SPAN_WARNING("[selected_char] is currently active on [lock_holder] -- resolve that there (log out cleanly, get revived and stored, or retrieve the vaulted lace) before playing here."))
+			reopen_menu_after_failed_spawn()
+			return
+
 	// ── Lace-aware reconnect: dead/in-lace characters never get a free respawn ──
 	// After a server restart the round-local mob is gone, so we fall back to the
 	// char_state persisted by mobPositionSave()/lacePositionSave() to figure out

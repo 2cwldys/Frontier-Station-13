@@ -861,7 +861,7 @@ pixel_x = 10;
 				list("name" = "Nitrogen",       "command" = "n2_scrub",  "val" = info["filter_n2"]),
 				list("name" = "Carbon Dioxide", "command" = "co2_scrub", "val" = info["filter_co2"]),
 				list("name" = "Phoron",         "command" = "tox_scrub", "val" = info["filter_phoron"]),
-				list("name" = "Hydrogen",       "command" = "h2_scrub",  "val" = info["filter_h"]),
+				list("name" = "Hydrogen",       "command" = "h_scrub",   "val" = info["filter_h"]),
 				list("name" = "Nitrous Oxide",  "command" = "n2o_scrub", "val" = info["filter_n2o"]),
 				list("name" = "Chlorine",       "command" = "cl_scrub",  "val" = info["filter_cl"])
 			)
@@ -940,7 +940,13 @@ pixel_x = 10;
 						signal[command] = input_pressure
 						send_signal(device_id, signal)
 				if("reset_external_pressure")
-					signal[command] = ONE_ATMOSPHERE
+					// vent_pump.dm's receive_signal() has no "reset_external_pressure"
+					// key at all -- only "set_external_pressure", which already has a
+					// dedicated reset path via the literal string "default" (restores
+					// external_pressure_bound_default, a per-vent-type value, not a
+					// flat ONE_ATMOSPHERE -- some vent subtypes default to 0). Reuse
+					// that existing mechanism instead of a second, unheard key.
+					signal["set_external_pressure"] = "default"
 					send_signal(device_id, signal)
 				if("power",
 					"adjust_external_pressure",
@@ -949,7 +955,7 @@ pixel_x = 10;
 					"n2_scrub",
 					"co2_scrub",
 					"tox_scrub",
-					"h2_scrub",
+					"h_scrub",
 					"n2o_scrub",
 					"cl_scrub",
 					"panic_siphon",

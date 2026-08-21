@@ -3,8 +3,15 @@
 SUBSYSTEM_DEF(auth)
 	name = "Auth"
 	init_order = INIT_ORDER_AUTH
-	flags = SS_NO_FIRE
-
+	// Periodic, not SS_NO_FIRE, specifically so central-authority lists
+	// (central admins, central bans -- both read via SScentraldb) don't go
+	// stale between restarts. Both are also manually reloadable on demand
+	// (reload_admins()/reload_central_bans() verbs, diagnostics.dm /
+	// DB ban/central_ban.dm) for immediate effect without waiting for the
+	// next fire(). A purely local (non-central) server gets no benefit
+	// from repolling admins.txt/local ss13_admins this way, so fire()
+	// itself is a no-op unless central_sql_enabled is on.
+	wait = 5 MINUTES
 
 	var/list/admin_ranks = list() /// list of all ranks with associated rights used by the legacy system
 	var/list/datum/authentik_group/authentik_groups = list() /// list of all groups with associated rights used by the new system
@@ -27,10 +34,25 @@ SUBSYSTEM_DEF(auth)
 	load_admin_ranks()
 	load_admins()
 
+	// Explicit gate at the call site, not just left to load_central_bans()'s
+	// own internal check -- nothing should even attempt to touch central at
+	// all when it isn't enabled, not merely no-op safely once inside.
+	if(GLOB.config.central_sql_enabled)
+		load_central_bans()
+
 	if (GLOB.config.use_authentik_api)
 		update_admins_from_authentik(TRUE)
 
 	return SS_INIT_SUCCESS
+
+/// Periodic refresh of both central-authority lists -- see the wait var's
+/// own comment above for why this subsystem fires at all. No-op entirely
+/// for a non-central server.
+/datum/controller/subsystem/auth/fire()
+	if(!GLOB.config.central_sql_enabled)
+		return
+	load_admins()
+	load_central_bans()
 
 /**
  * Loads the admin ranks from the config file.
@@ -61,7 +83,10 @@ SUBSYSTEM_DEF(auth)
 /datum/controller/subsystem/auth/proc/load_admins()
 	clear_admins()
 
-	if(GLOB.config.admin_legacy_system)
+	if(GLOB.config.central_sql_enabled)
+		load_admins_from_central_database()
+
+	else if(GLOB.config.admin_legacy_system)
 		load_admins_from_legacy_system()
 
 	else
@@ -148,6 +173,46 @@ SUBSYSTEM_DEF(auth)
 		GLOB.config.admin_legacy_system = 1
 		load_admins_from_legacy_system()
 		return
+
+/// Central-authority admin loading -- used instead of the local
+/// load_admins_from_database() whenever central_sql_enabled is on. Reads
+/// ss13_central_admins from SScentraldb (the shared cross-server database,
+/// centraldb.dm) rather than the local ss13_admins table on SSdbcore, so a
+/// server's own local admin storage (admins.txt or its local ss13_admins
+/// row) is never consulted for granting purposes in this mode -- editing
+/// either one locally has zero effect once central_sql_enabled is set.
+///
+/// Deliberately does NOT mirror load_admins_from_database()'s fallback to
+/// the legacy system above -- that fallback is fail-OPEN (falls back to a
+/// local admin source on any failure), which is exactly what central mode
+/// is meant to rule out. If the central DB can't be reached, or the query
+/// comes back empty, this fails CLOSED instead: admin_datums stays empty
+/// and nobody gets admin anywhere until the central DB is reachable again.
+/datum/controller/subsystem/auth/proc/load_admins_from_central_database()
+	PRIVATE_PROC(TRUE)
+	if(!SScentraldb.Connect())
+		log_world("ERROR: AdminRanks: Failed to connect to the CENTRAL database in load_admins() -- central_sql_enabled is on, so NOT falling back to any local admin source. No admins loaded until this succeeds.")
+		log_misc("AdminRanks: Central DB unreachable at load_admins() -- failing closed, no local fallback.")
+		return
+
+	var/datum/db_query/query = SScentraldb.NewQuery("SELECT ckey, `rank`, flags FROM ss13_central_admins")
+	query.Execute(FALSE)
+
+	while(query.NextRow())
+		var/ckey = query.item[1]
+		var/rank = query.item[2]
+		var/rights = query.item[3]
+		if(istext(rights))
+			rights = text2num(rights)
+
+		var/datum/admins/D = new /datum/admins(rank, rights, ckey)
+		//find the client for a ckey if they are connected and associate them with the new admin datum
+		D.associate(GLOB.directory[ckey])
+	qdel(query)
+
+	if(!admin_datums)
+		log_world("WARNING: AdminRanks: Central admin list query returned no rows -- no admins loaded. Expected fail-closed behavior if ss13_central_admins is genuinely empty or unreachable, not a bug -- check central_dbconfig.txt and the central database's ss13_central_admins table.")
+		log_misc("AdminRanks: Central admin list empty -- no admins loaded (fail-closed).")
 /**
  * Clears the admins from the game.
  */

@@ -52,6 +52,22 @@
 	//magic voodo to check for a key in a list while also adding that key to the list without having to do two associated lookups
 	var/message = !checkedckeys[ckey]++
 
+	// Central ban list (DB ban/central_ban.dm) -- checked before the local
+	// (legacy or modern) ban systems below, additively: a definite central
+	// hit refuses the connection regardless of which local ban mode this
+	// server runs. A pure cache read (get_central_ban()), so this never
+	// blocks the connection on a live query -- see that proc's own
+	// fail-open reasoning for why an unreachable/unconfigured central DB
+	// just silently skips this check instead of refusing everyone.
+	var/list/central_ban = get_central_ban(ckey)
+	if(central_ban)
+		var/expires_desc = central_ban["expires_at"] ? " This ban expires on [central_ban["expires_at"]] (server time)." : " This is a permanent ban."
+		var/desc = "\nReason: You are banned from this server group. The ban reason is:\n[central_ban["reason"]]\nThis ban was applied by [central_ban["banning_admin"]] on [central_ban["banned_at"]].[expires_desc]"
+		log_access("Failed Login: [key] [computer_id] [address] - Central banned [central_ban["reason"]]")
+		message_admins(SPAN_NOTICE("Failed Login: [key] id:[computer_id] ip:[address] - Central banned [central_ban["reason"]]"))
+		LOG_CLIENT_CONNECTION(ACCESS_STATUS_BANNED)
+		return list("reason" = "Central ban", "desc" = desc)
+
 	//Guest Checking
 	if(!(GLOB.config.guests_allowed || GLOB.config.external_auth) && IsGuestKey(key))
 		log_access("Failed Login: [key] - Guests not allowed")

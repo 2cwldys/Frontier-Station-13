@@ -1,0 +1,35 @@
+# Central (cross-server) MySQL Connection Configuration
+#
+# Copy this file to config/central_dbconfig.txt and fill in the shared
+# central database's real credentials. Only meaningful if CENTRAL_SQL_ENABLED
+# is set in config.txt -- an ordinary standalone server should leave that off
+# and can ignore this file entirely.
+#
+# This is a SEPARATE connection from config/dbconfig.txt (this server's own
+# local database -- worldstate, turfs, atmos, floor items, machinery). This
+# file's connection instead carries whatever is shared across every server
+# authorized against the same central instance: characters, money, factions,
+# and ship schematics. Keeping the two credential sets in separate files means
+# the shared central login is never mixed up with, or accidentally exposed
+# alongside, this server's own local DB password.
+
+# Host the shared central MySQL/MariaDB database can be found at.
+# This is NOT localhost for any server but whichever one is actually hosting
+# the shared central database -- every authorized server points at the SAME
+# address here.
+ADDRESS central.example.com
+
+# MySQL server port (default is 3306)
+PORT 3306
+
+# Database name on the central server
+DATABASE aurora_central
+
+# Username/login for THIS server's own central DB account. Authorization is
+# enforced by the central database itself: each authorized server should be
+# issued its own login here, not a login shared across servers -- so revoking
+# one server's access never requires touching any other server's config.
+LOGIN this_servers_central_login
+
+# Password for the login above.
+PASSWORD this_servers_central_password

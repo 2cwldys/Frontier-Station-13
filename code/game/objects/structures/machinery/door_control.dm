@@ -156,59 +156,6 @@
 		else
 			D.close()
 
-/// More than one linked door -- a blind toggle-everything press stops being
-/// obviously correct (especially for a mixed airlock/blast-door
-/// checkpoint), so open a native picker instead: which door, then which
-/// action for it. Exactly one linked door still falls through to the
-/// parent's immediate press-and-trigger() behavior -- no extra friction for
-/// the common single-door case.
-/obj/structure/machinery/button/remote/blast_door/attack_hand(mob/user as mob)
-	var/list/doors = _get_linked_doors()
-	if(length(doors) <= 1)
-		return ..()
-
-	add_fingerprint(user)
-	if(stat & (NOPOWER|BROKEN))
-		return
-	if(!allowed(user) && (wires & 1))
-		to_chat(user, SPAN_WARNING("Access denied"))
-		flick("doorctrl-denied", src)
-		return
-
-	var/list/door_options = list()
-	for(var/obj/structure/machinery/door/D in doors)
-		door_options["[D.name] @ ([D.x],[D.y])"] = D
-	var/pick = tgui_input_list(user, "Select a door to control:", "Door Button", door_options)
-	if(!pick)
-		return
-	var/obj/structure/machinery/door/D = door_options[pick]
-	if(QDELETED(D))
-		to_chat(user, SPAN_WARNING("That door is no longer there."))
-		return
-
-	var/is_airlock = istype(D, /obj/structure/machinery/door/airlock)
-	var/list/action_options = is_airlock ? list("Open", "Close", "Bolt", "Unbolt") : list("Open", "Close")
-	var/action = tgui_input_list(user, "Action for [D.name]:", "Door Button", action_options)
-	if(!action)
-		return
-	if(QDELETED(D) || QDELETED(src) || QDELETED(user))
-		return
-
-	use_power_oneoff(5)
-	switch(action)
-		if("Open")
-			D.open()
-		if("Close")
-			D.close()
-		if("Bolt")
-			var/obj/structure/machinery/door/airlock/AL = D
-			AL.lock()
-		if("Unbolt")
-			var/obj/structure/machinery/door/airlock/AL = D
-			AL.unlock()
-	to_chat(user, SPAN_NOTICE("You remotely [lowertext(action)] \the [D]."))
-	update_icon()
-
 /// Multitool linking -- lets a multitool that already has a blast door,
 /// shutter, or airlock buffered (via that door's own attackby()) complete a
 /// link to this button, or buffers this button itself so a door can be

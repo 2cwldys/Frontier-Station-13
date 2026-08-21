@@ -50,6 +50,13 @@
 /datum/computer_file/program/drydock/ui_data(mob/user)
 	var/list/data = initial_data()
 
+	// CENTRAL_SYNC_SHIPS -- pulls in any ship centrally owned by this
+	// character that this server has never seen locally yet (bought on a
+	// different server sharing the same central database), before the
+	// "your ships" list below is built. No-op entirely when central sync
+	// is off (gated inside the proc itself).
+	_shipHydrateOwnedFromCentral(user.ckey, user.real_name)
+
 	var/obj/item/card/id/ID = user.GetIdCard()
 	var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
 	data["own_faction_name"] = own_faction ? get_faction_name(own_faction) : null

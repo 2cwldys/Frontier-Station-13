@@ -166,6 +166,11 @@ DISABLE_ROUND_END
 ## site, pin it, reboot, confirm only the pinned site survives.
 # PERSISTENCE_DISABLE_STATION
 
+## Skips spawning the CentCom overmap marker ("Frontier Beacon Depot") --
+## it simply never appears on the overmap, making that sector unreachable
+## by normal overmap travel. Off by default.
+# DISABLE_FRONTIER_BEACON
+
 ## allow players to initiate a restart vote
 ALLOW_VOTE_RESTART
 
@@ -425,6 +430,49 @@ TIME_TO_CALL_EMERGENCY_SHUTTLE 36000
 
 ## Uncomment this to enable SQL CCIA Logs
 # SQL_CCIA_LOGS
+
+## Enables the SECOND, cross-server database connection used for shared
+## persistence -- characters, money, factions, and ship schematics shared with
+## other servers authorized against the same central database. Off by default;
+## only servers deliberately part of a shared central setup should enable this.
+## Credentials live in config/central_dbconfig.txt (see config/example/ for a
+## template), kept separate from this server's own local dbconfig.txt.
+#CENTRAL_SQL_ENABLED
+
+## This server's own identity when it holds a presence lock on the central
+## database -- shown to a SECOND server that tries to load a character or ship
+## already active here ("already active on [this]"). Must be unique across
+## every server sharing one central database; nothing enforces that
+## automatically, since the servers allowed to connect at all are exactly the
+## ones trusted to be configured correctly.
+#CENTRAL_SERVER_ID my_server_name
+
+## Per-subject toggles for what actually gets shared once CENTRAL_SQL_ENABLED
+## is on -- each is independent, so you can share characters/ships with the
+## group without also sharing money or faction data, for example. All inert
+## until the matching persistence code exists (see the "What's built vs not"
+## table in docs/cross_server_persistence.md) -- enabling one today does
+## nothing by itself. Comment/uncomment each on its own.
+#CENTRAL_SYNC_CHARACTERS
+#CENTRAL_SYNC_SHIPS
+#CENTRAL_SYNC_FACTIONS
+#CENTRAL_SYNC_MONEY
+
+## Population threshold for automatically spawning a local game-server
+## shard -- see docs/cross_server_persistence.md. Has NO effect at all
+## unless this build was compiled with ALLOW_CENTRAL_SHARD_SPAWNING defined
+## (code/_compile_options.dm -- off by default, do not enable unless you
+## know what you're doing) AND CENTRAL_SQL_ENABLED is on above. 0/unset =
+## automatic spawning off; the admin "Manage Shards" panel still works
+## regardless of this value on a build that has the ifdef compiled in.
+#AUTO_CENTRAL_SHARD_POPULATION_THRESHOLD 100
+
+## Written automatically into a shard's own config.txt by
+## scripts/central/db_central_add_shard.ps1/.sh -- do not set this by hand.
+## Tells this server it's a shard, so the backup verb/auto-toggle refuse
+## cleanly (scripts/db_backup can't reach or run from inside a shard) instead
+## of failing confusingly. Unset on every real/normal server.
+#SHARD_ID my_shard_name
 
 ## Uncomment this and fill in the web interface's URL to use the web interface.
 # WEBINT_URL http://www.address.com/
