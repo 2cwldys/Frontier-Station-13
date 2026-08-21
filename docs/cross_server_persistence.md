@@ -7,12 +7,14 @@ running this codebase, only ones you explicitly approve -- can share
 characters, money, factions, and ship schematics, while worldstate, turfs,
 atmos, and machinery stay local to each server as they always have.
 
-**Status: foundation only, as of this writing.** The connection, its
-config, the presence-lock table, and the server-authorization tooling all
-exist and are verified. Nothing in the game actually *queries* the central
-database yet -- no character, faction, or ship currently lives there. See
-[What's built vs. not](#whats-built-vs-not) before assuming more works than
-does.
+**Status, as of this writing:** the connection, its config, the
+presence-lock table, and the server-authorization tooling all exist and
+are verified. Characters are the first thing that actually *lives*
+centrally now (identity/health/inventory/position, behind
+`CENTRAL_SYNC_CHARACTERS`) -- see [Character sync](#character-sync)
+below. Money, factions, and ships still don't query the central database
+at all. See [What's built vs. not](#whats-built-vs-not) before assuming
+more works than does.
 
 ## Why a second connection, not one shared local DB
 
@@ -38,10 +40,10 @@ One table on the *central* database, `ss13_presence_lock`
 (`SQL/migrate-central/V001__presence_lock.sql`): a row's existence **is**
 the lock. A character or ship gets a row the moment it's actively in play
 (spawned in, or retrieved from drydock) naming which server holds it; the
-row is removed when it stops being active there (cryo, disconnect without
-cryo, or stashed). A second server checks for a row before allowing the
-same spawn/retrieve locally, and refuses -- naming which server currently
-has it -- if one already exists.
+row is removed ONLY on a genuine, deliberate store/stash -- never on a
+bare disconnect, see below. A second server checks for a row before
+allowing the same spawn/retrieve locally, and refuses -- naming which
+server currently has it -- if one already exists.
 
 This is what avoids the classic double-spend/split-brain problem: only the
 server holding the lock ever has that character or ship loaded in memory,
@@ -62,15 +64,26 @@ procs everything funnels through:
   (kicks back to the character menu with a message naming the other server)
   if the lock is held elsewhere; fails closed (refuses, doesn't guess) if
   the central DB can't be reached at all.
-- **Release** -- only when a character finishes being stored/logged-out
-  **while alive**. `persistStoreCharacter()` and `persistence_cryo_despawn()`
-  (both same file) release; `_persistence_dead_despawn()` deliberately never
-  does. This one rule covers "out of cryo" (never released while active),
-  "dead" (`char_state` would be `"dead_body"` at store time -- release
-  skipped), and "neural lace vaulted" (a subset of dead -- vaulting only
-  ever happens to an already-dead character's extracted lace, so it's
-  covered by the same skip) in one place, without needing separate handling
-  per case.
+- **Release** -- ONLY `persistStoreCharacter()` (a genuine, deliberate
+  store: the Store Character verb, or a forced store -- prison
+  freeze/arrest, AFK kick), and only while alive AND not currently
+  imprisoned. `persistence_cryo_despawn()` (the same file) -- the grace-
+  timer-driven consequence of a bare disconnect, `PERSISTENCE_CRYO_TIMEOUT`
+  after `client/Destroy()` -- deliberately never releases it, dead or
+  alive: that path is involuntary, not a decision to cryo out, and a
+  character that merely disconnected without actually being stored is
+  still "out of cryo" exactly as this system's original requirement
+  describes -- embodied and un-stored, just hidden, and locked to this
+  server until it's actually resolved here (reconnect and store properly,
+  or an admin intervenes). `_persistence_dead_despawn()` also never
+  releases. So the presence lock stays held for: simply being
+  disconnected without an explicit store, "dead" (`char_state` would be
+  `"dead_body"` at store time), "neural lace vaulted" (a subset of dead),
+  and "imprisoned" (a cryogenic prison sentence, `persistence_character_actively_imprisoned()`,
+  `persistence_mobs.dm` -- without this check, a sentence could be
+  sidestepped entirely by reconnecting through a different central-linked
+  server the moment the cell door closes). Only a clean, deliberate store
+  of a character that's alive, not imprisoned, releases it.
 - **Outage UX** -- the character-select TGUI (`persistent_menu.dm` /
   `PersistentMenu.tsx`) disables Play outright while the central DB is
   unreachable (`centralDatabaseReachable()`), rather than letting a player
@@ -400,22 +413,165 @@ for a future external tool (an idle-shard watchdog, or anything else that
 needs to trigger a save without a human admin present) -- nothing in this
 repo consumes it yet.
 
+## Character sync
+
+`CENTRAL_SYNC_CHARACTERS` (`config.txt`) makes a character's identity,
+health, inventory, and position follow them to any server/shard sharing
+the central database -- not just presence-locked to stop double-play
+(that part existed already), the actual data. Design: **write-through +
+read-through-on-miss**, reusing the existing local schema shape verbatim
+on the central DB rather than a combined blob format --
+`SQL/migrate-central/V006__character_sync.sql` mirrors
+`ss13_char_identity`/`ss13_char_health`/`ss13_char_inventory`/
+`ss13_mob_position` (`SQL/migrate-2023`) column-for-column.
+
+- **Write-through**: every existing local save (`charIdentitySaveOne()`,
+  `mobsHealthSaveOne()`, `mobsInventorySaveOne()`, `mobPositionSave()`/
+  `lacePositionSave()`, all `persistence_mobs.dm`) also upserts the same
+  row centrally when the toggle is on and central is reachable.
+  Non-fatal on failure -- the local save already succeeded.
+- **Read-through-on-miss**: at character spawn, if this server's local
+  cache has never seen this character (`applyPersistentIdentity()` and its
+  three siblings), a central lookup runs before falling back to "no saved
+  data." A hit populates the in-memory cache AND writes the row into this
+  server's own local table (self-heal) -- no repeated central round-trips
+  on future spawns.
+- Shared helpers (`persistence_mobs.dm`), not four+ separate
+  implementations: `_characterRowUpsert()` (the upsert SQL builder),
+  `_centralCharacterWriteThrough()`/`_centralCharacterReadThrough()`/
+  `_centralCharacterSelfHealLocal()`, and `_centralCharacterPartialUpdate()`
+  (plain `UPDATE`, for the three position setter procs below that never
+  INSERT). All gate through one `_centralCharacterSyncActive()` check
+  (`central_sql_enabled` AND `central_sync_characters` both genuinely on,
+  AND central reachable right now).
+- Relies on the presence lock (above) for correctness: only the server
+  currently holding a character's lock ever writes or read-through-hydrates
+  its data, so there's no concurrent-write conflict to resolve.
+- `ss13_mob_position`'s local table carries several columns written by
+  procs OTHER than `mobPositionSave()` -- `last_pod_x`/`_y`/`_z`
+  (`persistence_set_last_pod()`), `imprisoned`/`imprisoned_until`/
+  `imprisoned_by_faction_uid` (`persistence_set_imprisoned()`),
+  `faction_bound`/`faction_bound_uid` (`persistence_set_faction_bound()`).
+  All three are wired to central too (`_centralCharacterPartialUpdate()`,
+  a plain `UPDATE` rather than the upsert `_centralCharacterWriteThrough()`
+  uses, since these procs only ever run against a row `mobPositionSave()`
+  already created) -- a character's cryo-imprisonment, faction shackle,
+  and last-used-pod memory all follow them across servers along with core
+  position. `persistence_set_imprisoned()`'s timed-sentence branch keeps
+  its `DATE_ADD(NOW(), ...)` SQL expression rather than going through the
+  generic helper, matching its local counterpart exactly.
+- Pre-existing, unrelated to this feature: `mobPositionInitialize()`'s own
+  boot-time bulk load never selects `faction_bound`/`faction_bound_uid` at
+  all, so a live faction-shackle set during a session doesn't survive that
+  server's own restart locally (central's copy stays correct regardless,
+  since `persistence_set_faction_bound()` writes it centrally every time
+  it's called, independent of the local boot-load path). Noted, not fixed
+  here -- out of scope for character sync specifically.
+- Ships remain entirely local-only. Factions are now synced too, see
+  below -- money (personal accounts, separate from faction treasury)
+  remains local-only.
+
+## Faction sync
+
+`CENTRAL_SYNC_FACTIONS` makes a faction's existence, treasury, and
+membership follow it across every server sharing the central database.
+Existence (`ss13_factions`) and membership (`ss13_faction_members`) use
+the exact same write-through + read-through-on-miss shape character sync
+established -- factions have no presence-lock equivalent (members are
+expected to be spread across servers simultaneously by design), so
+there's no concurrent-write conflict to solve for those two.
+
+Treasury (`ss13_faction_accounts`) needed a real fix first, not just a
+mirror table: `faction_credit()`/`faction_debit()`
+(`persistence_factions.dm`) used to read a cached balance, compute a new
+one in DM, then write the ABSOLUTE result -- harmless on one server (DM
+is single-threaded, nothing interleaves the read-compute-write), but a
+textbook lost-update race the moment two separate server PROCESSES can
+both write the same row, which -- since factions have no presence lock --
+would be the routine case, not a rare edge case, once any two
+central-linked servers both have active members trading stock or
+spending faction money at once.
+
+**The fix**: every balance mutation is now a SQL-side delta
+(`balance = balance +/- :amount`) rather than an absolute overwrite --
+correct regardless of which server's cache was stale when it computed the
+delta, since addition/subtraction commute. Debits additionally use
+`UPDATE ... WHERE balance >= :amount` as an atomic check-and-decrement
+(`_faction_balance_debit_atomic()`, checking `query.affected`, exposed by
+`dbcore.dm`'s `store_data()`) -- so two servers can never both approve a
+debit that combined overdraws the account, with no faction-level lock
+needed. When `CENTRAL_SYNC_FACTIONS` is active, the CENTRAL row is what's
+actually checked/decremented (it's the one every server shares); the
+local row is then kept in step with the same delta, unconditionally, no
+separate check. When central sync is off, the local row is authoritative,
+exactly as before this fix existed. The admin "Modify Balance" verb's Set
+Balance/Remove Credits actions deliberately keep the old absolute-write
+`_faction_balance_write()` -- a rare, deliberate override where "force it
+to exactly this value" is the actual intent, not routine gameplay, so
+there's no race to protect against.
+
+**Known, disclosed limitation**: a faction's CACHED balance
+(`GLOB.persistence_faction_cache`, what stock price display and "can I
+afford this" UI hints read) only updates on a server when THAT server
+does its own credit/debit, or hydrates the faction for the first time --
+it does not periodically re-sync from the authoritative central value the
+way the admin/ban lists do (`SSauth.fire()`). The underlying STORED value
+stays correct regardless (that's what the atomic delta/check-decrement
+guarantees), but a display on one server can lag behind a transaction
+that just happened on another until this server's own next credit/debit
+or restart. Not fixed here -- a periodic cache refresh, mirroring
+`SSauth`'s pattern, is a natural follow-up if live-across-servers display
+accuracy turns out to matter in practice.
+
+## Central bans + live admin refresh
+
+A ban applied on any `central_sql_enabled` server refuses the connection
+on every other server sharing the central database
+(`ss13_central_bans`, `code/modules/admin/DB ban/central_ban.dm`),
+layered additively on top of each server's own existing local ban system
+(`world/IsBanned()`, `IsBanned.dm`) -- never a replacement for it.
+Deliberately fail-**open** on central being unreachable, the opposite of
+central admin auth's fail-closed: refusing every connection during a
+brief central DB blip would be worse than the narrow risk of a ban check
+being skipped for that window, and the local ban list is still fully in
+effect regardless. Applying a ban (`DB_ban_record()`, `DB ban/functions.dm`)
+writes centrally too, only for full-connection ban types (never `JOB_*`,
+which only restrict a role, not a connection).
+
+Both this and `ss13_central_admins` (pre-existing) now refresh
+automatically, not just at boot: `SSauth` fires every 5 minutes
+(`central_sql_enabled` only, a no-op subsystem otherwise) re-running
+`load_admins()`/`load_central_bans()`. Both are also manually
+reloadable on demand ("Reload Admins" / "Reload Central Bans" verbs,
+`diagnostics.dm` / `central_ban.dm`) for immediate effect.
+
+Not built: proactively kicking an already-connected player the moment
+they're banned on another server -- a ban only takes effect on that
+player's *next* connection attempt, matching how local bans already
+behave. Enforcing it retroactively would need actively re-checking every
+connected client, not just gating new connections -- a real feature, but
+a separate, harder problem than "a ban applies everywhere."
+
 ## What's built vs. not
 
 | Built | Not built |
 |---|---|
-| `SScentraldb` connection, its config, its own query bookkeeping | Anything actually querying it for characters/money/factions/ships |
-| `ss13_presence_lock` schema, character acquire/release hooks (spawn, cryo, disconnect), fail-closed | Ship acquire/release (drydock retrieve/stash) |
-| Per-server credential provisioning + revocation, verified live | Money/factions/ships actually living on the central DB (characters' *presence* is locked; character *data* itself still isn't centrally stored) |
-| `databaseCheckCentralConnection()` (persistence.dm) for future callers to gate on | Faction treasury's atomic-write fix (needed once factions move central -- see the presence-lock section above) |
-| `CENTRAL_SYNC_CHARACTERS`/`_SHIPS`/`_FACTIONS`/`_MONEY` config toggles | Any code that reads those toggles to actually decide where a subject's data goes |
+| `SScentraldb` connection, its config, its own query bookkeeping | Personal money (`ss13_money_accounts`) and ships actually living on the central DB |
+| `ss13_presence_lock` schema, character acquire/release hooks (spawn, cryo, disconnect), fail-closed | Ship acquire/release (drydock retrieve/stash) -- `shuttle_id` has no cross-server identity yet either |
+| Per-server credential provisioning + revocation, verified live | -- |
+| `databaseCheckCentralConnection()` (persistence.dm) for future callers to gate on | -- |
+| Character identity/health/inventory/position sync, including imprisonment/last-pod/faction-bound (`CENTRAL_SYNC_CHARACTERS`, write-through + read-through-on-miss, see above) | -- fully built, not a placeholder |
+| Faction existence/treasury/membership sync, treasury atomic-write-safe (`CENTRAL_SYNC_FACTIONS`, see above) | Faction balance cache periodic refresh (display can lag, stored value stays correct -- see "Known, disclosed limitation" above) |
+| `CENTRAL_SYNC_CHARACTERS`/`_FACTIONS` -- read and acted on | `_SHIPS`/`_MONEY` config toggles still unread -- no code branches on them yet |
 | Centralized admin authorization (`ss13_central_admins`), fail-closed, live | -- fully built, not a placeholder |
 | Network-wide player count (`ss13_central_population`, `get_serverstatus`, `tools/discord_rpc`) | -- fully built, not a placeholder |
 | Local game-server shards, containerized, admin/auto-spawned, backed up (backup verb/auto-toggle are shard-aware too, see above) | -- fully built, not a placeholder |
+| Central ban list + live-refreshing central admin list (`ss13_central_bans`, `SSauth.fire()`) | Proactive kick of an already-connected player banned on another server -- enforced on next connection attempt only, see above |
 
-A second server could point valid credentials at a real central database
-today and it would connect successfully -- and nothing would happen, because
-no game system asks it anything yet.
+Characters and factions are the two subjects actually living on the
+central database today -- everything else connecting still means what it
+did before: `SScentraldb` reachable, nothing asking it anything for those
+remaining subjects yet.
 
 ## Transport security -- not yet solved
 

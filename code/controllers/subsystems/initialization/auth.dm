@@ -3,8 +3,15 @@
 SUBSYSTEM_DEF(auth)
 	name = "Auth"
 	init_order = INIT_ORDER_AUTH
-	flags = SS_NO_FIRE
-
+	// Periodic, not SS_NO_FIRE, specifically so central-authority lists
+	// (central admins, central bans -- both read via SScentraldb) don't go
+	// stale between restarts. Both are also manually reloadable on demand
+	// (reload_admins()/reload_central_bans() verbs, diagnostics.dm /
+	// DB ban/central_ban.dm) for immediate effect without waiting for the
+	// next fire(). A purely local (non-central) server gets no benefit
+	// from repolling admins.txt/local ss13_admins this way, so fire()
+	// itself is a no-op unless central_sql_enabled is on.
+	wait = 5 MINUTES
 
 	var/list/admin_ranks = list() /// list of all ranks with associated rights used by the legacy system
 	var/list/datum/authentik_group/authentik_groups = list() /// list of all groups with associated rights used by the new system
@@ -27,10 +34,25 @@ SUBSYSTEM_DEF(auth)
 	load_admin_ranks()
 	load_admins()
 
+	// Explicit gate at the call site, not just left to load_central_bans()'s
+	// own internal check -- nothing should even attempt to touch central at
+	// all when it isn't enabled, not merely no-op safely once inside.
+	if(GLOB.config.central_sql_enabled)
+		load_central_bans()
+
 	if (GLOB.config.use_authentik_api)
 		update_admins_from_authentik(TRUE)
 
 	return SS_INIT_SUCCESS
+
+/// Periodic refresh of both central-authority lists -- see the wait var's
+/// own comment above for why this subsystem fires at all. No-op entirely
+/// for a non-central server.
+/datum/controller/subsystem/auth/fire()
+	if(!GLOB.config.central_sql_enabled)
+		return
+	load_admins()
+	load_central_bans()
 
 /**
  * Loads the admin ranks from the config file.

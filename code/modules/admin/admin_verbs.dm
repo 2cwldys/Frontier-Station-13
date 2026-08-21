@@ -1558,9 +1558,22 @@ GLOBAL_LIST_INIT(admin_verbs_storyteller, list(
 /// cryogenic prison storage pod (cryopod_prison.dm), regardless of which
 /// faction imprisoned them or whether their pod's own security-access gate
 /// would normally allow it -- a deliberate bypass for abuse cases. Re-verifies
-/// each candidate through persistence_character_imprisonment_status()
+/// each LOCAL candidate through persistence_character_imprisonment_record()
 /// (persistence_mobs.dm) rather than trusting the raw SQL flag, which also
 /// lazily clears anyone already expired/pod-missing off the list.
+///
+/// When CENTRAL_SYNC_CHARACTERS is active, also pulls in anyone imprisoned
+/// ONLY on another server sharing the same central database -- ss13_mob_
+/// position's central mirror already carries imprisoned/imprisoned_until/
+/// imprisoned_by_faction_uid (Phase 1 character sync), so a prisoner whose
+/// imprisoning server/shard is gone (see db_central_clear_presence_lock.ps1
+/// for the matching presence-lock problem) isn't otherwise reachable from
+/// ANY admin here. These show up marked "(remote)" and skip
+/// persistence_character_imprisonment_record() entirely -- that proc
+/// searches for a physical prison cell in THIS world, which doesn't exist
+/// for a character never imprisoned here; release still goes through the
+/// same persistence_set_imprisoned() call either way; the local half of
+/// that write is a harmless no-op for a row this server never had.
 /datum/admins/proc/manage_faction_prisoners()
 	set name = "Manage Faction Prisoners"
 	set category = "Persistence.Factions"
@@ -1579,9 +1592,11 @@ GLOBAL_LIST_INIT(admin_verbs_storyteller, list(
 	)
 	q.Execute()
 	var/list/candidates = list()
+	var/list/known_keys = list()
 	if(SSpersistence.databaseCheckQueryResult(q, "manage_faction_prisoners list"))
 		while(q.NextRow())
 			candidates += list(list("ckey" = q.item[1], "char_name" = q.item[2]))
+			known_keys["[q.item[1]]|[q.item[2]]"] = TRUE
 	qdel(q)
 
 	var/list/options = list()
@@ -1596,6 +1611,31 @@ GLOBAL_LIST_INIT(admin_verbs_storyteller, list(
 			: "[c["char_name"]] ([c["ckey"]]) -- [round(status["remaining_seconds"] / 60)] min left[status["frozen"] ? "" : " (THAWED)"]"
 		options[label] = c
 
+	if(SSpersistence._centralCharacterSyncActive())
+		var/datum/db_query/central_q = SScentraldb.NewQuery(
+			{"SELECT ckey, char_name, imprisoned_until IS NULL AS indefinite,
+			TIMESTAMPDIFF(SECOND, NOW(), imprisoned_until) AS remaining
+			FROM ss13_mob_position WHERE imprisoned = 1"},
+			list()
+		)
+		central_q.Execute()
+		if(SSpersistence.databaseCheckQueryResult(central_q, "manage_faction_prisoners central list"))
+			while(central_q.NextRow())
+				var/c_ckey = central_q.item[1]
+				var/c_char_name = central_q.item[2]
+				if(known_keys["[c_ckey]|[c_char_name]"])
+					continue // already listed from the local row above
+				var/c_indefinite = text2num(central_q.item[3])
+				var/c_remaining = text2num(central_q.item[4])
+				if(!c_indefinite && c_remaining <= 0)
+					continue // expired -- persistence_set_imprisoned() lazy-clear only runs locally, so just hide it here
+				var/list/c = list("ckey" = c_ckey, "char_name" = c_char_name)
+				var/label = c_indefinite \
+					? "[c_char_name] ([c_ckey]) -- indefinite (remote)" \
+					: "[c_char_name] ([c_ckey]) -- [round(c_remaining / 60)] min left (remote)"
+				options[label] = c
+		qdel(central_q)
+
 	if(!length(options))
 		to_chat(usr, SPAN_NOTICE("No one is currently imprisoned."))
 		return
@@ -1604,11 +1644,60 @@ GLOBAL_LIST_INIT(admin_verbs_storyteller, list(
 	if(!chosen_label)
 		return
 	var/list/chosen = options[chosen_label]
+	var/is_remote = !known_keys["[chosen["ckey"]]|[chosen["char_name"]]"]
 
-	var/confirm = tgui_alert(usr, "Release [chosen["char_name"]] ([chosen["ckey"]]) from imprisonment? This bypasses the pod's own security/faction access check entirely.", "Release Prisoner", list("Release", "Cancel"))
+	var/confirm = tgui_alert(usr, is_remote \
+		? "Release [chosen["char_name"]] ([chosen["ckey"]]) from imprisonment? This character was never imprisoned on THIS server -- only found via the central database (imprisoning server/shard likely gone)." \
+		: "Release [chosen["char_name"]] ([chosen["ckey"]]) from imprisonment? This bypasses the pod's own security/faction access check entirely.", \
+		"Release Prisoner", list("Release", "Cancel"))
 	if(confirm != "Release")
 		return
 
 	persistence_set_imprisoned(chosen["ckey"], chosen["char_name"], FALSE)
 	to_chat(usr, SPAN_GOOD("Released [chosen["char_name"]] ([chosen["ckey"]]) from imprisonment."))
-	log_and_message_admins("released [chosen["char_name"]] ([chosen["ckey"]]) from cryogenic prison storage via Manage Faction Prisoners.", usr)
+	log_and_message_admins("released [chosen["char_name"]] ([chosen["ckey"]]) from cryogenic prison storage via Manage Faction Prisoners[is_remote ? " (central-only record)" : ""].", usr)
+
+/// DISASTER RECOVERY ONLY -- see presenceLockForceRelease()'s own doc
+/// comment (persistence_cryo.dm). A character's presence lock is normally
+/// only ever released by the SAME server that holds it, by design; this
+/// bypasses that entirely, for the one case nothing else can fix: the
+/// server/shard that holds the lock is permanently gone (removed,
+/// decommissioned), so there's no way to reconnect there and cryo out
+/// properly. R_SERVER, not R_ADMIN -- higher-consequence than releasing a
+/// prisoner (persistence_set_imprisoned() above), since misuse against a
+/// server that's actually still up (just unreachable this instant) can let
+/// the same character be played in two places at once.
+/datum/admins/proc/force_clear_presence_lock()
+	set name = "Force-Clear Presence Lock"
+	set category = "Persistence.Misc"
+	set desc = "DISASTER RECOVERY ONLY -- forcibly releases a character's cross-server presence lock, even one held by a server/shard that no longer exists."
+
+	if(!check_rights(R_SERVER))
+		return
+
+	if(!GLOB.config.central_sql_enabled)
+		to_chat(usr, SPAN_WARNING("central_sql_enabled is off on this server -- there's no presence lock to clear."))
+		return
+
+	var/target_ckey = tgui_input_text(usr, "ckey of the locked character:", "Force-Clear Presence Lock")
+	if(!target_ckey)
+		return
+	target_ckey = ckey(target_ckey)
+	if(!target_ckey)
+		return
+
+	var/target_char_name = tgui_input_text(usr, "Character name (exact, case-sensitive):", "Force-Clear Presence Lock")
+	if(!target_char_name)
+		return
+
+	var/subject_id = "[target_ckey]|[target_char_name]"
+
+	var/confirm = tgui_alert(usr, "This bypasses the normal same-server-only release rule entirely -- it clears [target_char_name]'s ([target_ckey]) lock EVEN IF the holding server is actually still up and that character is being actively played there right now. Only use this once you've confirmed the holding server/shard is permanently gone. Misuse can let the same character be played in two places at once. Proceed?", "Force-Clear Presence Lock", list("Clear It", "Cancel"))
+	if(confirm != "Clear It")
+		return
+
+	if(SSpersistence.presenceLockForceRelease("character", subject_id))
+		to_chat(usr, SPAN_GOOD("Presence lock for [target_char_name] ([target_ckey]) cleared."))
+		log_and_message_admins("force-cleared the presence lock for [target_char_name] ([target_ckey]) -- disaster recovery override.", usr)
+	else
+		to_chat(usr, SPAN_NOTICE("No presence lock was held for [target_char_name] ([target_ckey]) -- nothing to clear."))

@@ -18,10 +18,16 @@
 
 /**
  * Presence lock -- see docs/cross_server_persistence.md. Prevents a
- * character from being played simultaneously (or, if dead/lace-vaulted,
- * resumed) on two servers sharing one central database. ss13_presence_lock
- * (SQL/migrate-central/V001__presence_lock.sql): row existence is the
- * lock -- no enabled flag, no timestamp expiry.
+ * character from being played simultaneously (or resumed at all) on two
+ * servers sharing one central database. Released ONLY by a genuine,
+ * deliberate persistStoreCharacter() call -- never by the passive grace-
+ * timer despawn below, which is just the involuntary consequence of a
+ * disconnect, not a decision to cryo out. A character stays locked to
+ * whichever server it's on while dead, imprisoned, neural-lace-vaulted,
+ * or simply disconnected-but-never-actually-stored -- "out of cryo"
+ * covers all of those, matching this system's original requirement.
+ * ss13_presence_lock (SQL/migrate-central/V001__presence_lock.sql): row
+ * existence is the lock -- no enabled flag, no timestamp expiry.
  */
 
 /// Cheap reachability check for UI gating (character-select TGUI) -- no
@@ -89,6 +95,29 @@
 	q.Execute()
 	qdel(q)
 
+/// Disaster-recovery escape hatch -- unlike presenceLockRelease() above,
+/// this does NOT scope to server_id, so it can clear a lock held by a
+/// server/shard that no longer exists (removed via
+/// db_central_remove_shard.*, or a real server permanently decommissioned)
+/// and would otherwise hold that subject hostage forever, since nothing
+/// else can ever legitimately release another server's own lock. Callers
+/// MUST confirm with a human first (see the admin verb this backs) --
+/// this is deliberately capable of creating a real double-play window if
+/// used on a server that's actually still up and just unreachable at this
+/// exact moment, not truly gone. Returns TRUE if a row was actually
+/// deleted (there was something to clear).
+/datum/controller/subsystem/persistence/proc/presenceLockForceRelease(subject_type, subject_id)
+	if(!GLOB.config.central_sql_enabled)
+		return FALSE
+	if(!databaseCheckCentralConnection("presenceLockForceRelease"))
+		return FALSE
+	var/datum/db_query/q = SScentraldb.NewQuery(
+		"DELETE FROM `ss13_presence_lock` WHERE subject_type = :type AND subject_id = :id",
+		list("type" = subject_type, "id" = subject_id))
+	q.Execute()
+	. = (q.affected > 0)
+	qdel(q)
+
 /mob/living/carbon/human/proc/persistence_cryo_despawn()
 	if(!persistence_in_cryo || ckey)
 		return
@@ -97,11 +126,20 @@
 		_persistence_dead_despawn()
 		return
 
-	// Alive and finishing the grace-timer despawn -- this character is now
-	// fully out of any server's active memory, safe to release the
-	// presence lock (see its own doc comment above). _persistence_dead_despawn()
-	// deliberately never does this -- a dead/vaulted character stays locked.
-	SSpersistence.presenceLockRelease("character", "[persistence_stored_ckey]|[real_name]")
+	// Alive and finishing the grace-timer despawn -- deliberately does NOT
+	// release the presence lock. This whole path is the INVOLUNTARY
+	// consequence of a disconnect (client/Destroy() -> persistCharacterOnLogout()
+	// -> this timer), never a deliberate action -- the grace window exists
+	// only to let a player who dropped for a few seconds resume the SAME
+	// body on THIS server, not to decide cross-server availability. A
+	// character that merely disconnected without going through an actual
+	// cryo/store action is "out of cryo" exactly as the original
+	// requirement for this whole system describes it (see
+	// docs/cross_server_persistence.md) -- still embodied, un-stored, just
+	// hidden -- and stays locked to this server until it's ACTUALLY
+	// resolved here: a genuine, deliberate persistStoreCharacter() call
+	// (Store Character, or a forced store), which is the only place this
+	// lock is ever released for a living, unimprisoned character.
 
 	// Find a hold turf  prefer player storage telepads, fall back to any latejoin point
 	var/turf/hold_turf = null
@@ -316,7 +354,12 @@
 	// duplicating this in each branch. Dead stays locked, matching
 	// persistence_cryo_despawn()'s own release call (see that proc's
 	// comment, and this proc's own presence-lock doc comment above).
-	if(!was_dead)
+	// Imprisoned ALSO stays locked -- this exact proc is what runs for a
+	// prison freeze/arrest force-store (see this proc's own header), so an
+	// unconditional release here would let a sentence be sidestepped by
+	// simply reconnecting through a different central-linked server the
+	// instant the cell door closes.
+	if(!was_dead && !persistence_character_actively_imprisoned(H.ckey, H.real_name))
 		SSpersistence.presenceLockRelease("character", "[H.ckey]|[H.real_name]")
 
 	// Move mob immediately to the player storage telepad (or latejoin fallback)
@@ -647,6 +690,40 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 	catch
 		// Table may not exist yet  return null safely
 	qdel(q)
+
+	// This server has never seen this ckey's membership locally -- check
+	// centrally before giving up (CENTRAL_SYNC_FACTIONS). A hit is written
+	// back into the local table too (self-heal), same pattern as every
+	// other central read-through this session.
+	if(!faction_uid && _factionCentralSyncActive())
+		var/datum/db_query/cq = SScentraldb.NewQuery(
+			"SELECT faction_uid, real_name, job_title, rank FROM `ss13_faction_members` WHERE ckey = :ckey LIMIT 1",
+			list("ckey" = ckey)
+		)
+		cq.Execute()
+		if(cq.NextRow())
+			faction_uid = cq.item[1]
+			var/c_real_name = cq.item[2]
+			var/c_job_title = cq.item[3]
+			var/c_rank = text2num(cq.item[4])
+			qdel(cq)
+
+			GLOB.persistence_faction_members_cache["[ckey]|[faction_uid]"] = list(
+				"real_name" = c_real_name,
+				"job_title" = c_job_title,
+				"rank"      = c_rank
+			)
+			var/datum/db_query/lq = SSdbcore.NewQuery(
+				{"INSERT INTO ss13_faction_members (ckey, real_name, faction_uid, job_title, rank)
+				VALUES (:ckey, :real_name, :uid, :job, :rank)
+				ON DUPLICATE KEY UPDATE real_name = VALUES(real_name), job_title = VALUES(job_title), rank = VALUES(rank)"},
+				list("ckey" = ckey, "real_name" = c_real_name, "uid" = faction_uid, "job" = c_job_title, "rank" = c_rank)
+			)
+			lq.Execute()
+			qdel(lq)
+		else
+			qdel(cq)
+
 	return faction_uid
 
 /**

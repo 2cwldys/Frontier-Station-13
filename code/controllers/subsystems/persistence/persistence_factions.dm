@@ -22,6 +22,256 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 
 // ============================================================
+// CENTRAL FACTION SYNC (CENTRAL_SYNC_FACTIONS)
+// ============================================================
+//
+// See docs/cross_server_persistence.md. Existence (ss13_factions) and
+// membership (ss13_faction_members) use the same write-through +
+// read-through-on-miss shape CENTRAL_SYNC_CHARACTERS already established
+// (persistence_mobs.dm) -- faction membership has no presence-lock
+// equivalent (a faction's members are expected to be spread across
+// servers simultaneously, by design), so there's no concurrent-write
+// conflict to solve for those two.
+//
+// Treasury (ss13_faction_accounts) is different and NOT safe to sync the
+// same way: faction_credit()/faction_debit() (below) always used to read
+// a cached balance, compute a new one in DM, then write the ABSOLUTE
+// result. That's harmless on one server (DM is single-threaded, nothing
+// interleaves the read-compute-write), but once two SEPARATE server
+// processes can both write the same central row, it's a textbook
+// lost-update race -- and since factions have no presence lock, this
+// would be the ROUTINE case the moment two servers both have active
+// members trading stock or spending faction money, not a rare edge case.
+// Fixed by making every balance mutation a SQL-side delta
+// (`balance = balance +/- :amount`) instead of an absolute overwrite --
+// this makes the stored value correct regardless of which server's cache
+// was stale when it computed the delta, addition/subtraction being
+// commutative. Debits additionally use `WHERE balance >= :amount` as an
+// atomic check-and-decrement (checking query.affected, exposed by
+// dbcore.dm's store_data()) so two servers can never both approve a
+// debit that combined overdraws the account -- no faction-level lock
+// needed, same reasoning that made the character presence lock
+// unnecessary for read-through-on-miss elsewhere in this file's design.
+
+/// Shared gate, same shape as persistence_mobs.dm's
+/// _centralCharacterSyncActive() -- central_sql_enabled checked
+/// explicitly (not left to centralDatabaseReachable() alone, which
+/// returns TRUE when central is OFF as a no-op shortcut for UI gating)
+/// alongside central_sync_factions, AND reachability.
+/proc/_factionCentralSyncActive()
+	if(!GLOB.config.central_sql_enabled || !GLOB.config.central_sync_factions)
+		return FALSE
+	return SSpersistence.centralDatabaseReachable()
+
+/// Read-through-on-miss for faction EXISTENCE -- called from
+/// faction_credit()/faction_debit()/get_faction_account_balance() when
+/// this server has never seen faction_uid before. A hit populates both
+/// GLOB.persistence_faction_cache AND this server's own local
+/// ss13_factions/ss13_faction_accounts rows (self-heal, same as the
+/// character read-through), so this server behaves like a normal
+/// cache-primed one for this faction from then on. Returns TRUE if the
+/// cache now has an entry for uid (either it already did, or hydration
+/// succeeded), FALSE if it's genuinely unknown everywhere.
+/proc/_faction_hydrate_from_central(uid)
+	if(islist(GLOB.persistence_faction_cache) && (uid in GLOB.persistence_faction_cache))
+		return TRUE
+	if(!_factionCentralSyncActive())
+		return FALSE
+
+	var/datum/db_query/fq = SScentraldb.NewQuery(
+		{"SELECT name, abbreviation, founder_ckey, is_company_tier, pirate_founded,
+		leader_ckey, leader_char_name, color, auto_payroll, allowed_cargo_category
+		FROM `ss13_factions` WHERE uid = :uid"},
+		list("uid" = uid)
+	)
+	fq.Execute()
+	if(!fq.NextRow())
+		qdel(fq)
+		return FALSE
+	var/f_name = fq.item[1]
+	var/f_abbr = fq.item[2]
+	var/f_founder = fq.item[3]
+	var/f_company = text2num(fq.item[4])
+	var/f_pirate = text2num(fq.item[5])
+	var/f_leader_ckey = fq.item[6]
+	var/f_leader_char_name = fq.item[7]
+	var/f_color = fq.item[8]
+	var/f_auto_payroll = text2num(fq.item[9])
+	var/f_cargo_category = fq.item[10]
+	qdel(fq)
+
+	var/datum/db_query/bq = SScentraldb.NewQuery(
+		"SELECT balance FROM `ss13_faction_accounts` WHERE faction_uid = :uid",
+		list("uid" = uid)
+	)
+	bq.Execute()
+	var/f_balance = bq.NextRow() ? text2num(bq.item[1]) : 0
+	qdel(bq)
+
+	if(!islist(GLOB.persistence_faction_cache))
+		GLOB.persistence_faction_cache = list()
+	GLOB.persistence_faction_cache[uid] = list(
+		"name"                   = f_name,
+		"abbreviation"           = f_abbr,
+		"balance"                = f_balance,
+		"founder_ckey"           = f_founder,
+		"master_card_lost"       = FALSE,
+		"is_company_tier"        = f_company,
+		"pirate_founded"         = f_pirate,
+		"leader_ckey"            = f_leader_ckey,
+		"leader_char_name"       = f_leader_char_name,
+		"color"                  = f_color,
+		"auto_payroll"           = f_auto_payroll,
+		"allowed_cargo_category" = f_cargo_category
+	)
+
+	// Self-heal -- write this faction into this server's own local tables
+	// so it's a normal, cache-primed faction locally from now on, not a
+	// repeated central round-trip on every future access.
+	if(GLOB.config.sql_enabled && SSdbcore.Connect())
+		var/datum/db_query/lf = SSdbcore.NewQuery(
+			{"INSERT INTO ss13_factions (uid, name, abbreviation, is_lore, founder_ckey, is_company_tier, pirate_founded,
+			leader_ckey, leader_char_name, color, auto_payroll, allowed_cargo_category)
+			VALUES (:uid, :name, :abbr, 0, :founder, :company, :pirate, :leader_ckey, :leader_name, :color, :auto_payroll, :cargo_cat)
+			ON DUPLICATE KEY UPDATE name = VALUES(name), abbreviation = VALUES(abbreviation), leader_ckey = VALUES(leader_ckey),
+			leader_char_name = VALUES(leader_char_name), color = VALUES(color), auto_payroll = VALUES(auto_payroll),
+			allowed_cargo_category = VALUES(allowed_cargo_category)"},
+			list(
+				"uid" = uid, "name" = f_name, "abbr" = f_abbr, "founder" = f_founder, "company" = f_company, "pirate" = f_pirate,
+				"leader_ckey" = f_leader_ckey, "leader_name" = f_leader_char_name, "color" = f_color,
+				"auto_payroll" = f_auto_payroll, "cargo_cat" = f_cargo_category
+			)
+		)
+		lf.Execute()
+		qdel(lf)
+		var/datum/db_query/lb = SSdbcore.NewQuery(
+			"INSERT INTO ss13_faction_accounts (faction_uid, balance) VALUES (:uid, :balance) ON DUPLICATE KEY UPDATE balance = VALUES(balance), saved_at = NOW()",
+			list("uid" = uid, "balance" = f_balance)
+		)
+		lb.Execute()
+		qdel(lb)
+
+	return TRUE
+
+/// Writes a faction's just-created existence row centrally -- called from
+/// _financalizeFactionRow() alongside its existing local INSERTs.
+/// Non-fatal on failure, same reasoning as every other write-through in
+/// this codebase.
+/proc/_faction_existence_write_through(uid, name, abbreviation, founder_ckey, is_company_tier, pirate_founded, starting_balance)
+	if(!_factionCentralSyncActive())
+		return
+	var/datum/db_query/fq = SScentraldb.NewQuery(
+		{"INSERT INTO ss13_factions (uid, name, abbreviation, is_lore, founder_ckey, is_company_tier, pirate_founded)
+		VALUES (:uid, :name, :abbr, 0, :founder, :company, :pirate)
+		ON DUPLICATE KEY UPDATE name = VALUES(name), abbreviation = VALUES(abbreviation)"},
+		list("uid" = uid, "name" = name, "abbr" = abbreviation, "founder" = founder_ckey, "company" = is_company_tier ? 1 : 0, "pirate" = pirate_founded ? 1 : 0)
+	)
+	fq.Execute()
+	qdel(fq)
+	var/datum/db_query/bq = SScentraldb.NewQuery(
+		"INSERT INTO ss13_faction_accounts (faction_uid, balance) VALUES (:uid, :balance) ON DUPLICATE KEY UPDATE balance = VALUES(balance), saved_at = NOW()",
+		list("uid" = uid, "balance" = starting_balance)
+	)
+	bq.Execute()
+	qdel(bq)
+
+/// Atomic credit -- a pure SQL-side delta, always succeeds (barring a DB
+/// failure) since crediting needs no sufficient-funds check. Applies
+/// against the CENTRAL row when sync is active (the authoritative store
+/// once two servers can both touch this faction) and always against the
+/// LOCAL row too (best-effort mirror for this server's own offline
+/// resilience -- matches every other system's local-write-always
+/// convention).
+/proc/_faction_balance_credit_atomic(uid, amount)
+	if(GLOB.config.sql_enabled && SSdbcore.Connect())
+		var/datum/db_query/lq = SSdbcore.NewQuery(
+			"UPDATE ss13_faction_accounts SET balance = balance + :amount, saved_at = NOW() WHERE faction_uid = :uid",
+			list("uid" = uid, "amount" = amount)
+		)
+		lq.Execute()
+		qdel(lq)
+	if(_factionCentralSyncActive())
+		var/datum/db_query/cq = SScentraldb.NewQuery(
+			"UPDATE ss13_faction_accounts SET balance = balance + :amount, saved_at = NOW() WHERE faction_uid = :uid",
+			list("uid" = uid, "amount" = amount)
+		)
+		cq.Execute()
+		qdel(cq)
+
+/// Atomic debit -- the check-and-decrement described in this section's own
+/// header comment. When central sync is active, the CENTRAL row is what's
+/// checked/decremented (it's the one every server actually shares); the
+/// local row is then just kept in step with the same delta, no separate
+/// check needed. When central sync is off, the LOCAL row is the
+/// authoritative check, exactly like before this fix existed. Returns
+/// TRUE only if a row was actually decremented (sufficient funds).
+/proc/_faction_balance_debit_atomic(uid, amount)
+	if(_factionCentralSyncActive())
+		var/datum/db_query/cq = SScentraldb.NewQuery(
+			"UPDATE ss13_faction_accounts SET balance = balance - :amount, saved_at = NOW() WHERE faction_uid = :uid AND balance >= :amount",
+			list("uid" = uid, "amount" = amount)
+		)
+		cq.Execute()
+		var/central_ok = (cq.affected > 0)
+		qdel(cq)
+		if(!central_ok)
+			return FALSE
+		// Central already confirmed sufficient funds and decremented --
+		// mirror the same delta locally, unconditionally (no re-check).
+		if(GLOB.config.sql_enabled && SSdbcore.Connect())
+			var/datum/db_query/lq = SSdbcore.NewQuery(
+				"UPDATE ss13_faction_accounts SET balance = balance - :amount, saved_at = NOW() WHERE faction_uid = :uid",
+				list("uid" = uid, "amount" = amount)
+			)
+			lq.Execute()
+			qdel(lq)
+		return TRUE
+
+	if(GLOB.config.sql_enabled && SSdbcore.Connect())
+		var/datum/db_query/lq = SSdbcore.NewQuery(
+			"UPDATE ss13_faction_accounts SET balance = balance - :amount, saved_at = NOW() WHERE faction_uid = :uid AND balance >= :amount",
+			list("uid" = uid, "amount" = amount)
+		)
+		lq.Execute()
+		var/local_ok = (lq.affected > 0)
+		qdel(lq)
+		return local_ok
+
+	// No database at all (sql_enabled off) -- nothing to defer to, fall
+	// back to the plain DM-cache check this proc always used to be.
+	var/list/data = GLOB.persistence_faction_cache[uid]
+	return islist(data) && data["balance"] >= amount
+
+/// Central write-through for ss13_factions METADATA columns (name, leader,
+/// color, auto_payroll, ...) -- everything on that row besides balance,
+/// which lives on the separate ss13_faction_accounts table and always
+/// goes through the atomic delta procs above instead. A plain UPDATE, not
+/// an upsert -- these procs only ever run against a row
+/// _faction_existence_write_through() already created, same reasoning as
+/// _centralCharacterPartialUpdate() (persistence_mobs.dm). Last-write-wins
+/// for these fields (no atomic-delta equivalent makes sense for a name or
+/// a color) -- an acceptable risk since each is only ever touched by
+/// whoever's actively managing that faction through a live character, and
+/// that character can only be active on one server at a time (presence
+/// lock), unlike treasury, which routine gameplay hits from every member
+/// simultaneously.
+/proc/_factionCentralPartialUpdate(uid, list/set_columns, list/set_values)
+	if(!_factionCentralSyncActive())
+		return
+	var/list/set_clauses = list()
+	var/list/params = list("uid" = uid)
+	for(var/i in 1 to length(set_columns))
+		var/col = set_columns[i]
+		set_clauses += "`[col]` = :[col]"
+		params[col] = set_values[i]
+	var/datum/db_query/q = SScentraldb.NewQuery(
+		"UPDATE `ss13_factions` SET [jointext(set_clauses, ", ")] WHERE uid = :uid",
+		params
+	)
+	q.Execute()
+	qdel(q)
+
+// ============================================================
 // INITIALIZE
 // ============================================================
 
@@ -470,6 +720,8 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	cf_q2.Execute()
 	databaseCheckQueryResult(cf_q2, "_financalizeFactionRow account")
 	qdel(cf_q2)
+
+	_faction_existence_write_through(faction_uid, name, abbreviation, founder_ckey, is_company_tier, pirate_founded, starting_balance)
 
 	if(!islist(GLOB.persistence_faction_cache))
 		GLOB.persistence_faction_cache = list()
@@ -1065,7 +1317,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 
 /proc/get_faction_account_balance(uid)
 	uid = normalize_faction_uid(uid)
-	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+	if(!_faction_hydrate_from_central(uid))
 		return null
 	return GLOB.persistence_faction_cache[uid]["balance"]
 
@@ -1097,6 +1349,14 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 		)
 		eq.Execute()
 		qdel(eq)
+	if(_factionCentralSyncActive())
+		var/datum/db_query/ceq = SScentraldb.NewQuery(
+			{"INSERT INTO ss13_faction_accounts (faction_uid, cards_epoch) VALUES (:uid, :epoch)
+			ON DUPLICATE KEY UPDATE cards_epoch = VALUES(cards_epoch), saved_at = NOW()"},
+			list("uid" = uid, "epoch" = new_epoch)
+		)
+		ceq.Execute()
+		qdel(ceq)
 	return TRUE
 
 /// The ckey of the faction's original founder, set once at founding and
@@ -1138,6 +1398,14 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 		)
 		mq.Execute()
 		qdel(mq)
+	if(_factionCentralSyncActive())
+		var/datum/db_query/cmq = SScentraldb.NewQuery(
+			{"INSERT INTO ss13_faction_accounts (faction_uid, master_card_lost) VALUES (:uid, :lost)
+			ON DUPLICATE KEY UPDATE master_card_lost = VALUES(master_card_lost), saved_at = NOW()"},
+			list("uid" = uid, "lost" = lost ? 1 : 0)
+		)
+		cmq.Execute()
+		qdel(cmq)
 	return TRUE
 
 /// An admin-designated faction leader (list("ckey"=, "char_name"=)), or null
@@ -1193,6 +1461,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 		return FALSE
 	GLOB.persistence_faction_cache[uid]["leader_ckey"] = ckey
 	GLOB.persistence_faction_cache[uid]["leader_char_name"] = char_name
+	_factionCentralPartialUpdate(uid, list("leader_ckey", "leader_char_name"), list(ckey, char_name))
 	if(GLOB.config.sql_enabled && SSdbcore.Connect())
 		var/datum/db_query/lq = SSdbcore.NewQuery(
 			"UPDATE ss13_factions SET leader_ckey = :ckey, leader_char_name = :name WHERE uid = :uid",
@@ -1233,6 +1502,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
 		return FALSE
 	GLOB.persistence_faction_cache[uid]["color"] = new_color
+	_factionCentralPartialUpdate(uid, list("color"), list(new_color))
 	if(GLOB.config.sql_enabled && SSdbcore.Connect())
 		var/datum/db_query/cq = SSdbcore.NewQuery(
 			"UPDATE ss13_factions SET color = :color WHERE uid = :uid",
@@ -1264,6 +1534,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
 		return FALSE
 	GLOB.persistence_faction_cache[uid]["auto_payroll"] = enabled
+	_factionCentralPartialUpdate(uid, list("auto_payroll"), list(enabled ? 1 : 0))
 	if(GLOB.config.sql_enabled && SSdbcore.Connect())
 		var/datum/db_query/q = SSdbcore.NewQuery(
 			"UPDATE ss13_factions SET auto_payroll = :val WHERE uid = :uid",
@@ -1325,6 +1596,16 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 	qdel(q)
 	if(ok)
 		GLOB.persistence_faction_cache[uid]["allowed_cargo_category"] = category
+		// NOW() -- not routed through _factionCentralPartialUpdate(), which
+		// only binds plain values, same reasoning as every other
+		// SQL-side-timestamp write in this codebase.
+		if(_factionCentralSyncActive())
+			var/datum/db_query/cq = SScentraldb.NewQuery(
+				"UPDATE `ss13_factions` SET allowed_cargo_category = :cat, cargo_category_changed_at = NOW() WHERE uid = :uid",
+				list("uid" = uid, "cat" = category)
+			)
+			cq.Execute()
+			qdel(cq)
 	return ok
 
 /// Whether uid has been granted "(All)" cargo access -- an admin-only override
@@ -1389,30 +1670,36 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 		return FALSE
 	return FC.issued_epoch == get_faction_cards_epoch(FC.faction_uid)
 
+/// Debits a faction's balance -- the actual sufficient-funds check AND the
+/// decrement both happen atomically in SQL (_faction_balance_debit_atomic(),
+/// above), against the central row when CENTRAL_SYNC_FACTIONS is active
+/// or the local row otherwise, never against this DM-side cache. The
+/// cache is only updated AFTER that succeeds, by the same delta -- correct
+/// regardless of what this server's cache believed the balance was before,
+/// since the real database decrement already happened against the true
+/// current value.
 /proc/faction_debit(uid, amount, reason = "transaction")
 	uid = normalize_faction_uid(uid)
-	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+	if(!_faction_hydrate_from_central(uid))
 		return FALSE
 	if(amount <= 0)
 		return FALSE
-	var/list/data = GLOB.persistence_faction_cache[uid]
-	if(data["balance"] < amount)
+	if(!_faction_balance_debit_atomic(uid, amount))
 		return FALSE  // insufficient funds
-	data["balance"] -= amount
+	GLOB.persistence_faction_cache[uid]["balance"] -= amount
 	log_game("Faction [uid] debited [amount] credits: [reason]")
-	_faction_balance_write(uid, data["balance"])
 	_faction_transaction_log(uid, -amount, reason)
 	return TRUE
 
 /proc/faction_credit(uid, amount, reason = "transaction")
 	uid = normalize_faction_uid(uid)
-	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+	if(!_faction_hydrate_from_central(uid))
 		return FALSE
 	if(amount <= 0)
 		return FALSE
 	GLOB.persistence_faction_cache[uid]["balance"] += amount
 	log_game("Faction [uid] credited [amount] credits: [reason]")
-	_faction_balance_write(uid, GLOB.persistence_faction_cache[uid]["balance"])
+	_faction_balance_credit_atomic(uid, amount)
 	_faction_transaction_log(uid, amount, reason)
 	return TRUE
 
@@ -1470,17 +1757,32 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 	qdel(tq)
 
 /// Write a faction's balance to DB immediately. Called after every balance mutation.
+/// Absolute (not delta) write -- deliberately kept for the "Modify
+/// Balance" admin verb's Set Balance/Remove Credits actions
+/// (persistence_factions.dm, admin verb section) only. Those are rare,
+/// deliberate admin overrides where "force it to exactly this value"
+/// is the actual intent, unlike faction_credit()/faction_debit()'s
+/// routine gameplay path -- an absolute write is correct here, not a bug
+/// to fix, since there's no concurrent-write race to protect against for
+/// a one-off manual admin action the same way there is for routine trade.
 /proc/_faction_balance_write(uid, balance)
 	uid = normalize_faction_uid(uid)
-	if(!GLOB.config.sql_enabled || !SSdbcore.Connect())
-		return
-	var/datum/db_query/bq = SSdbcore.NewQuery(
-		{"INSERT INTO ss13_faction_accounts (faction_uid, balance) VALUES (:uid, :balance)
-		ON DUPLICATE KEY UPDATE balance = VALUES(balance), saved_at = NOW()"},
-		list("uid" = uid, "balance" = balance)
-	)
-	bq.Execute()
-	qdel(bq)
+	if(GLOB.config.sql_enabled && SSdbcore.Connect())
+		var/datum/db_query/bq = SSdbcore.NewQuery(
+			{"INSERT INTO ss13_faction_accounts (faction_uid, balance) VALUES (:uid, :balance)
+			ON DUPLICATE KEY UPDATE balance = VALUES(balance), saved_at = NOW()"},
+			list("uid" = uid, "balance" = balance)
+		)
+		bq.Execute()
+		qdel(bq)
+	if(_factionCentralSyncActive())
+		var/datum/db_query/cq = SScentraldb.NewQuery(
+			{"INSERT INTO ss13_faction_accounts (faction_uid, balance) VALUES (:uid, :balance)
+			ON DUPLICATE KEY UPDATE balance = VALUES(balance), saved_at = NOW()"},
+			list("uid" = uid, "balance" = balance)
+		)
+		cq.Execute()
+		qdel(cq)
 
 /// Prunes faction chat history older than the standard persistence
 /// expiration window. Called from SSpersistence.Shutdown().
@@ -3172,6 +3474,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 			to_chat(usr, SPAN_WARNING("Database write failed."))
 			return
 		qdel(rn_q)
+		_factionCentralPartialUpdate(chosen_uid, list("name"), list(renamed))
 
 		var/old_name = GLOB.persistence_faction_cache[chosen_uid]["name"]
 		GLOB.persistence_faction_cache[chosen_uid]["name"] = renamed
@@ -3609,6 +3912,15 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 			"job_title" = job_title,
 			"rank"      = rank
 		)
+		if(_factionCentralSyncActive())
+			var/datum/db_query/cq = SScentraldb.NewQuery(
+				{"INSERT INTO ss13_faction_members (ckey, real_name, faction_uid, job_title, rank)
+				VALUES (:ckey, :real_name, :uid, :job, :rank)
+				ON DUPLICATE KEY UPDATE real_name = VALUES(real_name), job_title = VALUES(job_title), rank = VALUES(rank)"},
+				list("ckey" = ckey, "real_name" = real_name, "uid" = faction_uid, "job" = job_title, "rank" = rank)
+			)
+			cq.Execute()
+			qdel(cq)
 	return ok
 
 /// Removes a ckey's membership record entirely -- the missing inverse of
@@ -3629,6 +3941,13 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 	qdel(q)
 	if(ok)
 		GLOB.persistence_faction_members_cache -= "[ckey]|[faction_uid]"
+		if(_factionCentralSyncActive())
+			var/datum/db_query/cq = SScentraldb.NewQuery(
+				"DELETE FROM ss13_faction_members WHERE ckey = :ckey AND faction_uid = :uid",
+				list("ckey" = ckey, "uid" = faction_uid)
+			)
+			cq.Execute()
+			qdel(cq)
 	return ok
 
 /// Sets a member's on-shift state -- gates factionPayroll() on top of the
@@ -3755,6 +4074,16 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 	)
 	uq.Execute()
 	qdel(uq)
+
+	// NOW() -- same reasoning as set_faction_allowed_cargo_category()'s
+	// own central write, not routed through the bound-value-only helper.
+	if(_factionCentralSyncActive())
+		var/datum/db_query/cuq = SScentraldb.NewQuery(
+			"UPDATE `ss13_factions` SET last_payroll_at = NOW() WHERE uid = :uid",
+			list("uid" = faction_uid)
+		)
+		cuq.Execute()
+		qdel(cuq)
 
 	// Update cache timestamp (world.time = deciseconds since server start; resets each session)
 	if(islist(GLOB.persistence_faction_cache) && (faction_uid in GLOB.persistence_faction_cache))
