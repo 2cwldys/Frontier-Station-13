@@ -239,12 +239,24 @@ $centralDbConfigLines = @(
 Set-Content (Join-Path $shardConfigDir "central_dbconfig.txt") -Value $centralDbConfigLines -Encoding UTF8
 
 # config.txt: start from the host's own, force SQL_ENABLED/CENTRAL_SQL_ENABLED
-# on, and set this shard's own unique CENTRAL_SERVER_ID plus SHARD_ID (the
-# latter is what lets the in-game backup verb/auto-toggle detect they're
-# running inside a shard and refuse cleanly -- see persistence_backups.dm).
+# and DISABLE_FRONTIER_BEACON on, and set this shard's own unique
+# CENTRAL_SERVER_ID plus SHARD_ID (the latter is what lets the in-game
+# backup verb/auto-toggle detect they're running inside a shard and refuse
+# cleanly -- see persistence_backups.dm).
 $configTxt = Get-Content (Join-Path $Root "config\config.txt") -Raw
 $configTxt = $configTxt -replace '(?m)^#+\s*SQL_ENABLED', 'SQL_ENABLED'
 $configTxt = $configTxt -replace '(?m)^#+\s*CENTRAL_SQL_ENABLED', 'CENTRAL_SQL_ENABLED'
+# A shard is its own independent overmap/world instance -- it should never
+# spawn its own separate CentCom sector ("Frontier Beacon Depot",
+# sectors.dm build_overmap()) alongside the main server's. Same
+# uncomment-if-present pattern as SQL_ENABLED/CENTRAL_SQL_ENABLED above
+# (config.txt ships this commented out); appended below if the host's own
+# config.txt doesn't have the line at all.
+if ($configTxt -match '(?m)^#*\s*DISABLE_FRONTIER_BEACON\s*$') {
+    $configTxt = $configTxt -replace '(?m)^#*\s*DISABLE_FRONTIER_BEACON\s*$', 'DISABLE_FRONTIER_BEACON'
+} else {
+    $configTxt += "`nDISABLE_FRONTIER_BEACON`n"
+}
 if ($configTxt -match '(?m)^#*\s*CENTRAL_SERVER_ID.*$') {
     $configTxt = $configTxt -replace '(?m)^#*\s*CENTRAL_SERVER_ID.*$', "CENTRAL_SERVER_ID $ShardId"
 } else {
