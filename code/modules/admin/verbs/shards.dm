@@ -37,6 +37,31 @@ GLOBAL_VAR_INIT(shard_advert_id, "")
 GLOBAL_VAR_INIT(shard_advert_shard_id, "")
 GLOBAL_VAR_INIT(shard_advert_port, 0)
 
+/// Shards currently advertised to arriving lobby clients -- list of
+/// list("advert_id"=, "shard_id"=, "port"=). Unlike shard_advert_id above
+/// (single most-recent value, consumed by the Discord bot with its own
+/// dedup), every entry here needs to persist and be shown to EVERY client
+/// that reaches the lobby after it was added, not just whoever happened
+/// to already be there -- see the catch-up loop in LateLogin()
+/// (mob/abstract/new_player/login.dm). Entries are removed when their
+/// shard is permanently removed (verb == "remove" below) so a dead join
+/// link is never advertised to a new arrival.
+GLOBAL_LIST_EMPTY(active_shard_adverts)
+
+/// Per-connection dedup for active_shard_adverts above -- lives on
+/// /client, not the new_player mob, same reasoning as
+/// welcomed_this_connection (login.dm): survives a mob returning to
+/// character select mid-connection (cryo, prison force-store, failed
+/// spawn), so a client already shown an advert isn't shown it again every
+/// time they cycle back through the lobby.
+/client/var/list/seen_shard_adverts = list()
+
+/// Shared by the immediate broadcast (verb == "add" below) and the
+/// lobby-entry catch-up (LateLogin(), login.dm), so the two can never
+/// drift out of sync.
+/proc/_shard_join_advert_message(shard_id, port)
+	return FONT_LARGE(SPAN_NOTICE("A new shard is available: <a href='byond://[world.internet_address || world.address]:[port]'>[shard_id] (click to join)</a>"))
+
 /// Most recent start/stop -- separate from shard_advert_* above (that's
 /// the one-time "a shard now exists, here's how to join" post; this is a
 /// lifecycle ping for an already-known shard). Same no-expiry/bot-side-dedup
@@ -287,9 +312,19 @@ GLOBAL_VAR_INIT(shard_lifecycle_event, "") // "started" or "stopped"
 			// persistence_cryo.dm) already refuses to spawn a character
 			// that's still active on this server, since a shard shares the
 			// same central database and always has CENTRAL_SQL_ENABLED on.
-			var/join_msg = FONT_LARGE(SPAN_NOTICE("A new shard is available: <a href='byond://[world.internet_address || world.address]:[port]'>[shard_id] (click to join)</a>"))
+			// GLOB.shard_advert_id was just set to this exact string one
+			// line ago (same event) -- reused here rather than recomputed,
+			// so the two can never drift apart.
+			GLOB.active_shard_adverts += list(list("advert_id" = GLOB.shard_advert_id, "shard_id" = shard_id, "port" = port))
+
+			var/join_msg = _shard_join_advert_message(shard_id, port)
 			for(var/client/C in GLOB.clients)
 				if(istype(C.mob, /mob/abstract/new_player))
+					// Marked seen immediately -- otherwise this same client
+					// would see it a second time the next time their
+					// new_player mob is recreated (LateLogin()'s own
+					// catch-up loop, login.dm).
+					C.seen_shard_adverts += GLOB.shard_advert_id
 					to_chat(C, join_msg)
 
 	if(verb == "start" || verb == "stop")
@@ -299,5 +334,15 @@ GLOBAL_VAR_INIT(shard_lifecycle_event, "") // "started" or "stopped"
 		GLOB.shard_lifecycle_id = "[shard_id]-[verb]-[world.time]"
 		GLOB.shard_lifecycle_shard_id = shard_id
 		GLOB.shard_lifecycle_event = (verb == "start") ? "started" : "stopped"
+
+	if(verb == "remove")
+		// The shard is permanently gone -- stop advertising it to any
+		// future lobby arrival. shard_id is unique per ss13_shards row
+		// (enforced at creation, db_central_add_shard.ps1), so at most one
+		// entry ever matches.
+		for(var/list/advert in GLOB.active_shard_adverts)
+			if(advert["shard_id"] == shard_id)
+				GLOB.active_shard_adverts -= list(advert)
+				break
 
 #endif
