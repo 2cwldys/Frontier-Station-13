@@ -182,6 +182,14 @@
 		to_chat(user, SPAN_WARNING("The lace does not contain a consciousness."))
 		return
 
+	// Any damage at all blocks resleeving until repaired -- weld it, or use
+	// repair nanites/nanopaste (neural_lace.dm's attackby()). > 0 mirrors
+	// LACE_DAMAGE_NONE from neural_lace.dm, which #undefs it at end of file
+	// so it isn't visible here.
+	if(inserted_lace.lace_damage > 0)
+		to_chat(user, SPAN_WARNING("The lace shows damage and cannot be resleeved until repaired."))
+		return
+
 	if(QDELETED(target_body))
 		to_chat(user, SPAN_WARNING("The target body is gone."))
 		target_body = null

@@ -34,6 +34,12 @@
 	var/personal_char_name = null
 	worldstate_vars = list("persistent_network", "personal_ckey", "personal_char_name")
 
+/obj/structure/machinery/clonepod/faction_tagger_compatible()
+	return TRUE
+
+/obj/structure/machinery/clonepod/faction_tagger_get_uid()
+	return persistent_network
+
 /obj/structure/machinery/clonepod/faction_tagger_set(new_uid, mob/user)
 	persistent_network = new_uid
 	personal_ckey = null
@@ -62,6 +68,12 @@
 	var/linked_pod_y = 0
 	var/linked_pod_z = 0
 	worldstate_vars = list("persistent_network", "personal_ckey", "personal_char_name", "linked_pod_x", "linked_pod_y", "linked_pod_z")
+
+/obj/structure/machinery/resleever/faction_tagger_compatible()
+	return TRUE
+
+/obj/structure/machinery/resleever/faction_tagger_get_uid()
+	return persistent_network
 
 /obj/structure/machinery/resleever/faction_tagger_set(new_uid, mob/user)
 	persistent_network = new_uid
