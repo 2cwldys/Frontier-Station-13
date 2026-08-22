@@ -21,19 +21,6 @@
 
 	maxhealth = OBJECT_HEALTH_VERY_HIGH
 
-	// Core infrastructure -- if a door is ever destroyed for any reason
-	// (explosion, combat, not just deliberate deconstruction) and nobody
-	// rebuilds the exact same type at the exact same position before the
-	// round ends, the base /obj/structure/Destroy() tombstone hook
-	// (structures.dm, ss13_removed_structures) would otherwise permanently
-	// delete it again on every future boot -- the map loads it correctly
-	// from the compiled .dmm, then removedStructuresInitialize() immediately
-	// qdel()s it before the round even starts. Same reasoning already
-	// applied to lattice.dm/ATM.dm for the same failure mode. This does mean
-	// a door a player deliberately deconstructs also respawns on the next
-	// restart, same trade-off already accepted for those two types.
-	persistence_never_tombstone = TRUE
-
 	var/open_layer = OPEN_DOOR_LAYER
 	var/closed_layer = CLOSED_DOOR_LAYER
 
