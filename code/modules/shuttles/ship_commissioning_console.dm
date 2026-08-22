@@ -278,9 +278,13 @@ GLOBAL_LIST_EMPTY(drydock_linkable_devices_by_tag)
 	data["propulsion_found"] = data["propulsion_count"] >= SHIP_COMMISSION_MIN_PROPULSION
 	data["helm_found"] = envelope ? !!_drydock_envelope_find_helm(envelope) : FALSE
 	data["navigation_found"] = envelope ? !!_drydock_envelope_find_navigation(envelope) : FALSE
-	data["fuel_port_found"] = envelope ? !!_drydock_envelope_find_fuel_port(envelope) : FALSE
 	data["engine_control_found"] = envelope ? !!_drydock_envelope_find_engine_control(envelope) : FALSE
+	// Either a piped nozzle engine or a self-contained ion engine satisfies
+	// the engine requirement -- see _drydockCommissionRun()'s own matching
+	// check (persistence_shuttles.dm). No fuel port check here -- it's
+	// backup/emergency fuel only, never required to commission.
 	data["ship_engine_found"] = envelope ? !!_drydock_envelope_find_ship_engine(envelope) : FALSE
+	data["ion_engine_found"] = envelope ? !!_drydock_envelope_find_ion_engine(envelope) : FALSE
 	data["sensors_terminal_found"] = envelope ? !!_drydock_envelope_find_sensors_terminal(envelope) : FALSE
 	data["sensor_array_found"] = envelope ? !!_drydock_envelope_find_sensor_array(envelope) : FALSE
 	// Snapshot from the last Preview -- see envelope_clean_for_generate's

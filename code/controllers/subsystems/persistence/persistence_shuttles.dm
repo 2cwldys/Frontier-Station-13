@@ -2039,14 +2039,26 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// Navigation is buildable/orderable but deliberately NOT required here --
 	// only helm and shuttle_control gate commissioning.
 
-	// Drydock ships genuinely consume fuel (fuel_consumption is non-zero for
-	// every hull -- see player_built_shuttle.dm) -- without a fuel port
-	// there's nowhere to ever load a tank.
-	if(!_drydock_envelope_find_fuel_port(envelope))
+	// The decorative propulsion count above is structural only -- a real
+	// engine (one that actually populates datum/ship_engine) is a separate,
+	// additional requirement. Either a piped nozzle engine or a
+	// self-contained ion engine satisfies this -- not both. Checked before
+	// the fuel port requirement below, since whether a fuel port is even
+	// relevant depends on which engine type was actually found.
+	var/obj/structure/machinery/atmospherics/unary/engine/nozzle_engine = _drydock_envelope_find_ship_engine(envelope)
+	var/obj/structure/machinery/ion_engine/ion_engine_found = _drydock_envelope_find_ion_engine(envelope)
+	if(!nozzle_engine && !ion_engine_found)
 		if(user)
-			to_chat(user, SPAN_WARNING("No fuel port found in the build envelope -- without one, this hull could never be refuelled."))
-		log_drydock_warning("drydockCommission: refused -- no fuel port in envelope near [console] (acting=[acting]).")
+			to_chat(user, SPAN_WARNING("No engine found in the build envelope -- without a nozzle engine (piped to a fuel-gas network) or an ion engine (self-contained, needs only power), this hull has nothing to actually burn for thrust."))
+		log_drydock_warning("drydockCommission: refused -- no engine of either type in envelope near [console] (acting=[acting]).")
 		return FALSE
+
+	// A fuel port is NOT required to commission -- it's a backup/emergency
+	// fuel source only (_draw_backup_fuel(), gas_thruster.dm: tops up a
+	// nozzle engine's own gas reservoir from a loaded tank once its piped
+	// network alone isn't enough to burn). A nozzle engine's real fuel
+	// comes from that piped network, and an ion engine needs no fuel at
+	// all -- neither ever needed a fuel port just to commission.
 
 	// Fuel/helm/propulsion alone still can't move a hull -- engines_state
 	// can only ever be set TRUE via this specific console (engine_control.dm).
@@ -2054,16 +2066,6 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		if(user)
 			to_chat(user, SPAN_WARNING("No engine control terminal found in the build envelope -- without one, this hull's engines could never actually be turned on."))
 		log_drydock_warning("drydockCommission: refused -- no engine control terminal in envelope near [console] (acting=[acting]).")
-		return FALSE
-
-	// The decorative propulsion count above is structural only -- a real
-	// engine (one that actually populates datum/ship_engine) is a separate,
-	// additional requirement. Either a piped nozzle engine or a
-	// self-contained ion engine satisfies this -- not both.
-	if(!_drydock_envelope_find_ship_engine(envelope) && !_drydock_envelope_find_ion_engine(envelope))
-		if(user)
-			to_chat(user, SPAN_WARNING("No engine found in the build envelope -- without a nozzle engine (piped to a fuel-gas network) or an ion engine (self-contained, needs only power), this hull has nothing to actually burn for thrust."))
-		log_drydock_warning("drydockCommission: refused -- no engine of either type in envelope near [console] (acting=[acting]).")
 		return FALSE
 
 	// Without a sensors terminal + array, crew have no way to see anything
@@ -3282,18 +3284,6 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		var/obj/structure/machinery/computer/ship/navigation/nav = locate() in T
 		if(nav)
 			return nav
-	return null
-
-/// The first fuel port found anywhere in envelope, or null -- required at
-/// commission time since drydock ships genuinely consume fuel
-/// (fuel_consumption is non-zero for every hull, player-built ships
-/// included -- see player_built_shuttle.dm) and have nowhere to load a fuel
-/// tank without one.
-/proc/_drydock_envelope_find_fuel_port(list/turf/envelope)
-	for(var/turf/T in envelope)
-		var/obj/structure/fuel_port/port = locate() in T
-		if(port)
-			return port
 	return null
 
 /// The first engine control terminal found anywhere in envelope, or null --
