@@ -121,8 +121,15 @@ export const KeypadDoor = (props) => {
           )}
         </Section>
 
-        {(!!data.canReset || !!data.isAdmin || !!data.canHoldOpen) && (
+        {!!data.isAdmin && (
           <Section title="Administration">
+            <Button
+              fluid
+              icon="unlock"
+              content="Force Unlock"
+              color="caution"
+              onClick={() => act('force_unlock')}
+            />
             {!!data.canReset && (
               <Button
                 fluid
@@ -132,13 +139,40 @@ export const KeypadDoor = (props) => {
                 onClick={() => act('reset_code')}
               />
             )}
-            {!!data.isAdmin && (
+            {!!data.canHoldOpen && !data.adminForcedOpen && (
               <Button
                 fluid
-                icon="unlock"
-                content="Force Unlock"
+                icon="door-open"
+                content="Bolt Open"
                 color="caution"
-                onClick={() => act('force_unlock')}
+                onClick={() => act('bolt_open')}
+              />
+            )}
+            {!!data.canHoldOpen && !!data.adminForcedOpen && (
+              <Button
+                fluid
+                icon="undo"
+                content="Return to Default"
+                color="good"
+                onClick={() => act('restore_default')}
+              />
+            )}
+          </Section>
+        )}
+        {!data.isAdmin && (!!data.canReset || !!data.canHoldOpen) && (
+          // Not "Administration" -- this is the door's own setter, an
+          // ordinary non-admin player, seeing the powers they hold over
+          // their own passcode. Labeling it like the admin section above
+          // reads as an admin-only leak even though nothing here actually
+          // is (Force Unlock never appears -- that's isAdmin-gated only).
+          <Section title="Door Access">
+            {!!data.canReset && (
+              <Button
+                fluid
+                icon="undo"
+                content="Reset Code"
+                color="bad"
+                onClick={() => act('reset_code')}
               />
             )}
             {!!data.canHoldOpen && !data.adminForcedOpen && (

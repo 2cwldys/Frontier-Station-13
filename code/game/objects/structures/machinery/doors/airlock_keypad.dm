@@ -127,7 +127,12 @@
 	// character -- the actual root cause of "admin options don't show."
 	var/isAdmin = check_rights(R_ADMIN, FALSE, user)
 	var/isSetter = _is_setter(user)
-	data["canReset"] = set_code && isSetter
+	// isAdmin, not just isSetter -- matches this file's own header comment
+	// ("Only the original setter (or an admin) can reset the code") and the
+	// reset_code case in ui_act() below, which already honors both. Without
+	// this, an admin who isn't the door's own setter could never even see
+	// the button to click.
+	data["canReset"] = set_code && (isSetter || isAdmin)
 	data["isAdmin"] = isAdmin
 	data["canHoldOpen"] = isAdmin || isSetter
 	data["entry"] = entry_buffer
