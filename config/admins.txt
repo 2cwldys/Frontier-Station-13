@@ -10,3 +10,4 @@
 RogueRay - Head Admin/Dev
 Bruhlicious - Head Admin/Dev
 Realtimeslayer - Head Admin/Dev
+Drillerslegacy - Secondary Administrator
