@@ -57,6 +57,8 @@ SUBSYSTEM_DEF(ticker)
 		'sound/music/lobby/stellardrone_comet_halley.ogg',
 		'sound/music/lobby/zircon_ladder_to_the_sky.ogg',
 		'sound/music/lobby/stem_4_6.ogg',
+		'sound/music/lobby/duneorange_nang.ogg',
+		'sound/music/lobby/jrb_naked_reality.ogg',
 	)
 
 	var/lobby_ready = FALSE
