@@ -57,7 +57,10 @@
 #ifdef CLONING_COSTS_CREDITS
 	data["clone_cost"] = CLONE_ORDER_COST
 	// Which account an order would hit, shown before the player commits.
-	var/list/billing = pod ? pod.resolve_clone_billing(src) : null
+	// Passing the viewer, so the payer line reflects whoever is actually
+	// standing here -- a non-member must not be shown the faction as payer
+	// and then be billed personally on click.
+	var/list/billing = pod ? pod.resolve_clone_billing(src, user) : null
 	var/billing_faction = billing ? billing["faction"] : null
 	data["clone_payer"] = billing_faction ? get_faction_name(billing_faction) : "personal account"
 #else
