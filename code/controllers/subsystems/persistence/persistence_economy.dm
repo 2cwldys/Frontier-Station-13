@@ -98,6 +98,37 @@ GLOBAL_LIST_EMPTY(persistence_economy_cache)
 			continue
 		_economyMetadataWriteThroughCentral(account, account.ckey, account.owner_name)
 
+/// Deletes this character's bank account centrally, alongside the local
+/// delete in persistence_delete_character_data() (persistence_mobs.dm).
+/// Without it the central row survived a character deletion and
+/// _economyHydrateAccountFromCentral() below pulled it straight back --
+/// handing a deleted character a live, spendable balance again.
+/proc/_economyDeleteAccountCentral(ckey, char_name)
+	if(!_economyCentralSyncActive())
+		return
+	var/datum/db_query/q = SScentraldb.NewQuery(
+		"DELETE FROM `ss13_money_accounts` WHERE ckey = :ckey AND char_name = :char_name",
+		list("ckey" = ckey, "char_name" = char_name)
+	)
+	q.Execute()
+	SSpersistence.databaseCheckQueryResult(q, "_economyDeleteAccountCentral")
+	qdel(q)
+
+/// Re-points a central account row at a renamed character. Not served by
+/// the metadata write-through below: that is an upsert keyed on
+/// (ckey, char_name), so under a new name it would create a second row and
+/// leave the old one behind holding the same balance.
+/proc/_economyRenameAccountCentral(ckey, old_name, new_name)
+	if(!_economyCentralSyncActive())
+		return
+	var/datum/db_query/q = SScentraldb.NewQuery(
+		"UPDATE `ss13_money_accounts` SET char_name = :new_name WHERE ckey = :ckey AND char_name = :old_name",
+		list("new_name" = new_name, "ckey" = ckey, "old_name" = old_name)
+	)
+	q.Execute()
+	SSpersistence.databaseCheckQueryResult(q, "_economyRenameAccountCentral")
+	qdel(q)
+
 /proc/_economyMetadataWriteThroughCentral(datum/money_account/account, ckey_override, name_override)
 	var/list/tx_list = list()
 	for(var/datum/transaction/T in account.transactions)

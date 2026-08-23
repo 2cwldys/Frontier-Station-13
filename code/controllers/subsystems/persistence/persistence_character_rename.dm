@@ -30,6 +30,19 @@
 /// ss13_drydock_ships carries THREE identity pairs (current owner, permanent
 /// title, and the previous owner kept for provenance). All three have to move
 /// together or a renamed owner loses their ship, or their claim to it.
+/// The subset of the map below that _centralCharacterWriteThrough()
+/// (persistence_mobs.dm) actually mirrors to the central DB -- i.e. the only
+/// tables a central rename/delete may be issued against. ss13_money_accounts
+/// is deliberately NOT here: it syncs under its own separate gate
+/// (_economyCentralSyncActive(), persistence_economy.dm) and is handled by
+/// its own helper.
+GLOBAL_LIST_INIT(persistence_central_synced_char_tables, list(
+	"ss13_char_health",
+	"ss13_char_identity",
+	"ss13_char_inventory",
+	"ss13_mob_position"
+))
+
 GLOBAL_LIST_INIT(persistence_char_name_columns, list(
 	"ss13_char_health"             = list("char_name" = "ckey"),
 	"ss13_char_identity"           = list("char_name" = "ckey"),
@@ -148,6 +161,16 @@ GLOBAL_LIST_INIT(persistence_char_name_columns, list(
 			else
 				failed += "[table].[column]"
 			qdel(q)
+		// Central rows have to follow the rename too, or the new name never
+		// reaches other servers AND a read-through keyed on the OLD name can
+		// resurrect the pre-rename character alongside the renamed one. Only
+		// the genuinely-synced tables are touched -- the map above spans many
+		// tables central has no copy of, and firing blind queries at those
+		// would just error. Both calls no-op unless their own sync is on.
+		if(table in GLOB.persistence_central_synced_char_tables)
+			SSpersistence._centralCharacterRename(table, ckey, old_name, new_name)
+		else if(table == "ss13_money_accounts")
+			_economyRenameAccountCentral(ckey, old_name, new_name)
 		if(table_rows)
 			changed[table] = table_rows
 
