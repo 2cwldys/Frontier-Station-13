@@ -98,7 +98,7 @@
 		personal_char_name = parts[2]
 	data["personal_owner_name"] = personal_char_name
 	data["is_own_personal_tag"] = personal_owner && (personal_owner == "[user.ckey]|[user.real_name]")
-	data["can_personal_tag"] = current_target.faction_tagger_compatible() && (istype(current_target, /obj/item/modular_computer) || istype(current_target, /obj/structure/machinery/cryopod) || istype(current_target, /obj/structure/machinery/autodoc) || istype(current_target, /obj/structure/machinery/telepad_cargo))
+	data["can_personal_tag"] = current_target.faction_tagger_compatible() && (istype(current_target, /obj/item/modular_computer) || istype(current_target, /obj/structure/machinery/cryopod) || istype(current_target, /obj/structure/machinery/autodoc) || istype(current_target, /obj/structure/machinery/telepad_cargo) || istype(current_target, /obj/structure/machinery/resleever) || istype(current_target, /obj/structure/machinery/clonepod))
 
 	// Crew tag state -- boolean only, "crew" is resolved dynamically per-ship
 	// rather than a stored identity (see crew_tagger_is_set()).

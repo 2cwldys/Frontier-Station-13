@@ -95,6 +95,7 @@
 	data["in_highsec"]   = (zone_security_get(user.z) == ZONE_HIGHSEC)
 	data["tap_mode"]     = tap_mode
 	data["can_scuttle_ships"] = (net == "hub") && can_configure_faction_shackle(user, "hub", 1)
+	data["can_roll_call"] = (net == "hub") && can_configure_faction_shackle(user, "hub", 1)
 
 	// Ships the Hub has repossessed -- visible from any Hub terminal so any
 	// hub member can hand one back. "Retrieve as Hub" needs no extra UI here:
@@ -257,6 +258,26 @@
 				if("\ref[pwr]" == target_ref)
 					tagged_prisoners -= pwr
 					return TRUE
+			return TRUE
+
+		if("roll_call")
+			// Console action -- calls all active Hub security to report in,
+			// bypassing the PDA channel entirely (see zone_security_roll_call(),
+			// persistence_zone_security.dm) so it reaches someone even with
+			// their PDA off. Same officer-rank gate as scuttle_repossessed/
+			// withdraw_schematic above -- this is an authority action, not a
+			// routine one.
+			if(!can_run(user, TRUE, ACCESS_SECURITY, PROGRAM_ACCESS_ONE))
+				return TRUE
+			if(normalize_faction_uid(computer.persistent_network) != "hub")
+				to_chat(user, SPAN_WARNING("Roll call requires a Hub-network terminal."))
+				return TRUE
+			if(!can_configure_faction_shackle(user, "hub", 1))
+				to_chat(user, SPAN_WARNING("Roll call requires officer rank or higher in the Hub."))
+				return TRUE
+			var/reached = zone_security_roll_call(user)
+			to_chat(user, SPAN_GOOD("Roll call sent -- reached [reached] active Hub security member\s."))
+			_log_first_responder_action("[key_name(user)] issued a Hub security roll call via First Responder (reached [reached]).", user)
 			return TRUE
 
 		if("set_tap_mode")

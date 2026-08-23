@@ -188,6 +188,20 @@
 	groupable = TRUE
 	spawn_amount = 1
 
+/singleton/cargo_item/metalfoamgrenade
+	category = "engineering"
+	name = "metal-foam grenade"
+	supplier = "Hub"
+	description = "Used for emergency sealing of air breaches -- mixes an aluminum reagent with a foaming agent on detonation, expanding into a rigid metal foam plug."
+	price = 45
+	items = list(
+		/obj/item/grenade/chem_grenade/metalfoam
+	)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
 /singleton/cargo_item/brownwebbingvest
 	category = "engineering"
 	name = "brown webbing vest"

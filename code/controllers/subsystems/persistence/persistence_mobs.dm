@@ -105,6 +105,43 @@
 	databaseCheckQueryResult(q, "_centralCharacterPartialUpdate([table])")
 	qdel(q)
 
+/// Deletes this character's row from `table` on the CENTRAL DB. Without
+/// this, deletion was local-only: the central row survived, and the next
+/// cache miss for the same (ckey, char_name) hit
+/// _centralCharacterReadThrough() below, which pulled it back AND
+/// self-healed it into the local table -- resurrecting a character the
+/// player or an admin had deliberately deleted. Non-fatal, same as every
+/// other central step here: the local delete has already happened and is
+/// authoritative for this server regardless.
+/datum/controller/subsystem/persistence/proc/_centralCharacterDelete(table, ckey, char_name)
+	if(!_centralCharacterSyncActive())
+		return
+	var/datum/db_query/q = SScentraldb.NewQuery(
+		"DELETE FROM `[table]` WHERE ckey = :ckey AND char_name = :char_name",
+		list("ckey" = ckey, "char_name" = char_name)
+	)
+	q.Execute()
+	databaseCheckQueryResult(q, "_centralCharacterDelete([table])")
+	qdel(q)
+
+/// Re-points this character's central row at a new name. A rename was
+/// local-only too, so central kept the OLD char_name: the new name never
+/// reached other servers, and a read-through keyed on the old one could
+/// resurrect the pre-rename character alongside the renamed one.
+/// Deliberately an UPDATE rather than reusing the metadata write-through --
+/// that one is an upsert keyed on (ckey, char_name), so under a new name it
+/// would insert a SECOND central row and orphan the first.
+/datum/controller/subsystem/persistence/proc/_centralCharacterRename(table, ckey, old_name, new_name)
+	if(!_centralCharacterSyncActive())
+		return
+	var/datum/db_query/q = SScentraldb.NewQuery(
+		"UPDATE `[table]` SET char_name = :new_name WHERE ckey = :ckey AND char_name = :old_name",
+		list("new_name" = new_name, "ckey" = ckey, "old_name" = old_name)
+	)
+	q.Execute()
+	databaseCheckQueryResult(q, "_centralCharacterRename([table])")
+	qdel(q)
+
 /// Self-heal: writes a row just hydrated FROM central into this server's
 /// own LOCAL table, so this server behaves like a normal cache-primed
 /// server for this character from now on (no repeated central round-trips
@@ -624,12 +661,29 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		)
 		q.Execute()
 		qdel(q)
+		// These four are exactly the tables _centralCharacterWriteThrough()
+		// mirrors, so a local-only delete left the central copy behind for
+		// the read-through to resurrect. No-op unless central sync is on.
+		SSpersistence._centralCharacterDelete(table, ckey, char_name)
+	// Bank account -- no other deletion path touches this at all, so a
+	// "deleted" character otherwise keeps a genuinely live, spendable
+	// account forever (same query/cache-clear shape as the admin
+	// "Reset Player Bank Account" verb, persistence_factions.dm, just
+	// scoped to this one character instead of every account for the ckey).
+	var/datum/db_query/mq = SSdbcore.NewQuery(
+		"DELETE FROM ss13_money_accounts WHERE ckey = :ckey AND char_name = :char_name",
+		list("ckey" = ckey, "char_name" = char_name)
+	)
+	mq.Execute()
+	qdel(mq)
+	_economyDeleteAccountCentral(ckey, char_name)
 	// Also clear from in-memory caches so the character stops appearing in selection
 	var/key = "[ckey]|[char_name]"
 	GLOB.persistence_health_cache    -= key
 	GLOB.persistence_inventory_cache -= key
 	GLOB.persistence_identity_cache  -= key
 	GLOB.persistence_position_cache  -= key
+	GLOB.persistence_economy_cache   -= key
 	log_world("Persistence: Deleted all data for character '[char_name]' ([ckey]).")
 
 /**

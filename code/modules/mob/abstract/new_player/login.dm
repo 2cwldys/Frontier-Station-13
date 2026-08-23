@@ -29,6 +29,23 @@
 		to_chat(src, "<div class=\"motd\">[GLOB.motd]</div>")
 	to_chat(src, "<div class='info'>Game ID: </div><div class='danger'>[GLOB.round_id]</div>")
 
+#ifdef ALLOW_CENTRAL_SHARD_SPAWNING
+	// Catches up a client that reaches the lobby AFTER a shard's one-time
+	// "new shard is available" broadcast already fired (_run_shard_script(),
+	// shards.dm) -- that broadcast only ever reaches clients already in the
+	// lobby at that exact instant. This is what makes it reach everyone
+	// else too, the first time each of them arrives (true first connect,
+	// or any later return to character select) -- LateLogin() only ever
+	// runs while this client genuinely has no active round character, so
+	// this can never reach a mid-round player.
+	if(client)
+		for(var/list/advert in GLOB.active_shard_adverts)
+			if(advert["advert_id"] in client.seen_shard_adverts)
+				continue
+			client.seen_shard_adverts += advert["advert_id"]
+			to_chat(src, _shard_join_advert_message(advert["shard_id"], advert["port"]))
+#endif
+
 #ifdef SHOW_GIT_LOG
 	var/commit_url = SSgithub.get_commit_url()
 	if(commit_url)

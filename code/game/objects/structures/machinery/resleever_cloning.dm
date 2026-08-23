@@ -34,6 +34,12 @@
 	var/personal_char_name = null
 	worldstate_vars = list("persistent_network", "personal_ckey", "personal_char_name")
 
+/obj/structure/machinery/clonepod/faction_tagger_compatible()
+	return TRUE
+
+/obj/structure/machinery/clonepod/faction_tagger_get_uid()
+	return persistent_network
+
 /obj/structure/machinery/clonepod/faction_tagger_set(new_uid, mob/user)
 	persistent_network = new_uid
 	personal_ckey = null
@@ -62,6 +68,12 @@
 	var/linked_pod_y = 0
 	var/linked_pod_z = 0
 	worldstate_vars = list("persistent_network", "personal_ckey", "personal_char_name", "linked_pod_x", "linked_pod_y", "linked_pod_z")
+
+/obj/structure/machinery/resleever/faction_tagger_compatible()
+	return TRUE
+
+/obj/structure/machinery/resleever/faction_tagger_get_uid()
+	return persistent_network
 
 /obj/structure/machinery/resleever/faction_tagger_set(new_uid, mob/user)
 	persistent_network = new_uid
@@ -155,11 +167,23 @@
 /// BOTH machines tagged to the same faction -- a mismatch or any personal/
 /// untagged machine falls back to the ordering character's own account rather
 /// than picking one faction's treasury arbitrarily.
-/obj/structure/machinery/clonepod/proc/resolve_clone_billing(obj/structure/machinery/resleever/sleever)
+///
+/// It also needs `user` to actually BE in that faction. The machine tags only
+/// establish which treasury is eligible; without the membership test below,
+/// anyone who could physically reach a faction-tagged resleever could spend
+/// that faction's money -- a passer-by, a visitor, or a boarder. A non-member
+/// still gets to use the bay, they just pay for it themselves.
+///
+/// get_effective_faction_rank() rather than get_faction_member(): it counts
+/// any rank (0 = plain crew upward) and additionally honours that faction's
+/// bearer master card, which the plain membership lookup cannot resolve since
+/// the card isn't tied to a ckey. Admins come back as 99.
+/obj/structure/machinery/clonepod/proc/resolve_clone_billing(obj/structure/machinery/resleever/sleever, mob/user)
 	var/pod_faction = normalize_faction_uid(persistent_network)
 	var/sleever_faction = sleever ? normalize_faction_uid(sleever.persistent_network) : null
 	if(pod_faction && sleever_faction && pod_faction == sleever_faction)
-		return list("faction" = pod_faction)
+		if(get_effective_faction_rank(user, pod_faction) >= 0)
+			return list("faction" = pod_faction)
 	return list("personal" = TRUE)
 
 /**
@@ -239,7 +263,7 @@
 			sleever = candidate
 			break
 
-	var/list/billing = resolve_clone_billing(sleever)
+	var/list/billing = resolve_clone_billing(sleever, user)
 	var/faction_uid = billing["faction"]
 	var/payer_desc = faction_uid ? get_faction_name(faction_uid) : "your personal account"
 

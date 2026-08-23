@@ -57,7 +57,10 @@
 #ifdef CLONING_COSTS_CREDITS
 	data["clone_cost"] = CLONE_ORDER_COST
 	// Which account an order would hit, shown before the player commits.
-	var/list/billing = pod ? pod.resolve_clone_billing(src) : null
+	// Passing the viewer, so the payer line reflects whoever is actually
+	// standing here -- a non-member must not be shown the faction as payer
+	// and then be billed personally on click.
+	var/list/billing = pod ? pod.resolve_clone_billing(src, user) : null
 	var/billing_faction = billing ? billing["faction"] : null
 	data["clone_payer"] = billing_faction ? get_faction_name(billing_faction) : "personal account"
 #else
@@ -180,6 +183,14 @@
 
 	if(!inserted_lace.lace_occupied || !inserted_lace.lace_mob)
 		to_chat(user, SPAN_WARNING("The lace does not contain a consciousness."))
+		return
+
+	// Any damage at all blocks resleeving until repaired -- weld it, or use
+	// repair nanites/nanopaste (neural_lace.dm's attackby()). > 0 mirrors
+	// LACE_DAMAGE_NONE from neural_lace.dm, which #undefs it at end of file
+	// so it isn't visible here.
+	if(inserted_lace.lace_damage > 0)
+		to_chat(user, SPAN_WARNING("The lace shows damage and cannot be resleeved until repaired."))
 		return
 
 	if(QDELETED(target_body))

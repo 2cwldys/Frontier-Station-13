@@ -28,6 +28,7 @@ type DrydockData = {
   board_cooldown: number;
   can_disembark: BooleanLike;
   ship_retrieving: BooleanLike;
+  sub_shuttle_tags: string[];
   save_in_progress: BooleanLike;
 };
 
@@ -132,6 +133,32 @@ export const ShuttleDrydock = (props) => {
                     : data.can_board
                       ? 'Enter Ship'
                       : `Enter Ship (${data.board_cooldown}s)`}
+                </Button>
+              )}
+              {data.sub_shuttle_tags.length > 0 && (
+                <Button
+                  fluid
+                  mt={1}
+                  icon="street-view"
+                  disabled={
+                    data.ship_retrieving ||
+                    !data.can_board ||
+                    !!data.save_in_progress
+                  }
+                  tooltip={
+                    data.save_in_progress
+                      ? 'World save in progress -- please wait.'
+                      : data.ship_retrieving
+                        ? 'That ship is still being retrieved -- wait until it is ready to board.'
+                        : undefined
+                  }
+                  onClick={() => act('board_subship')}
+                >
+                  {data.ship_retrieving
+                    ? 'Enter Sub-Ship'
+                    : data.can_board
+                      ? 'Enter Sub-Ship'
+                      : `Enter Sub-Ship (${data.board_cooldown}s)`}
                 </Button>
               )}
               <Button

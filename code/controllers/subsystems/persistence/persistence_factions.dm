@@ -3179,31 +3179,61 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 	if(!target_ckey) return
 	target_ckey = ckey(target_ckey)
 
-	var/amount = tgui_input_number(usr, "Credits to add to [target_ckey]'s account:", "Give Credits", 1000, 10000000, 0)
+	// A ckey can own more than one ss13_money_accounts row (an old renamed/deleted
+	// character, an alt made in the same slot) -- ss13_money_accounts is keyed
+	// (ckey, char_name), not ckey alone. Ask which character explicitly rather than
+	// guessing, the same "which of this ckey's characters" question
+	// rename_persistent_character() already solves with this exact helper.
+	var/char_name
+	var/list/characters = persistence_get_saved_characters(target_ckey)
+	if(length(characters) > 1)
+		char_name = tgui_input_list(usr, "Which character?", "Give Credits", characters)
+		if(!char_name) return
+	else if(length(characters) == 1)
+		char_name = characters[1]
+	else
+		// No cached characters (never spawned this boot) -- allow a manual name
+		// rather than dead-ending, same escape hatch the rename verb uses.
+		char_name = tgui_input_text(usr, "No cached characters found for '[target_ckey]'. Exact character name:", "Give Credits", "", max_length = 64, encode = FALSE)
+		if(!char_name) return
+
+	var/amount = tgui_input_number(usr, "Credits to add to [char_name]'s account:", "Give Credits", 1000, 10000000, 0)
 	if(isnull(amount) || amount <= 0) return
 
-	// Find account number from cache first, then DB
+	// Resolve the account for this EXACT (ckey, char_name) pair -- cache first, then DB.
 	var/acct_num = 0
-	for(var/cache_key in GLOB.persistence_economy_cache)
-		if(findtext(cache_key, "[target_ckey]|") == 1)
-			acct_num = GLOB.persistence_economy_cache[cache_key]["account_number"] || 0
-			break
+	var/list/cached = GLOB.persistence_economy_cache["[target_ckey]|[char_name]"]
+	if(islist(cached))
+		acct_num = cached["account_number"] || 0
 	if(!acct_num && SSpersistence.databaseCheckConnection("give_credits"))
 		var/datum/db_query/aq = SSdbcore.NewQuery(
-			"SELECT account_number FROM ss13_money_accounts WHERE ckey = :ckey ORDER BY id DESC LIMIT 1",
-			list("ckey" = target_ckey)
+			"SELECT account_number FROM ss13_money_accounts WHERE ckey = :ckey AND char_name = :char_name",
+			list("ckey" = target_ckey, "char_name" = char_name)
 		)
 		aq.Execute()
 		if(aq.NextRow()) acct_num = text2num(aq.item[1]) || 0
 		qdel(aq)
 
 	if(!acct_num)
-		to_chat(usr, SPAN_WARNING("No bank account found for '[target_ckey]'. They need to get an ID first."))
+		to_chat(usr, SPAN_WARNING("No bank account found for '[char_name]' ([target_ckey])."))
 		return
 
-	SSeconomy.charge_to_account(acct_num, "Admin", "Admin credit gift by [usr.key]", null, amount)
-	to_chat(usr, SPAN_GOOD("Added [amount] credits to [target_ckey]'s account (#[acct_num])."))
-	log_and_message_admins("gave [amount] credits to [target_ckey] (account #[acct_num])", usr)
+	// charge_to_account() only reaches a LIVE, currently in-memory account
+	// (SSeconomy.all_money_accounts) -- a real account for a player who simply hasn't
+	// spawned this boot is invisible to it and it silently returns FALSE. Fall back to
+	// the DB-direct offline credit, the same proc every other "pay someone who might
+	// not be online" path in this codebase already uses (stock buyouts, faction
+	// disbandment payouts), instead of reporting success on a gift that never landed.
+	var/applied = SSeconomy.charge_to_account(acct_num, "Admin", "Admin credit gift by [usr.key]", null, amount)
+	if(!applied)
+		applied = SSpersistence.economyCreditOfflineAccount(target_ckey, char_name, amount)
+
+	if(!applied)
+		to_chat(usr, SPAN_WARNING("Could not credit '[char_name]''s account (#[acct_num]) -- see the persistence log."))
+		return
+
+	to_chat(usr, SPAN_GOOD("Added [amount] credits to [char_name]'s account (#[acct_num])."))
+	log_and_message_admins("gave [amount] credits to [char_name] ([target_ckey], account #[acct_num])", usr)
 
 /datum/admins/proc/reset_player_bank_account()
 	set name = "Reset Player Bank Account"

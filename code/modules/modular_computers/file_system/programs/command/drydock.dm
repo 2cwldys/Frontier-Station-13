@@ -79,6 +79,9 @@
 	// one of yours still retrieving right now" hint, not a guarantee of
 	// which ship "board" will actually resolve to.
 	data["ship_retrieving"] = _drydock_user_has_retrieving_ship(user)
+	// Gates the Enter Sub-Ship button, same best-effort "one of yours has one"
+	// basis as ship_retrieving just above.
+	data["sub_shuttle_tags"] = _drydock_user_boardable_subship_tags(user)
 	// Doubles as the "hide Enter Ship" signal too -- there's no single ship
 	// this console is bound to, so "already aboard some drydock ship" is the
 	// closest equivalent to the schematic's own per-ship aboard_this_ship.
@@ -169,6 +172,30 @@
 		if("board")
 			log_drydock("drydock ui_act: [key_name(user)] requested Enter Ship.")
 			_drydock_board_core(user, null, last_boarded_by_ckey)
+			return TRUE
+
+		// Same action the ship schematic offers (ship_schematic.dm), just
+		// reached from the program instead. The schematic is bound to one
+		// ship; this isn't, so the ship is resolved exactly the way "board"
+		// above resolves it -- _drydock_board_resolve_ship() -- and then its
+		// own template supplies the sub-ship tags.
+		if("board_subship")
+			var/datum/drydock_ship/DS = _drydock_board_resolve_ship(user, null)
+			if(!DS)
+				return TRUE
+			var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
+			if(!template || !length(template.sub_shuttle_tags))
+				to_chat(user, SPAN_WARNING("That ship carries no sub-ship."))
+				return TRUE
+			var/tag = (template.sub_shuttle_tags.len == 1) ? template.sub_shuttle_tags[1] : tgui_input_list(user, "Board which sub-ship?", "Enter Sub-Ship", template.sub_shuttle_tags)
+			if(!tag)
+				return TRUE
+			var/turf/sub_console = _drydock_subship_console_turf(DS.shuttle_id, tag)
+			if(!sub_console)
+				to_chat(user, SPAN_WARNING("Could not locate that sub-ship's navigation console."))
+				return TRUE
+			log_drydock("drydock ui_act: [key_name(user)] requested Enter Sub-Ship ('[tag]').")
+			_drydock_board_deliver(user, DS, last_boarded_by_ckey, sub_console)
 			return TRUE
 
 		if("invite_board")

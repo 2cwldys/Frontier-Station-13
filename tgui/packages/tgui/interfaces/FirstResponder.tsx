@@ -61,6 +61,7 @@ type FirstResponderData = {
   tagged: TaggedEntry[];
   tap_mode: TapMode;
   can_scuttle_ships: BooleanLike;
+  can_roll_call: BooleanLike;
   repossessed_ships: RepossessedShip[];
 };
 
@@ -80,6 +81,7 @@ export const FirstResponder = (props) => {
     tagged,
     tap_mode,
     can_scuttle_ships,
+    can_roll_call,
     repossessed_ships,
   } = data;
   const [selectedPadRef, setSelectedPadRef] = useState<string | null>(null);
@@ -210,6 +212,26 @@ export const FirstResponder = (props) => {
               Repossess Ship
             </Button>
           </Box>
+        </Section>
+        <Section title="Roll Call">
+          <NoticeBox info>
+            Calls every active Hub security member to report in, regardless
+            of whether their PDA is on. Officer rank or higher required.
+          </NoticeBox>
+          <Button
+            mt={1}
+            icon="bullhorn"
+            color="bad"
+            disabled={!can_secure || !is_hub || !can_roll_call}
+            tooltip={
+              !can_roll_call
+                ? 'Requires officer rank or higher in the Hub.'
+                : 'Alert all active Hub security to report in.'
+            }
+            onClick={() => act('roll_call')}
+          >
+            Issue Roll Call
+          </Button>
         </Section>
         <Section title="Force Stash a Ship">
           <NoticeBox info>

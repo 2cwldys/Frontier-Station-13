@@ -265,7 +265,7 @@ GLOBAL_VAR_INIT(drydock_periodic_sweep_started, FALSE)
 		var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
 		if(!istype(marker) || !marker.landmark)
 			continue
-		var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
+		var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = _drydock_shuttle_of(marker)
 		// _drydock_ship_is_home(), NOT a comparison against marker.landmark. A
 		// ship parked on its own z at a landmark that simply isn't the home one
 		// (its own landmark_transition, most often) was being flagged as
@@ -299,7 +299,7 @@ GLOBAL_VAR_INIT(drydock_periodic_sweep_started, FALSE)
 		var/datum/map_template/drydock_ship/sub_template = SSmapping.drydock_ship_templates[DS.template_id]
 		if(sub_template && length(sub_template.sub_shuttle_tags))
 			for(var/sub_tag in sub_template.sub_shuttle_tags)
-				var/datum/shuttle/autodock/sub = SSshuttle.shuttles[sub_tag]
+				var/datum/shuttle/autodock/sub = SSshuttle.shuttles[_drydock_subship_key(DS.shuttle_id, sub_tag)]
 				if(!istype(sub) || !istype(sub.current_location))
 					continue
 				if(sub.current_location.landmark_tag == sub.logging_home_tag)
@@ -663,7 +663,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return null
 	if(marker.status != SHIP_STATUS_LANDED)
 		return marker
-	var/datum/shuttle/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
+	var/datum/shuttle/shuttle_datum = _drydock_shuttle_of(marker)
 	if(!istype(shuttle_datum) || !shuttle_datum.current_location)
 		return marker
 	var/turf/T = get_turf(shuttle_datum.current_location)
@@ -1445,60 +1445,156 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		if(!DS || DS.stashed)
 			continue
 		var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
-		if(template && (shuttle_name in template.sub_shuttle_tags))
-			return DS.faction_uid
+		if(!template)
+			continue
+		// Compared against the per-instance registry key, not the bare tag.
+		// sub_shuttle_tags holds "Xanu Fighter" while the live shuttle is
+		// named "Xanu Fighter #18" (drydock_apply_instance_suffix()), so the
+		// old `shuttle_name in template.sub_shuttle_tags` never matched and
+		// every sub-ship resolved as factionless -- which then got it refused
+		// from docking in its own faction's claimed territory.
+		for(var/sub_tag in template.sub_shuttle_tags)
+			if(shuttle_name == _drydock_subship_key(DS.shuttle_id, sub_tag))
+				return DS.faction_uid
 	return null
+
+/// SSshuttle.shuttles[] looked up by a marker's own .shuttle, guarded against
+/// that var being unset. Indexing a list with null is a "bad index" runtime in
+/// BYOND, and a landable overmap marker with no shuttle datum assigned is an
+/// ordinary thing to encounter -- especially while walking another ship's
+/// nested contents during a stash, which is where this kept killing the whole
+/// operation. "No shuttle" is the correct answer, not a crash.
+/proc/_drydock_shuttle_of(obj/effect/overmap/visitable/ship/landable/marker)
+	if(!istype(marker) || isnull(marker.shuttle))
+		return null
+	return SSshuttle.shuttles[marker.shuttle]
+
+/// A deployed sub-ship's real SSshuttle.shuttles key. sub_shuttle_tags holds
+/// the bare template tag ("Solarian Frigate Shuttle"), but a sub-ship's
+/// shuttle datum registers under a per-instance suffixed name
+/// (drydock_apply_instance_suffix(), applied in /datum/shuttle/New() BEFORE
+/// SSshuttle.shuttles[src.name] = src) -- so the bare tag is never the key,
+/// and every lookup through it silently returned null.
+/proc/_drydock_subship_key(shuttle_id, shuttle_tag)
+	return "[shuttle_tag] #[shuttle_id]"
+
+/// The overmap marker for a deployed sub-ship, or null. Markers carry the
+/// registry key in .shuttle, so this matches on the real key above.
+/proc/_drydock_subship_marker(shuttle_id, shuttle_tag)
+	var/key = _drydock_subship_key(shuttle_id, shuttle_tag)
+	for(var/obj/effect/overmap/visitable/ship/landable/sub_marker in SSshuttle.ships)
+		if(sub_marker.shuttle == key)
+			return sub_marker
+	return null
+
+/// TRUE if this nested marker's home hangar is aboard `marker` itself -- i.e.
+/// it is one of my own sub-ships parked at home, not a foreign guest.
+///
+/// on_landing() (landable.dm) forceMove()s a landing ship's marker into the
+/// marker of whatever z it touched down on, so a sub-ship sitting in its own
+/// hangar is ALWAYS nested in its parent's contents -- that's its normal
+/// parked state, not a docked visitor.
+///
+/// Keyed on logging_home_tag rather than name: a sub-ship's identity is
+/// matched elsewhere in this file by its CURRENT name against the template's
+/// fixed sub_shuttle_tags (see _drydock_sub_shuttle_owner_faction() above),
+/// but drydockRenameSubship() changes that name while sub_shuttle_tags keeps
+/// the original tag -- so a renamed sub-ship stopped matching and started
+/// reading as a foreign ship docked aboard its own carrier, which blocked the
+/// carrier from ever stashing. logging_home_tag is assigned at shuttle
+/// creation and no rename path touches it.
+/proc/_drydock_guest_is_own_subship(obj/effect/overmap/visitable/ship/landable/guest, obj/effect/overmap/visitable/ship/landable/marker)
+	if(!istype(guest) || !istype(marker))
+		return FALSE
+	// guest.shuttle must be checked BEFORE it is used as a list index.
+	// Indexing a list with null is a "bad index" runtime in BYOND, and a
+	// landable overmap marker with no shuttle datum assigned is a perfectly
+	// ordinary thing to find nested in another ship's contents -- which made
+	// stashing any hull with such a marker aboard die with
+	// "drydockStash: uncaught exception ... bad index".
+	if(!guest.shuttle)
+		return FALSE
+	var/datum/shuttle/guest_shuttle = SSshuttle.shuttles[guest.shuttle]
+	if(!istype(guest_shuttle) || !guest_shuttle.logging_home_tag)
+		return FALSE
+	var/obj/effect/shuttle_landmark/guest_home = SSshuttle.get_landmark(guest_shuttle.logging_home_tag)
+	if(!guest_home)
+		return FALSE
+	return (guest_home.z in marker.map_z)
 
 /// Restricted rather than generic: only this sub-ship may dock in its own
 /// parent's hangar. Keyed by the shuttle's CURRENT name, because that's what
 /// get_waypoints(name) matches on -- see drydockRenameSubship(), which has to
 /// re-key when that name changes.
-/proc/_drydock_register_subship_waypoints(obj/effect/overmap/visitable/marker, datum/map_template/drydock_ship/template)
+/proc/_drydock_register_subship_waypoints(obj/effect/overmap/visitable/marker, datum/map_template/drydock_ship/template, shuttle_id)
 	if(!istype(marker) || !template || !length(template.sub_shuttle_tags))
 		return
 	for(var/sub_tag in template.sub_shuttle_tags)
-		var/datum/shuttle/sub = SSshuttle.shuttles[sub_tag]
-		if(!istype(sub) || !sub.logging_home_tag)
-			continue
-		var/obj/effect/shuttle_landmark/home = SSshuttle.get_landmark(sub.logging_home_tag)
-		if(!home)
-			// Expected for hulls whose map simply has no hangar landmark (the
-			// Idris Cruiser only maps port/starboard berths), and for a tag
-			// dropped by SSshuttle's duplicate guard when the matching away
-			// site spawned the same round and claimed it first.
-			log_drydock_warning("_drydock_register_subship_waypoints: no home landmark '[sub.logging_home_tag]' for sub-ship '[sub_tag]' -- it will not be able to return to its hangar.")
-			continue
-		if(home in LAZYACCESS(marker.restricted_waypoints, sub.name))
-			continue // already registered (re-deploy)
-		marker.add_landmark(home, sub.name)
+		// One tag's work is its own proc so the whole thing can sit inside a
+		// try/catch cleanly (a `continue` inside a try block is exactly the
+		// kind of control flow to avoid here). This body never actually
+		// executed while the lookup resolved null, so any latent runtime in
+		// it must degrade to a logged error rather than aborting the caller's
+		// entire retrieve -- see reverted commit bd131aaa.
+		try
+			_drydock_register_one_subship_waypoint(marker, shuttle_id, sub_tag)
+		catch(var/exception/wp_e)
+			log_drydock_error("_drydock_register_subship_waypoints: failed for sub-ship '[sub_tag]' (shuttle_id=[shuttle_id]): [wp_e]")
 
-		// Also expose this same hangar slot publicly -- a
-		// size-gated proxy at the same turf, discoverable by any
-		// appropriately sized outside ship's own navigation console, valid
-		// only while sub isn't physically parked here right now
-		// (hangar_slot/is_valid(), docking_beacon.dm). The real home
-		// landmark above is untouched -- still restricted to sub's own name
-		// for its "return to hangar" waypoint.
-		var/public_tag = "[home.landmark_tag]_public"
-		if(!SSshuttle.registered_shuttle_landmarks[public_tag])
-			var/obj/effect/shuttle_landmark/player_dock/hangar_slot/slot = new(get_turf(home))
-			slot.landmark_tag = public_tag
-			slot.name = "[sub.name] Hangar Slot"
-			slot.base_area = home.base_area
-			slot.base_turf = home.base_turf
-			slot.max_footprint_x = SUBSHIP_FOOTPRINT_X
-			slot.max_footprint_y = SUBSHIP_FOOTPRINT_Y
-			slot.bound_sub_shuttle = sub
-			slot.real_home = home
-			marker.add_landmark(slot, null)
+/// One sub-ship's hangar registration -- see the caller above for why this is
+/// split out.
+/proc/_drydock_register_one_subship_waypoint(obj/effect/overmap/visitable/marker, shuttle_id, sub_tag)
+	var/datum/shuttle/sub = SSshuttle.shuttles[_drydock_subship_key(shuttle_id, sub_tag)]
+	if(!istype(sub) || !sub.logging_home_tag)
+		return
+	var/obj/effect/shuttle_landmark/home = SSshuttle.get_landmark(sub.logging_home_tag)
+	if(!home)
+		// Expected for hulls whose map simply has no hangar landmark (the
+		// Idris Cruiser only maps port/starboard berths), and for a tag
+		// dropped by SSshuttle's duplicate guard when the matching away
+		// site spawned the same round and claimed it first.
+		log_drydock_warning("_drydock_register_subship_waypoints: no home landmark '[sub.logging_home_tag]' for sub-ship '[sub_tag]' -- it will not be able to return to its hangar.")
+		return
+	if(home in LAZYACCESS(marker.restricted_waypoints, sub.name))
+		return // already registered (re-deploy)
+	marker.add_landmark(home, sub.name)
+
+	// Also expose this same hangar slot publicly -- a
+	// size-gated proxy at the same turf, discoverable by any
+	// appropriately sized outside ship's own navigation console, valid
+	// only while sub isn't physically parked here right now
+	// (hangar_slot/is_valid(), docking_beacon.dm). The real home
+	// landmark above is untouched -- still restricted to sub's own name
+	// for its "return to hangar" waypoint.
+	var/public_tag = "[home.landmark_tag]_public"
+	if(!SSshuttle.registered_shuttle_landmarks[public_tag])
+		var/obj/effect/shuttle_landmark/player_dock/hangar_slot/slot = new(get_turf(home))
+		slot.landmark_tag = public_tag
+		slot.name = "[sub.name] Hangar Slot"
+		slot.base_area = home.base_area
+		slot.base_turf = home.base_turf
+		slot.max_footprint_x = SUBSHIP_FOOTPRINT_X
+		slot.max_footprint_y = SUBSHIP_FOOTPRINT_Y
+		slot.bound_sub_shuttle = sub
+		slot.real_home = home
+		// Registered explicitly, because /obj/effect/shuttle_landmark/Initialize()
+		// (landmarks.dm) already ran its own register_landmark() during the
+		// new() above -- while landmark_tag was still null, since it's only
+		// assigned on the line after. Without this the tag never enters
+		// registered_shuttle_landmarks at all, so the dedup guard just above
+		// passes on every single retrieve (leaking another duplicate slot each
+		// time) and _drydock_unregister_subship_waypoints() below can never
+		// find this slot to clean it up.
+		SSshuttle.register_landmark(public_tag, slot)
+		marker.add_landmark(slot, null)
 
 /// Drops those registrations again, so a stashed ship's hangar stops being
 /// offered as a destination to anything still flying.
-/proc/_drydock_unregister_subship_waypoints(obj/effect/overmap/visitable/marker, datum/map_template/drydock_ship/template)
+/proc/_drydock_unregister_subship_waypoints(obj/effect/overmap/visitable/marker, datum/map_template/drydock_ship/template, shuttle_id)
 	if(!istype(marker) || !template || !length(template.sub_shuttle_tags))
 		return
 	for(var/sub_tag in template.sub_shuttle_tags)
-		var/datum/shuttle/sub = SSshuttle.shuttles[sub_tag]
+		var/datum/shuttle/sub = SSshuttle.shuttles[_drydock_subship_key(shuttle_id, sub_tag)]
 		if(!istype(sub) || !sub.logging_home_tag)
 			continue
 		var/obj/effect/shuttle_landmark/home = SSshuttle.get_landmark(sub.logging_home_tag)
@@ -1547,21 +1643,16 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return FALSE
 	qdel(q)
 
-	var/datum/shuttle/sub = SSshuttle.shuttles[shuttle_tag]
-	if(istype(sub))
-		var/old_name = sub.name
-		sub.name = new_name
-		// restricted_waypoints is keyed by the shuttle's exact name, so a
-		// rename would otherwise silently orphan this sub-ship's hangar
-		// registration and it would lose the ability to return home again.
-		// See _drydock_register_subship_waypoints().
-		if(old_name != new_name && !DS.stashed && DS.z)
-			var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[DS.z]"]
-			if(istype(marker) && sub.logging_home_tag)
-				var/obj/effect/shuttle_landmark/home = SSshuttle.get_landmark(sub.logging_home_tag)
-				if(home)
-					marker.remove_landmark(home, old_name)
-					marker.add_landmark(home, new_name)
+	// Renames the player-facing overmap MARKER, deliberately not the shuttle
+	// datum's own name. That's the same split the parent ship already uses --
+	// _drydockRetrieveRun() keeps the datum as "<template> #id" (its
+	// SSshuttle.shuttles key) and sets marker.name = DS.display_name() for
+	// players. Leaving the datum name alone means no re-keying of
+	// SSshuttle.shuttles, and no orphaning of restricted_waypoints, which is
+	// keyed by that datum name.
+	var/obj/effect/overmap/visitable/ship/landable/sub_marker = _drydock_subship_marker(shuttle_id, shuttle_tag)
+	if(istype(sub_marker))
+		sub_marker.name = new_name
 
 	if(user)
 		to_chat(user, SPAN_GOOD("Sub-ship renamed."))
@@ -1585,9 +1676,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	q.Execute()
 	if(databaseCheckQueryResult(q, "_drydockApplySubshipNames select"))
 		while(q.NextRow())
-			var/datum/shuttle/sub = SSshuttle.shuttles[q.item[1]]
-			if(istype(sub))
-				sub.name = q.item[2]
+			// Marker, not the shuttle datum -- see drydockRenameSubship().
+			var/obj/effect/overmap/visitable/ship/landable/sub_marker = _drydock_subship_marker(shuttle_id, q.item[1])
+			if(istype(sub_marker))
+				sub_marker.name = q.item[2]
 	qdel(q)
 
 /**
@@ -1613,19 +1705,32 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
  * as-is, exactly like a pristine ship interior today.
  */
 /datum/controller/subsystem/persistence/proc/subshipSnapshotSave(shuttle_id, shuttle_tag)
-	var/datum/shuttle/sub = SSshuttle.shuttles[shuttle_tag]
+	var/datum/shuttle/sub = SSshuttle.shuttles[_drydock_subship_key(shuttle_id, shuttle_tag)]
 	if(!istype(sub))
 		return
+	// Everything below is best-effort bookkeeping: losing one turf or one item
+	// from a snapshot is far better than an uncaught runtime aborting the
+	// whole stash, which is exactly what "drydockStash: uncaught exception ...
+	// bad index" was. This body never executed at all until the sub-ship
+	// lookup above was fixed, so it is newly exposed code. The logs name the
+	// sub tag, turf and item type so a real failure is pinpointable instead of
+	// being a bare "bad index".
 	var/list/turf_rows = list()
 	for(var/area/A in sub.shuttle_area)
 		for(var/turf/T in get_area_turfs(A))
 			CHECK_TICK
-			var/list/items = list()
-			for(var/obj/item/I in T)
-				var/list/item_data = serializePersistentItem(I)
-				if(item_data)
-					items += list(item_data)
-			turf_rows += list(list("x" = T.x, "y" = T.y, "type" = "[T.type]", "items" = items))
+			try
+				var/list/items = list()
+				for(var/obj/item/I in T)
+					try
+						var/list/item_data = serializePersistentItem(I)
+						if(item_data)
+							items += list(item_data)
+					catch(var/exception/item_e)
+						log_drydock_error("subshipSnapshotSave: failed to serialize [I?.type] at ([T.x],[T.y],[T.z]) for shuttle_id=[shuttle_id] tag='[shuttle_tag]': [item_e]")
+				turf_rows += list(list("x" = T.x, "y" = T.y, "type" = "[T.type]", "items" = items))
+			catch(var/exception/turf_e)
+				log_drydock_error("subshipSnapshotSave: failed on turf ([T.x],[T.y],[T.z]) for shuttle_id=[shuttle_id] tag='[shuttle_tag]': [turf_e]")
 	if(!databaseCheckConnection("subshipSnapshotSave"))
 		return
 	var/datum/db_query/q = SSdbcore.NewQuery(
@@ -1681,18 +1786,32 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	var/list/turf_rows = json_decode(turf_data)
 	if(!islist(turf_rows))
 		return
+	// Per-row validation + try/catch, because until subshipSnapshotSave() was
+	// fixed nothing ever wrote to ss13_drydock_subship_snapshot, so this body
+	// has effectively never executed in production. One malformed or
+	// truncated row must degrade to a logged warning, not abort the caller --
+	// an uncaught runtime here surfaces as drydockRetrieve()'s "uncaught
+	// exception" and takes the whole retrieve down with it.
 	for(var/list/row in turf_rows)
+		if(!islist(row) || !isnum(row["x"]) || !isnum(row["y"]))
+			log_drydock_warning("subshipSnapshotApply: skipped malformed row for shuttle_id=[shuttle_id] tag='[shuttle_tag]'.")
+			continue
 		var/turf/T = locate(row["x"], row["y"], z)
 		if(!T)
 			continue
-		var/turf_type = text2path(row["type"])
-		if(turf_type && ispath(turf_type, /turf))
-			T = T.ChangeTurf(turf_type)
-		for(var/obj/item/existing in T)
-			qdel(existing)
-		if(islist(row["items"]))
-			for(var/list/item_data in row["items"])
-				deserializePersistentItem(item_data, T)
+		try
+			var/turf_type = text2path(row["type"])
+			if(turf_type && ispath(turf_type, /turf))
+				T = T.ChangeTurf(turf_type)
+			for(var/obj/item/existing in T)
+				qdel(existing)
+			if(islist(row["items"]))
+				for(var/list/item_data in row["items"])
+					if(!islist(item_data))
+						continue
+					deserializePersistentItem(item_data, T)
+		catch(var/exception/row_e)
+			log_drydock_error("subshipSnapshotApply: row ([row["x"]],[row["y"]]) failed for shuttle_id=[shuttle_id] tag='[shuttle_tag]': [row_e]")
 
 // ============================================================
 // BUY  pure purchase transaction, no world footprint
@@ -2039,14 +2158,26 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// Navigation is buildable/orderable but deliberately NOT required here --
 	// only helm and shuttle_control gate commissioning.
 
-	// Drydock ships genuinely consume fuel (fuel_consumption is non-zero for
-	// every hull -- see player_built_shuttle.dm) -- without a fuel port
-	// there's nowhere to ever load a tank.
-	if(!_drydock_envelope_find_fuel_port(envelope))
+	// The decorative propulsion count above is structural only -- a real
+	// engine (one that actually populates datum/ship_engine) is a separate,
+	// additional requirement. Either a piped nozzle engine or a
+	// self-contained ion engine satisfies this -- not both. Checked before
+	// the fuel port requirement below, since whether a fuel port is even
+	// relevant depends on which engine type was actually found.
+	var/obj/structure/machinery/atmospherics/unary/engine/nozzle_engine = _drydock_envelope_find_ship_engine(envelope)
+	var/obj/structure/machinery/ion_engine/ion_engine_found = _drydock_envelope_find_ion_engine(envelope)
+	if(!nozzle_engine && !ion_engine_found)
 		if(user)
-			to_chat(user, SPAN_WARNING("No fuel port found in the build envelope -- without one, this hull could never be refuelled."))
-		log_drydock_warning("drydockCommission: refused -- no fuel port in envelope near [console] (acting=[acting]).")
+			to_chat(user, SPAN_WARNING("No engine found in the build envelope -- without a nozzle engine (piped to a fuel-gas network) or an ion engine (self-contained, needs only power), this hull has nothing to actually burn for thrust."))
+		log_drydock_warning("drydockCommission: refused -- no engine of either type in envelope near [console] (acting=[acting]).")
 		return FALSE
+
+	// A fuel port is NOT required to commission -- it's a backup/emergency
+	// fuel source only (_draw_backup_fuel(), gas_thruster.dm: tops up a
+	// nozzle engine's own gas reservoir from a loaded tank once its piped
+	// network alone isn't enough to burn). A nozzle engine's real fuel
+	// comes from that piped network, and an ion engine needs no fuel at
+	// all -- neither ever needed a fuel port just to commission.
 
 	// Fuel/helm/propulsion alone still can't move a hull -- engines_state
 	// can only ever be set TRUE via this specific console (engine_control.dm).
@@ -2054,16 +2185,6 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		if(user)
 			to_chat(user, SPAN_WARNING("No engine control terminal found in the build envelope -- without one, this hull's engines could never actually be turned on."))
 		log_drydock_warning("drydockCommission: refused -- no engine control terminal in envelope near [console] (acting=[acting]).")
-		return FALSE
-
-	// The decorative propulsion count above is structural only -- a real
-	// engine (one that actually populates datum/ship_engine) is a separate,
-	// additional requirement. Either a piped nozzle engine or a
-	// self-contained ion engine satisfies this -- not both.
-	if(!_drydock_envelope_find_ship_engine(envelope) && !_drydock_envelope_find_ion_engine(envelope))
-		if(user)
-			to_chat(user, SPAN_WARNING("No engine found in the build envelope -- without a nozzle engine (piped to a fuel-gas network) or an ion engine (self-contained, needs only power), this hull has nothing to actually burn for thrust."))
-		log_drydock_warning("drydockCommission: refused -- no engine of either type in envelope near [console] (acting=[acting]).")
 		return FALSE
 
 	// Without a sensors terminal + array, crew have no way to see anything
@@ -2256,7 +2377,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// before it physically leaves that Z. See the dock_at_beacon block near
 	// the end of this proc, right after shipInteriorSave().
 
-	var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
+	var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = _drydock_shuttle_of(marker)
 	if(istype(shuttle_datum))
 		// Commission always materializes a player-built ship, by definition --
 		// read by player_dock/is_valid() (docking_beacon.dm) to decide whether
@@ -2649,10 +2770,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	try
 		. = _drydockRetrieveRun(shuttle_id, anchor, from_turf, user)
 	catch(var/exception/e)
-		log_drydock_error("drydockRetrieve: uncaught exception retrieving shuttle_id=[shuttle_id] (acting=[user ? key_name(user) : "SYSTEM"]): [e]")
+		log_drydock_error("drydockRetrieve: uncaught exception retrieving shuttle_id=[shuttle_id] (acting=[user ? key_name(user) : "SYSTEM"]): [e] at [e.file]:[e.line]")
 		if(user)
 			to_chat(user, SPAN_WARNING("Something went wrong retrieving that ship -- an admin has been notified."))
-		log_and_message_admins("drydockRetrieve: uncaught exception retrieving shuttle_id=[shuttle_id]: [e]", user)
+		log_and_message_admins("drydockRetrieve: uncaught exception retrieving shuttle_id=[shuttle_id]: [e] at [e.file]:[e.line]", user)
 	GLOB.drydock_op_active = FALSE
 	GLOB.drydock_op_active_shuttle_id = null
 	_drydockProcessNextQueued()
@@ -2861,7 +2982,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return FALSE
 	shipPlaceOvermapMarker(marker, target_sector, placement_radius)
 
-	var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
+	var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = _drydock_shuttle_of(marker)
 	if(istype(shuttle_datum))
 		// A retrieved ship's shuttle datum is freshly recreated every time
 		// (template.load_new_z()/load_into_z() above), so player_built has
@@ -2956,7 +3077,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// After the rename pass -- restricted_waypoints is keyed by the shuttle's
 	// exact CURRENT name, so registering before renaming would file the hangar
 	// under a name get_waypoints() will never ask for.
-	_drydock_register_subship_waypoints(marker, template)
+	_drydock_register_subship_waypoints(marker, template, shuttle_id)
 
 	// Missing-sub-ship detection -- checked LAST, after the replenish pass
 	// above -- log and alert rather than attempt anything further. Should
@@ -2965,7 +3086,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// still isn't valid), not a normal case.
 	if(length(template.sub_shuttle_tags))
 		for(var/sub_tag in template.sub_shuttle_tags)
-			var/datum/shuttle/sub = SSshuttle.shuttles[sub_tag]
+			var/datum/shuttle/sub = SSshuttle.shuttles[_drydock_subship_key(shuttle_id, sub_tag)]
 			if(!istype(sub) || !length(sub.shuttle_area))
 				log_drydock_warning("drydockRetrieve: sub-ship '[sub_tag]' missing or invalid for shuttle_id=[shuttle_id] template='[DS.template_id]' -- may need manual recovery.")
 				log_and_message_admins("[SPAN_WARNING("Drydock sub-ship missing:")] '[sub_tag]' not found aboard [DS.display_name()] (#[shuttle_id]) after retrieve.", user, marker)
@@ -3026,7 +3147,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /datum/controller/subsystem/persistence/proc/drydockAutoFurnish(z, datum/map_template/drydock_ship/template, obj/effect/overmap/visitable/ship/landable/drydock_ship/marker)
 	if(!template.bridge_area_type)
 		return
-	var/datum/shuttle/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
+	var/datum/shuttle/shuttle_datum = _drydock_shuttle_of(marker)
 	if(!istype(shuttle_datum))
 		return
 	if(length(shuttle_datum.shuttle_computers))
@@ -3186,10 +3307,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	try
 		. = _drydockStashRun(shuttle_id, user, force)
 	catch(var/exception/e)
-		log_drydock_error("drydockStash: uncaught exception stashing shuttle_id=[shuttle_id] (acting=[user ? key_name(user) : "SYSTEM"]): [e]")
+		log_drydock_error("drydockStash: uncaught exception stashing shuttle_id=[shuttle_id] (acting=[user ? key_name(user) : "SYSTEM"]): [e] at [e.file]:[e.line]")
 		if(user)
 			to_chat(user, SPAN_WARNING("Something went wrong stashing that ship -- an admin has been notified."))
-		log_and_message_admins("drydockStash: uncaught exception stashing shuttle_id=[shuttle_id]: [e]", user)
+		log_and_message_admins("drydockStash: uncaught exception stashing shuttle_id=[shuttle_id]: [e] at [e.file]:[e.line]", user)
 	GLOB.drydock_op_active = FALSE
 	GLOB.drydock_op_active_shuttle_id = null
 	_drydockProcessNextQueued()
@@ -3218,18 +3339,33 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 					return TRUE
 	var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
 	if(template && length(template.sub_shuttle_tags))
+		var/list/sub_areas = list()
 		for(var/sub_tag in template.sub_shuttle_tags)
-			var/datum/shuttle/autodock/sub = SSshuttle.shuttles[sub_tag]
+			var/datum/shuttle/autodock/sub = SSshuttle.shuttles[_drydock_subship_key(DS.shuttle_id, sub_tag)]
 			if(!istype(sub))
 				continue
-			for(var/area/A in sub.shuttle_area)
-				for(var/turf/T in get_area_turfs(A))
-					for(var/mob/M in T)
-						if(M.stat != DEAD && (M.client || M.ckey))
-							return TRUE
-					for(var/obj/item/organ/internal/neural_lace/L in T)
-						if(L.lace_occupied)
-							return TRUE
+			sub_areas |= sub.shuttle_area
+		if(length(sub_areas))
+			// Resolved by AREA rather than by scanning each turf's own
+			// contents: get_area() sees through nesting, so someone inside a
+			// closet, cryo pod or mech -- or a lace inside a body, locker or
+			// autodoc -- still counts. Iterating `for(var/mob/M in T)` only
+			// sees what lies directly on the turf and missed every one of
+			// those, while the DS.z sweep above already resolves at any depth
+			// via get_turf(). One pass over each list for all sub-ships, not
+			// one per tag.
+			for(var/mob/M in GLOB.mob_list)
+				CHECK_TICK
+				if(M.stat == DEAD || !(M.client || M.ckey))
+					continue
+				if(get_area(M) in sub_areas)
+					return TRUE
+			for(var/obj/item/organ/internal/neural_lace/L in world)
+				CHECK_TICK
+				if(!L.lace_occupied)
+					continue
+				if(get_area(L) in sub_areas)
+					return TRUE
 	return FALSE
 
 /// TRUE if any mob (dead OR alive) or occupied neural lace is anywhere
@@ -3282,18 +3418,6 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		var/obj/structure/machinery/computer/ship/navigation/nav = locate() in T
 		if(nav)
 			return nav
-	return null
-
-/// The first fuel port found anywhere in envelope, or null -- required at
-/// commission time since drydock ships genuinely consume fuel
-/// (fuel_consumption is non-zero for every hull, player-built ships
-/// included -- see player_built_shuttle.dm) and have nowhere to load a fuel
-/// tank without one.
-/proc/_drydock_envelope_find_fuel_port(list/turf/envelope)
-	for(var/turf/T in envelope)
-		var/obj/structure/fuel_port/port = locate() in T
-		if(port)
-			return port
 	return null
 
 /// The first engine control terminal found anywhere in envelope, or null --
@@ -3400,7 +3524,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		log_drydock_warning("drydockStash: refused -- [acting] lacks permission for shuttle_id=[shuttle_id] (owner=[DS.owner_ckey || "none"], faction=[DS.faction_uid || "none"]).")
 		return FALSE
 	var/obj/effect/overmap/visitable/ship/landable/check_marker = GLOB.map_sectors["[DS.z]"]
-	var/datum/shuttle/autodock/overmap/drydock_ship/stashing_shuttle_datum = istype(check_marker) ? SSshuttle.shuttles[check_marker.shuttle] : null
+	var/datum/shuttle/autodock/overmap/drydock_ship/stashing_shuttle_datum = istype(check_marker) ? _drydock_shuttle_of(check_marker) : null
 	if(!force)
 		// A personal ship may stash near ANY faction's beacon (not
 		// necessarily one it owns), provided that beacon's own sector is
@@ -3452,6 +3576,8 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		// need that fallback in the first place -- refuse and explain instead.
 		if(istype(check_marker))
 			for(var/obj/effect/overmap/visitable/ship/landable/guest in check_marker.contents)
+				if(_drydock_guest_is_own_subship(guest, check_marker))
+					continue // my own sub-ship parked at home, not a foreign guest
 				if(user)
 					to_chat(user, SPAN_WARNING("[guest.shuttle] is currently docked with you -- it must undock before you can stash."))
 				log_drydock_warning("drydockStash: refused -- shuttle_id=[shuttle_id] has guest ship '[guest.shuttle]' docked with it (acting=[acting]).")
@@ -3536,12 +3662,30 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// Drop the hangar waypoint registrations before the z goes away, so a
 	// stashed ship's hangar stops being offered as a destination to anything
 	// still flying. Mirrors _drydock_register_subship_waypoints() at retrieve.
-	_drydock_unregister_subship_waypoints(GLOB.map_sectors["[stash_z]"], save_template)
+	_drydock_unregister_subship_waypoints(GLOB.map_sectors["[stash_z]"], save_template, shuttle_id)
 	SSpersistence.shipInteriorSave(stash_z, scope)
 
 	if(save_template && length(save_template.sub_shuttle_tags))
 		for(var/sub_tag in save_template.sub_shuttle_tags)
 			SSpersistence.subshipSnapshotSave(shuttle_id, sub_tag)
+
+	// Destroy each sub-ship's own shuttle datum, AFTER its snapshot is saved
+	// above. shipZTeardown() (persistence_ship_interiors.dm) only ever qdels
+	// the single datum it is handed -- the parent hull's -- so a sub-ship's
+	// datum outlived every stash and stayed in SSshuttle.shuttles under its
+	// per-instance name. The next retrieve then rebuilt the same sub-ship
+	// from the template and /datum/shuttle/New() hard-CRASHed on the
+	// duplicate name ("A shuttle with the name '... #22' is already
+	// defined."). Areas are pulled from SSshuttle.shuttle_areas first,
+	// exactly as shipZTeardown() does for the parent.
+	if(save_template && length(save_template.sub_shuttle_tags))
+		for(var/sub_tag in save_template.sub_shuttle_tags)
+			var/datum/shuttle/sub = SSshuttle.shuttles[_drydock_subship_key(shuttle_id, sub_tag)]
+			if(!istype(sub))
+				continue
+			for(var/area/A in sub.shuttle_area)
+				SSshuttle.shuttle_areas -= A
+			qdel(sub) // Destroy() clears SSshuttle.shuttles/process_shuttles itself
 
 	// Ledger flips to stashed BEFORE the marker is torn down -- the qdel
 	// below fires drydock_ship/Destroy()'s defensive orphan-recovery check
@@ -3675,7 +3819,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
 	if(!istype(marker))
 		return FALSE
-	var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
+	var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = _drydock_shuttle_of(marker)
 	var/obj/effect/shuttle_landmark/home_landmark = _drydock_resolve_home_landmark(marker, shuttle_datum)
 	// FAIL CLOSED. This used to read marker.landmark directly and, when that
 	// was null, skip the whole move and still return TRUE -- reporting a
@@ -3714,7 +3858,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	var/datum/map_template/drydock_ship/sub_template = SSmapping.drydock_ship_templates[DS.template_id]
 	if(sub_template && length(sub_template.sub_shuttle_tags))
 		for(var/sub_tag in sub_template.sub_shuttle_tags)
-			var/datum/shuttle/autodock/sub = SSshuttle.shuttles[sub_tag]
+			var/datum/shuttle/autodock/sub = SSshuttle.shuttles[_drydock_subship_key(DS.shuttle_id, sub_tag)]
 			if(!istype(sub) || !istype(sub.current_location))
 				continue
 			if(sub.current_location.landmark_tag == sub.logging_home_tag)
@@ -3759,7 +3903,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
 		if(!istype(marker) || !istype(marker.landmark))
 			continue
-		var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
+		var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = _drydock_shuttle_of(marker)
 		if(!istype(shuttle_datum) || shuttle_datum.current_location == marker.landmark)
 			continue // already home, nothing to recall
 		if(_drydock_recall_ship_home(DS, allow_rehome = FALSE))
@@ -4103,7 +4247,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
 	if(template && length(template.sub_shuttle_tags))
 		for(var/sub_tag in template.sub_shuttle_tags)
-			var/datum/shuttle/autodock/sub = SSshuttle.shuttles[sub_tag]
+			var/datum/shuttle/autodock/sub = SSshuttle.shuttles[_drydock_subship_key(DS.shuttle_id, sub_tag)]
 			if(istype(sub) && istype(sub.current_location))
 				zs |= sub.current_location.z
 
@@ -4175,7 +4319,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// (drydock_ship.dm) calls when a marker is destroyed some other way.
 /datum/controller/subsystem/persistence/proc/_drydockMarkerTeardown(z)
 	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[z]"]
-	var/datum/shuttle/shuttle_datum = istype(marker) ? SSshuttle.shuttles[marker.shuttle] : null
+	var/datum/shuttle/shuttle_datum = istype(marker) ? _drydock_shuttle_of(marker) : null
 	var/shuttle_name = shuttle_datum?.name
 	if(istype(marker))
 		// Evacuate anything currently docked WITH this ship before it's
@@ -4191,6 +4335,12 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		// destroyed -- this ship isn't the guest's to lose just because its
 		// host stashed out from under it.
 		for(var/obj/effect/overmap/visitable/ship/landable/guest in marker.contents)
+			// My own sub-ship goes down WITH me -- it's part of this hull, and
+			// it comes back from the template on the next retrieve. Kicking it
+			// to open space like a foreign guest would leave it drifting,
+			// orphaned, the moment its carrier stashed.
+			if(_drydock_guest_is_own_subship(guest, marker))
+				continue
 			var/turf/safe_turf = get_turf(marker)
 			if(safe_turf)
 				guest.forceMove(safe_turf)
