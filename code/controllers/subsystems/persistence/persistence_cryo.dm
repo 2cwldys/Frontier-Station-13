@@ -1019,7 +1019,15 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 
 /**
  * Returns a list of character names (strings) that have saved data for a given ckey.
- * Scans the in-memory caches loaded at startup  no DB call needed.
+ * Scans the in-memory caches loaded at startup, then cross-checks against
+ * ss13_characters.deleted_at -- the caches themselves carry no "deleted"
+ * concept at all (see persistence_delete_character_data(), persistence_mobs.dm,
+ * which is what SHOULD keep them clean going forward), so this live check is
+ * defense-in-depth against any character whose cache/DB rows outlived its own
+ * deletion -- e.g. from before that cleanup was wired up everywhere it needed
+ * to be. One extra lightweight query on what's an admin-verb/occasional-spawn
+ * path -- far less frequent than the persistent menu already querying live,
+ * unconditionally, every time it opens (persistent_menu.dm).
  */
 /proc/persistence_get_saved_characters(ckey)
 	var/list/chars = list()
@@ -1040,6 +1048,17 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 		for(var/key in GLOB.persistence_position_cache)
 			if(length(key) > plen && copytext(key, 1, plen + 1) == prefix)
 				chars |= copytext(key, plen + 1)
+
+	if(length(chars) && GLOB.config.sql_saves && SSdbcore.Connect())
+		var/datum/db_query/q = SSdbcore.NewQuery(
+			"SELECT name FROM ss13_characters WHERE ckey = :ckey AND deleted_at IS NOT NULL",
+			list("ckey" = ckey)
+		)
+		q.Execute()
+		if(SSpersistence.databaseCheckQueryResult(q, "persistence_get_saved_characters"))
+			while(q.NextRow())
+				chars -= q.item[1]
+		qdel(q)
 
 	return chars
 

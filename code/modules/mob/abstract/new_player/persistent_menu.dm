@@ -215,6 +215,14 @@
 					list("ckey" = ckey, "name" = char_name))
 				dq.Execute()
 				qdel(dq)
+				// The soft-delete above only flags ss13_characters -- this is
+				// what actually clears health/inventory/position data (SQL +
+				// caches) and the character's bank account, so it stops
+				// showing up as if it still existed everywhere else
+				// (persistence_get_saved_characters() and everything built on
+				// it: Give Credits, the rename picker, PersistentAutoSpawn's
+				// no-name fallback).
+				persistence_delete_character_data(ckey, char_name)
 			if(NP.client && NP.client.prefs)
 				NP.client.prefs.current_character = 0
 			message_admins(SPAN_DANGER("PERSISTENCE: [ckey] deleted character <b>[char_name]</b>."))

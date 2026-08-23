@@ -624,12 +624,24 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		)
 		q.Execute()
 		qdel(q)
+	// Bank account -- no other deletion path touches this at all, so a
+	// "deleted" character otherwise keeps a genuinely live, spendable
+	// account forever (same query/cache-clear shape as the admin
+	// "Reset Player Bank Account" verb, persistence_factions.dm, just
+	// scoped to this one character instead of every account for the ckey).
+	var/datum/db_query/mq = SSdbcore.NewQuery(
+		"DELETE FROM ss13_money_accounts WHERE ckey = :ckey AND char_name = :char_name",
+		list("ckey" = ckey, "char_name" = char_name)
+	)
+	mq.Execute()
+	qdel(mq)
 	// Also clear from in-memory caches so the character stops appearing in selection
 	var/key = "[ckey]|[char_name]"
 	GLOB.persistence_health_cache    -= key
 	GLOB.persistence_inventory_cache -= key
 	GLOB.persistence_identity_cache  -= key
 	GLOB.persistence_position_cache  -= key
+	GLOB.persistence_economy_cache   -= key
 	log_world("Persistence: Deleted all data for character '[char_name]' ([ckey]).")
 
 /**

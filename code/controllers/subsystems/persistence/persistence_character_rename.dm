@@ -348,3 +348,64 @@ GLOBAL_LIST_INIT(persistence_char_name_columns, list(
 
 	log_and_message_admins("renamed persistent character '[old_name]' to '[new_name]' for [target_ckey] ([total] rows).", usr)
 	feedback_add_details("admin_verb", "RPC")
+
+/// Same effect as the player's own Delete Character button
+/// (persistent_menu.dm "delete_char") -- soft-deletes ss13_characters AND
+/// runs persistence_delete_character_data() (health/inventory/position/
+/// bank account, SQL + caches), so nothing is left half-cleaned the way the
+/// two deletion paths used to disagree before they were reconciled. For
+/// admin cleanup of a specific character without needing that player online
+/// to click their own Delete button.
+/datum/admins/proc/remove_persistent_character()
+	set name = "Remove Character"
+	set category = "Persistence.Characters"
+	set desc = "Permanently deletes one character -- same effect as the player's own Delete Character button."
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	if(!GLOB.config.sql_enabled)
+		to_chat(usr, SPAN_WARNING("SQL is not enabled -- character data isn't persisted."))
+		return
+
+	var/target_ckey = ckey(tgui_input_text(usr, "Ckey the character belongs to:", "Remove Character", "", max_length = 32))
+	if(!target_ckey)
+		return
+
+	var/list/characters = persistence_get_saved_characters(target_ckey)
+	var/char_name
+	if(length(characters))
+		char_name = tgui_input_list(usr, "Which character?", "Remove Character", characters)
+	else
+		// Cache miss doesn't mean the character doesn't exist -- see
+		// rename_persistent_character()'s own identical fallback above.
+		char_name = tgui_input_text(usr, "No cached characters found for '[target_ckey]'. Exact character name:", "Remove Character", "", max_length = 64, encode = FALSE)
+	if(!char_name)
+		return
+
+	// Refuse outright rather than delete a character out from under whoever's
+	// actively playing it right now -- the player's own Delete button can
+	// never hit this case (it only ever lists characters NOT currently
+	// embodied), but an admin picking a ckey+name from here genuinely could.
+	var/client/C = GLOB.directory[target_ckey]
+	if(C && istype(C.mob, /mob/living/carbon/human) && C.mob.real_name == char_name)
+		to_chat(usr, SPAN_WARNING("[target_ckey] is currently playing '[char_name]' right now -- have them log out or store the character first."))
+		return
+
+	if(tgui_alert(usr, "Permanently delete '[char_name]' ([target_ckey])? This deletes their saved health/inventory/position data and bank account. Cannot be undone.", "Remove Character", list("Delete", "Cancel")) != "Delete")
+		return
+
+	if(!SSdbcore.Connect())
+		to_chat(usr, SPAN_WARNING("Database connection failed."))
+		return
+	var/datum/db_query/dq = SSdbcore.NewQuery(
+		"UPDATE ss13_characters SET deleted_at = NOW() WHERE ckey = :ckey AND name = :name AND deleted_at IS NULL",
+		list("ckey" = target_ckey, "name" = char_name)
+	)
+	dq.Execute()
+	qdel(dq)
+	persistence_delete_character_data(target_ckey, char_name)
+
+	to_chat(usr, SPAN_GOOD("Deleted character '[char_name]' for [target_ckey]."))
+	log_and_message_admins("deleted persistent character '[char_name]' for [target_ckey].", usr)
+	feedback_add_details("admin_verb", "RPC")
