@@ -144,6 +144,10 @@
 	data["ready"] = DS.ready
 	data["title_holder_name"] = DS.title_faction_uid ? get_faction_name(DS.title_faction_uid) : (DS.title_char_name || "Unknown")
 	data["reported_stolen"] = DS.reported_stolen
+	// Title transfer is title-holder-only (see the "give_title" ui_act) --
+	// surfaced so the button is hidden outright for everyone else rather than
+	// offered and then refused.
+	data["can_give_title"] = DS.can_transfer_title(user) ? TRUE : FALSE
 	data["needs_rename"] = !DS.custom_name
 	data["shuttle_id"] = DS.shuttle_id
 	data["save_in_progress"] = SSpersistence.save_in_progress
@@ -232,7 +236,7 @@
 			var/tag = (template.sub_shuttle_tags.len == 1) ? template.sub_shuttle_tags[1] : tgui_input_list(user, "Board which sub-ship?", "Enter Sub-Ship", template.sub_shuttle_tags)
 			if(!tag)
 				return TRUE
-			var/turf/sub_console = _drydock_subship_console_turf(tag)
+			var/turf/sub_console = _drydock_subship_console_turf(DS.shuttle_id, tag)
 			if(!sub_console)
 				to_chat(user, SPAN_WARNING("Could not locate that sub-ship's navigation console."))
 				return TRUE
@@ -277,7 +281,12 @@
 				return TRUE
 			// Crew access is scoped to one specific CHARACTER, not the whole
 			// account -- see owned_by()/drydockAddCrew() (persistence_shuttles.dm).
-			var/target_char_name = tgui_input_text(user, "Exact character name for '[target_ckey]' to grant boarding access to:", "Add Crew", "", max_length = 64)
+			// encode = FALSE -- this is an identity key later compared raw
+			// against real_name (_drydock_full_access_check(),
+			// telepad_drydock_boarding.dm), not text for HTML display. The
+			// default HTML-encoding a name with an apostrophe/&/<>/" would
+			// silently break that exact-string match.
+			var/target_char_name = tgui_input_text(user, "Exact character name for '[target_ckey]' to grant boarding access to:", "Add Crew", "", max_length = 64, encode = FALSE)
 			if(!target_char_name)
 				return TRUE
 			var/label = tgui_input_text(user, "Optional label (e.g. their role):", "Add Crew", "", max_length = 64)
@@ -286,6 +295,67 @@
 
 		if("remove_crew")
 			SSpersistence.drydockRemoveCrew(DS.shuttle_id, params["ckey"], params["char_name"], user)
+			. = TRUE
+
+		// Moved here from the Drydock console, and re-gated in the process.
+		// The console let whoever CURRENTLY owned the hull hand the title on,
+		// which let a thief who banked a stolen ship launder its provenance.
+		// is_title_holder() (persistence_shuttles.dm) is the permanent
+		// provenance check and covers both the personally-titled and
+		// faction-titled cases, so only the original holder (or an admin) can
+		// sign the title over.
+		if("give_title")
+			// can_transfer_title() (persistence_shuttles.dm) -- title holder for
+			// a personal ship, officer/command rank for a faction-titled one.
+			if(!DS.can_transfer_title(user))
+				to_chat(user, DS.title_faction_uid \
+					? SPAN_WARNING("Only an officer or command member of [get_faction_name(DS.title_faction_uid)] can sign this ship's title over.") \
+					: SPAN_WARNING("Only this ship's title holder can sign its title over."))
+				log_drydock_warning("drydock ui_act (schematic): [key_name(user)] may not transfer the title for shuttle_id=[DS.shuttle_id].")
+				return TRUE
+			// Handing off a stolen ship is still handing off a stolen ship --
+			// refuse outright rather than let this launder reported_stolen.
+			if(DS.reported_stolen && !check_rights(R_ADMIN, 0, user))
+				to_chat(user, SPAN_WARNING("This ship is reported stolen -- its title can't be legitimately transferred until it's back with its rightful owner."))
+				log_drydock_warning("drydock ui_act (schematic): [key_name(user)] tried to give away reported_stolen shuttle_id=[DS.shuttle_id].")
+				return TRUE
+			// A title can go to one character or to a faction as a whole --
+			// ask which before collecting anything, since the two need
+			// completely different details.
+			var/transfer_mode = tgui_alert(user, "Sign this ship's title over to a single character, or to a faction?", "Give Title", list("Character", "Faction", "Cancel"))
+			if(!transfer_mode || transfer_mode == "Cancel")
+				return TRUE
+
+			if(transfer_mode == "Faction")
+				var/list/faction_options = list()
+				for(var/uid in GLOB.persistence_faction_cache)
+					faction_options[get_faction_name(uid)] = uid
+				if(!length(faction_options))
+					to_chat(user, SPAN_WARNING("No registered factions to sign the title over to."))
+					return TRUE
+				var/chosen_label = tgui_input_list(user, "Which faction should hold this ship's title?", "Give Title", faction_options)
+				if(!chosen_label)
+					return TRUE
+				var/chosen_uid = faction_options[chosen_label]
+				// Signing over to a faction hands the whole ship across, so
+				// confirm explicitly -- the actor may well lose their own
+				// access to it in the process.
+				if(tgui_alert(user, "Sign [DS.display_name()] over to [chosen_label]? Ownership and title both pass to the faction, and the crew roster is cleared.", "Give Title", list("Sign Over", "Cancel")) != "Sign Over")
+					return TRUE
+				log_drydock("drydock ui_act (schematic): [key_name(user)] requested give_title for shuttle_id=[DS.shuttle_id] to faction '[chosen_uid]'.")
+				SSpersistence.drydockGiveSchematic(DS.shuttle_id, null, null, user, chosen_uid)
+				return TRUE
+
+			var/target_ckey = tgui_input_text(user, "Ckey to give this ship's title to:", "Give Title", "", max_length = 32)
+			if(!target_ckey)
+				return TRUE
+			// encode = FALSE for the same reason add_crew above uses it -- an
+			// identity key compared raw against real_name, not display text.
+			var/target_char_name = tgui_input_text(user, "Exact character name for '[target_ckey]' to title the ship to:", "Give Title", "", max_length = 64, encode = FALSE)
+			if(!target_char_name)
+				return TRUE
+			log_drydock("drydock ui_act (schematic): [key_name(user)] requested give_title for shuttle_id=[DS.shuttle_id] to '[target_char_name]' ([target_ckey]).")
+			SSpersistence.drydockGiveSchematic(DS.shuttle_id, target_ckey, target_char_name, user)
 			. = TRUE
 
 		if("sell")

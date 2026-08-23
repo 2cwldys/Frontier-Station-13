@@ -41,6 +41,7 @@ type Data = {
   fuel_ports: FuelPortInfo[];
   total_fuel: number;
   tractored: BooleanLike;
+  docked: BooleanLike;
 };
 
 export const EnginesControl = (_props) => {
@@ -49,6 +50,11 @@ export const EnginesControl = (_props) => {
   const engines = data.engines_info || [];
   const globalOn = !!data.global_state;
   const tractored = !!data.tractored;
+  const docked = !!data.docked;
+  // Powering engines UP is what's blocked while docked -- shutting them down
+  // stays available so a ship that landed with them running can still be
+  // switched off by hand.
+  const powerOnBlocked = tractored || docked;
 
   const severityToColor = (sev?: StatusLine['severity']) => {
     switch (sev) {
@@ -89,14 +95,27 @@ export const EnginesControl = (_props) => {
           </NoticeBox>
         )}
 
+        {!tractored && docked && (
+          <NoticeBox warning>
+            Engines locked out -- docked. Launch into open space before
+            bringing them online.
+          </NoticeBox>
+        )}
+
         <Section>
           <LabeledList>
             <LabeledList.Item label="Global controls">
               <Button
                 icon="power-off"
                 selected={globalOn}
-                disabled={tractored}
-                tooltip={tractored ? 'Held by an enemy tractor beam.' : undefined}
+                disabled={globalOn ? tractored : powerOnBlocked}
+                tooltip={
+                  tractored
+                    ? 'Held by an enemy tractor beam.'
+                    : !globalOn && docked
+                      ? 'Docked -- launch into open space first.'
+                      : undefined
+                }
                 onClick={() => act('global_toggle')}
               >
                 {globalOn ? 'Shut all down' : 'Power all up'}
@@ -165,8 +184,14 @@ export const EnginesControl = (_props) => {
                   <Button
                     icon="power-off"
                     selected={!!E.eng_on}
-                    disabled={tractored}
-                    tooltip={tractored ? 'Held by an enemy tractor beam.' : undefined}
+                    disabled={E.eng_on ? tractored : powerOnBlocked}
+                    tooltip={
+                      tractored
+                        ? 'Held by an enemy tractor beam.'
+                        : !E.eng_on && docked
+                          ? 'Docked -- launch into open space first.'
+                          : undefined
+                    }
                     onClick={() =>
                       act('engine_toggle', { engine: E.eng_reference })
                     }
@@ -192,8 +217,14 @@ export const EnginesControl = (_props) => {
                   <Button
                     icon="power-off"
                     selected={!!E.eng_on}
-                    disabled={tractored}
-                    tooltip={tractored ? 'Held by an enemy tractor beam.' : undefined}
+                    disabled={E.eng_on ? tractored : powerOnBlocked}
+                    tooltip={
+                      tractored
+                        ? 'Held by an enemy tractor beam.'
+                        : !E.eng_on && docked
+                          ? 'Docked -- launch into open space first.'
+                          : undefined
+                    }
                     onClick={() =>
                       act('engine_toggle', { engine: E.eng_reference })
                     }

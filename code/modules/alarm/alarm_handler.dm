@@ -21,7 +21,8 @@
 	if(!(origin && source))
 		return
 
-	if(!is_station_level(origin.z))
+	if(!is_station_level(origin.z) && !is_away_level(origin.z))
+		log_game("Alarm trigger refused: origin [origin] (z=[origin.z]) is neither a station nor an away level.")
 		return
 
 	origin = origin.get_alarm_origin()

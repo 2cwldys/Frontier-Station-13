@@ -58,12 +58,12 @@
 	telecrystal_cost = 10
 
 /datum/uplink_item/item/gear_loadout/ceres
-	name = "Ceres Lance Assets (Group)"
+	name = "Hub Lancer Assets (Group)"
 	desc = "A crate containing gear for a group. The voidsuits are only usable by humans and unathi. The hardsuit is only usable by humans."
 	path = /obj/structure/closet/crate/gear_loadout/ceres
 
 /datum/uplink_item/item/gear_loadout/ceres_single
-	name = "Ceres Lance Assets (Single)"
+	name = "Hub Lancer Assets (Single)"
 	desc = "A crate containing gear for a single individual. The voidsuit is only usable by humans and unathi."
 	path = /obj/structure/closet/crate/gear_loadout/ceres/single
 	telecrystal_cost = 10

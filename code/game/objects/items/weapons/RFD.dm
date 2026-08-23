@@ -256,11 +256,12 @@ ABSTRACT_TYPE(/obj/item/rfd)
 		if(!target_turf || !GLOB.persistence_ship_z["[target_turf.z]"])
 			to_chat(user, SPAN_NOTICE("\The [src] can't be used here."))
 			return FALSE
-	// CentCom is otherwise off-limits, but a Hub faction member above the
-	// base/Civilian rank tier (get_effective_faction_rank(), same carve-out
+	// CentCom is otherwise off-limits, but a Hub faction member holding a
+	// real job -- FACTION_RANK_CREW (0) or above, only FACTION_RANK_CIVILIAN
+	// (-1) excluded (get_effective_faction_rank(), same carve-out
 	// airlock.dm's allowed() already grants for CentCom access codes) is
 	// trusted to use it here.
-	if(Area.centcomm_area && get_effective_faction_rank(user, "hub") <= 0)
+	if(Area.centcomm_area && get_effective_faction_rank(user, "hub") <= FACTION_RANK_CIVILIAN)
 		to_chat(user, SPAN_NOTICE("\The [src] can't be used here."))
 		return FALSE
 	if(is_type_in_list(A, valid_atoms))
@@ -797,7 +798,8 @@ ABSTRACT_TYPE(/obj/item/rfd)
 		"Gas Filter" = PIPE_GAS_FILTER_M,
 		"Omni Gas Filter" = PIPE_OMNI_FILTER,
 		"Omni Gas Mixer" = PIPE_OMNI_MIXER,
-		"Gas Meter" = "gasmeter"
+		"Gas Meter" = "gasmeter",
+		"Keypad Valve" = PIPE_KEYPAD_VALVE
 	)
 
 /obj/item/rfd/piping/mechanics_hints(mob/user, distance, is_adjacent)
@@ -817,7 +819,15 @@ ABSTRACT_TYPE(/obj/item/rfd)
 		to_chat(user, SPAN_WARNING("You can't materialize a pipe here!"))
 		return FALSE
 	var/turf/target_turf = get_turf(A)
-	if(!is_station_level(target_turf.z))
+	// Station levels alone is too narrow: everything players actually build on
+	// in this codebase lives off-station. Away sites (ZTRAIT_AWAY, which also
+	// covers pinned/persistent sites) and drydock/player-built ship interiors
+	// both have to be allowed -- and a ship's own Z needs its own check rather
+	// than riding on is_away_level(), because /datum/map_template/drydock_ship
+	// deliberately clears the default ZTRAITS_AWAY (drydock_ship.dm) so a hull's
+	// home Z isn't mistaken for an away site by shield/cloak gating.
+	// GLOB.persistence_ship_z is the established way to identify one.
+	if(!is_station_level(target_turf.z) && !is_away_level(target_turf.z) && !GLOB.persistence_ship_z["[target_turf.z]"])
 		to_chat(user, SPAN_WARNING("You can't materialize a pipe on this level!"))
 		return FALSE
 	return do_pipe(target_turf, user)
@@ -958,7 +968,9 @@ ABSTRACT_TYPE(/obj/item/rfd)
 		if(!target_turf || !GLOB.persistence_ship_z["[target_turf.z]"])
 			to_chat(user, SPAN_NOTICE("\The [src] can't be used here."))
 			return FALSE
-	if(Area.centcomm_area && get_effective_faction_rank(user, "hub") <= 0)
+	// Same carve-out as the other alter_atom() gate above -- FACTION_RANK_CREW
+	// (0) or above qualifies, only FACTION_RANK_CIVILIAN (-1) is excluded.
+	if(Area.centcomm_area && get_effective_faction_rank(user, "hub") <= FACTION_RANK_CIVILIAN)
 		to_chat(user, SPAN_NOTICE("\The [src] can't be used here."))
 		return FALSE
 	return alter_atom(get_turf(A), user, (mode == RFD_DECONSTRUCT))

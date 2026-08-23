@@ -444,7 +444,7 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		to_chat(src, SPAN_WARNING("The server is still loading. Please wait a moment and try again."))
 		return
 
-	if(SSpersistence.save_in_progress)
+	if(SSpersistence.save_in_progress && !check_rights(R_ADMIN, 0))
 		to_chat(src, SPAN_WARNING("Cannot join server while a save is in progress."))
 		return
 
@@ -613,6 +613,28 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 				return
 			if(selected_char == "-- New Character --")
 				selected_char = null
+
+	// ── Presence lock: refuse if this character is active/dead/vaulted on
+	// another central-linked server -- see docs/cross_server_persistence.md
+	// and presenceLockAcquire()'s own doc comment (persistence_cryo.dm).
+	// Placed after every earlier reattach loop above (live lace_mob, cryo'd
+	// corpse, live mob) -- those only ever match content already present in
+	// THIS server's own memory, so by definition they can't conflict with a
+	// lock held elsewhere; only a genuinely cold rejoin reaches here.
+	// No-op immediately if central_sql_enabled is off (presenceLockAcquire()
+	// itself handles that). Skipped entirely for a brand-new character
+	// (selected_char null here means "-- New Character --" or no saves at
+	// all) -- nothing exists yet to conflict with.
+	if(selected_char)
+		var/lock_holder = SSpersistence.presenceLockAcquire("character", "[client.ckey]|[selected_char]")
+		if(isnull(lock_holder))
+			to_chat(src, SPAN_WARNING("Cannot join right now -- the shared character database is unreachable. Try again shortly."))
+			reopen_menu_after_failed_spawn()
+			return
+		if(lock_holder != "")
+			to_chat(src, SPAN_WARNING("[selected_char] is currently active on [lock_holder] -- resolve that there (log out cleanly, get revived and stored, or retrieve the vaulted lace) before playing here."))
+			reopen_menu_after_failed_spawn()
+			return
 
 	// ── Lace-aware reconnect: dead/in-lace characters never get a free respawn ──
 	// After a server restart the round-local mob is gone, so we fall back to the
@@ -884,9 +906,16 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 	if(!spawn_pod)
 		spawn_pod = persistence_find_available_cryopod(spawner_faction, ckey_lower, character.real_name)
 	if(!spawn_pod)
+		// Broader net than persistence_find_available_cryopod()'s own Priority
+		// 2 -- ignores the separate persistent_spawn admin toggle, but still
+		// refuses any pod explicitly claimed by a faction. A pod with no
+		// network set at all, or explicitly tagged public, is fair game; a
+		// faction's own pod (Hub included) never is -- that's the line a
+		// factionless civilian must not cross even as an absolute last resort.
 		for(var/obj/structure/machinery/cryopod/pod in world)
 			if(_cryopod_ignored_for_discovery(pod)) continue
 			if(pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
+			if(pod.persistent_network && pod.persistent_network != "public") continue
 			var/turf/pt = get_turf(pod)
 			if(!pt || !pt.z) continue
 			spawn_pod = pod

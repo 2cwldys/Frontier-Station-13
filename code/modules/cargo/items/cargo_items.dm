@@ -69,6 +69,14 @@
 	/// faction-taggable, or to override the faction colour deliberately.
 	var/spawned_color
 
+	/// Optional whitelist limiting which spawned pieces receive the faction
+	/// finish (the tag and/or spawned_color above). Null/empty = every spawned
+	/// piece, unchanged for every pre-existing item. Otherwise only pieces
+	/// matching one of these types are finished -- so a kit can arrive with
+	/// faction-marked armour without also recolouring its gloves, mask, and
+	/// satchel.
+	var/list/faction_finish_types
+
 /// Sets the item's adjusted_price according to different price modifiers. Returns nothing.
 /singleton/cargo_item/proc/get_adjusted_price()
 	var/return_price = price

@@ -264,6 +264,14 @@ GLOBAL_DATUM(map_overmap, /area/overmap)
 
 /obj/effect/overmap/visitable/proc/remove_landmark(obj/effect/shuttle_landmark/landmark, shuttle_name)
 	if(shuttle_name)
+		// Guarded read, matching get_waypoints() below, which has always
+		// checked `in` before indexing. Reading an absent associative key here
+		// is a "bad index" runtime in BYOND -- and being asked to remove a
+		// waypoint that was never registered under this name is an ordinary
+		// no-op, not an error. Unguarded, it took the whole caller down with
+		// it (a drydock stash, most visibly).
+		if(!(shuttle_name in restricted_waypoints))
+			return
 		var/list/shuttles = restricted_waypoints[shuttle_name]
 		LAZYREMOVE(shuttles, landmark)
 	else
@@ -402,7 +410,8 @@ GLOBAL_VAR_INIT(building_overmap, FALSE)
 	// physically spawn there to pick up its map_z the normal way -- this
 	// marker hardcodes map_z itself (find_z_levels() override) instead, so
 	// it can be spawned here unconditionally now that the overmap exists.
-	new /obj/effect/overmap/visitable/sector/centcom()
+	if(!GLOB.config.disable_frontier_beacon)
+		new /obj/effect/overmap/visitable/sector/centcom()
 
 	log_module_sectors("Overmap build complete.")
 	return 1

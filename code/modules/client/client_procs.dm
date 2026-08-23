@@ -564,7 +564,12 @@ GLOBAL_VAR_INIT(log_player_connections, TRUE)
 
 	to_chat_immediate(src, SPAN_ALERT("If the title screen is black, resources are still downloading. Please be patient until the title screen appears."))
 
-	var/local_connection = (GLOB.config.auto_local_admin && !GLOB.config.use_authentik_api && (isnull(address) || GLOB.localhost_addresses[address]))
+	// central_sql_enabled excluded deliberately -- once a server's admin
+	// roster is centrally authoritative (load_admins_from_central_database(),
+	// auth.dm), an instant local R_ALL grant for anyone on localhost would
+	// bypass that entirely; a server's own host always has localhost access
+	// to their own machine.
+	var/local_connection = (GLOB.config.auto_local_admin && !GLOB.config.use_authentik_api && !GLOB.config.central_sql_enabled && (isnull(address) || GLOB.localhost_addresses[address]))
 	// Automatic admin rights for people connecting locally.
 	// Concept stolen from /tg/ with deepest gratitude.
 	// And ported from Nebula with love.
@@ -576,6 +581,27 @@ GLOBAL_VAR_INIT(log_player_connections, TRUE)
 	if(holder)
 		GLOB.staff += src
 		holder.owner = src
+#ifdef AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
+		// A staff member arriving is what un-suspends faction raiding --
+		// raidingUpdateForStaffPresence(), persistence_factions.dm.
+		//
+		// addtimer, not INVOKE_ASYNC, and never inline. Two separate reasons:
+		//
+		//  * Inline would sleep inside /client/New() (that proc reaches
+		//    to_chat()) and stall the login itself -- the same class of bug
+		//    that froze the character-select menu until show_persistent_menu()
+		//    was dispatched asynchronously.
+		//  * INVOKE_ASYNC runs it on the very next tick, which is still too
+		//    early: this client's chat output does not exist yet, so the
+		//    announcement it triggers was silently dropped for the one admin
+		//    who caused it -- they connect, raiding is restored, and they see
+		//    nothing. A few seconds' delay is what actually gets it delivered.
+		//
+		// The disconnect path below stays on INVOKE_ASYNC: there is no client
+		// left to deliver to, and delaying a suspension serves nothing.
+		if(SSpersistence)
+			addtimer(CALLBACK(SSpersistence, TYPE_PROC_REF(/datum/controller/subsystem/persistence, raidingUpdateForStaffPresence)), 5 SECONDS)
+#endif
 
 	log_client_to_db()
 
@@ -589,6 +615,34 @@ GLOBAL_VAR_INIT(log_player_connections, TRUE)
 			to_chat_immediate(src, "Admins get a free pass. However, <b>please</b> update your BYOND as soon as possible. Certain things may cause crashes if you play with your present version.")
 		else
 			log_access("Failed Login: [key] [computer_id] [address] - Outdated BYOND major version: [byond_version].")
+			del(src)
+			return 0
+
+	// Build-level version gate, the security-relevant one. The check above
+	// only ever sees byond_version -- the MAJOR (516) -- so it cannot express
+	// "516.1687 or later", which is exactly what refusing a client build with
+	// a known problem requires. byond_build is the separate build number.
+	//
+	// Resolution order: the admin-set database override wins when non-zero,
+	// otherwise config.txt's MIN_CLIENT_BUILD, otherwise the gate is off. The
+	// override exists because config is read once at startup and there is no
+	// reload, so without it every change here would need a restart --
+	// see persistence_client_build.dm.
+	var/required_build = GLOB.min_client_build_override || GLOB.config.min_client_build
+	// byond_build is unreported by some webclient sessions (connection ==
+	// "web"). A missing build must read as "unknown", never as "ancient" --
+	// otherwise enabling this gate silently locks out every webclient player.
+	if (required_build && byond_build && byond_version >= 516 && byond_build < required_build)
+		to_chat_immediate(src, SPAN_DANGER("<b>Your BYOND build is too old!</b>"))
+		if (GLOB.config.min_client_build_message)
+			to_chat_immediate(src, GLOB.config.min_client_build_message)
+		to_chat_immediate(src, "Your build: [byond_version].[byond_build].")
+		to_chat_immediate(src, "Required build: [byond_version].[required_build] or later.")
+		to_chat_immediate(src, "Visit http://www.byond.com/download/ to get the latest version of BYOND.")
+		if (holder)
+			to_chat_immediate(src, "Admins get a free pass. However, <b>please</b> update your BYOND as soon as possible -- this minimum exists for a reason.")
+		else
+			log_access("Failed Login: [key] [computer_id] [address] - Outdated BYOND build: [byond_version].[byond_build] (minimum [required_build]).")
 			del(src)
 			return 0
 
@@ -624,9 +678,14 @@ GLOBAL_VAR_INIT(log_player_connections, TRUE)
 	// bunker/young-account denial) already returns or del(src)s before
 	// reaching here, so this only ever fires for a connection that was
 	// genuinely let through -- once per real connect. log_admin() already
-	// mirrors to Discord on its own (EXPORT_ADMIN_LOG_TO_DISCORD, admin.dm).
+	// mirrors to Discord on its own (EXPORT_ADMIN_LOG_TO_DISCORD, admin.dm),
+	// but never pushes anything live -- message_admins() is the one that
+	// actually to_chat()s the blue "ADMIN LOG:" line to online admins/mods,
+	// so both are needed to get the persisted copy AND the live one.
 	if(GLOB.log_player_connections)
-		log_admin("Connected: [key_name_admin(src)]")
+		var/conn_msg = "Connected: [key_name_admin(src)]"
+		log_admin(conn_msg)
+		message_admins(conn_msg)
 
 //////////////
 //DISCONNECT//
@@ -646,9 +705,14 @@ GLOBAL_VAR_INIT(log_player_connections, TRUE)
 	// body swap (aghost reattach, ckey moved to a new mob) without the
 	// client ever disconnecting. Logged first, before any cleanup below
 	// touches key/ckey/address. log_admin() already mirrors to Discord on
-	// its own (EXPORT_ADMIN_LOG_TO_DISCORD, admin.dm).
+	// its own (EXPORT_ADMIN_LOG_TO_DISCORD, admin.dm), but never pushes
+	// anything live -- message_admins() is the one that actually
+	// to_chat()s the blue "ADMIN LOG:" line to online admins/mods, so both
+	// are needed to get the persisted copy AND the live one.
 	if(GLOB.log_player_connections)
-		log_admin("Disconnected: [key_name_admin(src)]")
+		var/disc_msg = "Disconnected: [key_name_admin(src)]"
+		log_admin(disc_msg)
+		message_admins(disc_msg)
 	GLOB.ticket_panels -= src
 	GLOB.staff -= src
 	GLOB.directory -= ckey
@@ -656,6 +720,24 @@ GLOBAL_VAR_INIT(log_player_connections, TRUE)
 	if(holder)
 		holder.owner = null
 		GLOB.staff -= src
+#ifdef AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
+	// Once, after BOTH GLOB.staff removals above -- this proc drops src from
+	// the list twice (unconditionally, then again under if(holder)), and the
+	// check only means anything after the last of them.
+	//
+	// INVOKE_ASYNC is NOT optional here. This is /client/Del(), BYOND's raw
+	// deletion hook, and raidingUpdateForStaffPresence() reaches
+	// message_admins() -> to_chat(), which can sleep. Yielding part-way
+	// through destroying a client can wedge the teardown and leave
+	// half-deleted clients behind -- which is what broke the server when this
+	// was called inline. runLobbyEmptyAutosave() carries the same
+	// "dispatch async, never inline" warning for the same reason.
+	//
+	// Running a tick later is also slightly more correct: GLOB.staff has
+	// fully settled by then.
+	if(SSpersistence)
+		INVOKE_ASYNC(SSpersistence, TYPE_PROC_REF(/datum/controller/subsystem/persistence, raidingUpdateForStaffPresence))
+#endif
 
 	if(mob)
 		mob.clear_important_client_contents()

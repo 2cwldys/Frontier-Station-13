@@ -52,7 +52,7 @@ export const ATM = (props) => {
             data.emagged ? 'Idris SeSeSelfERR#1#@2' : 'Idris Banking Interface'
           }
           buttons={
-            data.authenticated_account && (
+            !!data.authenticated_account && (
               <Button
                 content="Logout"
                 icon="times"

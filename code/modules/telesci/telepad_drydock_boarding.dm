@@ -367,24 +367,34 @@
 
 /// Shared core of the raiding gate: TRUE if acting_faction_uid should be
 /// refused entry to target_z because faction raiding is currently disabled,
-/// the Z is claimed by an ordinary (non-Hub) powered, non-public-territory
-/// faction beacon, and acting_faction_uid isn't a member of (or allied with,
-/// under FACTION_ALLIANCES) that faction. acting_faction_uid may be null
-/// (an unaffiliated player, or a personally-owned drydock ship) -- always
-/// blocked in that case, same as before this was split out.
+/// and EITHER the Z is claimed by an ordinary (non-Hub) powered,
+/// non-public-territory faction beacon, OR a piracy beacon there is
+/// currently claimed by a faction (piracy_beacon_claimed_faction_on_z(),
+/// piracy_beacon.dm -- tethered AND faction-tagged) -- and acting_faction_uid
+/// isn't a member of (or allied with, under FACTION_ALLIANCES) that faction.
+/// acting_faction_uid may be null (an unaffiliated player, or a personally-
+/// owned drydock ship) -- always blocked in that case, same as before this
+/// was split out.
 /proc/_faction_raid_blocked_for(target_z, acting_faction_uid)
 	if(GLOB.faction_raiding_enabled)
 		return FALSE
 	if(zone_security_get(target_z) == ZONE_HIGHSEC)
 		return FALSE
 	var/obj/structure/machinery/faction_beacon/B = GLOB.faction_beacon_by_z["[target_z]"]
-	if(!istype(B) || !B.powered || B.public_territory || istype(B, /obj/structure/machinery/faction_beacon/hub))
-		return FALSE
+	if(istype(B) && B.powered && !B.public_territory && !istype(B, /obj/structure/machinery/faction_beacon/hub))
 #ifdef FACTION_ALLIANCES
-	return !(B.faction_uid && acting_faction_uid && (B.faction_uid == acting_faction_uid || factions_are_allied(acting_faction_uid, B.faction_uid)))
+		return !(B.faction_uid && acting_faction_uid && (B.faction_uid == acting_faction_uid || factions_are_allied(acting_faction_uid, B.faction_uid)))
 #else
-	return !(B.faction_uid && acting_faction_uid && B.faction_uid == acting_faction_uid)
+		return !(B.faction_uid && acting_faction_uid && B.faction_uid == acting_faction_uid)
 #endif //FACTION_ALLIANCES
+	var/pirate_claim = piracy_beacon_claimed_faction_on_z(target_z)
+	if(pirate_claim)
+#ifdef FACTION_ALLIANCES
+		return !(acting_faction_uid && (pirate_claim == acting_faction_uid || factions_are_allied(acting_faction_uid, pirate_claim)))
+#else
+		return !(acting_faction_uid && pirate_claim == acting_faction_uid)
+#endif //FACTION_ALLIANCES
+	return FALSE
 
 /// Plays the raiding-prohibited announcer cue to L, gated by ASFX_ANNOUNCER
 /// like every other announcer line -- call alongside _drydock_raid_blocked()'s
@@ -662,16 +672,15 @@
 		return FALSE
 	return _drydock_board_deliver(L, target, cooldown)
 
-/// Portal+spark visual cue at T only -- no forceMove, this just marks where
-/// an invitation is being extended. A lighter cousin of
-/// _drydock_deliver_with_portal() (which does the same VFX plus the actual
-/// move).
-/proc/_drydock_invite_vfx(turf/T)
+/// Phase-teleport visual cue at T only -- no forceMove, this just marks where
+/// an invitation is being extended. Uses the same _telepad_phase_arrival()
+/// effect (telepad_travel.dm) as an actual arrival, so an invite reads as the
+/// same kind of event as the boarding it leads to rather than a decorative
+/// portal nothing else uses anymore.
+/proc/_drydock_invite_vfx(turf/T, facing_dir)
 	if(!T)
 		return
-	new /obj/effect/portal/decorative/fading(T, null, null, 5 SECONDS, 0)
-	spark(T, 3, GLOB.alldirs)
-	playsound(T, 'sound/effects/phasein.ogg', 30, 1)
+	_telepad_phase_arrival(T, facing_dir)
 
 /// Finds a passable, unobstructed turf adjacent to center, falling back to
 /// center itself if it's non-dense, or null if nothing usable is found.
@@ -767,7 +776,7 @@
 
 	var/ship_display_name = target_ship.display_name()
 	var/turf/target_turf = get_turf(target)
-	_drydock_invite_vfx(target_turf)
+	_drydock_invite_vfx(target_turf, target.dir)
 	var/response = tgui_alert(target, "[inviter] wants to bring you aboard [ship_display_name]. Board?", "Boarding Invitation", list("Accept", "Deny"), DRYDOCK_INVITE_TIMEOUT)
 
 	if(QDELETED(inviter) || QDELETED(target))
@@ -820,7 +829,7 @@
 /// shuttle_control physically on that z in case linkage ever fails.
 /proc/_drydock_console_turf(z)
 	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[z]"]
-	var/datum/shuttle/shuttle_datum = istype(marker) ? SSshuttle.shuttles[marker.shuttle] : null
+	var/datum/shuttle/shuttle_datum = _drydock_shuttle_of(marker)
 	if(istype(shuttle_datum))
 		for(var/obj/structure/machinery/computer/shuttle_control/console in shuttle_datum.shuttle_computers)
 			return get_turf(console)
@@ -833,14 +842,45 @@
 /// instead of z -- a sub-ship (sub_shuttle_tags, drydock_ship.dm) is its own
 /// /datum/shuttle mapped into the SAME hull's Z as its parent, so a plain
 /// z-based lookup can't tell the two consoles apart. Used by
-/// ship_schematic.dm's "Enter Sub-Ship" to land on the sub-ship's own
-/// console specifically, not the main hull's.
-/proc/_drydock_subship_console_turf(shuttle_tag)
-	var/datum/shuttle/sub = SSshuttle.shuttles[shuttle_tag]
+/// ship_schematic.dm's and the Drydock program's "Enter Sub-Ship" to land on
+/// the sub-ship's own console specifically, not the main hull's.
+///
+/// shuttle_id is required: a sub-ship registers under the per-instance
+/// suffixed key, not its bare tag (_drydock_subship_key(),
+/// persistence_shuttles.dm). Looking up the bare tag always missed, which is
+/// why Enter Sub-Ship only ever said "Could not locate that sub-ship's
+/// navigation console."
+/// Resolved by scanning the sub-ship's OWN shuttle_area rather than reading
+/// sub.shuttle_computers, because that list is empty for sub-ships:
+/// /datum/shuttle/New() (shuttle.dm) applies the per-instance suffix to
+/// src.name and only THEN links consoles by matching SC.shuttle_tag == name,
+/// so a mapped-in console tagged "Xanu Fighter" never matches the shuttle now
+/// called "Xanu Fighter #18" and is left stranded in
+/// SSshuttle.lonely_shuttle_computers. The parent hull escapes this only
+/// because _drydockRetrieveRun() re-points its consoles after its own rename;
+/// sub-ships get no such pass. A console standing inside the sub-ship's own
+/// areas is unambiguously that sub-ship's, which is also what stops this
+/// landing on the parent hull's console by mistake.
+///
+/// Adopts the console it finds (re-tagging it and filing it under
+/// shuttle_computers) so the sub-ship's console also becomes usable for
+/// actually flying it, not just as a teleport target.
+/proc/_drydock_subship_console_turf(shuttle_id, shuttle_tag)
+	var/datum/shuttle/sub = SSshuttle.shuttles[_drydock_subship_key(shuttle_id, shuttle_tag)]
 	if(!istype(sub))
 		return null
 	for(var/obj/structure/machinery/computer/shuttle_control/console in sub.shuttle_computers)
-		return get_turf(console)
+		if(!QDELETED(console))
+			return get_turf(console)
+	for(var/area/A in sub.shuttle_area)
+		for(var/obj/structure/machinery/computer/shuttle_control/console in A)
+			if(QDELETED(console))
+				continue
+			// Self-heal the linkage that New() could never make.
+			console.shuttle_tag = sub.name
+			SSshuttle.lonely_shuttle_computers -= console
+			sub.shuttle_computers |= console
+			return get_turf(console)
 	return null
 
 /// Finds the deployed, non-stashed drydock ship whose interior L is
@@ -897,6 +937,26 @@
 			return TRUE
 	return FALSE
 
+/// Sub-ship tags across every deployed ship this user can board -- the
+/// Drydock program's gate for showing "Enter Sub-Ship" at all. Same
+/// best-effort shape as _drydock_user_has_retrieving_ship() above: the
+/// program isn't bound to one ship, so this only answers "is there a
+/// sub-ship you could board," while the action itself re-resolves the
+/// specific ship via _drydock_board_resolve_ship().
+/proc/_drydock_user_boardable_subship_tags(mob/user)
+	var/list/tags = list()
+	for(var/sid in GLOB.drydock_ships)
+		var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
+		if(!DS || DS.stashed || !DS.z)
+			continue
+		var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
+		if(!template || !length(template.sub_shuttle_tags))
+			continue
+		if(!_drydock_full_access_check(user, DS.z))
+			continue
+		tags |= template.sub_shuttle_tags
+	return tags
+
 /// Ship-level counterpart to _drydock_full_access_check() for contexts with
 /// no specific mob to check -- e.g. a sensor console's own shared
 /// identification tick (contact_sensors.dm's process()), which runs once per
@@ -931,9 +991,13 @@
 /// ground, and those claimed sectors are Hub territory too even though
 /// they're not centcom-tagged. Used by _drydock_disembark_core() to decide
 /// which candidates get a fixed-pad/no-eye-view landing instead of a normal
-/// away-site pick -- deliberately NOT used for the Hub-personnel access gate
-/// just below, which stays scoped to the literal home turf like every other
-/// is_centcom_level() caller (telepad_travel.dm, personal_travel.dm).
+/// away-site pick -- a UI/landing-flow decision, genuinely separate from
+/// whether entry is actually access-gated. That gate is
+/// _hub_personnel_restricted() (faction_beacon.dm), which no longer reduces
+/// to is_centcom_level() the way it used to -- it's keyed off a hub beacon's
+/// own toggle now, so this proc and that gate can legitimately disagree
+/// (e.g. a hub-claimed Z with restrict_to_hub_personnel off still lands here
+/// via the fixed pad, just without being access-restricted to get there).
 /proc/_disembark_is_hub_z(z)
 	if(is_centcom_level(z))
 		return TRUE
@@ -971,7 +1035,7 @@
 		return FALSE
 
 	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
-	var/datum/shuttle/shuttle_datum = istype(marker) ? SSshuttle.shuttles[marker.shuttle] : null
+	var/datum/shuttle/shuttle_datum = _drydock_shuttle_of(marker)
 
 	var/list/candidate_turfs = list()
 	if(shuttle_datum && marker.status == SHIP_STATUS_LANDED)
@@ -991,6 +1055,12 @@
 			if(!istype(nearby, /obj/effect/overmap/visitable/sector) && !istype(nearby, /obj/effect/overmap/visitable/ship))
 				continue
 			if(istype(nearby, /obj/effect/overmap/visitable/sector/temporary))
+				continue
+			// My own sub-ship is not somewhere to disembark TO -- it's part of
+			// this hull. Parked in its own hangar it sits at distance 0, so it
+			// passed the proximity check below every time and offered a
+			// teleport into a craft you're already aboard.
+			if(_drydock_guest_is_own_subship(nearby, marker))
 				continue
 			seen_sectors += nearby
 			// Adjacent sectors only -- DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX (the
@@ -1046,7 +1116,7 @@
 		to_chat(L, SPAN_WARNING("Faction raiding is currently disabled -- you cannot disembark into that territory."))
 		play_raid_blocked_sound(L)
 		return FALSE
-	if(is_centcom_level(target_z) && !can_access_hub_depot(L))
+	if(_hub_personnel_restricted(target_z) && !can_access_hub_depot(L))
 		to_chat(L, SPAN_WARNING("That sector is restricted to Hub personnel."))
 		return FALSE
 	var/is_dock_target = (shuttle_datum && marker.status == SHIP_STATUS_LANDED && target_z == GET_Z(shuttle_datum.current_location))
@@ -1125,7 +1195,7 @@
 	if(is_dock_target)
 		var/datum/drydock_ship/recheck_ds = GLOB.drydock_ships["[DS.shuttle_id]"]
 		var/obj/effect/overmap/visitable/ship/landable/recheck_marker = istype(recheck_ds) ? GLOB.map_sectors["[recheck_ds.z]"] : null
-		var/datum/shuttle/recheck_shuttle = istype(recheck_marker) ? SSshuttle.shuttles[recheck_marker.shuttle] : null
+		var/datum/shuttle/recheck_shuttle = _drydock_shuttle_of(recheck_marker)
 		if(!recheck_ds || recheck_ds.stashed || !recheck_shuttle || recheck_marker.status != SHIP_STATUS_LANDED)
 			to_chat(L, SPAN_WARNING("The ship is no longer docked there."))
 			return FALSE

@@ -29,6 +29,23 @@
 		to_chat(src, "<div class=\"motd\">[GLOB.motd]</div>")
 	to_chat(src, "<div class='info'>Game ID: </div><div class='danger'>[GLOB.round_id]</div>")
 
+#ifdef ALLOW_CENTRAL_SHARD_SPAWNING
+	// Catches up a client that reaches the lobby AFTER a shard's one-time
+	// "new shard is available" broadcast already fired (_run_shard_script(),
+	// shards.dm) -- that broadcast only ever reaches clients already in the
+	// lobby at that exact instant. This is what makes it reach everyone
+	// else too, the first time each of them arrives (true first connect,
+	// or any later return to character select) -- LateLogin() only ever
+	// runs while this client genuinely has no active round character, so
+	// this can never reach a mid-round player.
+	if(client)
+		for(var/list/advert in GLOB.active_shard_adverts)
+			if(advert["advert_id"] in client.seen_shard_adverts)
+				continue
+			client.seen_shard_adverts += advert["advert_id"]
+			to_chat(src, _shard_join_advert_message(advert["shard_id"], advert["port"]))
+#endif
+
 #ifdef SHOW_GIT_LOG
 	var/commit_url = SSgithub.get_commit_url()
 	if(commit_url)
@@ -42,6 +59,7 @@
 	// only once the welcome line has actually finished (see
 	// _play_welcome_line()) instead of racing it.
 	show_persistent_menu()
+	
 	// LateLogin() fires again every time this client's mob becomes a FRESH
 	// /mob/abstract/new_player instance -- not just on the true first
 	// connect, but also e.g. returning to character select after cryo-ing
@@ -60,6 +78,18 @@
 		// control back here immediately regardless.
 		INVOKE_ASYNC(src, PROC_REF(_resolve_welcome_line))
 		addtimer(CALLBACK(src, PROC_REF(_play_welcome_line)), 1 SECOND)
+	else if(client)
+		// Not the true first connection -- the welcome voice line already
+		// played once and must stay that way, but lobby music itself has to
+		// restart every time a client actually reaches the lobby (returning
+		// via cryo/store-character, an AFK/prison force-store, or a failed
+		// spawn all recreate this mob and re-enter LateLogin()). Without this
+		// branch the music silently never plays again for the rest of the
+		// connection, since it otherwise only ever starts chained off the
+		// one-time welcome line above. playtitlemusic() (sound.dm) is safe to
+		// call again any time -- it clears CHANNEL_LOBBYMUSIC before queuing
+		// a freshly-shuffled playlist.
+		client.playtitlemusic()
 
 /**
  * Resolves welcome_line ahead of _play_welcome_line() actually playing it --

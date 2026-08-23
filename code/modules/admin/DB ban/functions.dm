@@ -101,6 +101,14 @@
 	var/sql = "INSERT INTO ss13_ban (`id`,`bantime`,`serverip`,`game_id`,`bantype`,`reason`,`job`,`duration`,`rounds`,`expiration_time`,`ckey`,`computerid`,`ip`,`a_ckey`,`a_computerid`,`a_ip`,`who`,`adminwho`,`edits`,`unbanned`,`unbanned_datetime`,`unbanned_ckey`,`unbanned_computerid`,`unbanned_ip`) VALUES (null, Now(), '[serverip]', '[GLOB.round_id]','[bantype_str]', '[reason]', '[job]', [(duration)?"[duration]":"0"], [(rounds)?"[rounds]":"0"], Now() + INTERVAL [(duration>0) ? duration : 0] MINUTE, '[ckey]', '[computerid]', '[ip]', '[a_ckey]', '[a_computerid]', '[a_ip]', '[who]', '[adminwho]', '', null, null, null, null, null)"
 	var/DBQuery/query_insert = GLOB.dbcon.NewQuery(sql)
 	query_insert.Execute()
+
+	// Central ban list (DB ban/central_ban.dm) -- only for full-connection
+	// ban types, never JOB_*, which only restrict a role, not "refuse this
+	// connection everywhere." No-op entirely when central_sql_enabled is
+	// off, same as every other central feature in this codebase.
+	if(bantype == BANTYPE_PERMA || bantype == BANTYPE_TEMP)
+		apply_central_ban(ckey, reason, a_ckey, (duration > 0) ? duration : 0)
+
 	to_chat(usr, SPAN_NOTICE("Ban saved to database."))
 	message_admins("[key_name_admin(usr)] has added a [bantype_str] for [ckey] [(job)?"([job])":""] [(duration > 0)?"([duration] minutes)":""] with the reason: \"[reason]\" to the ban database.",1)
 

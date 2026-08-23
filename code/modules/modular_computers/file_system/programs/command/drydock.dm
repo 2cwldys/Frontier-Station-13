@@ -50,6 +50,13 @@
 /datum/computer_file/program/drydock/ui_data(mob/user)
 	var/list/data = initial_data()
 
+	// CENTRAL_SYNC_SHIPS -- pulls in any ship centrally owned by this
+	// character that this server has never seen locally yet (bought on a
+	// different server sharing the same central database), before the
+	// "your ships" list below is built. No-op entirely when central sync
+	// is off (gated inside the proc itself).
+	_shipHydrateOwnedFromCentral(user.ckey, user.real_name)
+
 	var/obj/item/card/id/ID = user.GetIdCard()
 	var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
 	data["own_faction_name"] = own_faction ? get_faction_name(own_faction) : null
@@ -61,6 +68,7 @@
 	data["faction_balance"] = own_faction ? get_faction_account_balance(own_faction) : null
 	data["is_admin"] = check_rights(R_ADMIN, 0, user)
 	data["can_buy_faction"] = own_faction && can_configure_faction_shackle(user, own_faction, 1)
+	data["save_in_progress"] = SSpersistence.save_in_progress
 
 	var/board_ready_at = last_boarded_by_ckey[user.ckey] ? (last_boarded_by_ckey[user.ckey] + 30) : 0
 	data["can_board"] = world.time >= board_ready_at
@@ -71,6 +79,9 @@
 	// one of yours still retrieving right now" hint, not a guarantee of
 	// which ship "board" will actually resolve to.
 	data["ship_retrieving"] = _drydock_user_has_retrieving_ship(user)
+	// Gates the Enter Sub-Ship button, same best-effort "one of yours has one"
+	// basis as ship_retrieving just above.
+	data["sub_shuttle_tags"] = _drydock_user_boardable_subship_tags(user)
 	// Doubles as the "hide Enter Ship" signal too -- there's no single ship
 	// this console is bound to, so "already aboard some drydock ship" is the
 	// closest equivalent to the schematic's own per-ship aboard_this_ship.
@@ -151,41 +162,40 @@
 			SSpersistence.drydockWithdrawSchematic(shuttle_id, user)
 			return TRUE
 
-		if("give_schematic")
-			// Same CURRENT owner identity gate as withdraw_schematic above --
-			// whoever the system currently recognizes as this ship's owner
-			// controls its fate, including a thief who successfully banked a
-			// stolen ship. The permanent title never grants this on its own.
-			var/shuttle_id = text2num(params["shuttle_id"])
-			var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
-			if(!DS)
-				return TRUE
-			if(!(check_rights(R_ADMIN, 0, user) || (DS.owner_ckey == user.ckey && DS.owner_char_name == user.real_name) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
-				to_chat(user, SPAN_WARNING("You don't have permission to give away this ship's title."))
-				log_drydock_warning("drydock ui_act: [key_name(user)] lacks permission to give the title for shuttle_id=[shuttle_id].")
-				return TRUE
-			// Handing off a stolen ship is still handing off a stolen ship --
-			// refuse outright rather than let this launder reported_stolen.
-			if(DS.reported_stolen && !check_rights(R_ADMIN, 0, user))
-				to_chat(user, SPAN_WARNING("This ship is reported stolen -- its title can't be legitimately transferred until it's back with its rightful owner."))
-				log_drydock_warning("drydock ui_act: [key_name(user)] tried to give away reported_stolen shuttle_id=[shuttle_id].")
-				return TRUE
-			// Same two-prompt ckey + exact-character-name pattern as
-			// ship_schematic.dm's "add_crew" -- title is a character
-			// identity, not an account.
-			var/target_ckey = tgui_input_text(user, "Ckey to give this ship's title to:", "Give Title", "", max_length = 32)
-			if(!target_ckey)
-				return TRUE
-			var/target_char_name = tgui_input_text(user, "Exact character name for '[target_ckey]' to title the ship to:", "Give Title", "", max_length = 64)
-			if(!target_char_name)
-				return TRUE
-			log_drydock("drydock ui_act: [key_name(user)] requested give_schematic for shuttle_id=[shuttle_id] to '[target_char_name]' ([target_ckey]).")
-			SSpersistence.drydockGiveSchematic(shuttle_id, target_ckey, target_char_name, user)
-			return TRUE
+		// "give_schematic" deliberately no longer lives here -- title transfer
+		// moved to the schematic item's own UI (ship_schematic.dm), where it is
+		// gated on the PERMANENT title holder (is_title_holder()) rather than
+		// whoever currently happens to own the hull. Handing over provenance is
+		// the title holder's call alone; a thief who banked a stolen ship
+		// should not be able to launder the title from any console.
 
 		if("board")
 			log_drydock("drydock ui_act: [key_name(user)] requested Enter Ship.")
 			_drydock_board_core(user, null, last_boarded_by_ckey)
+			return TRUE
+
+		// Same action the ship schematic offers (ship_schematic.dm), just
+		// reached from the program instead. The schematic is bound to one
+		// ship; this isn't, so the ship is resolved exactly the way "board"
+		// above resolves it -- _drydock_board_resolve_ship() -- and then its
+		// own template supplies the sub-ship tags.
+		if("board_subship")
+			var/datum/drydock_ship/DS = _drydock_board_resolve_ship(user, null)
+			if(!DS)
+				return TRUE
+			var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
+			if(!template || !length(template.sub_shuttle_tags))
+				to_chat(user, SPAN_WARNING("That ship carries no sub-ship."))
+				return TRUE
+			var/tag = (template.sub_shuttle_tags.len == 1) ? template.sub_shuttle_tags[1] : tgui_input_list(user, "Board which sub-ship?", "Enter Sub-Ship", template.sub_shuttle_tags)
+			if(!tag)
+				return TRUE
+			var/turf/sub_console = _drydock_subship_console_turf(DS.shuttle_id, tag)
+			if(!sub_console)
+				to_chat(user, SPAN_WARNING("Could not locate that sub-ship's navigation console."))
+				return TRUE
+			log_drydock("drydock ui_act: [key_name(user)] requested Enter Sub-Ship ('[tag]').")
+			_drydock_board_deliver(user, DS, last_boarded_by_ckey, sub_console)
 			return TRUE
 
 		if("invite_board")

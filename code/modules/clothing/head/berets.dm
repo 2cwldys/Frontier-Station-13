@@ -264,8 +264,8 @@
 	item_state = "solgrey"
 
 /obj/item/clothing/head/beret/lancer
-	name = "\improper Ceres Lance beret"
-	desc = "A white beret with the attached badge of Ceres Lance - the infamous synthetic-hunting mercenary group."
+	name = "\improper Hub Lancer beret"
+	desc = "A white beret with the attached badge of Hub Lancer -- the Hub's own synthetic-hunting enforcement division."
 	icon_state = "lancer"
 	item_state = "lancer"
 

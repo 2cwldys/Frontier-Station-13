@@ -47,6 +47,10 @@ type FactionTaggerData = {
   is_crew_tagged: BooleanLike;
   can_crew_tag: BooleanLike;
   can_manage_crew: BooleanLike;
+  is_mob_target: BooleanLike;
+  is_faction_bound: BooleanLike;
+  is_faction_restrained: BooleanLike;
+  can_toggle_restrained: BooleanLike;
 };
 
 const TURRET_MODES: { mode: string; label: string }[] = [
@@ -88,6 +92,10 @@ export const FactionTagger = (props) => {
     is_crew_tagged,
     can_crew_tag,
     can_manage_crew,
+    is_mob_target,
+    is_faction_bound,
+    is_faction_restrained,
+    can_toggle_restrained,
   } = data;
   const [selected, setSelected] = useState(current_uid || own_uid || '');
 
@@ -162,6 +170,30 @@ export const FactionTagger = (props) => {
             </Button>
           </Box>
         </Section>
+        {!!(is_mob_target && is_faction_bound) && (
+          <Section title="Restraint">
+            <Box mb={1} color="label">
+              Restraining a shackled IPC or cyborg is a separate step from
+              the shackle itself -- only members of the faction holding
+              their shackle can toggle it.
+            </Box>
+            <Button
+              icon={is_faction_restrained ? 'unlock' : 'lock'}
+              color={is_faction_restrained ? 'good' : 'bad'}
+              disabled={!can_toggle_restrained}
+              tooltip={
+                can_toggle_restrained
+                  ? undefined
+                  : 'You need membership in (and, for Hub, officer access in) the faction holding this shackle.'
+              }
+              onClick={() =>
+                act(is_faction_restrained ? 'unrestrain' : 'restrain')
+              }
+            >
+              {is_faction_restrained ? 'Release Restraints' : 'Restrain'}
+            </Button>
+          </Section>
+        )}
         {!!can_crew_tag && (
           <Section title="Crew Use">
             <Button

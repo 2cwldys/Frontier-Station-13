@@ -1,5 +1,40 @@
 [
     {
-        "invalid": 1
+        "_comment": [
+            "Discord webhooks. Copy this file to config/webhooks.json and fill in real URLs.",
+            "",
+            "Each entry needs 'url' and 'tags'. Entries missing either are skipped, which is",
+            "why this documentation block is ignored by the loader rather than breaking it.",
+            "",
+            "  url     - the full Discord webhook URL for the target channel.",
+            "  tags    - which event types get sent here. One webhook may carry several.",
+            "  mention - OPTIONAL. Prepended to the message as '<mention>: ...', so put a",
+            "            Discord role mention here to ping that role, e.g. '<@&123456789>'.",
+            "            Use '@here' or '@everyone' only if you really mean it.",
+            "",
+            "Available tags (see code/__DEFINES/webhook.dm):",
+            "  admin_log        - every admin log line (needs EXPORT_ADMIN_LOG_TO_DISCORD).",
+            "  law_enforcement  - First Responder enforcement actions only: repossessions,",
+            "                     force-stashes, scuttlings, schematic withdrawals and",
+            "                     stolen-flag clearing. Intended for a security channel that",
+            "                     should NOT see the whole admin log.",
+            "  g_apm            - admin PMs.",
+            "  g_apm_a          - admin PMs flagged important.",
+            "  g_admin          - adminhelps.",
+            "  g_admin_a        - adminhelps flagged important.",
+            "  cciaa_emergency  - CCIAA emergency messages.",
+            "  alert_noadmins   - round started with no admins online.",
+            "  roundstart       - round start announcement.",
+            "  roundend         - round end announcement."
+        ]
+    },
+    {
+        "url": "https://discord.com/api/webhooks/REPLACE_ME/WITH_YOUR_ADMIN_LOG_WEBHOOK",
+        "tags": ["admin_log"]
+    },
+    {
+        "url": "https://discord.com/api/webhooks/REPLACE_ME/WITH_YOUR_LAW_ENFORCEMENT_WEBHOOK",
+        "tags": ["law_enforcement"],
+        "mention": "<@&REPLACE_WITH_LAW_ENFORCEMENT_ROLE_ID>"
     }
 ]

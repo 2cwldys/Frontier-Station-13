@@ -196,7 +196,7 @@
 // concept and the tagger doesn't cover.
 /obj/structure/machinery/lace_storage/verb/configure_public_vault()
 	set name = "Configure Public Vault"
-	set category = "Persistence"
+	set category = "Persistence.Misc"
 	set desc = "Mark this vault as public (receives anyone's auto-transferred laces), or clear it."
 	set src in oview(1)
 

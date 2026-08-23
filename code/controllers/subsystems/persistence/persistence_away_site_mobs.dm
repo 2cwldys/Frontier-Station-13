@@ -90,7 +90,7 @@ GLOBAL_LIST_EMPTY(away_site_mob_presets)
 
 /datum/admins/proc/manage_away_site_mob_presets()
 	set name = "Modify Away Site Mobs"
-	set category = "Persistence"
+	set category = "Persistence.Away Sites & Missions"
 	set desc = "Add or remove hostile NPC presets from the pool that auto-populates freshly generated, unclaimed away sites."
 
 	if(!check_rights(R_ADMIN))

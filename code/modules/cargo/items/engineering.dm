@@ -12,6 +12,18 @@
 	access = 0
 	container_type = "crate"
 
+/singleton/cargo_item/telecomms_aio
+	category = "engineering"
+	name = "telecommunications mainframe"
+	supplier = "Hub"
+	description = "A self-contained subspace telecommunications unit -- handles receiving, processing, and broadcasting radio traffic all in one box, no relay chain or manual linking needed. Assigns itself a fresh channel once secured. Wrench to secure after placement."
+	price = 100000
+	items = list(
+		/obj/structure/machinery/telecomms/allinone/ship/crate
+	)
+	access = 0
+	container_type = "crate"
+
 /singleton/cargo_item/drydock_boarding_pad
 	category = "engineering"
 	name = "drydock boarding pad"
@@ -170,6 +182,20 @@
 	price = 45
 	items = list(
 		/obj/item/grenade/chem_grenade/antifuel
+	)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/metalfoamgrenade
+	category = "engineering"
+	name = "metal-foam grenade"
+	supplier = "Hub"
+	description = "Used for emergency sealing of air breaches -- mixes an aluminum reagent with a foaming agent on detonation, expanding into a rigid metal foam plug."
+	price = 45
+	items = list(
+		/obj/item/grenade/chem_grenade/metalfoam
 	)
 	access = ACCESS_ENGINE
 	container_type = "crate"

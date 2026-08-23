@@ -69,7 +69,11 @@ GLOBAL_PROTECT(config)
 		GLOB.round_id = "[c[(t % l) + 1]][GLOB.round_id]"
 		t = round(t / l)
 
-#define RECOMMENDED_VERSION 515
+/// Major-version floor for the SERVER's own BYOND install. Non-fatal -- this
+/// only log_world()s a warning below. The client-side counterpart is the
+/// build-level gate in client_procs.dm (MIN_CLIENT_BUILD), which is the one
+/// that actually refuses connections.
+#define RECOMMENDED_VERSION 516
 /world/New()
 	//logs
 	GLOB.diary_date_string = time2text(world.realtime, "YYYY/MM/DD")
@@ -246,6 +250,22 @@ GLOBAL_LIST_INIT(world_api_rate_limit, list())
 	world.Reboot()
 
 /world/Reboot(reason, hard_reset = FALSE)
+	// Captured before either branch below can override hard_reset, which
+	// they do for a NARROWER reason than what GLOB.world_shutdown_is_hard
+	// (read a few lines down) actually needs to know.
+	//
+	// The override two lines down forces hard_reset FALSE whenever TGS
+	// isn't available, because an OS-level restart is unsafe with nothing
+	// present to relaunch the process -- that's a real, correct safety
+	// call, and it MUST keep controlling whether TgsEndProcess() actually
+	// runs below. But it has nothing to do with whether THIS shutdown is
+	// the caller's genuine, intentional one, which is the only thing
+	// world_shutdown_is_hard needs to answer. Feeding it the post-override
+	// value made it FALSE on every single shutdown on any non-TGS server --
+	// soft reboot or a deliberately requested one -- which silently skipped
+	// SSpersistence.Shutdown()'s Discord bot stop every time, forever, on
+	// exactly this kind of deployment.
+	var/requested_hard_shutdown = hard_reset
 	if (!hard_reset && world.TgsAvailable())
 		switch (GLOB.config.rounds_until_hard_restart)
 			if (-1)
@@ -263,6 +283,12 @@ GLOBAL_LIST_INIT(world_api_rate_limit, list())
 		hard_reset = FALSE
 
 	SSpersistent_configuration.save_to_file("data/persistent_config.json")
+	// Master.Shutdown() runs on EVERY reboot, soft or hard, so a subsystem's
+	// Shutdown() cannot tell "the round is restarting" from "this process is
+	// going away" on its own. Reboot() already knows, so hand it over -- see
+	// SSpersistence.Shutdown()'s Discord bot stop, which must not fire on a
+	// soft reboot that the world is about to come straight back from.
+	GLOB.world_shutdown_is_hard = requested_hard_shutdown
 	Master.Shutdown()
 
 	for(var/thing in GLOB.clients)

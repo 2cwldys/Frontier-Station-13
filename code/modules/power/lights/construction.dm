@@ -38,6 +38,23 @@
 	QDEL_NULL(cell)
 	return ..()
 
+/obj/structure/machinery/light_construct/persistence_reapply_wall_offset()
+	apply_wall_mount_offset()
+
+/obj/structure/machinery/light_construct/persistent_objects_get_content()
+	. = ..()
+	.["stage"] = stage
+	.["icon_state"] = icon_state
+
+/obj/structure/machinery/light_construct/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if("stage" in content)
+		stage = text2num(content["stage"])
+	if("icon_state" in content)
+		icon_state = content["icon_state"]
+
 /obj/structure/machinery/light_construct/get_examine_text(mob/user, distance, is_adjacent, infix, suffix)
 	. = ..()
 	if(is_adjacent)
@@ -239,6 +256,10 @@
 	pixel_x = 0
 	pixel_y = 0
 
+/obj/structure/machinery/light_construct/small/floor/persistence_reapply_wall_offset()
+	pixel_x = 0
+	pixel_y = 0
+
 /obj/structure/machinery/light_construct/floor
 	name = "floor light fixture frame"
 	desc = "A floor light fixture under construction."
@@ -252,5 +273,9 @@
 /// See light_construct/small/floor's Initialize() above.
 /obj/structure/machinery/light_construct/floor/Initialize(mapload, var/dir, var/building = 0)
 	. = ..()
+	pixel_x = 0
+	pixel_y = 0
+
+/obj/structure/machinery/light_construct/floor/persistence_reapply_wall_offset()
 	pixel_x = 0
 	pixel_y = 0

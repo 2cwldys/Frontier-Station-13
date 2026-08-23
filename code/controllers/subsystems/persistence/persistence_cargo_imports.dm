@@ -441,7 +441,7 @@ GLOBAL_LIST_EMPTY(cargo_import_prices)
 
 /datum/admins/proc/modify_cargo_imports()
 	set name = "Modify Cargo Imports"
-	set category = "Persistence"
+	set category = "Persistence.Cargo & Economy"
 	set desc = "Override cargo import prices, or restore them to code defaults."
 
 	if(!check_rights(R_ADMIN))

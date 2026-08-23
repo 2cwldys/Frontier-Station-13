@@ -1,0 +1,36 @@
+# Central (cross-server) database -- ADMIN/migration credentials.
+#
+# Copy this file to config\central_dbconfig_admin.txt and fill in a login
+# with real DDL rights (CREATE, ALTER, ...) on the central database.
+#
+# This is DELIBERATELY SEPARATE from config\central_dbconfig.txt, which is
+# the per-server RUNTIME login the game itself reads (SScentraldb,
+# code\controllers\subsystems\centraldb.dm) -- that login is provisioned
+# with DML rights only (SELECT/INSERT/UPDATE/DELETE), on purpose, so a
+# compromised or buggy game server can corrupt data at worst, never the
+# schema. This admin file is what actually HAS the power to alter the
+# schema or create/drop other logins, so it should exist only on whatever
+# machine you administer the central database from -- never copied into a
+# game server's own config, and never the credentials handed out by
+# central_db_add_server.ps1 (that script hands out RUNTIME logins, using
+# THIS file's credentials to create them).
+#
+# Used by:
+#   scripts\db_update_central.ps1        -- applies SQL\migrate-central\*.sql
+#   scripts\central_db_add_server.ps1    -- provisions a new server's runtime login
+#   scripts\central_db_remove_server.ps1 -- revokes a server's runtime login
+
+# Host the shared central MySQL/MariaDB database can be found at.
+ADDRESS central.example.com
+
+# MySQL server port (default is 3306)
+PORT 3306
+
+# Database name on the central server
+DATABASE aurora_central
+
+# An admin-privileged login -- CREATE/ALTER/DROP/CREATE USER/GRANT OPTION.
+LOGIN central_admin
+
+# Password for the login above.
+PASSWORD central_admin_password

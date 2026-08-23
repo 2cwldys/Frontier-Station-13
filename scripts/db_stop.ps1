@@ -19,6 +19,7 @@ docker compose stop db
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Aurora DB stopped. Data is preserved." -ForegroundColor Green
     Write-Host "Restart with: scripts\db_start.ps1"
+    Write-Host "(Port not reachable after starting? scripts\db_restart.ps1 force-recreates it.)"
 } else {
     Write-Error "Failed to stop container."
 }

@@ -278,7 +278,7 @@ GLOBAL_LIST_EMPTY(supply_beacon_trade_cooldowns)
 /// (persistence_cargo_imports.dm).
 /datum/admins/proc/modify_cargo_beacons()
 	set name = "Modify Cargo Beacons"
-	set category = "Persistence"
+	set category = "Persistence.Cargo & Economy"
 	set desc = "Place, remove, or reprice Supply Beacon Terminal trade depots."
 
 	if(!check_rights(R_ADMIN))

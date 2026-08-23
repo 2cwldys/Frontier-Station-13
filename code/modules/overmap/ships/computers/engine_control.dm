@@ -71,6 +71,11 @@
 	data["global_state"] = !!connected.engines_state
 	data["global_limit"] = round(connected.thrust_limit * 100)
 	data["tractored"] = !!connected.tractored_by
+	// A landed/in-transit ship can't burn at all (can_burn()/burn(),
+	// landable.dm, both refuse anything but SHIP_STATUS_OVERMAP), so the
+	// power-on controls grey out instead of looking usable while docked.
+	var/obj/effect/overmap/visitable/ship/landable/docked_check = connected
+	data["docked"] = istype(docked_check) && docked_check.status != SHIP_STATUS_OVERMAP
 
 	var/total_thrust = 0
 	var/list/enginfo = list()

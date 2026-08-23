@@ -63,6 +63,14 @@
 /obj/structure/machinery/door/airlock/keypad/allowed(mob/M)
 	return !locked
 
+/// This door's sole access gate is its own code (allowed() above) -- a
+/// faction tag would have zero effect on who can actually open it, so don't
+/// offer one at all. Blocks both the faction tagger tool's menu
+/// (faction_tagger.dm) and the faction beacon's periodic auto-tag sweep
+/// (persistence_factions.dm), which both gate on this single proc.
+/obj/structure/machinery/door/airlock/keypad/faction_tagger_compatible()
+	return FALSE
+
 /// Re-locks unconditionally on every close -- self-timer autoclose, a
 /// remote signal, or another player closing it all count. The code has to
 /// be re-entered to get back in every time, per design. Refuses to close at
@@ -119,7 +127,12 @@
 	// character -- the actual root cause of "admin options don't show."
 	var/isAdmin = check_rights(R_ADMIN, FALSE, user)
 	var/isSetter = _is_setter(user)
-	data["canReset"] = set_code && isSetter
+	// isAdmin, not just isSetter -- matches this file's own header comment
+	// ("Only the original setter (or an admin) can reset the code") and the
+	// reset_code case in ui_act() below, which already honors both. Without
+	// this, an admin who isn't the door's own setter could never even see
+	// the button to click.
+	data["canReset"] = set_code && (isSetter || isAdmin)
 	data["isAdmin"] = isAdmin
 	data["canHoldOpen"] = isAdmin || isSetter
 	data["entry"] = entry_buffer

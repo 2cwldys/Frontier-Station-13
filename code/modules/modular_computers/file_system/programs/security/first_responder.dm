@@ -11,6 +11,27 @@
  * pad for the return leg).
  */
 
+/// Logs a First Responder enforcement action to the admin log exactly as
+/// before, and additionally mirrors it to the law-enforcement Discord channel
+/// via log_law_enforcement() (__HELPERS/logging/admin.dm) -- the same channel
+/// that receives highsec offenses and distress calls, so a security team sees
+/// both the incident and whatever enforcement followed it.
+///
+/// The admin copy keeps key_name()'s "ckey/(Character Name)" for
+/// accountability; the security channel gets the same sentence with the
+/// actor's character name substituted in, since officers reading it have no
+/// use for a ckey. Callers pass the admin sentence and the actor, and the IC
+/// variant is derived here rather than every call site writing it twice.
+/proc/_log_first_responder_action(message, mob/user)
+	log_and_message_admins(message, user)
+	var/ic_message = message
+	if(user)
+		var/actor_key_name = key_name(user)
+		var/actor_ic_name = user.real_name || user.name
+		if(actor_key_name && actor_ic_name)
+			ic_message = replacetext(message, actor_key_name, actor_ic_name)
+	log_law_enforcement(ic_message)
+
 #define FIRST_RESPONDER_COOLDOWN 30 SECONDS
 #define FIRST_RESPONDER_OFFENSE_MAX_AGE 15 MINUTES
 
@@ -74,6 +95,7 @@
 	data["in_highsec"]   = (zone_security_get(user.z) == ZONE_HIGHSEC)
 	data["tap_mode"]     = tap_mode
 	data["can_scuttle_ships"] = (net == "hub") && can_configure_faction_shackle(user, "hub", 1)
+	data["can_roll_call"] = (net == "hub") && can_configure_faction_shackle(user, "hub", 1)
 
 	// Ships the Hub has repossessed -- visible from any Hub terminal so any
 	// hub member can hand one back. "Retrieve as Hub" needs no extra UI here:
@@ -238,6 +260,26 @@
 					return TRUE
 			return TRUE
 
+		if("roll_call")
+			// Console action -- calls all active Hub security to report in,
+			// bypassing the PDA channel entirely (see zone_security_roll_call(),
+			// persistence_zone_security.dm) so it reaches someone even with
+			// their PDA off. Same officer-rank gate as scuttle_repossessed/
+			// withdraw_schematic above -- this is an authority action, not a
+			// routine one.
+			if(!can_run(user, TRUE, ACCESS_SECURITY, PROGRAM_ACCESS_ONE))
+				return TRUE
+			if(normalize_faction_uid(computer.persistent_network) != "hub")
+				to_chat(user, SPAN_WARNING("Roll call requires a Hub-network terminal."))
+				return TRUE
+			if(!can_configure_faction_shackle(user, "hub", 1))
+				to_chat(user, SPAN_WARNING("Roll call requires officer rank or higher in the Hub."))
+				return TRUE
+			var/reached = zone_security_roll_call(user)
+			to_chat(user, SPAN_GOOD("Roll call sent -- reached [reached] active Hub security member\s."))
+			_log_first_responder_action("[key_name(user)] issued a Hub security roll call via First Responder (reached [reached]).", user)
+			return TRUE
+
 		if("set_tap_mode")
 			if(!can_run(user, TRUE, ACCESS_SECURITY, PROGRAM_ACCESS_ONE))
 				return TRUE
@@ -281,7 +323,7 @@
 			var/ship_name = DS.display_name()
 			if(SSpersistence.drydockStash(shuttle_id, user, force = TRUE))
 				to_chat(user, SPAN_GOOD("[ship_name] forcibly stashed."))
-				log_and_message_admins("[key_name(user)] force-stashed [ship_name] (#[shuttle_id]) via First Responder", user)
+				_log_first_responder_action("[key_name(user)] force-stashed [ship_name] (#[shuttle_id]) via First Responder", user)
 			else
 				to_chat(user, SPAN_WARNING("Failed to stash [ship_name]."))
 			return TRUE
@@ -297,7 +339,7 @@
 				return TRUE
 			if(SSpersistence.drydockReturnToOwner(shuttle_id, user))
 				to_chat(user, SPAN_GOOD("Ship returned to its original owner."))
-				log_and_message_admins("[key_name(user)] returned repossessed ship shuttle_id=[shuttle_id] to its original owner via First Responder", user)
+				_log_first_responder_action("[key_name(user)] returned repossessed ship shuttle_id=[shuttle_id] to its original owner via First Responder", user)
 			else
 				to_chat(user, SPAN_WARNING("Failed to return ship -- it may not be repossessed."))
 			return TRUE
@@ -328,7 +370,7 @@
 			var/ship_name = DS.display_name()
 			if(SSpersistence.drydockScuttle(shuttle_id, user, hub_authority = TRUE))
 				to_chat(user, SPAN_GOOD("[ship_name] scuttled by Hub authority."))
-				log_and_message_admins("[key_name(user)] scuttled repossessed ship [ship_name] (#[shuttle_id]) via First Responder (Hub officer authority)", user)
+				_log_first_responder_action("[key_name(user)] scuttled repossessed ship [ship_name] (#[shuttle_id]) via First Responder (Hub officer authority)", user)
 			else
 				to_chat(user, SPAN_WARNING("Failed to scuttle [ship_name]."))
 			return TRUE
@@ -357,7 +399,7 @@
 				return TRUE
 			var/ship_name = DS.display_name()
 			if(SSpersistence.drydockWithdrawSchematic(shuttle_id, user, hub_authority = TRUE))
-				log_and_message_admins("[key_name(user)] withdrew the schematic for repossessed ship [ship_name] (#[shuttle_id]) via First Responder (Hub officer authority)", user)
+				_log_first_responder_action("[key_name(user)] withdrew the schematic for repossessed ship [ship_name] (#[shuttle_id]) via First Responder (Hub officer authority)", user)
 			else
 				to_chat(user, SPAN_WARNING("Failed to withdraw the schematic for [ship_name]."))
 			return TRUE
@@ -393,7 +435,7 @@
 			var/ship_name = DS.display_name()
 			SSpersistence.drydockClearStolenFlag(shuttle_id)
 			to_chat(user, SPAN_GOOD("[ship_name] is no longer reported stolen."))
-			log_and_message_admins("[key_name(user)] reported repossessed ship [ship_name] (#[shuttle_id]) as no longer stolen via First Responder (Hub officer authority)", user)
+			_log_first_responder_action("[key_name(user)] reported repossessed ship [ship_name] (#[shuttle_id]) as no longer stolen via First Responder (Hub officer authority)", user)
 			return TRUE
 
 /// Finds a passable turf adjacent to the target (the target itself as a
@@ -423,9 +465,9 @@
 /datum/computer_file/program/security/first_responder/proc/first_responder_jump(mob/M, turf/dest, arm_cooldown = TRUE)
 	var/turf/origin = get_turf(M)
 	if(origin)
-		_telepad_phase_arrival(origin)
+		_telepad_phase_arrival(origin, M.dir)
 		spark(origin, 3, GLOB.alldirs)
-	_telepad_phase_arrival(dest)
+	_telepad_phase_arrival(dest, M.dir)
 	spark(dest, 3, GLOB.alldirs)
 	// forceMove, NOT do_teleport: the science teleport datum scatters anyone
 	// carrying a bag of holding up to 100 tiles (teleport.dm setPrecision) --
@@ -491,9 +533,9 @@
 	SSpersistence.drydockRepossess(DS.shuttle_id, user)
 	to_chat(user, SPAN_GOOD("[DS.display_name()] stashed and repossessed by the Hub."))
 	if(target)
-		log_and_message_admins("[key_name(user)] repossessed [target]'s ship [DS.display_name()] via First Responder", user)
+		_log_first_responder_action("[key_name(user)] repossessed [target]'s ship [DS.display_name()] via First Responder", user)
 	else
-		log_and_message_admins("[key_name(user)] repossessed [DS.display_name()] via First Responder (schematic tapped directly)", user)
+		_log_first_responder_action("[key_name(user)] repossessed [DS.display_name()] via First Responder (schematic tapped directly)", user)
 
 /// Tap handler for tap_mode == "stash"/"repossess" (interaction.dm's
 /// modular_computer/attack() branches here instead of toggle_prisoner_tag()

@@ -190,7 +190,8 @@
 
 /obj/structure/lattice/catwalk/indoor/grate/old/Initialize()
 	. = ..()
-	AddOverlays("rust")
+	if(GLOB.rust_variants_enabled)
+		AddOverlays("rust")
 
 /obj/structure/lattice/catwalk/indoor/grate/damaged
 	icon_state = "grate_dark_dam0"
@@ -208,7 +209,8 @@
 
 /obj/structure/lattice/catwalk/indoor/grate/light/old/Initialize()
 	. = ..()
-	AddOverlays("rust")
+	if(GLOB.rust_variants_enabled)
+		AddOverlays("rust")
 
 /obj/structure/lattice/catwalk/indoor/grate/light/damaged
 	icon_state = "grate_light_dam0"
@@ -231,7 +233,8 @@
 
 /obj/structure/lattice/catwalk/indoor/grate/dark/old/Initialize()
 	. = ..()
-	AddOverlays("rust")
+	if(GLOB.rust_variants_enabled)
+		AddOverlays("rust")
 
 /obj/structure/lattice/catwalk/indoor/grate/gridded
 	color = COLOR_GRAY40

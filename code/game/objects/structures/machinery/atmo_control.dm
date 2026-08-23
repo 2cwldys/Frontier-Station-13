@@ -47,6 +47,31 @@
 
 	var/datum/radio_frequency/radio_connection
 
+/// Auto-assigns a unique id_tag the first time this sensor is linked to a
+/// console -- mirrors _ensure_id_tag() on airlocks/vent pumps/injectors.
+/// id_tag is what the sensor stamps on its broadcasts and what the console
+/// keys its `sensors` list by, and it is mapper-authored only, so a built
+/// sensor would otherwise stay null and collide with every other blank one.
+/obj/structure/machinery/air_sensor/proc/_ensure_id_tag()
+	if(!id_tag)
+		id_tag = "sensor_[REF(src)]"
+	return id_tag
+
+/// Multitool linking to any atmos console -- buffer either end, click the
+/// other. Same buffer-toggle shape used by the injector and vent pump.
+/obj/structure/machinery/air_sensor/attackby(obj/item/attacking_item, mob/user, params)
+	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
+		var/obj/item/multitool/MT = attacking_item
+		var/obj/structure/machinery/computer/general_air_control/console = MT.get_buffer(/obj/structure/machinery/computer/general_air_control)
+		if(!console)
+			MT.set_buffer(src)
+			to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
+			return TRUE
+		console._link_air_sensor(src, user)
+		MT.set_buffer(null)
+		return TRUE
+	return ..()
+
 /obj/structure/machinery/air_sensor/update_icon()
 	icon_state = "gsensor[on]"
 
@@ -144,6 +169,20 @@
 	ui_type = "AtmosControl"
 	circuit = /obj/item/circuitboard/air_management
 
+	// Input/output device linking (vent pump / outlet injector, as opposed to
+	// the gas-sensor linking right above) lives here on the base rather than
+	// only on large_tank_control below -- supermatter_core (further down)
+	// already duplicates these same four vars and the UI/receive_signal code
+	// that reads them, but had no way to ever populate them: no
+	// _link_atmos_device() of its own and no multitool attackby() override to
+	// call it, since that also only existed on large_tank_control. Declared
+	// once here, both subtypes' own re-declarations below are removed in
+	// favor of inheriting these.
+	var/input_tag
+	var/output_tag
+	var/list/input_info
+	var/list/output_info
+
 /obj/structure/machinery/computer/general_air_control/Destroy()
 	if(SSradio)
 		SSradio.remove_object(src, frequency)
@@ -196,15 +235,107 @@
 	. = ..()
 	set_frequency(frequency)
 
+/// Adds/removes a gas sensor from this console's readout list. `sensors` is an
+/// assoc id_tag -> display name, walked by ui_data(). Mapper-authored only
+/// until now, so a player-built console had no readouts at all. Re-linking the
+/// same sensor removes it, matching the injector/vent toggle behaviour.
+/obj/structure/machinery/computer/general_air_control/proc/_link_air_sensor(obj/structure/machinery/air_sensor/sensor, mob/user)
+	if(!istype(sensor))
+		return
+	sensor._ensure_id_tag()
+	if(sensors[sensor.id_tag])
+		sensors -= sensor.id_tag
+		sensor_information -= sensor.id_tag
+		to_chat(user, SPAN_NOTICE("You unlink \the [sensor] from \the [src]."))
+		return
+	sensors[sensor.id_tag] = sensor.name
+	// Same reason the injector/vent links do this -- writing the tag alone
+	// leaves the device on a different channel, so nothing ever arrives.
+	sensor.set_frequency(frequency)
+	to_chat(user, SPAN_NOTICE("You link \the [sensor] to \the [src]."))
+
+/// Links an injector (Input) or vent pump (Output) to this console by tag,
+/// modelled on _link_to_airpump() (airlock_controllers.dm). Both tag slots are
+/// mapper-authored only, and a built injector starts with id = null and
+/// frequency = 0 (not on any channel at all), so without this a player-built
+/// console and injector could never address each other.
+///
+/// Re-linking the device already in a slot clears it, matching the cycler's
+/// own toggle behaviour. set_frequency() at the end is what actually puts the
+/// device on this console's channel -- writing the tag alone is not enough.
+///
+/// Lives on the base type, not just large_tank_control, so supermatter_core
+/// (further down) gets it too -- it already duplicated input_tag/output_tag/
+/// input_info/output_info and the UI code that reads them, but had no proc
+/// and no multitool attackby() hook to ever populate them, so no device of
+/// either kind could ever actually be linked to it.
+/obj/structure/machinery/computer/general_air_control/proc/_link_atmos_device(obj/structure/machinery/atmospherics/device, mob/user)
+	if(istype(device, /obj/structure/machinery/atmospherics/unary/outlet_injector))
+		var/obj/structure/machinery/atmospherics/unary/outlet_injector/injector = device
+		injector._ensure_id_tag()
+		if(input_tag == injector.id)
+			input_tag = null
+			input_info = null
+			to_chat(user, SPAN_NOTICE("You unlink \the [injector] from \the [src]'s input."))
+			return
+		input_tag = injector.id
+		injector.set_frequency(frequency)
+		// Ask for a status broadcast on the device's next tick. Without this the
+		// link is real but invisible: this console only fills input_info from a
+		// RECEIVED signal, ui_data() omits the whole input block while that is
+		// null, and an injector only broadcasts when it receives a command --
+		// which the UI can't offer until data has arrived. That deadlock is why
+		// a linked injector looked like it hadn't linked at all, while a gas
+		// sensor (which broadcasts every tick unconditionally) worked fine.
+		injector.broadcast_status_next_process = TRUE
+		to_chat(user, SPAN_NOTICE("You link \the [injector] to \the [src] as its input."))
+		return
+
+	if(istype(device, /obj/structure/machinery/atmospherics/unary/vent_pump))
+		var/obj/structure/machinery/atmospherics/unary/vent_pump/pump = device
+		pump._ensure_id_tag()
+		if(output_tag == pump.id_tag)
+			output_tag = null
+			output_info = null
+			to_chat(user, SPAN_NOTICE("You unlink \the [pump] from \the [src]'s output."))
+			return
+		output_tag = pump.id_tag
+		pump.set_frequency(frequency)
+		// Same reason as the injector above -- see that comment.
+		pump.broadcast_status_next_process = TRUE
+		to_chat(user, SPAN_NOTICE("You link \the [pump] to \the [src] as its output."))
+		return
+
+	to_chat(user, SPAN_WARNING("\The [src] only accepts an air injector (input) or an air vent (output)."))
+
+/obj/structure/machinery/computer/general_air_control/attackby(obj/item/attacking_item, mob/user, params)
+	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
+		var/obj/item/multitool/MT = attacking_item
+		// Buffered injector/vent pump (Input/Output) checked first, then a
+		// buffered gas sensor -- both are "an atmos device was buffered
+		// elsewhere, now touch the console to complete the link" the same way,
+		// just different consumers of the buffer.
+		var/obj/structure/machinery/atmospherics/buffered_device = MT.get_buffer(/obj/structure/machinery/atmospherics)
+		if(buffered_device)
+			_link_atmos_device(buffered_device, user)
+			MT.set_buffer(null)
+			return TRUE
+		var/obj/structure/machinery/air_sensor/sensor = MT.get_buffer(/obj/structure/machinery/air_sensor)
+		if(sensor)
+			_link_air_sensor(sensor, user)
+			MT.set_buffer(null)
+			return TRUE
+		MT.set_buffer(src)
+		to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
+		return TRUE
+	return ..()
+
 
 /obj/structure/machinery/computer/general_air_control/large_tank_control
 	ui_type = "AtmosControlTank"
 	frequency = 1441
-	var/input_tag
-	var/output_tag
-
-	var/list/input_info
-	var/list/output_info
+	// input_tag/output_tag/input_info/output_info are declared on the base
+	// type now (general_air_control, above) -- shared with supermatter_core.
 
 	var/default_input_flow_setting = 200
 	var/default_pressure_setting = PRESSURE_ONE_THOUSAND * 2
@@ -255,6 +386,10 @@
 		data["output"]["pressure"] = output_info["internal"]
 		data["output"]["setpressure"] = default_pressure_setting
 	return data
+
+// _link_atmos_device() and the multitool attackby() hook that calls it now
+// live on the base type (general_air_control, above) -- shared with
+// supermatter_core.
 
 /obj/structure/machinery/computer/general_air_control/large_tank_control/receive_signal(datum/signal/signal)
 	if(!signal || signal.encryption) return
@@ -328,11 +463,12 @@
 	light_power_on = 1
 
 	frequency = 1438
-	var/input_tag
-	var/output_tag
-
-	var/list/input_info
-	var/list/output_info
+	// input_tag/output_tag/input_info/output_info are declared on the base
+	// type now (general_air_control, above) -- shared with large_tank_control.
+	// This subtype previously had no way to ever populate them: no
+	// _link_atmos_device() and no multitool attackby() hook of its own, so no
+	// injector/vent pump could ever actually be linked to a supermatter core
+	// console. Both now come from the base type too.
 
 	var/default_input_flow_setting = 700
 	var/default_pressure_setting = 100

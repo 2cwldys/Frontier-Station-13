@@ -176,10 +176,54 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 
 	var/log_world_output = 0			// log world.log <<  messages
 	var/sql_enabled = 0					// for sql switching
+
+	/// Enables the SECOND database connection (SScentraldb, centraldb.dm) used
+	/// for cross-server shared persistence -- characters, money, factions, and
+	/// ship schematics shared with other authorized servers, as opposed to the
+	/// local-only SSdbcore connection above which always stays per-server
+	/// (worldstate, turfs, atmos, floor items). Off by default: only servers
+	/// deliberately authorized against a shared central database should ever
+	/// set this. Config lives in config/central_dbconfig.txt, mirroring how
+	/// the local DB's own config/dbconfig.txt is kept out of config.txt
+	/// itself (both carry credentials).
+	var/central_sql_enabled = 0
+	/// This server's own identity when acquiring a presence lock
+	/// (ss13_presence_lock) on the central database -- what a SECOND server
+	/// displays to explain why a character or ship it tried to load is
+	/// refused ("already active on [central_server_id]"). Must be unique
+	/// across every server sharing one central database; nothing enforces
+	/// that automatically, since the servers authorized to connect are
+	/// exactly the ones trusted to be configured correctly.
+	var/central_server_id = ""
+	/// Set only inside a local game-server shard's own config.txt (written
+	/// by scripts/central/db_central_add_shard.ps1/.sh at creation, never
+	/// hand-edited) -- identical to central_server_id above. Lets
+	/// shard-unaware code (e.g. the backup verb/auto-toggle,
+	/// persistence_backups.dm) detect it's running inside a shard and
+	/// refuse cleanly instead of failing confusingly. Empty on every
+	/// server that isn't a shard.
+	var/shard_id = ""
+
+	/// Per-subject toggles for what actually gets shared once a call site
+	/// exists to route it through SScentraldb instead of SSdbcore -- each
+	/// one is independent so, e.g., a server can share characters/ships
+	/// with the group without also sharing money or faction data. Every
+	/// one of these is inert until the matching persistence code is built
+	/// (see docs/cross_server_persistence.md's "What's built vs not"
+	/// table); flipping one on today does nothing by itself. Kept as
+	/// separate #KEY toggles in config.txt, same as central_sql_enabled
+	/// above, rather than one combined switch, so each can be
+	/// commented/uncommented on its own.
+	var/central_sync_characters = 0
+	var/central_sync_ships = 0
+	var/central_sync_factions = 0
+	var/central_sync_money = 0
+
 	var/allow_admin_ooccolor = 0		// Allows admins with relevant permissions to have their own ooc colour
 	var/disable_round_end = 0			// disables shuttle calls, round-end votes, and nuke round-end while persistence (sql_enabled) is active
 	var/manual_area_save = 0			// persistence only saves/loads z-levels explicitly enabled via the Toggle Z-Level Persistence verb (ss13_zlevel_persistence)
 	var/persistence_disable_station = 0	// skip loading the primary station map entirely, for whichever map is selected -- overmap/away-sites/pinning still work, for isolated persistence testing
+	var/disable_frontier_beacon = 0	// skip spawning the CentCom overmap marker ("Frontier Beacon Depot") -- see sectors.dm build_overmap()
 	var/allow_vote_restart = 0 			// allow votes to restart
 	var/ert_admin_call_only = 0
 	var/allow_vote_mode = 0				// allow votes to change mode
@@ -400,6 +444,30 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 	var/client_warn_version = 0
 	var/client_warn_message = ""
 	var/list/client_blacklist_version = list()
+	/// Minimum BYOND *build* (the 1687 of 516.1687) a client may connect with.
+	/// 0 disables the gate. Distinct from client_error_version above, which
+	/// only ever sees the major version (516) and so cannot express "516.1687
+	/// or later". Enforced in client_procs.dm; SSpersistence.min_client_build
+	/// overrides this at runtime when set.
+	var/min_client_build = 0
+	var/min_client_build_message = ""
+
+	/// Which staff presence keeps faction raiding available while
+	/// AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED is defined (_compile_options.dm).
+	/// "any" (default) counts anyone holding an admin datum, "mod" requires
+	/// R_ADMIN or R_MOD, "admin" requires R_ADMIN. See
+	/// raidingUpdateForStaffPresence() (persistence_factions.dm).
+	var/raiding_staff_rights = "any"
+	/// How many qualifying staff must be online to keep faction raiding
+	/// available. 0 and 1 both mean "one is enough"; higher values require a
+	/// fuller staff presence. See raidingUpdateForStaffPresence().
+	var/raiding_staff_minimum = 1
+
+	/// Minutes between uses of the "Advertise to Players" admin verb
+	/// (persistence_advertise.dm). Shared by all admins, not per-admin -- the
+	/// point is to rate-limit an @here ping, which a per-admin allowance would
+	/// defeat. 0 disables the cooldown entirely.
+	var/advertise_cooldown_minutes = 30
 
 	//Mark-up enabling
 	var/allow_chat_markup = 0
@@ -585,6 +653,32 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 				if ("sql_enabled")
 					GLOB.config.sql_enabled = 1
 
+				if ("central_sql_enabled")
+					GLOB.config.central_sql_enabled = 1
+
+				if ("central_server_id")
+					GLOB.config.central_server_id = value
+
+				if ("shard_id")
+					GLOB.config.shard_id = value
+
+				if ("central_sync_characters")
+					GLOB.config.central_sync_characters = 1
+
+				if ("central_sync_ships")
+					GLOB.config.central_sync_ships = 1
+
+				if ("central_sync_factions")
+					GLOB.config.central_sync_factions = 1
+
+				if ("central_sync_money")
+					GLOB.config.central_sync_money = 1
+
+#ifdef ALLOW_CENTRAL_SHARD_SPAWNING
+				if ("auto_central_shard_population_threshold")
+					GLOB.config.auto_central_shard_population_threshold = text2num(value)
+#endif
+
 				if ("debug_paranoid")
 					GLOB.config.debugparanoid = 1
 
@@ -608,6 +702,9 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 
 				if("persistence_disable_station")
 					GLOB.config.persistence_disable_station = 1
+
+				if("disable_frontier_beacon")
+					GLOB.config.disable_frontier_beacon = 1
 
 				if ("allow_vote_restart")
 					GLOB.config.allow_vote_restart = 1
@@ -1002,6 +1099,21 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 
 				if("client_blacklist_version")
 					GLOB.config.client_blacklist_version = splittext(value, ";")
+
+				if("min_client_build")
+					GLOB.config.min_client_build = text2num(value)
+
+				if("min_client_build_message")
+					GLOB.config.min_client_build_message = value
+
+				if("raiding_staff_rights")
+					GLOB.config.raiding_staff_rights = lowertext(value)
+
+				if("raiding_staff_minimum")
+					GLOB.config.raiding_staff_minimum = text2num(value)
+
+				if("advertise_cooldown_minutes")
+					GLOB.config.advertise_cooldown_minutes = text2num(value)
 
 				if("allow_chat_markup")
 					GLOB.config.allow_chat_markup = 1

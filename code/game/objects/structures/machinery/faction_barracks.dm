@@ -230,20 +230,18 @@
 			M.passive_mode = (mode == "passive")
 	to_chat(user, SPAN_NOTICE("\The [src]'s soldiers will now [mode == "passive" ? "hold their fire unless ordered." : "engage non-faction targets on sight."]"))
 
-/// Dismisses every current soldier (fading portal + sparks VFX, not a
-/// silent qdel) -- called both by the explicit "Dismiss Soldiers" UI button
+/// Dismisses every current soldier (instant phase-teleport visual/sound, not
+/// a silent qdel) -- called both by the explicit "Dismiss Soldiers" UI button
 /// and automatically whenever the barracks powers off or is destroyed (see
 /// _set_active()/Destroy()). Safe to call with an empty active_mobs list.
 /obj/structure/machinery/faction_barracks/proc/dismiss_soldiers(mob/user)
 	for(var/mob/m in active_mobs)
 		UnregisterSignal(m, COMSIG_QDELETING)
 		if(!QDELETED(m))
-			// Same fading bluespace portal + sparks commander_beacon.dm's
-			// recall_stragglers()/dismiss_soldiers() use -- not a silent qdel.
+			// Same instant phase-teleport visual/sound (telepad_travel.dm)
+			// commander_beacon.dm/guard_beacon.dm use -- not a silent qdel.
 			var/turf/origin = get_turf(m)
-			if(origin)
-				new /obj/effect/portal/decorative/fading(origin, null, null, 5 SECONDS, 0)
-				spark(origin, 3, GLOB.alldirs)
+			_telepad_phase_arrival(origin, m.dir)
 			qdel(m)
 	active_mobs.Cut()
 	if(user)

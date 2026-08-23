@@ -122,6 +122,7 @@
 /turf/simulated/wall/Destroy()
 	STOP_PROCESSING(SSprocessing, src)
 	dismantle_wall(null, null, TRUE, TRUE)
+	GLOB.rust_variant_weathered_walls -= src
 	return ..()
 
 /turf/simulated/wall/process()

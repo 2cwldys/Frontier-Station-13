@@ -129,6 +129,14 @@ pixel_x = 10;
 	var/datum/wires/alarm/wires
 
 	var/mode = AALARM_MODE_SCRUBBING
+	/// TRUE while this alarm's own mode is currently forced into
+	/// AALARM_MODE_PANIC by an area fire alarm (COMSIG_AREA_FIRE_ALARM), rather
+	/// than a player's own selection -- see _on_area_fire_alarm().
+	var/fire_forced_mode = FALSE
+	/// Whatever mode was active immediately before a fire alarm forced this
+	/// into AALARM_MODE_PANIC, so it can be restored once the fire clears --
+	/// but only if the room isn't independently still dangerous.
+	var/mode_before_fire = null
 	var/area_uid
 	var/area/alarm_area
 	/// Display name
@@ -396,12 +404,33 @@ pixel_x = 10;
 	pixel_x = ((src.dir & (NORTH|SOUTH)) ? 0 : (src.dir == EAST ? 10 : -10))
 	pixel_y = ((src.dir & (NORTH|SOUTH)) ? (src.dir == NORTH ? 21 : -4) : 0)
 
+/obj/structure/machinery/alarm/persistence_reapply_wall_offset()
+	set_pixel_offsets()
+
+/obj/structure/machinery/alarm/persistent_objects_get_content()
+	. = ..()
+	.["buildstage"] = buildstage
+	.["panel_open"] = panel_open
+
+/obj/structure/machinery/alarm/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if("buildstage" in content)
+		buildstage = text2num(content["buildstage"])
+	if("panel_open" in content)
+		panel_open = content["panel_open"]
+	update_icon()
+
 /obj/structure/machinery/alarm/proc/first_run()
 	alarm_area = get_area(src)
 	// Just directional indicators, if any
 	alarm_area_name = get_area_display_name(alarm_area, FALSE, FALSE, FALSE, TRUE)
 	alarm_area_name_full = get_area_display_name(alarm_area)
 	area_uid = alarm_area.uid
+	// Area-scoped fire response -- no direct tagging to a specific fire alarm,
+	// mirrors firealarm.dm's own COMSIG_AREA_FIRE_ALARM registration exactly.
+	RegisterSignal(alarm_area, COMSIG_AREA_FIRE_ALARM, PROC_REF(_on_area_fire_alarm))
 	if (name == "alarm")
 		if (highpower)
 			name = "[alarm_area_name] High-Power Air Alarm"
@@ -622,6 +651,28 @@ pixel_x = 10;
 
 	return 1
 
+/// Area-scoped fire response, per COMSIG_AREA_FIRE_ALARM -- no direct tagging to
+/// a specific fire alarm, this reacts to whichever fire alarm(s) cover the same
+/// area. Forces a siphon on fire, and on clear restores whatever mode was active
+/// before rather than blindly defaulting to Scrubbing -- but only if the room
+/// isn't independently still dangerous (alarm_area.atmosalm), so a genuine,
+/// unrelated atmos hazard isn't silently released just because the fire itself
+/// is out.
+/obj/structure/machinery/alarm/proc/_on_area_fire_alarm(datum/source, new_fire_state)
+	SIGNAL_HANDLER
+	if(new_fire_state)
+		if(!fire_forced_mode)
+			mode_before_fire = mode
+			fire_forced_mode = TRUE
+		mode = AALARM_MODE_PANIC
+		apply_mode()
+	else if(fire_forced_mode)
+		fire_forced_mode = FALSE
+		if(alarm_area?.atmosalm)
+			return
+		mode = mode_before_fire
+		apply_mode()
+
 /obj/structure/machinery/alarm/proc/apply_mode()
 	//propagate mode to other air alarms in the area
 	//TODO: make it so that players can choose between applying the new mode to the room they are in (related area) vs the entire alarm area
@@ -750,7 +801,12 @@ pixel_x = 10;
 			environment_data += list(list("name" = "Temperature",     "value" = environment.temperature,                   "unit" = "K",   "danger_level" = temperature_dangerlevel))
 	data["environment"] = environment_data
 	data["total_danger"] = danger_level
-	data["atmos_alarm"] = alarm_area.atmosalm
+	// Safe-navigated, matching the existing alarm_area?.atmosalm at the top of
+	// this file. Unguarded, an alarm whose area never resolved runtimed HERE
+	// and aborted ui_data() partway, so the payload shipped with environment
+	// but no modes/vents/scrubbers/thresholds -- the Home tab rendered and
+	// every other tab white-screened on an undefined array.
+	data["atmos_alarm"] = alarm_area?.atmosalm
 	data["target_temperature"] = round(target_temperature - T0C, 0.1)
 
 	// Access
@@ -770,9 +826,11 @@ pixel_x = 10;
 		list("name" = "Off",          "description" = "Shuts off vents and scrubbers",        "mode" = AALARM_MODE_OFF,         "danger" = FALSE)
 	)
 
-	// Vents
+	// Vents -- the key is emitted unconditionally, even with no area to read
+	// from. An empty array is what keeps the interface on its "no vents" path
+	// instead of indexing undefined.
 	var/list/vents = list()
-	for(var/id_tag in alarm_area.air_vent_names)
+	for(var/id_tag in alarm_area?.air_vent_names)
 		var/list/info = alarm_area.air_vent_info[id_tag]
 		if(!info)
 			continue
@@ -786,9 +844,9 @@ pixel_x = 10;
 		))
 	data["vents"] = vents
 
-	// Scrubbers
+	// Scrubbers -- same unconditional-key reasoning as the vents block above.
 	var/list/scrubbers = list()
-	for(var/id_tag in alarm_area.air_scrub_names)
+	for(var/id_tag in alarm_area?.air_scrub_names)
 		var/list/info = alarm_area.air_scrub_info[id_tag]
 		if(!info)
 			continue
@@ -803,7 +861,7 @@ pixel_x = 10;
 				list("name" = "Nitrogen",       "command" = "n2_scrub",  "val" = info["filter_n2"]),
 				list("name" = "Carbon Dioxide", "command" = "co2_scrub", "val" = info["filter_co2"]),
 				list("name" = "Phoron",         "command" = "tox_scrub", "val" = info["filter_phoron"]),
-				list("name" = "Hydrogen",       "command" = "h2_scrub",  "val" = info["filter_h"]),
+				list("name" = "Hydrogen",       "command" = "h_scrub",   "val" = info["filter_h"]),
 				list("name" = "Nitrous Oxide",  "command" = "n2o_scrub", "val" = info["filter_n2o"]),
 				list("name" = "Chlorine",       "command" = "cl_scrub",  "val" = info["filter_cl"])
 			)
@@ -882,7 +940,13 @@ pixel_x = 10;
 						signal[command] = input_pressure
 						send_signal(device_id, signal)
 				if("reset_external_pressure")
-					signal[command] = ONE_ATMOSPHERE
+					// vent_pump.dm's receive_signal() has no "reset_external_pressure"
+					// key at all -- only "set_external_pressure", which already has a
+					// dedicated reset path via the literal string "default" (restores
+					// external_pressure_bound_default, a per-vent-type value, not a
+					// flat ONE_ATMOSPHERE -- some vent subtypes default to 0). Reuse
+					// that existing mechanism instead of a second, unheard key.
+					signal["set_external_pressure"] = "default"
 					send_signal(device_id, signal)
 				if("power",
 					"adjust_external_pressure",
@@ -891,7 +955,7 @@ pixel_x = 10;
 					"n2_scrub",
 					"co2_scrub",
 					"tox_scrub",
-					"h2_scrub",
+					"h_scrub",
 					"n2o_scrub",
 					"cl_scrub",
 					"panic_siphon",

@@ -16,6 +16,108 @@
 	var/persistence_cryo_timer   = null
 	var/persistence_stored_ckey  = ""
 
+/**
+ * Presence lock -- see docs/cross_server_persistence.md. Prevents a
+ * character from being played simultaneously (or resumed at all) on two
+ * servers sharing one central database. Released ONLY by a genuine,
+ * deliberate persistStoreCharacter() call -- never by the passive grace-
+ * timer despawn below, which is just the involuntary consequence of a
+ * disconnect, not a decision to cryo out. A character stays locked to
+ * whichever server it's on while dead, imprisoned, neural-lace-vaulted,
+ * or simply disconnected-but-never-actually-stored -- "out of cryo"
+ * covers all of those, matching this system's original requirement.
+ * ss13_presence_lock (SQL/migrate-central/V001__presence_lock.sql): row
+ * existence is the lock -- no enabled flag, no timestamp expiry.
+ */
+
+/// Cheap reachability check for UI gating (character-select TGUI) -- no
+/// logging, unlike databaseCheckCentralConnection(), since this is safe to
+/// call on every TGUI refresh. TRUE when central is off (never gates
+/// anything in that case) or when it's on and currently reachable.
+/datum/controller/subsystem/persistence/proc/centralDatabaseReachable()
+	if(!GLOB.config.central_sql_enabled)
+		return TRUE
+	return SScentraldb.Connect()
+
+/**
+ * Attempts to acquire the presence lock for subject_type/subject_id (e.g.
+ * "character", "[ckey]|[real_name]"). Returns:
+ *   ""    lock is now held by (or already belonged to) THIS server --
+ *         includes the immediate no-op case where central_sql_enabled is off
+ *   null  central DB unreachable, or the lookup itself failed -- callers
+ *         MUST treat this as fail-closed, never as "unlocked"
+ *   else  the OTHER server's central_server_id currently holding it
+ */
+/datum/controller/subsystem/persistence/proc/presenceLockAcquire(subject_type, subject_id)
+	if(!GLOB.config.central_sql_enabled)
+		return ""
+	if(!databaseCheckCentralConnection("presenceLockAcquire"))
+		return null
+
+	var/datum/db_query/insert_q = SScentraldb.NewQuery(
+		"INSERT INTO `ss13_presence_lock` (subject_type, subject_id, server_id) VALUES (:type, :id, :sid)",
+		list("type" = subject_type, "id" = subject_id, "sid" = GLOB.config.central_server_id))
+	insert_q.Execute()
+	if(databaseCheckQueryResult(insert_q, "presenceLockAcquire insert"))
+		qdel(insert_q)
+		return ""
+	qdel(insert_q)
+
+	// Insert failed -- the primary key (subject_type, subject_id) almost
+	// certainly already exists. Find out who actually holds it before
+	// deciding whether that's a real conflict or this server reclaiming
+	// its own prior lock (e.g. after a restart).
+	var/datum/db_query/select_q = SScentraldb.NewQuery(
+		"SELECT server_id FROM `ss13_presence_lock` WHERE subject_type = :type AND subject_id = :id",
+		list("type" = subject_type, "id" = subject_id))
+	select_q.Execute()
+	if(!databaseCheckQueryResult(select_q, "presenceLockAcquire select"))
+		qdel(select_q)
+		return null // couldn't determine who holds it -- fail closed, never guess
+	var/holder = select_q.NextRow() ? select_q.item[1] : null
+	qdel(select_q)
+
+	if(!holder || holder == GLOB.config.central_server_id)
+		return "" // already ours, or the conflicting row vanished in between (rare release race)
+	return holder
+
+/// Releases a lock this server holds -- scoped to server_id = our own, so
+/// a server can only ever release its own lock. No-op if central is off,
+/// unreachable, or no lock is held.
+/datum/controller/subsystem/persistence/proc/presenceLockRelease(subject_type, subject_id)
+	if(!GLOB.config.central_sql_enabled)
+		return
+	if(!databaseCheckCentralConnection("presenceLockRelease"))
+		return
+	var/datum/db_query/q = SScentraldb.NewQuery(
+		"DELETE FROM `ss13_presence_lock` WHERE subject_type = :type AND subject_id = :id AND server_id = :sid",
+		list("type" = subject_type, "id" = subject_id, "sid" = GLOB.config.central_server_id))
+	q.Execute()
+	qdel(q)
+
+/// Disaster-recovery escape hatch -- unlike presenceLockRelease() above,
+/// this does NOT scope to server_id, so it can clear a lock held by a
+/// server/shard that no longer exists (removed via
+/// db_central_remove_shard.*, or a real server permanently decommissioned)
+/// and would otherwise hold that subject hostage forever, since nothing
+/// else can ever legitimately release another server's own lock. Callers
+/// MUST confirm with a human first (see the admin verb this backs) --
+/// this is deliberately capable of creating a real double-play window if
+/// used on a server that's actually still up and just unreachable at this
+/// exact moment, not truly gone. Returns TRUE if a row was actually
+/// deleted (there was something to clear).
+/datum/controller/subsystem/persistence/proc/presenceLockForceRelease(subject_type, subject_id)
+	if(!GLOB.config.central_sql_enabled)
+		return FALSE
+	if(!databaseCheckCentralConnection("presenceLockForceRelease"))
+		return FALSE
+	var/datum/db_query/q = SScentraldb.NewQuery(
+		"DELETE FROM `ss13_presence_lock` WHERE subject_type = :type AND subject_id = :id",
+		list("type" = subject_type, "id" = subject_id))
+	q.Execute()
+	. = (q.affected > 0)
+	qdel(q)
+
 /mob/living/carbon/human/proc/persistence_cryo_despawn()
 	if(!persistence_in_cryo || ckey)
 		return
@@ -23,6 +125,21 @@
 	if(stat == DEAD)
 		_persistence_dead_despawn()
 		return
+
+	// Alive and finishing the grace-timer despawn -- deliberately does NOT
+	// release the presence lock. This whole path is the INVOLUNTARY
+	// consequence of a disconnect (client/Destroy() -> persistCharacterOnLogout()
+	// -> this timer), never a deliberate action -- the grace window exists
+	// only to let a player who dropped for a few seconds resume the SAME
+	// body on THIS server, not to decide cross-server availability. A
+	// character that merely disconnected without going through an actual
+	// cryo/store action is "out of cryo" exactly as the original
+	// requirement for this whole system describes it (see
+	// docs/cross_server_persistence.md) -- still embodied, un-stored, just
+	// hidden -- and stays locked to this server until it's ACTUALLY
+	// resolved here: a genuine, deliberate persistStoreCharacter() call
+	// (Store Character, or a forced store), which is the only place this
+	// lock is ever released for a living, unimprisoned character.
 
 	// Find a hold turf  prefer player storage telepads, fall back to any latejoin point
 	var/turf/hold_turf = null
@@ -129,10 +246,20 @@
 			return
 		// Force-store unavailable (DB down etc) -- fall through to the normal despawn flow.
 
-	mobPositionSave(H)
-	mobsHealthSaveOne(H)
-	mobsInventorySaveOne(H)
-	charIdentitySaveOne(H)
+	// Skip the direct save while a bulk save is already running -- racing
+	// it with this proc's own unsynchronized writes to the same rows is
+	// exactly how a query can stall forever with no exception (see the
+	// matching guard/comment in persistStoreCharacter() above). Not a data
+	// loss risk: H stays in the world through the despawn grace timer
+	// either way, so the ALREADY-RUNNING bulk sweep's own normal iteration
+	// still saves H's current state -- this call is only a redundant
+	// fast-path, and there's no live client left here to tell to wait and
+	// retry.
+	if(!save_in_progress)
+		mobPositionSave(H)
+		mobsHealthSaveOne(H)
+		mobsInventorySaveOne(H)
+		charIdentitySaveOne(H)
 
 	H.persistence_stored_ckey = H.ckey
 	H.persistence_in_cryo     = TRUE
@@ -159,6 +286,22 @@
 		return FALSE
 	if(!databaseCheckConnection("persistStoreCharacter"))
 		return FALSE
+	// A bulk save (periodic, lobby-empty, or an admin's Force Persistence
+	// Save) already writes this same mob's rows as part of its own sweep --
+	// racing it with this proc's OWN direct writes to the same rows, from a
+	// completely separate unsynchronized DB call, is how a query stalls
+	// forever with no exception ever thrown (confirmed from an actual stuck
+	// save in this codebase's own logs: an admin's own mob stored itself
+	// via cryo while their own just-triggered Force Persistence Save was
+	// still mid-flight). Refuse outright rather than race it.
+	if(save_in_progress)
+		log_subsystem_persistence_info("Cryo: [H.real_name] ([H.ckey]) store deferred -- a persistence save is in progress.")
+		return FALSE
+
+	// Captured before the success branch below overwrites H.stat with
+	// UNCONSCIOUS -- presence-lock release (further down) must reflect
+	// whatever state actually got saved, not the post-store cosmetic one.
+	var/was_dead = (H.stat == DEAD)
 
 	// Save all character data
 	mobPositionSave(H)
@@ -206,6 +349,19 @@
 			cryo_pod.occupant = null
 			cryo_pod.update_icon()
 
+	// The character save above already fully completed and covers both
+	// outcomes below (a telepad found or not) -- release now rather than
+	// duplicating this in each branch. Dead stays locked, matching
+	// persistence_cryo_despawn()'s own release call (see that proc's
+	// comment, and this proc's own presence-lock doc comment above).
+	// Imprisoned ALSO stays locked -- this exact proc is what runs for a
+	// prison freeze/arrest force-store (see this proc's own header), so an
+	// unconditional release here would let a sentence be sidestepped by
+	// simply reconnecting through a different central-linked server the
+	// instant the cell door closes.
+	if(!was_dead && !persistence_character_actively_imprisoned(H.ckey, H.real_name))
+		SSpersistence.presenceLockRelease("character", "[H.ckey]|[H.real_name]")
+
 	// Move mob immediately to the player storage telepad (or latejoin fallback)
 	var/turf/hold_turf = null
 	if(length(GLOB.player_storage_tepads))
@@ -236,8 +392,20 @@
 		// here would sever that in-flight handoff and strand the client instead
 		// of returning it to the main menu.
 		QDEL_IN(H, 0)
+		// H excluded -- its own client is often still attached at this point
+		// (the voluntary store path hands it to a new lobby mob only after
+		// this proc returns), so an unqualified population check would always
+		// see itself as "still playing" and never fire.
+#ifdef LOBBY_EMPTY_AUTOSAVE
+		if(!_any_active_player_character(H))
+			INVOKE_ASYNC(SSpersistence, PROC_REF(runLobbyEmptyAutosave))
+#endif
 		return TRUE
 
+#ifdef LOBBY_EMPTY_AUTOSAVE
+	if(!_any_active_player_character(H))
+		INVOKE_ASYNC(SSpersistence, PROC_REF(runLobbyEmptyAutosave))
+#endif
 	return TRUE
 
 // ============================================================
@@ -522,6 +690,40 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 	catch
 		// Table may not exist yet  return null safely
 	qdel(q)
+
+	// This server has never seen this ckey's membership locally -- check
+	// centrally before giving up (CENTRAL_SYNC_FACTIONS). A hit is written
+	// back into the local table too (self-heal), same pattern as every
+	// other central read-through this session.
+	if(!faction_uid && _factionCentralSyncActive())
+		var/datum/db_query/cq = SScentraldb.NewQuery(
+			"SELECT faction_uid, real_name, job_title, rank FROM `ss13_faction_members` WHERE ckey = :ckey LIMIT 1",
+			list("ckey" = ckey)
+		)
+		cq.Execute()
+		if(cq.NextRow())
+			faction_uid = cq.item[1]
+			var/c_real_name = cq.item[2]
+			var/c_job_title = cq.item[3]
+			var/c_rank = text2num(cq.item[4])
+			qdel(cq)
+
+			GLOB.persistence_faction_members_cache["[ckey]|[faction_uid]"] = list(
+				"real_name" = c_real_name,
+				"job_title" = c_job_title,
+				"rank"      = c_rank
+			)
+			var/datum/db_query/lq = SSdbcore.NewQuery(
+				{"INSERT INTO ss13_faction_members (ckey, real_name, faction_uid, job_title, rank)
+				VALUES (:ckey, :real_name, :uid, :job, :rank)
+				ON DUPLICATE KEY UPDATE real_name = VALUES(real_name), job_title = VALUES(job_title), rank = VALUES(rank)"},
+				list("ckey" = ckey, "real_name" = c_real_name, "uid" = faction_uid, "job" = c_job_title, "rank" = c_rank)
+			)
+			lq.Execute()
+			qdel(lq)
+		else
+			qdel(cq)
+
 	return faction_uid
 
 /**
@@ -571,7 +773,7 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 /**
  * Find an available cryopod using the priority cascade:
  *   1. Faction pod matching faction_uid (exclusive to that faction)
- *   2. Public or unrestricted pod (persistent_network = "public" or "", persistent_spawn = TRUE)
+ *   2. Public spawn pod (persistent_network == "public" AND persistent_spawn == TRUE)
  * Returns the chosen POD, or null (callers handle landmark fallbacks).
  */
 /proc/persistence_find_available_cryopod(faction_uid = null, ckey = null, char_name = null)
@@ -609,9 +811,11 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 		if(length(faction_pods))
 			return pick(faction_pods)
 
-	// Priority 2: public or unrestricted spawn pods (open to everyone)
-	// Accepts both persistent_network == "public" (explicitly public) and
-	// persistent_network == "" (unrestricted  no faction restriction set)
+	// Priority 2: public spawn pods (open to everyone). Requires BOTH
+	// persistent_network == "public" (explicitly tagged public) AND
+	// persistent_spawn == TRUE (separately flagged as a spawn point via
+	// the faction tagger's "Mark Public Spawn Point" toggle) -- an
+	// unassigned pod (persistent_network == "") does NOT qualify.
 	var/list/public_pods = list()
 	var/total_pods = 0
 	for(var/obj/structure/machinery/cryopod/pod in world)
@@ -753,7 +957,7 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 /// Requires the player to be inside or directly adjacent to a cryopod.
 /mob/living/carbon/human/verb/store_character()
 	set name = "Store Character"
-	set category = "Persistence"
+	set category = "Persistence.Characters"
 	set desc = "Save your character and go offline. Must be inside or next to a cryopod."
 
 	if(!GLOB.config.sql_enabled)
@@ -762,6 +966,14 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 
 	if(persistence_in_cryo)
 		to_chat(src, SPAN_WARNING("Your character is already being stored."))
+		return
+
+	// persistStoreCharacter() itself also refuses this (covers every other
+	// caller too -- AFK force-store, prison, drydock sweep), but the
+	// voluntary path gets its own specific message instead of falling
+	// through to the generic "Storage failed" one.
+	if(SSpersistence.save_in_progress)
+		to_chat(src, SPAN_WARNING("A world save is currently in progress. Please wait a moment and try again."))
 		return
 
 	// Must be inside a cryopod or standing directly adjacent to one
@@ -807,7 +1019,15 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 
 /**
  * Returns a list of character names (strings) that have saved data for a given ckey.
- * Scans the in-memory caches loaded at startup  no DB call needed.
+ * Scans the in-memory caches loaded at startup, then cross-checks against
+ * ss13_characters.deleted_at -- the caches themselves carry no "deleted"
+ * concept at all (see persistence_delete_character_data(), persistence_mobs.dm,
+ * which is what SHOULD keep them clean going forward), so this live check is
+ * defense-in-depth against any character whose cache/DB rows outlived its own
+ * deletion -- e.g. from before that cleanup was wired up everywhere it needed
+ * to be. One extra lightweight query on what's an admin-verb/occasional-spawn
+ * path -- far less frequent than the persistent menu already querying live,
+ * unconditionally, every time it opens (persistent_menu.dm).
  */
 /proc/persistence_get_saved_characters(ckey)
 	var/list/chars = list()
@@ -828,6 +1048,17 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 		for(var/key in GLOB.persistence_position_cache)
 			if(length(key) > plen && copytext(key, 1, plen + 1) == prefix)
 				chars |= copytext(key, plen + 1)
+
+	if(length(chars) && GLOB.config.sql_saves && SSdbcore.Connect())
+		var/datum/db_query/q = SSdbcore.NewQuery(
+			"SELECT name FROM ss13_characters WHERE ckey = :ckey AND deleted_at IS NOT NULL",
+			list("ckey" = ckey)
+		)
+		q.Execute()
+		if(SSpersistence.databaseCheckQueryResult(q, "persistence_get_saved_characters"))
+			while(q.NextRow())
+				chars -= q.item[1]
+		qdel(q)
 
 	return chars
 
@@ -1026,7 +1257,7 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 
 /datum/admins/proc/install_neural_lace()
 	set name = "Install Neural Lace"
-	set category = "Persistence"
+	set category = "Persistence.Characters"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -1104,7 +1335,7 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
 
 /datum/admins/proc/set_player_character_slots()
 	set name = "Set Character Slots"
-	set category = "Persistence"
+	set category = "Persistence.Characters"
 
 	if(!check_rights(R_ADMIN))
 		return

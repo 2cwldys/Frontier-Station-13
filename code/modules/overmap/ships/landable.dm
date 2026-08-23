@@ -37,6 +37,14 @@
 
 // We autobuild our z levels.
 /obj/effect/overmap/visitable/ship/landable/find_z_levels()
+	// Must happen before the landmarks below are built: the home landmark's
+	// tag is "ship_[shuttle_name]" (/obj/effect/shuttle_landmark/ship's own
+	// Initialize), so without a per-instance name here two hulls of the same
+	// class produce the same tag and register_landmark() silently drops the
+	// second one -- leaving that ship pointed at the first ship's landmark.
+	// No-op outside a drydock template load. The shuttle DATUM picks up the
+	// same suffix in /datum/shuttle/New(), so the two still match.
+	shuttle = drydock_apply_instance_suffix(shuttle)
 	if(!use_mapped_z_levels)
 		for(var/i = 0 to multiz)
 			var/datum/space_level/S = SSmapping.add_new_zlevel("Landable Landmark [i] for [shuttle]", list(ZTRAIT_RESERVED = TRUE), contain_turfs = FALSE)

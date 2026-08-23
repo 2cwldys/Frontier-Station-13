@@ -21,9 +21,89 @@
 	s["gameid"] = GLOB.round_id
 	s["game_state"] = SSticker ? SSticker.current_state : 0
 	s["transferring"] = GLOB.evacuation_controller?.is_evacuating()
+	// FALSE for a while after the world already answers Topic queries fine --
+	// SSpersistence_world_ready is deliberately the LAST subsystem to
+	// Initialize() (init_order = -100, after away sites/Z-levels/faction
+	// sweeps), so a poller checking only "did I get a 200" can report a
+	// server as fully up several minutes before it actually is. External
+	// tools (the Discord status bot) should show this as still-initializing,
+	// not as live and ready.
+	s["persistence_ready"] = GLOB.persistence_ready ? TRUE : FALSE
 
 	s["players"] = GLOB.clients.len
 	s["staff"] = GLOB.staff.len
+
+	// Network-wide total across every server sharing this one's central
+	// database (see docs/cross_server_persistence.md) -- omitted entirely,
+	// not zero, when central_sql_enabled is off, so a non-central server's
+	// response is byte-identical to before this existed, and "players"
+	// above always means only this server, never the group. Cached by
+	// SSstatistics.fire() once a minute, not queried live here -- this
+	// endpoint is deliberately cheap and polled frequently by external
+	// tools (see no_fail2topic above).
+	if(GLOB.config.central_sql_enabled)
+		s["central_players"] = SSstatistics.central_player_total
+		s["central_server_count"] = SSstatistics.central_server_count
+		// This server's own identity within the central group -- lets the
+		// "Advertise to Players" embed (discord_status_bot.py's
+		// post_advert()) name which specific server is asking, so two
+		// different central-linked servers/shards advertising to the same
+		// channel don't look identical. Omitted (not blank) when central
+		// is off, same as the two fields above -- a non-central server's
+		// advert embed is byte-identical to before this existed.
+		if(GLOB.config.central_server_id)
+			s["central_server_id"] = GLOB.config.central_server_id
+
+	// Same three toggles the BYOND hub status block shows
+	// (/world/proc/update_status(), world.dm) -- deliberately reading the exact
+	// same globals so the hub and any external status tool can never disagree.
+	// "enter" above is the third of them (the GATE).
+	s["whitelist"] = GLOB.persistence_join_whitelist_enabled
+	s["raiding"] = GLOB.faction_raiding_enabled
+	// A save is the state where the server is up but unresponsive, which looks
+	// identical to "fine" from the outside -- update_status() surfaces it on the
+	// hub for that reason, so surface it here too.
+	s["saving"] = (SSpersistence && SSpersistence.save_in_progress) ? TRUE : FALSE
+	// Seconds since the last save FINISHED, or -1 if none has this round.
+	//
+	// "saving" on its own is close to unobservable: a full save runs ~18s and
+	// pollers sample less often than that, so the flag is usually back to
+	// FALSE again before anyone looks and the save goes entirely unnoticed.
+	// This lets a poller spot a save it never caught in progress.
+	// Pending "Advertise to Players" request, if any (persistence_advertise.dm).
+	// The status bot is what actually posts it -- DM has no bot token and can
+	// only reach webhook URLs, never the channel id the bot holds. Reported
+	// only while unexpired, so a stale advert cannot be picked up long after
+	// it stopped being true.
+	var/advertising = advert_pending()
+	s["advert_id"] = advertising ? GLOB.advert_id : ""
+	s["advert_by"] = advertising ? GLOB.advert_by : ""
+	s["advert_players"] = advertising ? GLOB.advert_players : 0
+
+#ifdef ALLOW_CENTRAL_SHARD_SPAWNING
+	// Most recent shard creation, if any -- same delivery mechanism as the
+	// advert fields just above (DM has no bot token, only webhook URLs, so
+	// scripts/discord_status_bot.py is what actually posts this). Unlike
+	// advert_id, deliberately no expiry check here -- see GLOB.shard_advert_id's
+	// own doc comment, code/modules/admin/verbs/shards.dm.
+	if(GLOB.shard_advert_id)
+		s["shard_advert_id"] = GLOB.shard_advert_id
+		s["shard_advert_shard_id"] = GLOB.shard_advert_shard_id
+		s["shard_advert_port"] = GLOB.shard_advert_port
+		s["shard_advert_host"] = world.internet_address || world.address
+
+	// Most recent start/stop, if any -- same delivery mechanism, separate
+	// from shard_advert_* above (that's creation-only). See
+	// GLOB.shard_lifecycle_id's own doc comment, shards.dm.
+	if(GLOB.shard_lifecycle_id)
+		s["shard_lifecycle_id"] = GLOB.shard_lifecycle_id
+		s["shard_lifecycle_shard_id"] = GLOB.shard_lifecycle_shard_id
+		s["shard_lifecycle_event"] = GLOB.shard_lifecycle_event
+#endif
+
+	s["saved_ago"] = (SSpersistence && SSpersistence.last_save_completed) \
+		? round((world.realtime - SSpersistence.last_save_completed) / 10) \
+		: -1
 
 	var/admin_count = 0
 

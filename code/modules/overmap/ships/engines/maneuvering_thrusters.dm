@@ -55,6 +55,22 @@
 /obj/structure/machinery/maneuvering_engine/Initialize()
 	. = ..()
 	controller = new(src)
+	sync_ship_registration()
+
+/// Finds this engine's own ship (if any) and registers its controller into
+/// S.engines -- mirrors ion_thruster.dm's own proc of the same name exactly.
+/// Without this, the controller created above is never actually reachable
+/// from ship.engines/the engine control terminal/_update_engine_hum()'s
+/// any_on check at all, mapped-in or captured alike -- this type never had
+/// it, so a maneuvering-thruster-only ship's engines were invisible to all
+/// three even where mapped.
+/obj/structure/machinery/maneuvering_engine/proc/sync_ship_registration()
+	if(!(length(SSshuttle.shuttle_areas) && !length(SSshuttle.shuttles_to_initialize) && SSshuttle.initialized))
+		return
+	for(var/obj/effect/overmap/visitable/ship/S as anything in SSshuttle.ships)
+		if(S.check_ownership(src))
+			S.engines |= controller
+			return
 
 /obj/structure/machinery/maneuvering_engine/Destroy()
 	QDEL_NULL(controller)

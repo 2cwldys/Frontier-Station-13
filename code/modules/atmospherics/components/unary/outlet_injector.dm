@@ -46,7 +46,9 @@
 		var/turf/T = get_turf(src)
 		if(!istype(T))
 			return
-		add_underlay(T, node, dir)
+		// Neighbour's pipe flavour, not the plain default -- see the same fix on
+		// tvalve.dm's update_underlays().
+		add_underlay(T, node, dir, node?.icon_connect_type)
 
 /obj/structure/machinery/atmospherics/unary/outlet_injector/power_change()
 	var/old_stat = stat
@@ -109,6 +111,36 @@
 	frequency = new_frequency
 	if(frequency)
 		radio_connection = SSradio.add_object(src, frequency)
+
+/// Auto-assigns a unique id the first time this injector is linked to a tank
+/// control console -- mirrors _ensure_id_tag() on airlocks
+/// (airlock_control.dm) and vent pumps (vent_pump.dm). `id` is what
+/// receive_signal()/broadcast_status() match on, and it's mapper-authored
+/// only, so a player-built injector would otherwise stay null and answer to
+/// (or collide with) every other untagged injector's blank slot.
+/obj/structure/machinery/atmospherics/unary/outlet_injector/proc/_ensure_id_tag()
+	if(!id)
+		id = "injector_[REF(src)]"
+	return id
+
+/// Multitool linking to any atmos console with device-linking support
+/// (atmo_control.dm) -- buffer either end, click the other. Same
+/// buffer-toggle shape vent_pump.dm already uses for airlock cyclers. Base
+/// console type, not just large_tank_control specifically, so this also
+/// covers supermatter_core (get_buffer() matches via istype(), so a
+/// base-type request matches every subtype).
+/obj/structure/machinery/atmospherics/unary/outlet_injector/attackby(obj/item/attacking_item, mob/user, params)
+	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
+		var/obj/item/multitool/MT = attacking_item
+		var/obj/structure/machinery/computer/general_air_control/console = MT.get_buffer(/obj/structure/machinery/computer/general_air_control)
+		if(!console)
+			MT.set_buffer(src)
+			to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
+			return TRUE
+		console._link_atmos_device(src, user)
+		MT.set_buffer(null)
+		return TRUE
+	return ..()
 
 /obj/structure/machinery/atmospherics/unary/outlet_injector/proc/broadcast_status()
 	if(!radio_connection)

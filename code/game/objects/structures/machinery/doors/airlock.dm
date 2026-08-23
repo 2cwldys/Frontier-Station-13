@@ -256,11 +256,18 @@
 				src.close_other = A
 				break
 
+	_apply_glass_state()
+	update_icon()
+
+/// Applies the visual/material consequences of the `glass` var -- shared by
+/// Initialize() and the worldstate restore path (persistence_worldstate.dm),
+/// which re-derives `glass` (and other type-defining vars) from a saved
+/// type's compiled defaults after a glass conversion.
+/obj/structure/machinery/door/airlock/proc/_apply_glass_state()
 	if (glass)
 		paintable |= AIRLOCK_PAINTABLE_WINDOW
 		window_material = SSmaterials.get_material_by_name(init_material_window)
 		opacity = FALSE
-	update_icon()
 
 /obj/structure/machinery/door/airlock/Destroy()
 	if(frequency && SSradio)
@@ -1810,7 +1817,40 @@ About the new airlock wires panel:
 	else if(attacking_item.tool_behaviour == TOOL_WIRECUTTER)
 		return src.attack_hand(user)
 	else if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
-		return src.attack_hand(user)
+		// Wire panel open takes priority -- a multitool's normal job here is
+		// pulsing/probing wires (wires.interact(), reached via attack_hand()
+		// below), not buffer-linking. Only buffer/link while the panel is
+		// closed, same as a door button's own attackby() only ever deals with
+		// linking and never the wire dialog.
+		//
+		// NOTE: this used to also be defined a second time, separately, in
+		// airlock_control.dm -- two full definitions of the same proc on the
+		// same type, which DM silently resolves by discarding one of them
+		// entirely (no compile error/warning). That copy only handled the
+		// airlock-cycler-controller linking below; merged in here so there is
+		// now exactly one definition and neither feature can go silently dead
+		// again. See airlock_control.dm's _link_to_controller() doc comment.
+		if(src.p_open)
+			return src.attack_hand(user)
+		var/obj/item/multitool/MT = attacking_item
+		// Buffered door button (door_control.dm/blast_door_button.dm) --
+		// checked first, same non-invasive "extra consumer type" shape as the
+		// airlock cycler controller check right below, so buffering this door
+		// either applies just the same (whichever the multitool is used on
+		// second decides which link happens; neither check touches the other).
+		var/obj/structure/machinery/button/remote/blast_door/door_button = MT.get_buffer(/obj/structure/machinery/button/remote/blast_door)
+		if(door_button)
+			door_button._link_airlock(src, user)
+			MT.set_buffer(null)
+			return TRUE
+		var/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/controller = MT.get_buffer(/obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller)
+		if(!controller)
+			MT.set_buffer(src)
+			to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))
+			return TRUE
+		_link_to_controller(controller, user)
+		MT.set_buffer(null)
+		return TRUE
 	else if(istype(attacking_item, /obj/item/assembly/signaler))
 		return src.attack_hand(user)
 	else if(istype(attacking_item, /obj/item/paint_sprayer))
@@ -2230,17 +2270,19 @@ About the new airlock wires panel:
 		if(isnull(faction_access))
 			return FALSE // not a member of this faction at all
 		return has_access(req_access, req_one_access, faction_access)
-	// Hub faction members above base/Civilian rank -- treat as holding every
+	// Hub faction members holding a real job -- treat as holding every
 	// CentCom access code, on any door that actually gates on one (ordinary
 	// station doors are untouched). Doesn't apply to req_access_faction
 	// doors above; those already returned by this point. Rank comes from
-	// get_effective_faction_rank() (persistence_factions.dm) -- 0 is the
-	// default membership tier with no job title/promotion ("Civilian" on
-	// the ID card), so this deliberately requires > 0, not just membership.
+	// get_effective_faction_rank() (persistence_factions.dm) --
+	// FACTION_RANK_CIVILIAN (-1) is a printed ID with no job title/promotion
+	// ("Civilian" on the card); FACTION_RANK_CREW (0) is an ordinary job
+	// holder and DOES qualify here. Only civilian is excluded, hence
+	// `> FACTION_RANK_CIVILIAN`, not `> 0`.
 	if(length(req_access) || length(req_one_access))
 		var/list/all_centcom_access = get_all_centcom_access()
 		if((req_access && (req_access & all_centcom_access)) || (req_one_access && (req_one_access & all_centcom_access)))
-			if(get_effective_faction_rank(M, "hub") > 0)
+			if(get_effective_faction_rank(M, "hub") > FACTION_RANK_CIVILIAN)
 				return TRUE
 	return ..()
 

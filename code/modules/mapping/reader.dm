@@ -359,13 +359,20 @@ GLOBAL_DATUM_INIT(_preloader, /dmm_suite/preloader, new)
 	index = length(members)
 	if(members[index] != /area/template_noop)
 		var/atype = members[index]
-		var/atom/instance = GLOB.areas_by_type[atype]
+		// Drydock loads build their OWN area instance per type instead of
+		// reusing the global singleton, so two hulls of the same class don't
+		// share area-scoped state (power, atmos, ownership). Scoped to the
+		// load window (GLOB.drydock_loading_suffix, persistence_shuttles.dm),
+		// so every other map load behaves exactly as before.
+		var/atom/instance = GLOB.drydock_loading_suffix ? GLOB.drydock_loading_areas[atype] : GLOB.areas_by_type[atype]
 		var/list/attr = members_attributes[index]
 		if (LAZYLEN(attr))
 			GLOB._preloader.setup(attr)//preloader for assigning  set variables on atom creation
 		if(!instance)
 			instance = new atype(null)
 			atoms_to_initialise += instance
+			if(GLOB.drydock_loading_suffix)
+				GLOB.drydock_loading_areas[atype] = instance
 		if(crds)
 			instance.contents += crds
 

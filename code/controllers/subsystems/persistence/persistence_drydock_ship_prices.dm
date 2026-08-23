@@ -198,7 +198,7 @@ GLOBAL_LIST_EMPTY(drydock_ship_price_overrides)
 
 /datum/admins/proc/modify_ship_prices()
 	set name = "Modify Ship Prices"
-	set category = "Persistence"
+	set category = "Persistence.Ships & Drydock"
 	set desc = "Override drydock ship purchase prices, or restore them to code defaults."
 
 	if(!check_rights(R_ADMIN))

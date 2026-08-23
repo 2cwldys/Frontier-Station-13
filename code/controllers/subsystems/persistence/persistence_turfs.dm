@@ -134,6 +134,14 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 		F.burnt = content["burnt"]
 		if(!isnull(content["color"]))
 			F.color = content["color"]
+		if(content["flooring"])
+			var/flooring_path = text2path(content["flooring"])
+			if(flooring_path)
+				// mapload = TRUE -- this is a silent state restore, not a
+				// live player action, so skip set_flooring()'s own
+				// transitional "flash to plating first" step (meant for
+				// someone watching a real construction animation).
+				F.set_flooring(GET_SINGLETON(flooring_path), mapload = TRUE)
 		F.update_icon()
 
 	else if(istype(T, /turf/simulated/wall))
@@ -218,12 +226,19 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 
 	if(istype(T, /turf/simulated/floor))
 		var/turf/simulated/floor/F = T
-		if(!F.broken && !F.burnt && !F.color && F.type == F.baseturf)
+		// flooring (the var a placed tile actually changes -- set_flooring(),
+		// floor.dm) was missing from both this "did it change" check and the
+		// saved content below, so a tile laid over the map's default flooring
+		// silently vanished on the very next save (treated as "already back
+		// to default" and deleted outright) -- this is what actually made a
+		// laid tile disappear across a restart.
+		var/flooring_changed = (F.flooring != initial(F.flooring))
+		if(!F.broken && !F.burnt && !F.color && !flooring_changed && F.type == F.baseturf)
 			if(!(scope_escaped in delete_by_scope))
 				delete_by_scope[scope_escaped] = list()
 			delete_by_scope[scope_escaped] += "([F.x],[F.y],[F.z])"
 			return
-		var/content_json = replacetext(json_encode(list("broken"=F.broken,"burnt"=F.burnt,"color"=F.color)), "'", "''")
+		var/content_json = replacetext(json_encode(list("broken"=F.broken,"burnt"=F.burnt,"color"=F.color,"flooring"=(flooring_changed ? "[F.flooring.type]" : null))), "'", "''")
 		var/type_str = replacetext("[F.type]", "'", "''")
 		var/base_str = replacetext("[F.baseturf]", "'", "''")
 		upsert_rows += "('[scope_escaped]',[F.x],[F.y],[F.z],'[type_str]','[base_str]','[content_json]',NOW())"
