@@ -829,7 +829,7 @@
 /// shuttle_control physically on that z in case linkage ever fails.
 /proc/_drydock_console_turf(z)
 	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[z]"]
-	var/datum/shuttle/shuttle_datum = istype(marker) ? SSshuttle.shuttles[marker.shuttle] : null
+	var/datum/shuttle/shuttle_datum = _drydock_shuttle_of(marker)
 	if(istype(shuttle_datum))
 		for(var/obj/structure/machinery/computer/shuttle_control/console in shuttle_datum.shuttle_computers)
 			return get_turf(console)
@@ -842,14 +842,45 @@
 /// instead of z -- a sub-ship (sub_shuttle_tags, drydock_ship.dm) is its own
 /// /datum/shuttle mapped into the SAME hull's Z as its parent, so a plain
 /// z-based lookup can't tell the two consoles apart. Used by
-/// ship_schematic.dm's "Enter Sub-Ship" to land on the sub-ship's own
-/// console specifically, not the main hull's.
-/proc/_drydock_subship_console_turf(shuttle_tag)
-	var/datum/shuttle/sub = SSshuttle.shuttles[shuttle_tag]
+/// ship_schematic.dm's and the Drydock program's "Enter Sub-Ship" to land on
+/// the sub-ship's own console specifically, not the main hull's.
+///
+/// shuttle_id is required: a sub-ship registers under the per-instance
+/// suffixed key, not its bare tag (_drydock_subship_key(),
+/// persistence_shuttles.dm). Looking up the bare tag always missed, which is
+/// why Enter Sub-Ship only ever said "Could not locate that sub-ship's
+/// navigation console."
+/// Resolved by scanning the sub-ship's OWN shuttle_area rather than reading
+/// sub.shuttle_computers, because that list is empty for sub-ships:
+/// /datum/shuttle/New() (shuttle.dm) applies the per-instance suffix to
+/// src.name and only THEN links consoles by matching SC.shuttle_tag == name,
+/// so a mapped-in console tagged "Xanu Fighter" never matches the shuttle now
+/// called "Xanu Fighter #18" and is left stranded in
+/// SSshuttle.lonely_shuttle_computers. The parent hull escapes this only
+/// because _drydockRetrieveRun() re-points its consoles after its own rename;
+/// sub-ships get no such pass. A console standing inside the sub-ship's own
+/// areas is unambiguously that sub-ship's, which is also what stops this
+/// landing on the parent hull's console by mistake.
+///
+/// Adopts the console it finds (re-tagging it and filing it under
+/// shuttle_computers) so the sub-ship's console also becomes usable for
+/// actually flying it, not just as a teleport target.
+/proc/_drydock_subship_console_turf(shuttle_id, shuttle_tag)
+	var/datum/shuttle/sub = SSshuttle.shuttles[_drydock_subship_key(shuttle_id, shuttle_tag)]
 	if(!istype(sub))
 		return null
 	for(var/obj/structure/machinery/computer/shuttle_control/console in sub.shuttle_computers)
-		return get_turf(console)
+		if(!QDELETED(console))
+			return get_turf(console)
+	for(var/area/A in sub.shuttle_area)
+		for(var/obj/structure/machinery/computer/shuttle_control/console in A)
+			if(QDELETED(console))
+				continue
+			// Self-heal the linkage that New() could never make.
+			console.shuttle_tag = sub.name
+			SSshuttle.lonely_shuttle_computers -= console
+			sub.shuttle_computers |= console
+			return get_turf(console)
 	return null
 
 /// Finds the deployed, non-stashed drydock ship whose interior L is
@@ -905,6 +936,26 @@
 		if(_drydock_full_access_check(user, DS.z))
 			return TRUE
 	return FALSE
+
+/// Sub-ship tags across every deployed ship this user can board -- the
+/// Drydock program's gate for showing "Enter Sub-Ship" at all. Same
+/// best-effort shape as _drydock_user_has_retrieving_ship() above: the
+/// program isn't bound to one ship, so this only answers "is there a
+/// sub-ship you could board," while the action itself re-resolves the
+/// specific ship via _drydock_board_resolve_ship().
+/proc/_drydock_user_boardable_subship_tags(mob/user)
+	var/list/tags = list()
+	for(var/sid in GLOB.drydock_ships)
+		var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
+		if(!DS || DS.stashed || !DS.z)
+			continue
+		var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
+		if(!template || !length(template.sub_shuttle_tags))
+			continue
+		if(!_drydock_full_access_check(user, DS.z))
+			continue
+		tags |= template.sub_shuttle_tags
+	return tags
 
 /// Ship-level counterpart to _drydock_full_access_check() for contexts with
 /// no specific mob to check -- e.g. a sensor console's own shared
@@ -984,7 +1035,7 @@
 		return FALSE
 
 	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
-	var/datum/shuttle/shuttle_datum = istype(marker) ? SSshuttle.shuttles[marker.shuttle] : null
+	var/datum/shuttle/shuttle_datum = _drydock_shuttle_of(marker)
 
 	var/list/candidate_turfs = list()
 	if(shuttle_datum && marker.status == SHIP_STATUS_LANDED)
@@ -1004,6 +1055,12 @@
 			if(!istype(nearby, /obj/effect/overmap/visitable/sector) && !istype(nearby, /obj/effect/overmap/visitable/ship))
 				continue
 			if(istype(nearby, /obj/effect/overmap/visitable/sector/temporary))
+				continue
+			// My own sub-ship is not somewhere to disembark TO -- it's part of
+			// this hull. Parked in its own hangar it sits at distance 0, so it
+			// passed the proximity check below every time and offered a
+			// teleport into a craft you're already aboard.
+			if(_drydock_guest_is_own_subship(nearby, marker))
 				continue
 			seen_sectors += nearby
 			// Adjacent sectors only -- DRYDOCK_SHIP_PLACEMENT_RADIUS_MAX (the
@@ -1138,7 +1195,7 @@
 	if(is_dock_target)
 		var/datum/drydock_ship/recheck_ds = GLOB.drydock_ships["[DS.shuttle_id]"]
 		var/obj/effect/overmap/visitable/ship/landable/recheck_marker = istype(recheck_ds) ? GLOB.map_sectors["[recheck_ds.z]"] : null
-		var/datum/shuttle/recheck_shuttle = istype(recheck_marker) ? SSshuttle.shuttles[recheck_marker.shuttle] : null
+		var/datum/shuttle/recheck_shuttle = _drydock_shuttle_of(recheck_marker)
 		if(!recheck_ds || recheck_ds.stashed || !recheck_shuttle || recheck_marker.status != SHIP_STATUS_LANDED)
 			to_chat(L, SPAN_WARNING("The ship is no longer docked there."))
 			return FALSE

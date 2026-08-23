@@ -264,6 +264,14 @@ GLOBAL_DATUM(map_overmap, /area/overmap)
 
 /obj/effect/overmap/visitable/proc/remove_landmark(obj/effect/shuttle_landmark/landmark, shuttle_name)
 	if(shuttle_name)
+		// Guarded read, matching get_waypoints() below, which has always
+		// checked `in` before indexing. Reading an absent associative key here
+		// is a "bad index" runtime in BYOND -- and being asked to remove a
+		// waypoint that was never registered under this name is an ordinary
+		// no-op, not an error. Unguarded, it took the whole caller down with
+		// it (a drydock stash, most visibly).
+		if(!(shuttle_name in restricted_waypoints))
+			return
 		var/list/shuttles = restricted_waypoints[shuttle_name]
 		LAZYREMOVE(shuttles, landmark)
 	else

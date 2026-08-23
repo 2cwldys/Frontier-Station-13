@@ -236,7 +236,7 @@
 			var/tag = (template.sub_shuttle_tags.len == 1) ? template.sub_shuttle_tags[1] : tgui_input_list(user, "Board which sub-ship?", "Enter Sub-Ship", template.sub_shuttle_tags)
 			if(!tag)
 				return TRUE
-			var/turf/sub_console = _drydock_subship_console_turf(tag)
+			var/turf/sub_console = _drydock_subship_console_turf(DS.shuttle_id, tag)
 			if(!sub_console)
 				to_chat(user, SPAN_WARNING("Could not locate that sub-ship's navigation console."))
 				return TRUE
