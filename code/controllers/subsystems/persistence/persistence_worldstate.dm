@@ -42,6 +42,13 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 /// Leave null (default) to opt out of worldstate entirely.
 /atom/movable/var/list/worldstate_vars = null
 
+/// Cache-key type for worldstate save/restore matching. Defaults to the
+/// object's own type -- override only when a type is allowed to change at
+/// runtime (e.g. glass conversion) and should still key/match consistently
+/// across that change.
+/atom/movable/proc/worldstate_key_type()
+	return type
+
 /// Generic get  reads each var in worldstate_vars via BYOND runtime src.vars[] accessor.
 /// Types with complex state (nested objects, list-encoded fields) override this proc directly.
 /atom/movable/proc/worldstate_get_content()
@@ -185,6 +192,49 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	log_subsystem_persistence_info("Worldstate: Power state finalized -- [apc_count] APC(s), [solar_count] solar controller(s), [length(apc_areas)] area(s) rebroadcast.")
 
 /**
+ * On-demand repair for a PLAYER-BUILT wall device left centered/off-wall.
+ *
+ * There is deliberately no automatic world-wide version of this, and there
+ * must never be one again. apply_wall_mount_offset() (_machinery.dm) derives
+ * pixel_x/pixel_y purely from `dir`, which is only ever correct for the case
+ * its own doc comment describes: a wall frame being built, which can only
+ * place its machine on the adjacent floor tile with `dir` pointing at the
+ * wall. Mapped devices do not follow that convention at all -- a mapper
+ * positions them on BOTH axes (x to sit beside a doorframe, y to sit high on
+ * the wall) while `dir` independently sets which way the sprite faces, e.g.
+ * `access_button{ pixel_x = -12; pixel_y = 28; dir = 8 }` in frontier.dmm.
+ * A dir-derived formula can only ever produce a single-axis offset, so
+ * applying it to a mapped device relocates it -- previously 342 of them per
+ * boot, many onto the opposite wall.
+ *
+ * So this is scoped to machines that are genuinely persistence-tracked:
+ * persistent_objects_track_id is only ever assigned by objectsRegisterTrack()
+ * under `!mapload` (_machinery.dm), making "was this player-built" a fact we
+ * can read rather than guess. A mapped device is structurally unreachable
+ * from here.
+ */
+/datum/admins/proc/fix_wall_mounted_machinery()
+	set name = "Fix Wall-Mounted Machinery"
+	set category = "Persistence.Backups & Saves"
+	set desc = "Re-derives wall-mount pixel offsets for PLAYER-BUILT wall devices only. Never touches mapped machinery."
+
+	if(!check_rights(R_SERVER))
+		return
+
+	var/fixed = 0
+	for(var/obj/structure/machinery/M in SSmachinery.machinery)
+		if(!M.persistent_objects_track_id)
+			continue // mapped/untracked -- its offset is authored, not derived
+		var/before_px = M.pixel_x
+		var/before_py = M.pixel_y
+		M.persistence_reapply_wall_offset()
+		if(before_px != M.pixel_x || before_py != M.pixel_y)
+			fixed++
+			log_subsystem_persistence_info("WallMachineFix: [M.type] at ([M.x],[M.y],[M.z]) pixel_x [before_px]->[M.pixel_x] pixel_y [before_py]->[M.pixel_y]")
+	to_chat(usr, SPAN_GOOD("Re-derived wall-mount offsets for [fixed] player-built device(s). Mapped machinery was not touched."))
+	log_and_message_admins("ran a live wall-mounted machinery fix ([fixed] player-built device(s) adjusted).")
+
+/**
  * Clear atmos alarm state latched during boot, called AFTER atmosApply()
  * has put the real saved air back. While turfs/zones rebuild, live air
  * alarms sample transient vacuum/cold and latch danger levels that close
@@ -229,7 +279,8 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		if(!T || !T.z)
 			return 0
 		var/site_key = worldstate_pinned_site_key(T.z)
-		var/cache_key = site_key ? "[S.type]|site:[site_key]|[T.x]|[T.y]" : "[S.type]|[T.x]|[T.y]|[T.z]"
+		var/key_type = S.worldstate_key_type()
+		var/cache_key = site_key ? "[key_type]|site:[site_key]|[T.x]|[T.y]" : "[key_type]|[T.x]|[T.y]|[T.z]"
 		var/json = GLOB.persistence_worldstate_cache[cache_key]
 		if(!json)
 			return 0
@@ -238,6 +289,10 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 			return 0
 		content -= "__worldstate_site"
 		S.worldstate_apply_content(content)
+#ifdef WALL_MACHINE_DIAGNOSTICS
+		if(S.pixel_x || S.pixel_y)
+			log_subsystem_persistence_info("WallMachineDiag RESTORE: [S.type] at ([T.x],[T.y],[T.z]) dir=[S.dir] pixel_x=[S.pixel_x] pixel_y=[S.pixel_y]")
+#endif
 		return 1
 	catch(var/exception/e)
 		log_subsystem_persistence_error("Worldstate: Failed to apply content to [S] at [get_turf(S)]: [e]")
@@ -254,12 +309,13 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	if(!databaseCheckConnection("worldstateFinalize"))
 		return
 
-	// DB-side clock (not DM's) to avoid clock skew. Anything re-saved below
-	// gets a fresh saved_at via ON DUPLICATE KEY UPDATE and survives the
-	// cutoff; only rows nothing touched this cycle (destroyed objects) get
-	// removed, and only after the resave loop below completes. If the loop
-	// is interrupted (crash, disconnect), nothing is deleted at all -- the
-	// previous save stays intact instead of being wiped up front.
+	// DB-side clock (not DM's) to avoid clock skew. Every row written below
+	// gets a fresh saved_at and so survives the cutoff; only rows nothing
+	// touched this cycle (destroyed objects, and the previous generation of
+	// every row this one replaces) get removed, and only after the write
+	// completes. If the collection or flush is interrupted (crash,
+	// disconnect), nothing is deleted at all -- the previous save stays
+	// intact instead of being wiped up front.
 	var/datum/db_query/clock = SSdbcore.NewQuery("SELECT NOW(6)")
 	clock.Execute()
 	var/cutoff
@@ -269,45 +325,64 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	if(!cutoff)
 		return
 
-	var/saved = 0
+	// Collect every row first, then write them in chunks -- see
+	// _worldstateFlush() for why this is no longer one query per machine.
+	// The cutoff above was taken BEFORE any of this, and the stale DELETE
+	// below runs after it, so an interrupted save still deletes nothing.
+	var/list/value_rows = list()
 
 	for(var/obj/structure/S in world)
 		CHECK_TICK
 		if(persistence_z_excluded(S.z)) continue
 		if(persistence_area_excluded(S)) continue
-		saved += worldstateSaveOneMachine(S)
+		var/list/row = _worldstateRowFor(S)
+		if(row)
+			value_rows += list(row)
 
 	for(var/obj/item/radio/intercom/IC in world)
 		CHECK_TICK
 		if(persistence_z_excluded(IC.z)) continue
 		if(persistence_area_excluded(IC)) continue
-		saved += worldstateSaveOneMachine(IC)
+		var/list/row = _worldstateRowFor(IC)
+		if(row)
+			value_rows += list(row)
 
 	for(var/obj/item/modular_computer/MC in world)
 		CHECK_TICK
 		if(persistence_z_excluded(MC.z)) continue
 		if(persistence_area_excluded(MC)) continue
-		saved += worldstateSaveOneMachine(MC)
+		var/list/row = _worldstateRowFor(MC)
+		if(row)
+			value_rows += list(row)
 
-	var/datum/db_query/delete_stale = SSdbcore.NewQuery(
-		"DELETE FROM ss13_worldstate_objects WHERE saved_at < :cutoff AND map_path = :map_path",
-		list("cutoff" = cutoff, "map_path" = SSatlas.current_map.path)
-	)
-	delete_stale.Execute()
-	databaseCheckQueryResult(delete_stale, "worldstateFinalize delete stale")
-	qdel(delete_stale)
+	var/list/flush_result = _worldstateFlush(value_rows, "worldstateFinalize")
+	var/saved = flush_result["saved"]
 
-	// The sweep above also re-saved every deployed ship Z's machines under
-	// their ship scopes (persistence_ship_interiors.dm) -- run the same
-	// destroyed-object cutoff per scope so ship rows don't accumulate.
-	for(var/ship_z in GLOB.persistence_ship_z)
-		var/datum/db_query/ship_stale = SSdbcore.NewQuery(
+	// Only prune the previous generation once THIS one is known to be fully
+	// written -- see _worldstateFlush()'s doc comment. A partial write plus a
+	// delete would lose the machines whose chunk failed.
+	if(flush_result["failed"])
+		log_subsystem_persistence_error("Worldstate: skipping stale-row cleanup -- [saved] row\s were collected but at least one chunk failed to write. Last cycle's rows are left intact.")
+	else
+		var/datum/db_query/delete_stale = SSdbcore.NewQuery(
 			"DELETE FROM ss13_worldstate_objects WHERE saved_at < :cutoff AND map_path = :map_path",
-			list("cutoff" = cutoff, "map_path" = GLOB.persistence_ship_z[ship_z])
+			list("cutoff" = cutoff, "map_path" = SSatlas.current_map.path)
 		)
-		ship_stale.Execute()
-		databaseCheckQueryResult(ship_stale, "worldstateFinalize ship scope delete stale")
-		qdel(ship_stale)
+		delete_stale.Execute()
+		databaseCheckQueryResult(delete_stale, "worldstateFinalize delete stale")
+		qdel(delete_stale)
+
+		// The sweep above also re-saved every deployed ship Z's machines under
+		// their ship scopes (persistence_ship_interiors.dm) -- run the same
+		// destroyed-object cutoff per scope so ship rows don't accumulate.
+		for(var/ship_z in GLOB.persistence_ship_z)
+			var/datum/db_query/ship_stale = SSdbcore.NewQuery(
+				"DELETE FROM ss13_worldstate_objects WHERE saved_at < :cutoff AND map_path = :map_path",
+				list("cutoff" = cutoff, "map_path" = GLOB.persistence_ship_z[ship_z])
+			)
+			ship_stale.Execute()
+			databaseCheckQueryResult(ship_stale, "worldstateFinalize ship scope delete stale")
+			qdel(ship_stale)
 
 	log_subsystem_persistence_info("Worldstate: Saved state for [saved] machines.")
 
@@ -329,27 +404,42 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	if(!cutoff)
 		return
 
-	var/saved = 0
+	// Same collect-then-chunk shape as worldstateFinalize() above.
+	var/list/value_rows = list()
 	for(var/obj/structure/S in world)
 		if(S.z != z) continue
 		if(persistence_area_excluded(S)) continue
-		saved += worldstateSaveOneMachine(S)
+		var/list/row = _worldstateRowFor(S)
+		if(row)
+			value_rows += list(row)
 	for(var/obj/item/radio/intercom/IC in world)
 		if(IC.z != z) continue
 		if(persistence_area_excluded(IC)) continue
-		saved += worldstateSaveOneMachine(IC)
+		var/list/row = _worldstateRowFor(IC)
+		if(row)
+			value_rows += list(row)
 	for(var/obj/item/modular_computer/MC in world)
 		if(MC.z != z) continue
 		if(persistence_area_excluded(MC)) continue
-		saved += worldstateSaveOneMachine(MC)
+		var/list/row = _worldstateRowFor(MC)
+		if(row)
+			value_rows += list(row)
 
-	var/datum/db_query/delete_stale = SSdbcore.NewQuery(
-		"DELETE FROM ss13_worldstate_objects WHERE saved_at < :cutoff AND map_path = :map_path",
-		list("cutoff" = cutoff, "map_path" = scope)
-	)
-	delete_stale.Execute()
-	databaseCheckQueryResult(delete_stale, "worldstateFinalizeZ delete stale")
-	qdel(delete_stale)
+	var/list/flush_result = _worldstateFlush(value_rows, "worldstateFinalizeZ")
+	var/saved = flush_result["saved"]
+
+	// Same rule as worldstateFinalize(): never prune the previous generation
+	// on the back of a partial write.
+	if(flush_result["failed"])
+		log_subsystem_persistence_error("Worldstate: skipping stale-row cleanup for z=[z] ([scope]) -- at least one chunk failed to write. Last cycle's rows are left intact.")
+	else
+		var/datum/db_query/delete_stale = SSdbcore.NewQuery(
+			"DELETE FROM ss13_worldstate_objects WHERE saved_at < :cutoff AND map_path = :map_path",
+			list("cutoff" = cutoff, "map_path" = scope)
+		)
+		delete_stale.Execute()
+		databaseCheckQueryResult(delete_stale, "worldstateFinalizeZ delete stale")
+		qdel(delete_stale)
 	log_subsystem_persistence_info("Worldstate: Saved [saved] ship machines for z=[z] ([scope]).")
 
 /**
@@ -407,6 +497,10 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 			return 0
 		content -= "__worldstate_site"
 		S.worldstate_apply_content(content)
+#ifdef WALL_MACHINE_DIAGNOSTICS
+		if(S.pixel_x || S.pixel_y)
+			log_subsystem_persistence_info("WallMachineDiag RESTORE: [S.type] at ([T.x],[T.y],[T.z]) dir=[S.dir] pixel_x=[S.pixel_x] pixel_y=[S.pixel_y]")
+#endif
 		return 1
 	catch(var/exception/e)
 		log_subsystem_persistence_error("Worldstate: Failed to apply ship content to [S] at [get_turf(S)]: [e]")
@@ -416,17 +510,20 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
  * Serialize one machine and INSERT/UPDATE its row in the database.
  * Returns 1 on success, 0 if skipped or failed.
  */
-/datum/controller/subsystem/persistence/proc/worldstateSaveOneMachine(atom/movable/S)
+/datum/controller/subsystem/persistence/proc/_worldstateRowFor(atom/movable/S)
 	PRIVATE_PROC(TRUE)
 	CHECK_TICK
-	var/datum/db_query/insert
 	try
 		var/turf/T = get_turf(S)
 		if(!T || !T.z)
-			return 0
+			return null
+#ifdef WALL_MACHINE_DIAGNOSTICS
+		if(S.pixel_x || S.pixel_y)
+			log_subsystem_persistence_info("WallMachineDiag SAVE: [S.type] at ([T.x],[T.y],[T.z]) dir=[S.dir] pixel_x=[S.pixel_x] pixel_y=[S.pixel_y]")
+#endif
 		var/list/content = S.worldstate_get_content()
 		if(!islist(content) || !length(content))
-			return 0
+			return null
 		// A pinned site's z isn't stable across boots -- embed the site's
 		// own stable template id in the saved content so worldstateInitialize()
 		// can match this row back up regardless of which z the site lands
@@ -434,30 +531,129 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		var/site_key = worldstate_pinned_site_key(T.z)
 		if(site_key)
 			content["__worldstate_site"] = site_key
-		insert = SSdbcore.NewQuery(
-			"INSERT INTO ss13_worldstate_objects (map_path, type, x, y, z, content, saved_at) \
-			 VALUES (:map_path, :type, :x, :y, :z, :content, NOW()) \
-			 ON DUPLICATE KEY UPDATE content=VALUES(content), saved_at=NOW()",
-			list(
-				// Deployed ship Zs key under their ship scope instead of the
-				// map path -- see persistence_ship_interiors.dm.
-				"map_path" = persistence_scope_for_z(T.z),
-				"type"    = "[S.type]",
-				"x"       = T.x,
-				"y"       = T.y,
-				"z"       = T.z,
-				"content" = json_encode(content)
-			)
+		return list(
+			// Deployed ship Zs key under their ship scope instead of the
+			// map path -- see persistence_ship_interiors.dm.
+			"map_path" = persistence_scope_for_z(T.z),
+			"type"    = "[S.worldstate_key_type()]",
+			"x"       = T.x,
+			"y"       = T.y,
+			"z"       = T.z,
+			"content" = json_encode(content)
 		)
-		insert.Execute()
-		databaseCheckQueryResult(insert, "worldstateSaveOneMachine [S.type]")
-		qdel(insert)
-		return 1
 	catch(var/exception/e)
-		if(insert)
-			qdel(insert)
-		log_subsystem_persistence_error("Worldstate: Failed to save [S] at [get_turf(S)]: [e]")
-		return 0
+		// Per-object, so one bad machine costs only itself. Without this a
+		// single throw would unwind the whole collection loop and silently
+		// discard every OTHER machine's state for the entire map -- the same
+		// failure the floor-item writer already had to guard against.
+		log_subsystem_persistence_error("Worldstate: Failed to serialize [S] at [get_turf(S)]: [e]")
+		return null
+
+/**
+ * Chunked bulk INSERT of collected worldstate rows, every value passed as a
+ * BOUND PARAMETER rather than interpolated into the SQL text -- the same shape
+ * _floorItemsFlush() (persistence_floor_items.dm) and the turf writer already
+ * use. Returns the number of rows written.
+ *
+ * This replaced a one-INSERT-per-machine loop that was measured at ~135
+ * seconds for 3125 machines -- 85% of an entire ~159s save -- purely in
+ * sequential query round-trips, each blocking in datum/db_query/sync(). The
+ * comparable batched writers move a similar row count in single-digit seconds.
+ *
+ * No ON DUPLICATE KEY UPDATE: ss13_worldstate_objects has only
+ * PRIMARY KEY (id) and no unique key on (map_path, type, x, y, z), so the
+ * upsert clause the old per-row insert carried could never actually fire.
+ * Every save has always written fresh rows, with the trailing stale-cutoff
+ * DELETE in the callers removing the previous generation -- a plain multi-row
+ * INSERT is exactly equivalent to the previous behaviour.
+ *
+ * Returns list("saved" = rows written, "failed" = TRUE if any chunk errored).
+ * Callers MUST skip their stale-cutoff DELETE when "failed" is set: batching
+ * means one failed query now costs a whole chunk of machines instead of one,
+ * and deleting the previous generation after a partial write would turn a
+ * retryable hiccup into real data loss. Skipping the delete leaves last
+ * cycle's rows in place, which is always recoverable.
+ */
+/datum/controller/subsystem/persistence/proc/_worldstateFlush(list/value_rows, log_context)
+	PRIVATE_PROC(TRUE)
+	var/saved = length(value_rows)
+	if(!saved)
+		return list("saved" = 0, "failed" = FALSE)
+	var/any_failed = FALSE
+	var/written = 0
+	// Two independent limits, whichever is reached first:
+	//   rows  -- 200, matching the other bulk writers.
+	//   bytes -- a 4MB budget well under MariaDB's 16MB max_allowed_packet.
+	//
+	// The byte budget is what makes an oversized statement impossible rather
+	// than merely survivable. Content averages ~550 bytes, so chunks are
+	// normally row-limited at 200 (~110KB) -- but blobs are unbounded in
+	// principle (the largest observed is ~98KB, a closet full of items), and
+	// 200 outliers in one chunk would blow past the packet limit and fail the
+	// whole statement. Splitting on size instead just makes that chunk
+	// smaller.
+	var/chunk_rows = 200
+	var/chunk_byte_budget = 4000000
+
+	var/list/placeholders = list()
+	var/list/params = list()
+	var/n = 0
+	var/batch_bytes = 0
+
+	for(var/j = 1 to saved)
+		var/list/row = value_rows[j]
+		if(!islist(row))
+			continue
+		var/content_bytes = length(row["content"])
+		// Flush the batch in progress before it would exceed either limit.
+		if(n && ((n >= chunk_rows) || ((batch_bytes + content_bytes) > chunk_byte_budget)))
+			// Only count rows that actually landed -- the reported machine
+			// count is what tells an operator a save was complete, so it must
+			// never include a chunk that failed to write.
+			if(_worldstateWriteChunk(placeholders, params, log_context))
+				written += n
+			else
+				any_failed = TRUE
+			placeholders = list()
+			params = list()
+			n = 0
+			batch_bytes = 0
+			CHECK_TICK
+		placeholders += "(:mp[n],:ty[n],:x[n],:y[n],:z[n],:ct[n],NOW())"
+		params["mp[n]"] = row["map_path"]
+		params["ty[n]"] = row["type"]
+		params["x[n]"]  = row["x"]
+		params["y[n]"]  = row["y"]
+		params["z[n]"]  = row["z"]
+		params["ct[n]"] = row["content"]
+		n++
+		batch_bytes += content_bytes
+
+	// Trailing partial batch.
+	if(n)
+		if(_worldstateWriteChunk(placeholders, params, log_context))
+			written += n
+		else
+			any_failed = TRUE
+
+	return list("saved" = written, "failed" = any_failed)
+
+/// Issues one bulk-INSERT batch. Split out so _worldstateFlush() can flush
+/// mid-iteration (on either the row or byte limit) without duplicating the
+/// query. Returns FALSE if the write failed.
+/datum/controller/subsystem/persistence/proc/_worldstateWriteChunk(list/placeholders, list/params, log_context)
+	PRIVATE_PROC(TRUE)
+	if(!length(placeholders))
+		return TRUE
+	var/datum/db_query/bulk = SSdbcore.NewQuery(
+		"INSERT INTO ss13_worldstate_objects (map_path,type,x,y,z,content,saved_at) VALUES [placeholders.Join(",")]",
+		params
+	)
+	bulk.Execute()
+	. = databaseCheckQueryResult(bulk, "[log_context] bulk insert")
+	if(!.)
+		log_subsystem_persistence_error("Worldstate: [log_context] failed to write a [length(placeholders)]-row chunk -- the stale-row cleanup will be skipped so the previous save is kept.")
+	qdel(bulk)
 
 // =====================================================================
 // DECLARATIVE VAR LISTS
@@ -508,15 +704,48 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	// does for the cycler/legacy button systems.
 	worldstate_vars = list("name", "welded", "locked", "ai_disabled_id_scanner", "req_access_faction", "req_access", "req_one_access", "id_tag", "frequency", "crew_tagged", "emagged", "persistent_network", "door_button_tag")
 
+// Converting an airlock to/from glass (door_assembly.dm's construction-finish
+// step) changes its actual DM type -- new glass_type(...), not a var toggle.
+// On restart the map reloads the original (pre-conversion) type at this
+// position, so keying by exact type would silently orphan the whole saved
+// row, not just glass -- collapse every airlock subtype onto one stable key
+// per position instead. Position alone already guarantees uniqueness.
+/obj/structure/machinery/door/airlock/worldstate_key_type()
+	return /obj/structure/machinery/door/airlock
+
 /obj/structure/machinery/door/airlock/worldstate_get_content()
 	var/list/content = ..()
 	if(!content) content = list()
+	// The exact type at save time -- glass subtypes aren't uniformly defined
+	// (e.g. glass_service doesn't restate maxhealth/explosion_resistance the
+	// way the base /glass type does), so restoring "glass-ness" means
+	// re-deriving THIS type's actual compiled defaults, not guessing a fixed
+	// var set -- see worldstate_apply_content() below.
+	content["saved_type"] = "[type]"
 	if(wires && length(wires.cut_wires))
 		content["cut_wires"] = json_encode(wires.cut_wires)
 	return content
 
 /obj/structure/machinery/door/airlock/worldstate_apply_content(list/content)
 	..()
+	if(content && content["saved_type"])
+		var/saved_type_path = text2path(content["saved_type"])
+		if(ispath(saved_type_path, /obj/structure/machinery/door/airlock) && saved_type_path != type)
+			// Off-map dummy purely to read that type's compiled defaults --
+			// qdel()'d before anything else runs, never observable elsewhere.
+			var/obj/structure/machinery/door/airlock/dummy = new saved_type_path(null)
+			glass = dummy.glass
+			maxhealth = dummy.maxhealth
+			health = maxhealth
+			explosion_resistance = dummy.explosion_resistance
+			hitsound = dummy.hitsound
+			open_sound_powered = dummy.open_sound_powered
+			close_sound_powered = dummy.close_sound_powered
+			panel_visible_while_open = dummy.panel_visible_while_open
+			door_color = dummy.door_color
+			door_frame_color = dummy.door_frame_color
+			qdel(dummy)
+			_apply_glass_state()
 	if(content && content["cut_wires"] && wires)
 		var/list/cut = json_decode(content["cut_wires"])
 		if(islist(cut))
@@ -529,10 +758,20 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		set_frequency(frequency)
 
 /obj/structure/machinery/door/blast
-	// "id" -- so a button link made via multitool (blast_door_button.dm's
+	// "id" -- so a button link made via multitool (door_control.dm's
 	// _link_door()) survives a restart; every other blast door still
 	// defaults to the class's own initial(id), unaffected.
 	worldstate_vars = list("density", "persistent_network", "id")
+
+/obj/structure/machinery/button/remote/blast_door
+	// "id" -- multitool-linking (door_control.dm's _link_door()/_link_airlock())
+	// now applies to every mapped button, not just the buildable subtype
+	// below, and it OVERWRITES the button's own id with a freshly generated
+	// one on first link. Without this, that generated id reverts to the
+	// map's original hardcoded value on the next restart while the door side
+	// (already persisted, above) keeps the generated one -- silently
+	// breaking every multitool-made link one restart after it was made.
+	worldstate_vars = list("id")
 
 /obj/structure/machinery/button/remote/blast_door/buildable
 	worldstate_vars = list("id")
@@ -591,6 +830,165 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	if(frequency)
 		set_frequency(frequency)
 
+// ------- Reagent containers (fluids in machinery/structures) -------
+// serializePersistentItem() (persistence_mobs.dm) already round-trips reagents
+// for ITEMS, but worldstate had no reagent handling at all, so anything that
+// holds fluid as a structure or machine -- water/fuel tanks, chem masters,
+// grinders -- came back empty every reboot.
+//
+// Written as two shared helpers rather than repeating the encode/decode in
+// each type's override, since the types involved don't share a useful common
+// ancestor (/obj/structure/reagent_dispensers vs /obj/structure/machinery/*)
+// and blanket-overriding /obj/structure would touch every structure in the
+// game for no reason.
+
+/// Adds this atom's reagent contents to a worldstate content blob, if any.
+/// Returns the blob so callers can `return _worldstate_save_reagents(...)`.
+/proc/_worldstate_save_reagents(atom/A, list/content)
+	if(!islist(content))
+		content = list()
+	if(A.reagents && A.reagents.total_volume && length(A.reagents.reagent_volumes))
+		content["reagents"] = json_encode(A.reagents.reagent_volumes)
+	return content
+
+/// Restores reagents saved by _worldstate_save_reagents(). Clears first, so a
+/// container emptied before the save doesn't come back holding its Initialize()
+/// fill -- same reasoning as the storage-contents restore in persistence_mobs.dm.
+/proc/_worldstate_apply_reagents(atom/A, list/content)
+	if(!A.reagents || !islist(content) || !content["reagents"])
+		return
+	var/list/saved_reagents = json_decode(content["reagents"])
+	if(!islist(saved_reagents))
+		return
+	A.reagents.clear_reagents()
+	for(var/rtype_str in saved_reagents)
+		var/rtype = text2path(rtype_str)
+		if(rtype)
+			A.reagents.add_reagent(rtype, text2num(saved_reagents[rtype_str]))
+
+/obj/structure/reagent_dispensers/worldstate_get_content()
+	return _worldstate_save_reagents(src, ..())
+
+/obj/structure/reagent_dispensers/worldstate_apply_content(list/content)
+	..()
+	_worldstate_apply_reagents(src, content)
+
+/obj/structure/machinery/chem_master/worldstate_get_content()
+	return _worldstate_save_reagents(src, ..())
+
+/obj/structure/machinery/chem_master/worldstate_apply_content(list/content)
+	..()
+	_worldstate_apply_reagents(src, content)
+
+/obj/structure/machinery/reagentgrinder/worldstate_get_content()
+	return _worldstate_save_reagents(src, ..())
+
+/obj/structure/machinery/reagentgrinder/worldstate_apply_content(list/content)
+	..()
+	_worldstate_apply_reagents(src, content)
+
+// ------- Tank control console + its injector (multitool-linked by tag) -------
+// input_tag/output_tag are the console's only handle on its devices, and the
+// injector's own `id` is what it answers to -- all three were mapper-authored
+// only until multitool linking existed, so none of them were ever persisted.
+// The set_frequency() calls matter for the same reason the vent pump and
+// airlock cycler already override apply: the generic apply writes the raw
+// frequency var, but it takes a real set_frequency() call to re-register with
+// SSradio, or a restored pair holds correct-looking tags and hears nothing.
+
+// `sensors` is an assoc id_tag -> display name built by multitool linking
+// (_link_air_sensor(), atmo_control.dm) -- it round-trips fine as part of the
+// JSON content blob, and without it every readout link is lost on reboot.
+/obj/structure/machinery/computer/general_air_control
+	worldstate_vars = list("sensors", "frequency")
+
+/obj/structure/machinery/computer/general_air_control/worldstate_apply_content(list/content)
+	..()
+	if(frequency)
+		set_frequency(frequency)
+
+/obj/structure/machinery/computer/general_air_control/large_tank_control
+	worldstate_vars = list("sensors", "input_tag", "output_tag", "frequency")
+
+// Same shape as large_tank_control just above -- input_tag/output_tag are
+// now on the shared base type (atmo_control.dm), but each subtype still
+// needs its OWN worldstate_vars override to actually persist them; a
+// subtype with none just inherits the base's own narrower list ("sensors",
+// "frequency" only). Without this, a device linked to a supermatter core
+// console -- now possible at all for the first time -- would survive the
+// rest of the round but silently unlink on every restart.
+/obj/structure/machinery/computer/general_air_control/supermatter_core
+	worldstate_vars = list("sensors", "input_tag", "output_tag", "frequency")
+
+/obj/structure/machinery/atmospherics/unary/outlet_injector
+	worldstate_vars = list("id", "frequency", "volume_rate", "use_power")
+
+/obj/structure/machinery/atmospherics/unary/outlet_injector/worldstate_apply_content(list/content)
+	..()
+	if(frequency)
+		set_frequency(frequency)
+
+// ------------------- Omni mixers/filters (port config) -----------------------
+// Port configuration is serialized off the LIVE ports list, not the tag_north/
+// tag_south/tag_east/tag_west vars.
+//
+// Those tag vars look like the config but are write-once SEEDS: Initialize()
+// reads them exactly once to build the /datum/omni_port instances
+// (omni_base.dm), and nothing ever writes back to them. Player configuration
+// goes to P.mode and P.concentration on the port datums themselves
+// (mixer.dm ui_act). Saving the tags therefore recorded the mapper/compile
+// default forever -- every row in the live DB read
+// {"tag_north":0,...,"tag_north_con":null} while set_flow_rate, an ordinary
+// live var, saved correctly -- and restore rebuilt every port unconfigured.
+//
+// Ports are keyed by P.dir (a stable cardinal), not list position, so a
+// reordered ports list can't silently shuffle a mixer's inputs and output.
+// Subtypes restate worldstate_vars because it is a plain var override, not
+// additive; they inherit the get/apply overrides from the base.
+
+/obj/structure/machinery/atmospherics/omni
+	worldstate_vars = list("use_power")
+
+/obj/structure/machinery/atmospherics/omni/worldstate_get_content()
+	var/list/content = ..()
+	if(!islist(content))
+		content = list()
+	var/list/port_data = list()
+	for(var/datum/omni_port/P in ports)
+		port_data["[P.dir]"] = list("mode" = P.mode, "concentration" = P.concentration)
+	if(length(port_data))
+		content["ports"] = port_data
+	return content
+
+/obj/structure/machinery/atmospherics/omni/worldstate_apply_content(list/content)
+	..()
+	var/list/port_data = content["ports"]
+	if(islist(port_data))
+		for(var/datum/omni_port/P in ports)
+			var/list/saved = port_data["[P.dir]"]
+			if(!islist(saved))
+				continue
+			P.mode = saved["mode"]
+			P.concentration = saved["concentration"]
+	// Rebuilds the derived state from the port modes just written --
+	// sort_ports() + update_port_icons() (omni_base.dm). Without it the modes
+	// are set but nothing acts on them and the icons stay stale.
+	update_ports()
+
+/obj/structure/machinery/atmospherics/omni/mixer
+	worldstate_vars = list("use_power", "set_flow_rate")
+
+/obj/structure/machinery/atmospherics/omni/filter
+	worldstate_vars = list("use_power", "set_flow_rate")
+
+/obj/structure/machinery/atmospherics/omni/filter/worldstate_apply_content(list/content)
+	..()
+	// update_ports() does NOT rebuild filtering_outputs -- that is a separate
+	// proc (filter.dm), and P.mode is what encodes which gas each port filters.
+	// Skipping this leaves a filter whose ports look correctly configured while
+	// it routes no gas at all.
+	rebuild_filtering_list()
+
 /obj/structure/machinery/portable_atmospherics/canister
 	worldstate_vars = list("valve_open", "release_pressure", "release_flow_rate", "can_label")
 
@@ -616,8 +1014,17 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 // under-construction frame/circuit survives a restart mid-build, plus every
 // tag/frequency link a multitool sets up, so a player-built cycler doesn't
 // need to be rewired after a restart.
+//
+// pixel_x/pixel_y travel WITH dir here, deliberately. These offsets cannot be
+// re-derived from dir: a mapper positions these devices on both axes (x to sit
+// beside a doorframe, y to sit high on the wall) while dir independently sets
+// which way the sprite faces -- see apply_wall_mount_offset()'s formula, which
+// can only ever produce a single-axis offset and is correct solely for a frame
+// being freshly BUILT. Persisting the real value means whatever the device
+// actually had -- mapper-authored or player-built -- round-trips exactly,
+// instead of being recomputed into the wrong position on every boot.
 /obj/structure/machinery/airlock_sensor
-	worldstate_vars = list("buildstage", "panel_open", "dir", "id_tag", "master_tag", "frequency", "on")
+	worldstate_vars = list("buildstage", "panel_open", "dir", "pixel_x", "pixel_y", "id_tag", "master_tag", "frequency", "on")
 
 /obj/structure/machinery/airlock_sensor/worldstate_apply_content(list/content)
 	..()
@@ -625,7 +1032,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		set_frequency(frequency)
 
 /obj/structure/machinery/access_button
-	worldstate_vars = list("buildstage", "panel_open", "dir", "master_tag", "frequency", "on")
+	worldstate_vars = list("buildstage", "panel_open", "dir", "pixel_x", "pixel_y", "master_tag", "frequency", "on")
 
 /obj/structure/machinery/access_button/worldstate_apply_content(list/content)
 	..()
@@ -633,7 +1040,7 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		set_frequency(frequency)
 
 /obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller
-	worldstate_vars = list("buildstage", "panel_open", "dir", "id_tag", "frequency", "tag_exterior_door", "tag_interior_door", "tag_exterior_doors", "tag_interior_doors", "tag_airpump", "tag_airpumps", "tag_chamber_sensor", "tag_exterior_sensor", "tag_interior_sensor", "persistent_network")
+	worldstate_vars = list("buildstage", "panel_open", "dir", "pixel_x", "pixel_y", "id_tag", "frequency", "tag_exterior_door", "tag_interior_door", "tag_exterior_doors", "tag_interior_doors", "tag_airpump", "tag_airpumps", "tag_chamber_sensor", "tag_exterior_sensor", "tag_interior_sensor", "persistent_network")
 
 /obj/structure/machinery/embedded_controller/radio/airlock/airlock_controller/worldstate_apply_content(list/content)
 	..()
@@ -733,6 +1140,15 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 /obj/structure/machinery/biogenerator
 	worldstate_vars = list("points", "build_eff", "eat_eff", "processing_time_divisor", "emagged")
 
+/obj/structure/machinery/bioprinter
+	worldstate_vars = list("stored_matter", "loaded_species_id", "loaded_blood_type", "loaded_blood_dna")
+
+/obj/structure/machinery/bioprinter/worldstate_apply_content(list/content)
+	. = ..()
+	if(loaded_species_id)
+		loaded_species = GLOB.all_species[loaded_species_id]
+	products = get_possible_products()
+
 /obj/structure/machinery/stasis_bed
 	worldstate_vars = list("stasis_enabled", "stasis_can_toggle")
 
@@ -816,6 +1232,14 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	// to draining its own cell until it reads as unpowered.
 	if(anchored)
 		connect_to_network()
+	// Same issue, same cause, for the looping hum: Initialize() constructs
+	// soundloop with start_immediately = active, but sees the class default
+	// (FALSE) since this restore hasn't run yet -- so a generator saved
+	// while running comes back reporting active but silently mute until
+	// manually toggled off and back on. soundloop is always non-null by this
+	// point (Initialize() constructs it unconditionally).
+	if(active)
+		soundloop.start(src)
 
 /obj/structure/machinery/power/solar_control
 	worldstate_vars = list("track", "trackrate")
@@ -1037,4 +1461,32 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 		var/turf/T = locate(text2num(content["tu_x"]), text2num(content["tu_y"]), text2num(content["tu_z"]))
 		if(T) for(var/obj/structure/ladder/BL in T)
 			if(BL.allowed_directions & DOWN) { target_up = BL; BL.target_down = src; break }
+
+// ------- Table (material/reinforced aren't flat vars -- round-trip by name) -------
+
+/obj/structure/table
+	worldstate_vars = list("flipped", "carpeted")
+
+/obj/structure/table/worldstate_get_content()
+	var/list/content = ..()
+	if(!content) content = list()
+	if(material)
+		content["material_name"] = material.name
+	if(reinforced)
+		content["reinforced_name"] = reinforced.name
+	return content
+
+/obj/structure/table/worldstate_apply_content(list/content)
+	..()
+	if(content && content["material_name"])
+		material = SSmaterials.get_material_by_name(content["material_name"])
+	if(content && content["reinforced_name"])
+		reinforced = SSmaterials.get_material_by_name(content["reinforced_name"])
+	if(material)
+		update_connections(1)
+		update_desc()
+		update_material()
+		if(reinforced)
+			AddComponent(/datum/component/armor, list(MELEE = ARMOR_MELEE_KNIVES, BULLET = ARMOR_BALLISTIC_MINOR))
+	queue_icon_update()
 	update_icon()

@@ -394,7 +394,7 @@
 
 /obj/item/rig/bunker
 	name = "bunker suit control module"
-	desc = "A powerful niche-function hardsuit utilized by Ceres' Lance to apprehend synthetics. Unstoppable in the right circumstances, and nothing more than a burden anywhere else."
+	desc = "A powerful niche-function hardsuit utilized by Hub Lancer to apprehend synthetics. Unstoppable in the right circumstances, and nothing more than a burden anywhere else."
 	icon = 'icons/obj/item/clothing/rig/bunker.dmi'
 	icon_state = "bunker"
 	suit_type = "bunker suit"
@@ -443,7 +443,7 @@
 
 /obj/item/rig/bunker/nerfed
 	name = "bunker suit control module"
-	desc = "A powerful niche-function hardsuit utilized by Ceres' Lance to apprehend synthetics. This is a lighter version with more standard hardsuit plating."
+	desc = "A powerful niche-function hardsuit utilized by Hub Lancer to apprehend synthetics. This is a lighter version with more standard hardsuit plating."
 	armor = list(
 		MELEE = ARMOR_MELEE_MAJOR,
 		BULLET = ARMOR_BALLISTIC_MAJOR,

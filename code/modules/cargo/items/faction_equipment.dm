@@ -7,10 +7,12 @@
  * the named factions. Both the listing and the order path enforce it, via
  * _can_order_faction_item() (cargo_order.dm).
  *
- * `tag_spawned_to_faction` tags every taggable piece to the ordering faction on
+ * `tag_spawned_to_faction` tags spawned pieces to the ordering faction on
  * delivery through the item's own faction_tagger_set() -- so armour and helmets
  * arrive already marked and wearing the faction's colour, without a tagger pass
- * by hand.
+ * by hand. `faction_finish_types` (set on the base below) narrows that to the
+ * armour and helmet specifically, leaving the rest of a kit at its normal
+ * appearance.
  *
  * Add a new faction's kit by adding a singleton here. Nothing else needs
  * touching: no registry, no subsystem edit, no UI change.
@@ -29,6 +31,14 @@
 	spawn_amount = 1
 	/// Faction gear arrives marked as that faction's property by default.
 	tag_spawned_to_faction = TRUE
+	/// ...but only the armour and helmet actually wear the faction's mark and
+	/// colour. Tagging every taggable piece meant a kit's gloves, shoes,
+	/// balaclava, gas mask, goggles, uniform, and satchel all came out recoloured
+	/// too, which is not what "faction-marked gear" is meant to look like.
+	faction_finish_types = list(
+		/obj/item/clothing/suit/armor,
+		/obj/item/clothing/head/helmet
+	)
 
 /singleton/cargo_item/faction_restricted/hub_lancer
 	category = "security"

@@ -760,6 +760,20 @@
 	groupable = TRUE
 	spawn_amount = 1
 
+/singleton/cargo_item/bioprinter
+	category = "medical"
+	name = "organ bioprinter"
+	supplier = "Hub"
+	description = "A machine that grows replacement organs from stored biomass, matched to a loaded blood sample's species. Ships unanchored; wrench to secure after placement."
+	price = 100000
+	items = list(
+		/obj/structure/machinery/bioprinter/crate
+	)
+	access = ACCESS_SURGERY
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
 /singleton/cargo_item/tajaranlatexgloves
 	category = "medical"
 	name = "tajaran latex gloves"

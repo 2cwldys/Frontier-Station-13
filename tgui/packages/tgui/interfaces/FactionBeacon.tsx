@@ -22,6 +22,8 @@ type FactionBeaconData = {
   public_territory: BooleanLike;
   faction_raiding_enabled: BooleanLike;
   hazard_eviction_active: BooleanLike;
+  is_hub: BooleanLike;
+  restrict_to_hub_personnel?: BooleanLike;
 };
 
 export const FactionBeacon = (props) => {
@@ -44,6 +46,8 @@ export const FactionBeacon = (props) => {
     public_territory,
     faction_raiding_enabled,
     hazard_eviction_active,
+    is_hub,
+    restrict_to_hub_personnel,
   } = data;
   const [withdrawAmount, setWithdrawAmount] = useState(0);
 
@@ -62,7 +66,11 @@ export const FactionBeacon = (props) => {
   }
 
   return (
-    <Window width={420} height={requires_fuel ? 500 : 340} title="Faction Beacon">
+    <Window
+      width={420}
+      height={requires_fuel ? 500 : is_hub ? 380 : 340}
+      title="Faction Beacon"
+    >
       <Window.Content scrollable>
         <Section title="Status">
           <Box mb={1}>
@@ -113,6 +121,18 @@ export const FactionBeacon = (props) => {
               </Box>
             )}
           </Box>
+          {!!is_hub && (
+            <Box mb={1}>
+              Access:{' '}
+              <Box
+                inline
+                bold
+                color={restrict_to_hub_personnel ? 'good' : 'average'}
+              >
+                {restrict_to_hub_personnel ? 'Hub Personnel Only' : 'Open'}
+              </Box>
+            </Box>
+          )}
           {!active && !!refusal_reason && (
             <NoticeBox>Not active: {refusal_reason}.</NoticeBox>
           )}
@@ -155,6 +175,21 @@ export const FactionBeacon = (props) => {
             >
               Make Territory {public_territory ? 'Private' : 'Public'}
             </Button>
+            {!!is_hub && (
+              <Button
+                icon="user-shield"
+                color={restrict_to_hub_personnel ? 'good' : 'average'}
+                disabled={!can_configure}
+                tooltip={
+                  can_configure
+                    ? 'Hub Personnel Only lets in Hub-affiliated personnel actually holding a job (and admins) -- a civilian-rank Hub ID does not qualify. Open lets anyone travel, warp, or disembark here.'
+                    : 'You need command access in this faction.'
+                }
+                onClick={() => act('toggle_hub_personnel_restriction')}
+              >
+                Make Access {restrict_to_hub_personnel ? 'Open' : 'Hub Personnel Only'}
+              </Button>
+            )}
           </Box>
         </Section>
         {!!requires_fuel && (

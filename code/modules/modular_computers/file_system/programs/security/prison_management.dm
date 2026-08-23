@@ -67,7 +67,31 @@
 			"char_name"         = c["char_name"],
 			"indefinite"        = rec["indefinite"],
 			"remaining_seconds" = rec["remaining_seconds"],
-			"frozen"            = rec["frozen"]
+			"frozen"            = rec["frozen"],
+			"cell_ref"          = REF(rec["cell"])
+		))
+
+	// Every prison cell tied to this console's own faction, anywhere in the
+	// world -- not scoped to this console's own Z or area -- so a transfer
+	// can relocate a prisoner to a completely different facility. Rare
+	// enough a machine type that a plain `in world` scan on UI refresh is
+	// fine; not a hot path.
+	data["cells"] = list()
+	for(var/obj/structure/machinery/cryopod/prison/P in world)
+		if(normalize_faction_uid(P.persistent_network) != net)
+			continue
+		var/area/cell_area = get_area(P)
+		// Coordinates, not just area/name -- P.name is the generic
+		// "cryogenic prison storage" default for any empty pod (it only
+		// shows occupant names when someone's actually inside), so two
+		// empty pods in the same area would otherwise be indistinguishable
+		// in the dropdown. No faction suffix needed here -- every entry in
+		// this list is already this console's own faction (see the filter
+		// above), and P.name itself now carries the faction tag anyway
+		// (cryopod_prison.dm's update_icon()).
+		data["cells"] += list(list(
+			"ref"   = REF(P),
+			"label" = "[cell_area ? cell_area.name : "Unknown Area"] -- [P.name] ([P.x],[P.y],[P.z])"
 		))
 	return data
 
@@ -132,4 +156,34 @@
 			persistence_set_imprisoned(target_ckey, target_char_name, TRUE, minutes, net)
 			to_chat(user, SPAN_GOOD("[target_char_name]'s sentence updated[minutes ? " -- [minutes] minute(s) remaining" : " -- now indefinite"]."))
 			log_and_message_admins("adjusted [target_char_name] ([target_ckey])'s cryogenic prison sentence[minutes ? " to [minutes] minute(s)" : " to indefinite"] via Prison Management ([get_faction_name(net)]).", user)
+			. = TRUE
+
+		if("transfer")
+			var/obj/structure/machinery/cryopod/prison/destination = locate(params["pod_ref"])
+			if(!istype(destination))
+				to_chat(user, SPAN_WARNING("That cell no longer exists."))
+				return TRUE
+			if(normalize_faction_uid(destination.persistent_network) != net)
+				to_chat(user, SPAN_WARNING("That cell isn't tagged to [get_faction_name(net)]."))
+				return TRUE
+			if(destination == cell)
+				to_chat(user, SPAN_WARNING("[target_char_name] is already held there."))
+				return TRUE
+			// Refuse while physically present in the current cell (frozen or
+			// thawed-and-playing, either way still in prison_occupants) --
+			// this only rewrites the saved last_pod_x/y/z, it never moves a
+			// live/stored mob. Doing it anyway would leave them physically
+			// in the old cell while their return-position says the new one,
+			// and the next natural store (freeze, disconnect) would rewrite
+			// last_pod_* back to wherever they physically are, silently
+			// undoing the transfer. A present prisoner needs the physical
+			// eject/move/re-imprison workflow (the pod's own TGUI) instead.
+			for(var/mob/living/carbon/present_check in cell.prison_occupants)
+				if(present_check.ckey == target_ckey && present_check.real_name == target_char_name)
+					to_chat(user, SPAN_WARNING("[target_char_name] is physically present in their current cell -- eject and move them in person, or wait until they're stored, before transferring remotely."))
+					return TRUE
+			persistence_set_last_pod(target_ckey, target_char_name, destination)
+			var/area/dest_area = get_area(destination)
+			to_chat(user, SPAN_GOOD("[target_char_name] will resolve to [dest_area ? dest_area.name : "the destination cell"] on their next login or enforcement check."))
+			log_and_message_admins("transferred [target_char_name] ([target_ckey])'s cryogenic prison sentence to a different cell via Prison Management ([get_faction_name(net)]).", user)
 			. = TRUE

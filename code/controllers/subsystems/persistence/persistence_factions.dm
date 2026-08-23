@@ -22,6 +22,256 @@ GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 
 // ============================================================
+// CENTRAL FACTION SYNC (CENTRAL_SYNC_FACTIONS)
+// ============================================================
+//
+// See docs/cross_server_persistence.md. Existence (ss13_factions) and
+// membership (ss13_faction_members) use the same write-through +
+// read-through-on-miss shape CENTRAL_SYNC_CHARACTERS already established
+// (persistence_mobs.dm) -- faction membership has no presence-lock
+// equivalent (a faction's members are expected to be spread across
+// servers simultaneously, by design), so there's no concurrent-write
+// conflict to solve for those two.
+//
+// Treasury (ss13_faction_accounts) is different and NOT safe to sync the
+// same way: faction_credit()/faction_debit() (below) always used to read
+// a cached balance, compute a new one in DM, then write the ABSOLUTE
+// result. That's harmless on one server (DM is single-threaded, nothing
+// interleaves the read-compute-write), but once two SEPARATE server
+// processes can both write the same central row, it's a textbook
+// lost-update race -- and since factions have no presence lock, this
+// would be the ROUTINE case the moment two servers both have active
+// members trading stock or spending faction money, not a rare edge case.
+// Fixed by making every balance mutation a SQL-side delta
+// (`balance = balance +/- :amount`) instead of an absolute overwrite --
+// this makes the stored value correct regardless of which server's cache
+// was stale when it computed the delta, addition/subtraction being
+// commutative. Debits additionally use `WHERE balance >= :amount` as an
+// atomic check-and-decrement (checking query.affected, exposed by
+// dbcore.dm's store_data()) so two servers can never both approve a
+// debit that combined overdraws the account -- no faction-level lock
+// needed, same reasoning that made the character presence lock
+// unnecessary for read-through-on-miss elsewhere in this file's design.
+
+/// Shared gate, same shape as persistence_mobs.dm's
+/// _centralCharacterSyncActive() -- central_sql_enabled checked
+/// explicitly (not left to centralDatabaseReachable() alone, which
+/// returns TRUE when central is OFF as a no-op shortcut for UI gating)
+/// alongside central_sync_factions, AND reachability.
+/proc/_factionCentralSyncActive()
+	if(!GLOB.config.central_sql_enabled || !GLOB.config.central_sync_factions)
+		return FALSE
+	return SSpersistence.centralDatabaseReachable()
+
+/// Read-through-on-miss for faction EXISTENCE -- called from
+/// faction_credit()/faction_debit()/get_faction_account_balance() when
+/// this server has never seen faction_uid before. A hit populates both
+/// GLOB.persistence_faction_cache AND this server's own local
+/// ss13_factions/ss13_faction_accounts rows (self-heal, same as the
+/// character read-through), so this server behaves like a normal
+/// cache-primed one for this faction from then on. Returns TRUE if the
+/// cache now has an entry for uid (either it already did, or hydration
+/// succeeded), FALSE if it's genuinely unknown everywhere.
+/proc/_faction_hydrate_from_central(uid)
+	if(islist(GLOB.persistence_faction_cache) && (uid in GLOB.persistence_faction_cache))
+		return TRUE
+	if(!_factionCentralSyncActive())
+		return FALSE
+
+	var/datum/db_query/fq = SScentraldb.NewQuery(
+		{"SELECT name, abbreviation, founder_ckey, is_company_tier, pirate_founded,
+		leader_ckey, leader_char_name, color, auto_payroll, allowed_cargo_category
+		FROM `ss13_factions` WHERE uid = :uid"},
+		list("uid" = uid)
+	)
+	fq.Execute()
+	if(!fq.NextRow())
+		qdel(fq)
+		return FALSE
+	var/f_name = fq.item[1]
+	var/f_abbr = fq.item[2]
+	var/f_founder = fq.item[3]
+	var/f_company = text2num(fq.item[4])
+	var/f_pirate = text2num(fq.item[5])
+	var/f_leader_ckey = fq.item[6]
+	var/f_leader_char_name = fq.item[7]
+	var/f_color = fq.item[8]
+	var/f_auto_payroll = text2num(fq.item[9])
+	var/f_cargo_category = fq.item[10]
+	qdel(fq)
+
+	var/datum/db_query/bq = SScentraldb.NewQuery(
+		"SELECT balance FROM `ss13_faction_accounts` WHERE faction_uid = :uid",
+		list("uid" = uid)
+	)
+	bq.Execute()
+	var/f_balance = bq.NextRow() ? text2num(bq.item[1]) : 0
+	qdel(bq)
+
+	if(!islist(GLOB.persistence_faction_cache))
+		GLOB.persistence_faction_cache = list()
+	GLOB.persistence_faction_cache[uid] = list(
+		"name"                   = f_name,
+		"abbreviation"           = f_abbr,
+		"balance"                = f_balance,
+		"founder_ckey"           = f_founder,
+		"master_card_lost"       = FALSE,
+		"is_company_tier"        = f_company,
+		"pirate_founded"         = f_pirate,
+		"leader_ckey"            = f_leader_ckey,
+		"leader_char_name"       = f_leader_char_name,
+		"color"                  = f_color,
+		"auto_payroll"           = f_auto_payroll,
+		"allowed_cargo_category" = f_cargo_category
+	)
+
+	// Self-heal -- write this faction into this server's own local tables
+	// so it's a normal, cache-primed faction locally from now on, not a
+	// repeated central round-trip on every future access.
+	if(GLOB.config.sql_enabled && SSdbcore.Connect())
+		var/datum/db_query/lf = SSdbcore.NewQuery(
+			{"INSERT INTO ss13_factions (uid, name, abbreviation, is_lore, founder_ckey, is_company_tier, pirate_founded,
+			leader_ckey, leader_char_name, color, auto_payroll, allowed_cargo_category)
+			VALUES (:uid, :name, :abbr, 0, :founder, :company, :pirate, :leader_ckey, :leader_name, :color, :auto_payroll, :cargo_cat)
+			ON DUPLICATE KEY UPDATE name = VALUES(name), abbreviation = VALUES(abbreviation), leader_ckey = VALUES(leader_ckey),
+			leader_char_name = VALUES(leader_char_name), color = VALUES(color), auto_payroll = VALUES(auto_payroll),
+			allowed_cargo_category = VALUES(allowed_cargo_category)"},
+			list(
+				"uid" = uid, "name" = f_name, "abbr" = f_abbr, "founder" = f_founder, "company" = f_company, "pirate" = f_pirate,
+				"leader_ckey" = f_leader_ckey, "leader_name" = f_leader_char_name, "color" = f_color,
+				"auto_payroll" = f_auto_payroll, "cargo_cat" = f_cargo_category
+			)
+		)
+		lf.Execute()
+		qdel(lf)
+		var/datum/db_query/lb = SSdbcore.NewQuery(
+			"INSERT INTO ss13_faction_accounts (faction_uid, balance) VALUES (:uid, :balance) ON DUPLICATE KEY UPDATE balance = VALUES(balance), saved_at = NOW()",
+			list("uid" = uid, "balance" = f_balance)
+		)
+		lb.Execute()
+		qdel(lb)
+
+	return TRUE
+
+/// Writes a faction's just-created existence row centrally -- called from
+/// _financalizeFactionRow() alongside its existing local INSERTs.
+/// Non-fatal on failure, same reasoning as every other write-through in
+/// this codebase.
+/proc/_faction_existence_write_through(uid, name, abbreviation, founder_ckey, is_company_tier, pirate_founded, starting_balance)
+	if(!_factionCentralSyncActive())
+		return
+	var/datum/db_query/fq = SScentraldb.NewQuery(
+		{"INSERT INTO ss13_factions (uid, name, abbreviation, is_lore, founder_ckey, is_company_tier, pirate_founded)
+		VALUES (:uid, :name, :abbr, 0, :founder, :company, :pirate)
+		ON DUPLICATE KEY UPDATE name = VALUES(name), abbreviation = VALUES(abbreviation)"},
+		list("uid" = uid, "name" = name, "abbr" = abbreviation, "founder" = founder_ckey, "company" = is_company_tier ? 1 : 0, "pirate" = pirate_founded ? 1 : 0)
+	)
+	fq.Execute()
+	qdel(fq)
+	var/datum/db_query/bq = SScentraldb.NewQuery(
+		"INSERT INTO ss13_faction_accounts (faction_uid, balance) VALUES (:uid, :balance) ON DUPLICATE KEY UPDATE balance = VALUES(balance), saved_at = NOW()",
+		list("uid" = uid, "balance" = starting_balance)
+	)
+	bq.Execute()
+	qdel(bq)
+
+/// Atomic credit -- a pure SQL-side delta, always succeeds (barring a DB
+/// failure) since crediting needs no sufficient-funds check. Applies
+/// against the CENTRAL row when sync is active (the authoritative store
+/// once two servers can both touch this faction) and always against the
+/// LOCAL row too (best-effort mirror for this server's own offline
+/// resilience -- matches every other system's local-write-always
+/// convention).
+/proc/_faction_balance_credit_atomic(uid, amount)
+	if(GLOB.config.sql_enabled && SSdbcore.Connect())
+		var/datum/db_query/lq = SSdbcore.NewQuery(
+			"UPDATE ss13_faction_accounts SET balance = balance + :amount, saved_at = NOW() WHERE faction_uid = :uid",
+			list("uid" = uid, "amount" = amount)
+		)
+		lq.Execute()
+		qdel(lq)
+	if(_factionCentralSyncActive())
+		var/datum/db_query/cq = SScentraldb.NewQuery(
+			"UPDATE ss13_faction_accounts SET balance = balance + :amount, saved_at = NOW() WHERE faction_uid = :uid",
+			list("uid" = uid, "amount" = amount)
+		)
+		cq.Execute()
+		qdel(cq)
+
+/// Atomic debit -- the check-and-decrement described in this section's own
+/// header comment. When central sync is active, the CENTRAL row is what's
+/// checked/decremented (it's the one every server actually shares); the
+/// local row is then just kept in step with the same delta, no separate
+/// check needed. When central sync is off, the LOCAL row is the
+/// authoritative check, exactly like before this fix existed. Returns
+/// TRUE only if a row was actually decremented (sufficient funds).
+/proc/_faction_balance_debit_atomic(uid, amount)
+	if(_factionCentralSyncActive())
+		var/datum/db_query/cq = SScentraldb.NewQuery(
+			"UPDATE ss13_faction_accounts SET balance = balance - :amount, saved_at = NOW() WHERE faction_uid = :uid AND balance >= :amount",
+			list("uid" = uid, "amount" = amount)
+		)
+		cq.Execute()
+		var/central_ok = (cq.affected > 0)
+		qdel(cq)
+		if(!central_ok)
+			return FALSE
+		// Central already confirmed sufficient funds and decremented --
+		// mirror the same delta locally, unconditionally (no re-check).
+		if(GLOB.config.sql_enabled && SSdbcore.Connect())
+			var/datum/db_query/lq = SSdbcore.NewQuery(
+				"UPDATE ss13_faction_accounts SET balance = balance - :amount, saved_at = NOW() WHERE faction_uid = :uid",
+				list("uid" = uid, "amount" = amount)
+			)
+			lq.Execute()
+			qdel(lq)
+		return TRUE
+
+	if(GLOB.config.sql_enabled && SSdbcore.Connect())
+		var/datum/db_query/lq = SSdbcore.NewQuery(
+			"UPDATE ss13_faction_accounts SET balance = balance - :amount, saved_at = NOW() WHERE faction_uid = :uid AND balance >= :amount",
+			list("uid" = uid, "amount" = amount)
+		)
+		lq.Execute()
+		var/local_ok = (lq.affected > 0)
+		qdel(lq)
+		return local_ok
+
+	// No database at all (sql_enabled off) -- nothing to defer to, fall
+	// back to the plain DM-cache check this proc always used to be.
+	var/list/data = GLOB.persistence_faction_cache[uid]
+	return islist(data) && data["balance"] >= amount
+
+/// Central write-through for ss13_factions METADATA columns (name, leader,
+/// color, auto_payroll, ...) -- everything on that row besides balance,
+/// which lives on the separate ss13_faction_accounts table and always
+/// goes through the atomic delta procs above instead. A plain UPDATE, not
+/// an upsert -- these procs only ever run against a row
+/// _faction_existence_write_through() already created, same reasoning as
+/// _centralCharacterPartialUpdate() (persistence_mobs.dm). Last-write-wins
+/// for these fields (no atomic-delta equivalent makes sense for a name or
+/// a color) -- an acceptable risk since each is only ever touched by
+/// whoever's actively managing that faction through a live character, and
+/// that character can only be active on one server at a time (presence
+/// lock), unlike treasury, which routine gameplay hits from every member
+/// simultaneously.
+/proc/_factionCentralPartialUpdate(uid, list/set_columns, list/set_values)
+	if(!_factionCentralSyncActive())
+		return
+	var/list/set_clauses = list()
+	var/list/params = list("uid" = uid)
+	for(var/i in 1 to length(set_columns))
+		var/col = set_columns[i]
+		set_clauses += "`[col]` = :[col]"
+		params[col] = set_values[i]
+	var/datum/db_query/q = SScentraldb.NewQuery(
+		"UPDATE `ss13_factions` SET [jointext(set_clauses, ", ")] WHERE uid = :uid",
+		params
+	)
+	q.Execute()
+	qdel(q)
+
+// ============================================================
 // INITIALIZE
 // ============================================================
 
@@ -75,7 +325,8 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 					"allowed_cargo_category" = null,
 					"leader_ckey"      = null,
 					"leader_char_name" = null,
-					"is_company_tier"  = FALSE
+					"is_company_tier"  = FALSE,
+					"pirate_founded"   = FALSE
 				)
 			GLOB.persistence_faction_cache = loaded // only replace on confirmed success
 			_factionLoadExtendedColumns()
@@ -167,7 +418,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	PRIVATE_PROC(TRUE)
 	try
 		var/datum/db_query/eq = SSdbcore.NewQuery(
-			"SELECT uid, allowed_cargo_category, leader_ckey, leader_char_name, is_company_tier FROM ss13_factions",
+			"SELECT uid, allowed_cargo_category, leader_ckey, leader_char_name, is_company_tier, pirate_founded FROM ss13_factions",
 			list()
 		)
 		eq.Execute()
@@ -180,6 +431,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 				GLOB.persistence_faction_cache[uid]["leader_ckey"] = eq.item[3]
 				GLOB.persistence_faction_cache[uid]["leader_char_name"] = eq.item[4]
 				GLOB.persistence_faction_cache[uid]["is_company_tier"] = !!text2num(eq.item[5])
+				GLOB.persistence_faction_cache[uid]["pirate_founded"] = !!text2num(eq.item[6])
 		else
 			message_admins("Faction extended-columns load failed -- cargo category/leader/company-tier data unavailable until the schema is updated (db_update?). Core faction data is unaffected.")
 		qdel(eq)
@@ -429,35 +681,60 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 		founding_category = FACTION_CARGO_CATEGORY_ALL
 #endif //FACTION_CARGO_SPECIALIZATION
 
+	var/obj/item/card/id/faction_master/master_card = _financalizeFactionRow(faction_uid, petition["faction_name"], petition["abbreviation"], founder_ckey, petition["founder_name"], founding_category, is_company, founding_cost, FALSE)
+
+	var/client/founder_client = GLOB.directory[founder_ckey]
+	var/mob/founder_mob = founder_client ? founder_client.mob : null
+
+	if(founder_mob)
+		to_chat(founder_mob, SPAN_GOOD("Founding petition successful! '[petition["faction_name"]]' ([faction_uid]) is now a registered [is_company ? "company" : "faction"] with a starting balance of [founding_cost] credits.[master_card ? " A faction master card has been printed." : ""][is_company ? " It has been automatically listed on the stock exchange -- you hold 100% of its shares." : ""]"))
+	log_game("Founding petition for '[faction_uid]' ([petition["faction_name"]]) succeeded -- founder [petition["founder_name"]] ([founder_ckey]), [length(petition["supporters"])] supporters, [founding_cost] credits paid, tier [is_company ? "Company" : "Full Faction"].")
+	message_admins("A founding petition succeeded: '[petition["faction_name"]]' ([faction_uid]), founded by [petition["founder_name"]] ([founder_ckey]) with [length(petition["supporters"])] supporters, paying [founding_cost] credits ([is_company ? "Company" : "Full Faction"] tier).[founder_mob ? " (<a href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[founder_mob.x];Y=[founder_mob.y];Z=[founder_mob.z]'>JMP</a>)" : ""]")
+
+	cancelFoundingPetition(faction_uid)
+	return TRUE
+
+/**
+ * Shared "make this faction row genuinely usable" core -- faction + account
+ * INSERT, cache seed, founder registration, master card spawn. Used by both
+ * the normal petition finalize path above (charges the founder's bank
+ * account, requires supporters) and the instant pirate-faction path
+ * (piracyBeaconFoundFaction() below, charges physical spacecash, skips the
+ * petition system entirely). Returns the printed master card (or null, with
+ * an admin message already sent if printing failed) -- callers build their
+ * own user-facing summary message around that.
+ */
+/datum/controller/subsystem/persistence/proc/_financalizeFactionRow(faction_uid, name, abbreviation, founder_ckey, founder_name, cargo_category, is_company_tier, starting_balance, pirate_founded = FALSE)
 	var/datum/db_query/cf_q1 = SSdbcore.NewQuery(
-		"INSERT INTO ss13_factions (uid, name, abbreviation, is_lore, founder_ckey, allowed_cargo_category, cargo_category_changed_at, is_company_tier) VALUES (:uid, :name, :abbr, 0, :founder, :cat, NOW(), :company)",
-		list("uid" = faction_uid, "name" = petition["faction_name"], "abbr" = petition["abbreviation"], "founder" = founder_ckey, "cat" = founding_category, "company" = is_company ? 1 : 0)
+		"INSERT INTO ss13_factions (uid, name, abbreviation, is_lore, founder_ckey, allowed_cargo_category, cargo_category_changed_at, is_company_tier, pirate_founded) VALUES (:uid, :name, :abbr, 0, :founder, :cat, NOW(), :company, :pirate)",
+		list("uid" = faction_uid, "name" = name, "abbr" = abbreviation, "founder" = founder_ckey, "cat" = cargo_category, "company" = is_company_tier ? 1 : 0, "pirate" = pirate_founded ? 1 : 0)
 	)
 	cf_q1.Execute()
-	databaseCheckQueryResult(cf_q1, "tryFinalizeFounding insert")
+	databaseCheckQueryResult(cf_q1, "_financalizeFactionRow insert")
 	qdel(cf_q1)
 
 	var/datum/db_query/cf_q2 = SSdbcore.NewQuery(
 		"INSERT INTO ss13_faction_accounts (faction_uid, balance) VALUES (:uid, :balance) ON DUPLICATE KEY UPDATE balance = VALUES(balance), saved_at = NOW()",
-		list("uid" = faction_uid, "balance" = founding_cost)
+		list("uid" = faction_uid, "balance" = starting_balance)
 	)
 	cf_q2.Execute()
-	databaseCheckQueryResult(cf_q2, "tryFinalizeFounding account")
+	databaseCheckQueryResult(cf_q2, "_financalizeFactionRow account")
 	qdel(cf_q2)
+
+	_faction_existence_write_through(faction_uid, name, abbreviation, founder_ckey, is_company_tier, pirate_founded, starting_balance)
 
 	if(!islist(GLOB.persistence_faction_cache))
 		GLOB.persistence_faction_cache = list()
-	GLOB.persistence_faction_cache[faction_uid] = list("name" = petition["faction_name"], "abbreviation" = petition["abbreviation"], "balance" = founding_cost, "founder_ckey" = founder_ckey, "master_card_lost" = FALSE, "allowed_cargo_category" = founding_category, "is_company_tier" = is_company)
+	GLOB.persistence_faction_cache[faction_uid] = list("name" = name, "abbreviation" = abbreviation, "balance" = starting_balance, "founder_ckey" = founder_ckey, "master_card_lost" = FALSE, "allowed_cargo_category" = cargo_category, "is_company_tier" = is_company_tier, "pirate_founded" = pirate_founded)
 	if(!islist(GLOB.persistence_faction_jobs_cache))
 		GLOB.persistence_faction_jobs_cache = list()
 	GLOB.persistence_faction_jobs_cache[faction_uid] = list()
 
-	factionRegisterMember(founder_ckey, petition["founder_name"], faction_uid, null, 2)
+	factionRegisterMember(founder_ckey, founder_name, faction_uid, null, 2)
 
 	// Master card spawn point: the founder's own turf if they're currently
-	// online, else any existing terminal already shackled to this network
-	// (the one that started the petition, if nothing else) -- same
-	// world-scan-by-persistent_network shape persistence_cryo's telepad
+	// online, else any existing terminal already shackled to this network --
+	// same world-scan-by-persistent_network shape persistence_cryo's telepad
 	// delivery lookup already uses.
 	var/client/founder_client = GLOB.directory[founder_ckey]
 	var/mob/founder_mob = founder_client ? founder_client.mob : null
@@ -468,13 +745,16 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	// Both procs are offline-safe (founder_mob may be null here) -- matches
 	// this whole proc's own offline-safe design. A listing failure is
 	// logged but never blocks faction creation itself, same as a failed
-	// master card spawn a few lines below.
-	if(is_company)
+	// master card spawn a few lines below. Explicitly excludes a pirate
+	// founding even though is_company_tier is already always FALSE for one
+	// today -- belt-and-suspenders against this branch ever auto-listing a
+	// pirate faction if that invariant ever changes.
+	if(is_company_tier && !pirate_founded)
 		var/list_fail = stockMarketListFaction(faction_uid, founder_mob)
 		if(list_fail)
-			message_admins("Company '[petition["faction_name"]]' ([faction_uid]) founded, but auto-listing on the stock exchange failed: [list_fail]")
+			message_admins("Company '[name]' ([faction_uid]) founded, but auto-listing on the stock exchange failed: [list_fail]")
 		else
-			factionGrantShareholder(faction_uid, founder_ckey, petition["founder_name"], 100, "Company Founding", null)
+			factionGrantShareholder(faction_uid, founder_ckey, founder_name, 100, "Company Founding", null)
 
 	var/turf/spawn_turf = founder_mob ? get_turf(founder_mob) : null
 	if(!spawn_turf)
@@ -482,20 +762,54 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 			if(normalize_faction_uid(MC.persistent_network) == faction_uid)
 				spawn_turf = get_turf(MC)
 				break
+	var/obj/item/card/id/faction_master/master_card
 	if(spawn_turf)
-		var/obj/item/card/id/faction_master/master_card = new(spawn_turf)
+		master_card = new(spawn_turf)
 		master_card.employer_faction = faction_uid
 		master_card.update_name()
 	else
-		message_admins("Faction '[petition["faction_name"]]' ([faction_uid]) founded, but no valid location was found to print its master card -- spawn one manually.")
+		message_admins("Faction '[name]' ([faction_uid]) founded, but no valid location was found to print its master card -- spawn one manually.")
 
-	if(founder_mob)
-		to_chat(founder_mob, SPAN_GOOD("Founding petition successful! '[petition["faction_name"]]' ([faction_uid]) is now a registered [is_company ? "company" : "faction"] with a starting balance of [founding_cost] credits.[spawn_turf ? " A faction master card has been printed." : ""][is_company ? " It has been automatically listed on the stock exchange -- you hold 100% of its shares." : ""]"))
-	log_game("Founding petition for '[faction_uid]' ([petition["faction_name"]]) succeeded -- founder [petition["founder_name"]] ([founder_ckey]), [length(petition["supporters"])] supporters, [founding_cost] credits paid, tier [is_company ? "Company" : "Full Faction"].")
-	message_admins("A founding petition succeeded: '[petition["faction_name"]]' ([faction_uid]), founded by [petition["founder_name"]] ([founder_ckey]) with [length(petition["supporters"])] supporters, paying [founding_cost] credits ([is_company ? "Company" : "Full Faction"] tier).[founder_mob ? " (<a href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[founder_mob.x];Y=[founder_mob.y];Z=[founder_mob.z]'>JMP</a>)" : ""]")
+	return master_card
 
-	cancelFoundingPetition(faction_uid)
-	return TRUE
+/**
+ * Instant pirate-faction founding, triggered from a piracy beacon's own TGUI
+ * (piracy_beacon.dm) -- no petition, no supporters. Payment is physical
+ * spacecash consumed by the caller BEFORE this is ever reached (the caller
+ * is responsible for verifying and deducting PIRATE_FACTION_FOUNDING_COST --
+ * this proc trusts that it already happened). Mirrors faction_manage.dm's
+ * own "start_founding" uid/name uniqueness validation. Returns null on
+ * success, or a refusal string to show the user (in which case nothing was
+ * charged or created -- safe to retry).
+ */
+/datum/controller/subsystem/persistence/proc/piracyBeaconFoundFaction(mob/user, name, abbreviation, uid)
+	if(!user || !name || !abbreviation || !uid)
+		return "Missing founding details."
+	uid = normalize_faction_uid(uid)
+	if(!uid)
+		return "Invalid faction identifier."
+	if(islist(GLOB.persistence_faction_cache) && (uid in GLOB.persistence_faction_cache))
+		return "This network is already registered to a faction."
+	name = lowertext(name)
+	if(islist(GLOB.persistence_faction_cache))
+		for(var/existing_uid in GLOB.persistence_faction_cache)
+			var/list/existing = GLOB.persistence_faction_cache[existing_uid]
+			if(lowertext(existing["name"]) == name)
+				return "A faction named '[name]' already exists."
+	if(!databaseCheckConnection("piracyBeaconFoundFaction"))
+		return "Database connection failed -- try again shortly."
+
+	var/founder_ckey = user.ckey
+	var/founder_name = user.real_name
+	if(!founder_ckey || !founder_name)
+		return "You need an active character to found a faction."
+
+	_financalizeFactionRow(uid, name, abbreviation, founder_ckey, founder_name, null, FALSE, PIRATE_FACTION_FOUNDING_COST, TRUE)
+
+	to_chat(user, SPAN_GOOD("'[name]' ([uid]) is now a registered pirate faction with a starting balance of [PIRATE_FACTION_FOUNDING_COST] credits. It cannot import cargo or list on any exchange -- illegal exports and theft are its only economy now."))
+	log_game("Pirate faction '[uid]' ([name]) founded via piracy beacon by [founder_name] ([founder_ckey]).")
+	message_admins("A pirate faction was founded: '[name]' ([uid]), by [founder_name] ([founder_ckey]) via piracy beacon.[user.z ? " (<a href='byond://?_src_=holder;adminplayerobservecoodjump=1;X=[user.x];Y=[user.y];Z=[user.z]'>JMP</a>)" : ""]")
+	return null
 
 /// Periodic catch-all, called from forceSaveAll() (every persistence save
 /// cycle): sweeps every founding petition that has reached its supporter
@@ -745,7 +1059,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 
 /datum/admins/proc/toggle_faction_creation()
 	set name = "Toggle Faction Creation"
-	set category = "Persistence"
+	set category = "Persistence.Factions"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -772,9 +1086,16 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 	catch(var/exception/toggle_e)
 		log_subsystem_persistence_error("Factions: failed to load faction raiding toggle: [toggle_e]")
 
-/datum/controller/subsystem/persistence/proc/setFactionRaidingEnabled(enabled)
+/// persist = FALSE changes only the live global, leaving
+/// ss13_faction_raiding_toggle alone. Used by the automatic
+/// staff-presence suspension (raidingUpdateForStaffPresence(), below), which
+/// must not overwrite the setting staff chose by hand -- that stored value is
+/// exactly what a later restore reads back.
+/datum/controller/subsystem/persistence/proc/setFactionRaidingEnabled(enabled, persist = TRUE)
 	GLOB.faction_raiding_enabled = enabled
 	SSstatistics.update_status()
+	if(!persist)
+		return
 	if(!databaseCheckConnection("setFactionRaidingEnabled"))
 		return
 	var/datum/db_query/q = SSdbcore.NewQuery(
@@ -784,6 +1105,107 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 	q.Execute()
 	databaseCheckQueryResult(q, "setFactionRaidingEnabled")
 	qdel(q)
+
+#ifdef AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
+
+/// TRUE if this client counts as supervising staff for raiding purposes.
+///
+/// Fakekey/stealthed staff deliberately still count: they are present and
+/// watching even though players cannot see them. That differs from
+/// get_serverstatus's admin figure, which excludes them -- but that is a
+/// public display count, and this is a supervision check.
+/proc/_raiding_staff_qualifies(client/C)
+	if(!C || !C.holder)
+		return FALSE
+	switch(GLOB.config?.raiding_staff_rights)
+		if("admin")
+			return C.holder.rights & R_ADMIN
+		if("mod")
+			return C.holder.rights & (R_ADMIN|R_MOD)
+	// "any", and anything unrecognised -- holding an admin datum at all.
+	return TRUE
+
+/// How many qualifying staff must be online. 0 and 1 both mean one is enough
+/// -- a minimum of zero would mean "never suspend", which is what leaving the
+/// compile gate undefined already does, so it is treated as 1 rather than
+/// silently disabling the feature from a config typo.
+/proc/_raiding_staff_minimum()
+	return max(1, GLOB.config?.raiding_staff_minimum || 1)
+
+/// Suspends faction raiding while too few staff are online, and restores it
+/// once enough return. Called from every GLOB.staff transition
+/// (client_procs.dm's connect/disconnect, holder2.dm's de-admin/re-admin) and
+/// once at boot.
+///
+/// The two config settings compose: RAIDING_STAFF_RIGHTS decides WHO counts,
+/// RAIDING_STAFF_MINIMUM decides HOW MANY of those are needed. So
+/// "admin" + 2 means two full admins, and a room full of mods will not
+/// satisfy it.
+///
+/// Idempotent by design: it fires on EVERY transition, so staff joining above
+/// the threshold must not overwrite the remembered pre-suspension value, and
+/// one leaving while enough remain must do nothing at all.
+///
+/// The suspension is live-only (persist = FALSE). Staff's own stored setting
+/// is left untouched in ss13_faction_raiding_toggle, which is what makes
+/// "staff deliberately turned raiding off" survive an unattended stretch
+/// instead of being silently re-enabled by whoever logs in next.
+///
+/// announce = FALSE suppresses the message_admins() chatter, for the boot-time
+/// evaluation: that runs inside Initialize() with nobody connected to read it.
+///
+/// MUST NOT be called inline from /client/New() or /client/Del() -- see the
+/// INVOKE_ASYNC call sites in client_procs.dm for why.
+/datum/controller/subsystem/persistence/proc/raidingUpdateForStaffPresence(announce = TRUE)
+	var/needed = _raiding_staff_minimum()
+	var/count = 0
+	for(var/client/C in GLOB.staff)
+		if(_raiding_staff_qualifies(C))
+			count++
+			if(count >= needed)
+				break
+
+	if(count >= needed)
+		if(!GLOB.faction_raiding_suspended)
+			return
+		GLOB.faction_raiding_suspended = FALSE
+		setFactionRaidingEnabled(GLOB.faction_raiding_presuspend, FALSE)
+		log_subsystem_persistence_info("Raiding: [count]/[needed] qualifying staff online -- restoring faction raiding to [GLOB.faction_raiding_presuspend ? "ENABLED" : "DISABLED"].")
+		if(announce)
+			// Same channel, same presentation and the same voice line the
+			// manual verb uses (toggle_faction_raiding(), below) -- an
+			// automatic change is exactly as visible as an admin's. Only the
+			// wording differs, so a player can tell at a glance whether a
+			// human made the call or the server did.
+			var/restored_on = GLOB.faction_raiding_presuspend
+			to_world(FONT_LARGE(EXAMINE_BLOCK_RED("Faction raiding has been automatically [restored_on ? SPAN_WARNING("re-enabled") : SPAN_GOOD("left disabled")] -- staff are online again.[restored_on ? "" : " Non-members still cannot enter claimed faction territory."]")))
+			play_announcer_voice_to_all(restored_on ? 'sound/AI/announcements/raiding_allowed.ogg' : 'sound/AI/announcements/raiding_prohibited.ogg')
+			// log_and_message_admins(), not bare message_admins(): this also
+			// runs log_admin(), which is what puts it in the admin log and
+			// mirrors it to the Discord admin-log webhook
+			// (EXPORT_ADMIN_LOG_TO_DISCORD). Same proc the manual verb uses.
+			// Passing null for the user is deliberate -- there is no acting
+			// mob, and null makes it log as "EVENT ..." rather than blaming
+			// whichever usr happened to be in scope on a timer.
+			log_and_message_admins("faction raiding automatically restored to [restored_on ? "ENABLED" : "DISABLED"] -- [count]/[needed] qualifying staff online.", null)
+		return
+
+	if(GLOB.faction_raiding_suspended)
+		return
+	GLOB.faction_raiding_suspended = TRUE
+	GLOB.faction_raiding_presuspend = GLOB.faction_raiding_enabled
+	setFactionRaidingEnabled(FALSE, FALSE)
+	log_subsystem_persistence_info("Raiding: only [count]/[needed] qualifying staff online -- faction raiding suspended (was [GLOB.faction_raiding_presuspend ? "ENABLED" : "DISABLED"]; stored setting untouched).")
+	if(announce)
+		// See the restore branch above -- same treatment as the manual verb,
+		// worded so it reads as automatic rather than as an admin's decision.
+		to_world(FONT_LARGE(EXAMINE_BLOCK_RED("Faction raiding has been automatically [SPAN_GOOD("disabled")] -- no staff are currently online.<br>Non-members can no longer enter claimed faction territory.")))
+		play_announcer_voice_to_all('sound/AI/announcements/raiding_prohibited.ogg')
+		// See the restore branch -- admin log + Discord admin-log webhook, not
+		// just in-game admin chat.
+		log_and_message_admins("faction raiding automatically SUSPENDED -- only [count]/[needed] qualifying staff online (stored setting [GLOB.faction_raiding_presuspend ? "ENABLED" : "DISABLED"] left untouched).", null)
+
+#endif
 
 /// Admin kill-switch: when disabled, non-members are blocked outright from
 /// entering any claimed (non-Hub) faction's own Z-level(s) -- see
@@ -819,7 +1241,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 /// GLOB.hub_law_text's own doc comment (persistence.dm).
 /datum/admins/proc/modify_hub_laws()
 	set name = "Modify Hub Laws"
-	set category = "Persistence"
+	set category = "Persistence.Factions"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -841,17 +1263,34 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 
 /datum/admins/proc/toggle_faction_raiding()
 	set name = "Toggle Faction Raiding"
-	set category = "Persistence"
+	set category = "Persistence.Factions"
 
 	if(!check_rights(R_ADMIN))
 		return
 
 	var/new_state = !GLOB.faction_raiding_enabled
-	if(tgui_alert(usr, "Faction raiding is currently [GLOB.faction_raiding_enabled ? "ENABLED" : "DISABLED"]. [new_state ? "Enable" : "Disable"] it? Disabling blocks non-members from entering any claimed faction's territory (Hub excluded).", "Toggle Faction Raiding", list("Yes", "No")) != "Yes")
+	// While a staff-presence suspension is active, "currently DISABLED" is
+	// indistinguishable from an admin having turned it off -- say which it is,
+	// otherwise the prompt is quietly misleading.
+	var/suspended_note = ""
+#ifdef AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
+	if(GLOB.faction_raiding_suspended)
+		suspended_note = " NOTE: raiding is currently AUTO-SUSPENDED because too few staff are online; the stored setting is [GLOB.faction_raiding_presuspend ? "ENABLED" : "DISABLED"] and will be restored when enough return."
+#endif
+	if(tgui_alert(usr, "Faction raiding is currently [GLOB.faction_raiding_enabled ? "ENABLED" : "DISABLED"]. [new_state ? "Enable" : "Disable"] it? Disabling blocks non-members from entering any claimed faction's territory (Hub excluded).[suspended_note]", "Toggle Faction Raiding", list("Yes", "No")) != "Yes")
 		return
 
 	SSpersistence.setFactionRaidingEnabled(new_state)
-	to_world(FONT_LARGE(EXAMINE_BLOCK_RED("Faction raiding has been [new_state ? SPAN_WARNING("enabled") : SPAN_GOOD("disabled")] by an administrator.[new_state ? "" : " Non-members can no longer enter claimed faction territory."]")))
+#ifdef AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
+	// A deliberate choice made DURING a suspension has to become the value the
+	// restore hands back, or the stale pre-suspension value silently undoes it
+	// the moment the next staff member connects. Only reachable when
+	// RAIDING_STAFF_MINIMUM is above 1 -- an admin can be online and the server
+	// still be under the threshold.
+	if(GLOB.faction_raiding_suspended)
+		GLOB.faction_raiding_presuspend = new_state
+#endif
+	to_world(FONT_LARGE(EXAMINE_BLOCK_RED("Faction raiding has been [new_state ? SPAN_WARNING("enabled") : SPAN_GOOD("disabled")] by an administrator.[new_state ? "" : "<br>Non-members can no longer enter claimed faction territory."]")))
 	play_announcer_voice_to_all(new_state ? 'sound/AI/announcements/raiding_allowed.ogg' : 'sound/AI/announcements/raiding_prohibited.ogg')
 	log_and_message_admins("[new_state ? "enabled" : "disabled"] faction raiding.", usr)
 
@@ -878,7 +1317,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 
 /proc/get_faction_account_balance(uid)
 	uid = normalize_faction_uid(uid)
-	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+	if(!_faction_hydrate_from_central(uid))
 		return null
 	return GLOB.persistence_faction_cache[uid]["balance"]
 
@@ -910,6 +1349,14 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 		)
 		eq.Execute()
 		qdel(eq)
+	if(_factionCentralSyncActive())
+		var/datum/db_query/ceq = SScentraldb.NewQuery(
+			{"INSERT INTO ss13_faction_accounts (faction_uid, cards_epoch) VALUES (:uid, :epoch)
+			ON DUPLICATE KEY UPDATE cards_epoch = VALUES(cards_epoch), saved_at = NOW()"},
+			list("uid" = uid, "epoch" = new_epoch)
+		)
+		ceq.Execute()
+		qdel(ceq)
 	return TRUE
 
 /// The ckey of the faction's original founder, set once at founding and
@@ -951,6 +1398,14 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 		)
 		mq.Execute()
 		qdel(mq)
+	if(_factionCentralSyncActive())
+		var/datum/db_query/cmq = SScentraldb.NewQuery(
+			{"INSERT INTO ss13_faction_accounts (faction_uid, master_card_lost) VALUES (:uid, :lost)
+			ON DUPLICATE KEY UPDATE master_card_lost = VALUES(master_card_lost), saved_at = NOW()"},
+			list("uid" = uid, "lost" = lost ? 1 : 0)
+		)
+		cmq.Execute()
+		qdel(cmq)
 	return TRUE
 
 /// An admin-designated faction leader (list("ckey"=, "char_name"=)), or null
@@ -986,6 +1441,18 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 		return FALSE
 	return !!GLOB.persistence_faction_cache[uid]["is_company_tier"]
 
+/// TRUE for a faction founded instantly through a piracy beacon
+/// (piracyBeaconFoundFaction() below) rather than the normal petition
+/// process. Permanent -- gates two restrictions: cargo_order.dm's
+/// allowed_cargo_category can never be self-service-set by the faction's own
+/// officers (faction_manage.dm), and stockMarketListFaction() refuses to
+/// ever list it. FALSE for every normally-founded or admin-made faction.
+/proc/is_pirate_faction(uid)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return FALSE
+	return !!GLOB.persistence_faction_cache[uid]["pirate_founded"]
+
 /// Sets (or, with null/null, clears) a faction's designated leader, updating
 /// the cache and persisting it so it survives a reboot.
 /proc/set_faction_leader(uid, ckey, char_name)
@@ -994,6 +1461,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 		return FALSE
 	GLOB.persistence_faction_cache[uid]["leader_ckey"] = ckey
 	GLOB.persistence_faction_cache[uid]["leader_char_name"] = char_name
+	_factionCentralPartialUpdate(uid, list("leader_ckey", "leader_char_name"), list(ckey, char_name))
 	if(GLOB.config.sql_enabled && SSdbcore.Connect())
 		var/datum/db_query/lq = SSdbcore.NewQuery(
 			"UPDATE ss13_factions SET leader_ckey = :ckey, leader_char_name = :name WHERE uid = :uid",
@@ -1034,6 +1502,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
 		return FALSE
 	GLOB.persistence_faction_cache[uid]["color"] = new_color
+	_factionCentralPartialUpdate(uid, list("color"), list(new_color))
 	if(GLOB.config.sql_enabled && SSdbcore.Connect())
 		var/datum/db_query/cq = SSdbcore.NewQuery(
 			"UPDATE ss13_factions SET color = :color WHERE uid = :uid",
@@ -1065,6 +1534,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
 		return FALSE
 	GLOB.persistence_faction_cache[uid]["auto_payroll"] = enabled
+	_factionCentralPartialUpdate(uid, list("auto_payroll"), list(enabled ? 1 : 0))
 	if(GLOB.config.sql_enabled && SSdbcore.Connect())
 		var/datum/db_query/q = SSdbcore.NewQuery(
 			"UPDATE ss13_factions SET auto_payroll = :val WHERE uid = :uid",
@@ -1126,6 +1596,16 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 	qdel(q)
 	if(ok)
 		GLOB.persistence_faction_cache[uid]["allowed_cargo_category"] = category
+		// NOW() -- not routed through _factionCentralPartialUpdate(), which
+		// only binds plain values, same reasoning as every other
+		// SQL-side-timestamp write in this codebase.
+		if(_factionCentralSyncActive())
+			var/datum/db_query/cq = SScentraldb.NewQuery(
+				"UPDATE `ss13_factions` SET allowed_cargo_category = :cat, cargo_category_changed_at = NOW() WHERE uid = :uid",
+				list("uid" = uid, "cat" = category)
+			)
+			cq.Execute()
+			qdel(cq)
 	return ok
 
 /// Whether uid has been granted "(All)" cargo access -- an admin-only override
@@ -1136,16 +1616,22 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 /proc/faction_cargo_unrestricted(uid)
 	return get_faction_allowed_cargo_category(uid) == FACTION_CARGO_CATEGORY_ALL
 
-/// Whether `user` is authorized to travel/warp/disembark into the CentCom
-/// ("Frontier Beacon Depot") sector -- Hub-affiliated personnel above
-/// baseline civilian rank (get_effective_faction_rank()'s own "0 = civilian
-/// member, no elevation" reading), or an admin (rank 99, same bypass every
-/// other faction-rank gate in this codebase already grants). Checked by
-/// every way of physically reaching that sector: Personal Travel's leap
+/// Whether `user` qualifies to bypass Hub-personnel-only access, wherever
+/// _hub_personnel_restricted(z) (faction_beacon.dm) says it applies -- no
+/// longer just the literal CentCom ("Frontier Beacon Depot") Z; any Z a hub
+/// beacon governs with its restrict_to_hub_personnel toggle on. Qualifies:
+/// any real Hub job holder -- FACTION_RANK_CREW (0) and above
+/// (__DEFINES/persistence.dm: CREW 0, OFFICER 1, COMMAND 2). Excludes only
+/// FACTION_RANK_CIVILIAN (-1, printed a Hub ID with no job), which is what
+/// `> FACTION_RANK_CIVILIAN` actually tests -- do not simplify this back to
+/// `> 0`, that would wrongly exclude ordinary rank-0 crew too. Or an admin
+/// (rank 99, same bypass every other faction-rank gate in this codebase
+/// already grants). Checked alongside _hub_personnel_restricted() by every
+/// way of physically reaching a restricted sector: Personal Travel's leap
 /// (personal_travel.dm), travel pad "pod warp" (telepad_travel.dm), and
 /// drydock disembark (telepad_drydock_boarding.dm).
 /proc/can_access_hub_depot(mob/user)
-	return get_effective_faction_rank(user, "hub") > 0
+	return get_effective_faction_rank(user, "hub") > FACTION_RANK_CIVILIAN
 
 /// Called right after a faction's stored display name changes (Rename
 /// Faction), so every physical item that baked the OLD name into its own
@@ -1184,30 +1670,36 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 		return FALSE
 	return FC.issued_epoch == get_faction_cards_epoch(FC.faction_uid)
 
+/// Debits a faction's balance -- the actual sufficient-funds check AND the
+/// decrement both happen atomically in SQL (_faction_balance_debit_atomic(),
+/// above), against the central row when CENTRAL_SYNC_FACTIONS is active
+/// or the local row otherwise, never against this DM-side cache. The
+/// cache is only updated AFTER that succeeds, by the same delta -- correct
+/// regardless of what this server's cache believed the balance was before,
+/// since the real database decrement already happened against the true
+/// current value.
 /proc/faction_debit(uid, amount, reason = "transaction")
 	uid = normalize_faction_uid(uid)
-	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+	if(!_faction_hydrate_from_central(uid))
 		return FALSE
 	if(amount <= 0)
 		return FALSE
-	var/list/data = GLOB.persistence_faction_cache[uid]
-	if(data["balance"] < amount)
+	if(!_faction_balance_debit_atomic(uid, amount))
 		return FALSE  // insufficient funds
-	data["balance"] -= amount
+	GLOB.persistence_faction_cache[uid]["balance"] -= amount
 	log_game("Faction [uid] debited [amount] credits: [reason]")
-	_faction_balance_write(uid, data["balance"])
 	_faction_transaction_log(uid, -amount, reason)
 	return TRUE
 
 /proc/faction_credit(uid, amount, reason = "transaction")
 	uid = normalize_faction_uid(uid)
-	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+	if(!_faction_hydrate_from_central(uid))
 		return FALSE
 	if(amount <= 0)
 		return FALSE
 	GLOB.persistence_faction_cache[uid]["balance"] += amount
 	log_game("Faction [uid] credited [amount] credits: [reason]")
-	_faction_balance_write(uid, GLOB.persistence_faction_cache[uid]["balance"])
+	_faction_balance_credit_atomic(uid, amount)
 	_faction_transaction_log(uid, amount, reason)
 	return TRUE
 
@@ -1265,17 +1757,32 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 	qdel(tq)
 
 /// Write a faction's balance to DB immediately. Called after every balance mutation.
+/// Absolute (not delta) write -- deliberately kept for the "Modify
+/// Balance" admin verb's Set Balance/Remove Credits actions
+/// (persistence_factions.dm, admin verb section) only. Those are rare,
+/// deliberate admin overrides where "force it to exactly this value"
+/// is the actual intent, unlike faction_credit()/faction_debit()'s
+/// routine gameplay path -- an absolute write is correct here, not a bug
+/// to fix, since there's no concurrent-write race to protect against for
+/// a one-off manual admin action the same way there is for routine trade.
 /proc/_faction_balance_write(uid, balance)
 	uid = normalize_faction_uid(uid)
-	if(!GLOB.config.sql_enabled || !SSdbcore.Connect())
-		return
-	var/datum/db_query/bq = SSdbcore.NewQuery(
-		{"INSERT INTO ss13_faction_accounts (faction_uid, balance) VALUES (:uid, :balance)
-		ON DUPLICATE KEY UPDATE balance = VALUES(balance), saved_at = NOW()"},
-		list("uid" = uid, "balance" = balance)
-	)
-	bq.Execute()
-	qdel(bq)
+	if(GLOB.config.sql_enabled && SSdbcore.Connect())
+		var/datum/db_query/bq = SSdbcore.NewQuery(
+			{"INSERT INTO ss13_faction_accounts (faction_uid, balance) VALUES (:uid, :balance)
+			ON DUPLICATE KEY UPDATE balance = VALUES(balance), saved_at = NOW()"},
+			list("uid" = uid, "balance" = balance)
+		)
+		bq.Execute()
+		qdel(bq)
+	if(_factionCentralSyncActive())
+		var/datum/db_query/cq = SScentraldb.NewQuery(
+			{"INSERT INTO ss13_faction_accounts (faction_uid, balance) VALUES (:uid, :balance)
+			ON DUPLICATE KEY UPDATE balance = VALUES(balance), saved_at = NOW()"},
+			list("uid" = uid, "balance" = balance)
+		)
+		cq.Execute()
+		qdel(cq)
 
 /// Prunes faction chat history older than the standard persistence
 /// expiration window. Called from SSpersistence.Shutdown().
@@ -1494,7 +2001,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 
 /datum/admins/proc/toggle_zlevel_persistence()
 	set name = "Toggle Z-Level Persistence"
-	set category = "Persistence"
+	set category = "Persistence.Zones & Z-Levels"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -1550,7 +2057,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 /// z-levels with labels, backed by ss13_zlevel_persistence (enabled = 1 rows).
 /datum/admins/proc/manage_manual_save_list()
 	set name = "Manual Z-Level Save List"
-	set category = "Persistence"
+	set category = "Persistence.Zones & Z-Levels"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -1825,7 +2332,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 /// (procedurally generated every boot -- no fixed template to respawn).
 /datum/admins/proc/manage_persistent_overmap_sites()
 	set name = "Persistent Overmap Sites"
-	set category = "Persistence"
+	set category = "Persistence.Zones & Z-Levels"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -2432,7 +2939,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 /// respawns it at this exact spot every boot with full persistence.
 /datum/admins/proc/generate_away_site()
 	set name = "Generate Away Site"
-	set category = "Persistence"
+	set category = "Persistence.Away Sites & Missions"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -2598,7 +3105,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
  */
 /datum/admins/proc/remove_away_site()
 	set name = "Remove Away Site"
-	set category = "Persistence"
+	set category = "Persistence.Away Sites & Missions"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -2663,7 +3170,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 
 /datum/admins/proc/give_credits_to_player()
 	set name = "Give Credits"
-	set category = "Persistence"
+	set category = "Persistence.Factions"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -2672,35 +3179,65 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 	if(!target_ckey) return
 	target_ckey = ckey(target_ckey)
 
-	var/amount = tgui_input_number(usr, "Credits to add to [target_ckey]'s account:", "Give Credits", 1000, 10000000, 0)
+	// A ckey can own more than one ss13_money_accounts row (an old renamed/deleted
+	// character, an alt made in the same slot) -- ss13_money_accounts is keyed
+	// (ckey, char_name), not ckey alone. Ask which character explicitly rather than
+	// guessing, the same "which of this ckey's characters" question
+	// rename_persistent_character() already solves with this exact helper.
+	var/char_name
+	var/list/characters = persistence_get_saved_characters(target_ckey)
+	if(length(characters) > 1)
+		char_name = tgui_input_list(usr, "Which character?", "Give Credits", characters)
+		if(!char_name) return
+	else if(length(characters) == 1)
+		char_name = characters[1]
+	else
+		// No cached characters (never spawned this boot) -- allow a manual name
+		// rather than dead-ending, same escape hatch the rename verb uses.
+		char_name = tgui_input_text(usr, "No cached characters found for '[target_ckey]'. Exact character name:", "Give Credits", "", max_length = 64, encode = FALSE)
+		if(!char_name) return
+
+	var/amount = tgui_input_number(usr, "Credits to add to [char_name]'s account:", "Give Credits", 1000, 10000000, 0)
 	if(isnull(amount) || amount <= 0) return
 
-	// Find account number from cache first, then DB
+	// Resolve the account for this EXACT (ckey, char_name) pair -- cache first, then DB.
 	var/acct_num = 0
-	for(var/cache_key in GLOB.persistence_economy_cache)
-		if(findtext(cache_key, "[target_ckey]|") == 1)
-			acct_num = GLOB.persistence_economy_cache[cache_key]["account_number"] || 0
-			break
+	var/list/cached = GLOB.persistence_economy_cache["[target_ckey]|[char_name]"]
+	if(islist(cached))
+		acct_num = cached["account_number"] || 0
 	if(!acct_num && SSpersistence.databaseCheckConnection("give_credits"))
 		var/datum/db_query/aq = SSdbcore.NewQuery(
-			"SELECT account_number FROM ss13_money_accounts WHERE ckey = :ckey ORDER BY id DESC LIMIT 1",
-			list("ckey" = target_ckey)
+			"SELECT account_number FROM ss13_money_accounts WHERE ckey = :ckey AND char_name = :char_name",
+			list("ckey" = target_ckey, "char_name" = char_name)
 		)
 		aq.Execute()
 		if(aq.NextRow()) acct_num = text2num(aq.item[1]) || 0
 		qdel(aq)
 
 	if(!acct_num)
-		to_chat(usr, SPAN_WARNING("No bank account found for '[target_ckey]'. They need to get an ID first."))
+		to_chat(usr, SPAN_WARNING("No bank account found for '[char_name]' ([target_ckey])."))
 		return
 
-	SSeconomy.charge_to_account(acct_num, "Admin", "Admin credit gift by [usr.key]", null, amount)
-	to_chat(usr, SPAN_GOOD("Added [amount] credits to [target_ckey]'s account (#[acct_num])."))
-	log_and_message_admins("gave [amount] credits to [target_ckey] (account #[acct_num])", usr)
+	// charge_to_account() only reaches a LIVE, currently in-memory account
+	// (SSeconomy.all_money_accounts) -- a real account for a player who simply hasn't
+	// spawned this boot is invisible to it and it silently returns FALSE. Fall back to
+	// the DB-direct offline credit, the same proc every other "pay someone who might
+	// not be online" path in this codebase already uses (stock buyouts, faction
+	// disbandment payouts), instead of reporting success on a gift that never landed.
+	var/applied = SSeconomy.charge_to_account(acct_num, "Admin", "Admin credit gift by [usr.key]", null, amount)
+	if(!applied)
+		applied = SSpersistence.economyCreditOfflineAccount(target_ckey, char_name, amount)
+
+	if(!applied)
+		to_chat(usr, SPAN_WARNING("Could not credit '[char_name]''s account (#[acct_num]) -- see the persistence log."))
+		return
+
+	to_chat(usr, SPAN_GOOD("Added [amount] credits to [char_name]'s account (#[acct_num])."))
+	log_and_message_admins("gave [amount] credits to [char_name] ([target_ckey], account #[acct_num])", usr)
 
 /datum/admins/proc/reset_player_bank_account()
 	set name = "Reset Player Bank Account"
-	set category = "Persistence"
+	set category = "Persistence.Factions"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -2737,7 +3274,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 
 /datum/admins/proc/debug_character_spawn_lock()
 	set name = "Debug Character Spawn Lock"
-	set category = "Persistence"
+	set category = "Persistence.Factions"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -2788,7 +3325,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 
 /datum/admins/proc/give_faction_id()
 	set name = "Give Faction ID"
-	set category = "Persistence"
+	set category = "Persistence.Factions"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -2860,7 +3397,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 
 /datum/admins/proc/manage_faction_account()
 	set name = "Manage Faction Account"
-	set category = "Persistence"
+	set category = "Persistence.Factions"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -2967,6 +3504,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 			to_chat(usr, SPAN_WARNING("Database write failed."))
 			return
 		qdel(rn_q)
+		_factionCentralPartialUpdate(chosen_uid, list("name"), list(renamed))
 
 		var/old_name = GLOB.persistence_faction_cache[chosen_uid]["name"]
 		GLOB.persistence_faction_cache[chosen_uid]["name"] = renamed
@@ -3141,7 +3679,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 
 /datum/admins/proc/manage_faction_jobs()
 	set name = "Manage Faction Jobs"
-	set category = "Persistence"
+	set category = "Persistence.Factions"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -3404,6 +3942,15 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 			"job_title" = job_title,
 			"rank"      = rank
 		)
+		if(_factionCentralSyncActive())
+			var/datum/db_query/cq = SScentraldb.NewQuery(
+				{"INSERT INTO ss13_faction_members (ckey, real_name, faction_uid, job_title, rank)
+				VALUES (:ckey, :real_name, :uid, :job, :rank)
+				ON DUPLICATE KEY UPDATE real_name = VALUES(real_name), job_title = VALUES(job_title), rank = VALUES(rank)"},
+				list("ckey" = ckey, "real_name" = real_name, "uid" = faction_uid, "job" = job_title, "rank" = rank)
+			)
+			cq.Execute()
+			qdel(cq)
 	return ok
 
 /// Removes a ckey's membership record entirely -- the missing inverse of
@@ -3424,6 +3971,13 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 	qdel(q)
 	if(ok)
 		GLOB.persistence_faction_members_cache -= "[ckey]|[faction_uid]"
+		if(_factionCentralSyncActive())
+			var/datum/db_query/cq = SScentraldb.NewQuery(
+				"DELETE FROM ss13_faction_members WHERE ckey = :ckey AND faction_uid = :uid",
+				list("ckey" = ckey, "uid" = faction_uid)
+			)
+			cq.Execute()
+			qdel(cq)
 	return ok
 
 /// Sets a member's on-shift state -- gates factionPayroll() on top of the
@@ -3550,6 +4104,16 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 	)
 	uq.Execute()
 	qdel(uq)
+
+	// NOW() -- same reasoning as set_faction_allowed_cargo_category()'s
+	// own central write, not routed through the bound-value-only helper.
+	if(_factionCentralSyncActive())
+		var/datum/db_query/cuq = SScentraldb.NewQuery(
+			"UPDATE `ss13_factions` SET last_payroll_at = NOW() WHERE uid = :uid",
+			list("uid" = faction_uid)
+		)
+		cuq.Execute()
+		qdel(cuq)
 
 	// Update cache timestamp (world.time = deciseconds since server start; resets each session)
 	if(islist(GLOB.persistence_faction_cache) && (faction_uid in GLOB.persistence_faction_cache))

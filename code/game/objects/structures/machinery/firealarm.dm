@@ -278,6 +278,24 @@
 	pixel_x = ((dir & (NORTH|SOUTH)) ? 0 : (dir == EAST ? 22 : -22))
 	pixel_y = ((dir & (NORTH|SOUTH)) ? (dir == NORTH ? 32 : -19) : 0)
 
+/obj/structure/machinery/firealarm/persistence_reapply_wall_offset()
+	set_pixel_offsets()
+
+/obj/structure/machinery/firealarm/persistent_objects_get_content()
+	. = ..()
+	.["buildstage"] = buildstage
+	.["panel_open"] = panel_open
+
+/obj/structure/machinery/firealarm/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if("buildstage" in content)
+		buildstage = text2num(content["buildstage"])
+	if("panel_open" in content)
+		panel_open = content["panel_open"]
+	update_icon()
+
 // Convenience subtypes for mappers.
 /obj/structure/machinery/firealarm/north
 	dir = NORTH

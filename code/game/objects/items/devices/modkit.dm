@@ -242,8 +242,8 @@
 	)
 
 /obj/item/voidsuit_modkit/ceres_lance_unathi
-	name = "\improper Ceres' Lance voidsuit kit"
-	desc = "A highly complicated device that allows you to convert a Ceres' Lancer suit into its Unathi-fitted counterpart and vice versa. Practical!"
+	name = "\improper Hub Lancer voidsuit kit"
+	desc = "A highly complicated device that allows you to convert a Hub Lancer suit into its Unathi-fitted counterpart and vice versa. Practical!"
 	suit_options = list(
 		/obj/item/clothing/head/helmet/space/void/lancer = /obj/item/clothing/head/helmet/space/void/lancer/unathi,
 		/obj/item/clothing/suit/space/void/lancer = /obj/item/clothing/suit/space/void/lancer/unathi,

@@ -70,6 +70,28 @@
 		assign_away_freq(linked.name)
 	)
 
+/// Cargo-ordered copy -- starts unanchored so it can be moved out of its
+/// crate before being wrenched into place. Mirrors
+/// /obj/structure/machinery/ntnet_relay/crate's own shape (NTNet_relay.dm).
+/obj/structure/machinery/telecomms/allinone/ship/crate
+	anchored = FALSE
+
+// construct_op == 0 (the normal assembled state every placed machine sits
+// in) has no existing TOOL_WRENCH case in the base attackby()'s
+// deconstruction switch (machine_interactions.dm) -- wrench is only
+// meaningful there at construct_op 1/2 (dislodging/re-securing the external
+// plating), so this is free to claim for anchoring without disturbing that
+// sequence. Falls through to ..() for every other case.
+/obj/structure/machinery/telecomms/allinone/ship/crate/attackby(obj/item/attacking_item, mob/user)
+	if(construct_op == 0 && attacking_item.tool_behaviour == TOOL_WRENCH)
+		if(!attacking_item.tool_use_check(user, 0))
+			return
+		attacking_item.play_tool_sound(get_turf(src), 50)
+		anchored = !anchored
+		to_chat(user, anchored ? SPAN_NOTICE("You secure \the [src] in place.") : SPAN_NOTICE("You unsecure \the [src]."))
+		return
+	..()
+
 /obj/structure/machinery/telecomms/allinone/ship/coalition_navy
 	name = "coalition navy telecommunications mainframe"
 	desc = "A compact machine used for portable subspace telecommuniations processing. This one also has encryption codes for Coalition navy vessels."

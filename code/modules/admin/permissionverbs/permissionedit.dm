@@ -47,6 +47,14 @@
 		log_and_message_admins("attempted to edit the admin permissions without sufficient rights.")
 		return
 
+	// Central mode (load_admins_from_central_database(), auth.dm) never
+	// reads the local ss13_admins table this panel writes to -- letting an
+	// edit through here would silently do nothing while looking like it
+	// worked. Refuse outright rather than leave that trap in place.
+	if (GLOB.config.central_sql_enabled)
+		to_chat(usr, SPAN_WARNING("Admin ranks are centrally managed on this server -- use the central admin scripts (scripts\\central\\db_central_add_admin.ps1 / db_central_remove_admin.ps1), not this panel."))
+		return
+
 	var/admin_ckey = ckey(params["ckey"])
 	var/datum/admins/D = admin_datums[admin_ckey]
 

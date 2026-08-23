@@ -490,7 +490,7 @@ GLOBAL_LIST_EMPTY(mission_templates)
 
 /datum/admins/proc/manage_missions()
 	set name = "Manage Missions"
-	set category = "Persistence"
+	set category = "Persistence.Away Sites & Missions"
 	set desc = "Add, edit, remove, or toggle admin-authored missions."
 
 	if(!check_rights(R_ADMIN))

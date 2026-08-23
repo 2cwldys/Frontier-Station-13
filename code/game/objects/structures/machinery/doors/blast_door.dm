@@ -164,7 +164,7 @@
 /obj/structure/machinery/door/blast/attackby(obj/item/attacking_item, mob/user)
 	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
 		var/obj/item/multitool/MT = attacking_item
-		var/obj/structure/machinery/button/remote/blast_door/buildable/button = MT.get_buffer(/obj/structure/machinery/button/remote/blast_door/buildable)
+		var/obj/structure/machinery/button/remote/blast_door/button = MT.get_buffer(/obj/structure/machinery/button/remote/blast_door)
 		if(!button)
 			MT.set_buffer(src)
 			to_chat(user, SPAN_NOTICE("You buffer \the [src] in \the [MT]."))

@@ -165,6 +165,25 @@
 /// when mobs are viewing something via a computer, currently used for the helm computer
 #define TRAIT_COMPUTER_VIEW "computer_view"
 
+/// This IPC/cyborg is tied to a faction via a faction tagger
+/// (code/modules/mob/living/faction_bound.dm) -- a status/ownership marker
+/// only, NOT a restraint on its own (movement and hand use are untouched
+/// by this alone -- see TRAIT_FACTION_RESTRAINED below for the separate,
+/// opt-in restraint). Named "bound", not "shackle", to stay textually
+/// distinct from the unrelated can_configure_faction_shackle()/
+/// faction-tagged-MACHINE concept (persistence_factions.dm) -- that's a
+/// different meaning of "shackle" entirely, even though both are
+/// user-facing "faction shackle" flavor.
+#define TRAIT_SOURCE_FACTION_TAGGER "faction_tagger"
+#define TRAIT_FACTION_BOUND "faction_bound"
+/// A member of the SAME faction an IPC/cyborg is already TRAIT_FACTION_BOUND
+/// to has additionally restrained them via a faction tagger (any rank --
+/// deliberately not officer-gated like applying/releasing the shackle
+/// itself) -- blocks movement/hand use the same way handcuffs or cyborg
+/// lockdown already do. A real add-on, not implied by TRAIT_FACTION_BOUND
+/// alone; can only ever be set while that trait is also present.
+#define TRAIT_FACTION_RESTRAINED "faction_restrained"
+
 // IPC OVERLOADER OVERDOSE STATES
 #define TRAIT_SOURCE_OVERLOADER "overloader"
 #define TRAIT_OVERLOADER_OD_INITIAL "overloader_od_initial"

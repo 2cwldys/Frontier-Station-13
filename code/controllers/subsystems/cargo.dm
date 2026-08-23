@@ -703,6 +703,11 @@ SUBSYSTEM_DEF(cargo)
 /datum/controller/subsystem/cargo/proc/_applyCargoItemFactionFinish(atom/movable/spawned, singleton/cargo_item/ci, datum/cargo_order/co)
 	if(!istype(spawned) || !ci)
 		return
+	// Opt-in whitelist (faction_finish_types, cargo_items.dm) -- an item that
+	// declares one only finishes the pieces it names. Without it a kit's whole
+	// contents got tagged and recoloured, gloves and balaclavas included.
+	if(length(ci.faction_finish_types) && !is_type_in_list(spawned, ci.faction_finish_types))
+		return
 	if(ci.tag_spawned_to_faction)
 		// The faction that actually placed the order. delivery_network is what
 		// the rest of this subsystem already treats as "whose order is this".

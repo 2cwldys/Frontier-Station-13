@@ -25,7 +25,7 @@
 		if(data)
 			items += list(data)
 	// Always return content so closet state (locked/welded/open + items) is preserved.
-	// worldstateSaveOneMachine skips only if length == 0, so return non-empty even for
+	// _worldstateRowFor() skips only if length == 0, so return non-empty even for
 	// empty-but-locked lockers.
 	var/list/content = list(
 		"opened" = opened,

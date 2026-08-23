@@ -13,6 +13,7 @@ type ShipSchematicData = {
   ready?: BooleanLike;
   title_holder_name?: string;
   reported_stolen?: BooleanLike;
+  can_give_title?: BooleanLike;
   needs_rename?: BooleanLike;
   away_from_home?: BooleanLike;
   shuttle_id?: number;
@@ -36,6 +37,7 @@ export const ShipSchematic = (props) => {
     ready,
     title_holder_name,
     reported_stolen,
+    can_give_title,
     needs_rename,
     away_from_home,
     save_in_progress,
@@ -136,11 +138,13 @@ export const ShipSchematic = (props) => {
                   fluid
                   mt={1}
                   icon="street-view"
-                  disabled={!ready || !can_board}
+                  disabled={!ready || !can_board || !!save_in_progress}
                   tooltip={
-                    !ready
-                      ? 'This ship is still being retrieved -- wait until it is ready to board.'
-                      : undefined
+                    save_in_progress
+                      ? 'World save in progress -- please wait.'
+                      : !ready
+                        ? 'This ship is still being retrieved -- wait until it is ready to board.'
+                        : undefined
                   }
                   onClick={() => act('board')}
                 >
@@ -156,11 +160,13 @@ export const ShipSchematic = (props) => {
                   fluid
                   mt={1}
                   icon="street-view"
-                  disabled={!ready || !can_board}
+                  disabled={!ready || !can_board || !!save_in_progress}
                   tooltip={
-                    !ready
-                      ? 'This ship is still being retrieved -- wait until it is ready to board.'
-                      : undefined
+                    save_in_progress
+                      ? 'World save in progress -- please wait.'
+                      : !ready
+                        ? 'This ship is still being retrieved -- wait until it is ready to board.'
+                        : undefined
                   }
                   onClick={() => act('board_subship')}
                 >
@@ -175,11 +181,13 @@ export const ShipSchematic = (props) => {
                 fluid
                 mt={1}
                 icon="user-plus"
-                disabled={!can_disembark}
+                disabled={!can_disembark || !!save_in_progress}
                 tooltip={
-                  !can_disembark
-                    ? 'You are not on board a drydock ship.'
-                    : undefined
+                  save_in_progress
+                    ? 'World save in progress -- please wait.'
+                    : !can_disembark
+                      ? 'You are not on board a drydock ship.'
+                      : undefined
                 }
                 onClick={() => act('invite_board')}
               >
@@ -189,7 +197,12 @@ export const ShipSchematic = (props) => {
                 fluid
                 mt={1}
                 icon="right-from-bracket"
-                disabled={!can_disembark}
+                disabled={!can_disembark || !!save_in_progress}
+                tooltip={
+                  save_in_progress
+                    ? 'World save in progress -- please wait.'
+                    : undefined
+                }
                 onClick={() => act('disembark')}
               >
                 Exit Ship
@@ -207,6 +220,22 @@ export const ShipSchematic = (props) => {
                   onClick={() => act('rename_subship')}
                 >
                   Rename Sub-ship
+                </Button>
+              )}
+              {!!can_give_title && (
+                <Button
+                  fluid
+                  mt={1}
+                  icon="right-left"
+                  disabled={!!reported_stolen}
+                  tooltip={
+                    reported_stolen
+                      ? 'This ship is reported stolen -- return it to its rightful owner first.'
+                      : "Signs this ship's title over to another character, or to a faction. Also clears the crew roster."
+                  }
+                  onClick={() => act('give_title')}
+                >
+                  Give Title
                 </Button>
               )}
             </Section>

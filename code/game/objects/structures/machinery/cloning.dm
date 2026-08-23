@@ -213,6 +213,15 @@
 
 //Let's unlock this early I guess.  Might be too early, needs tweaking.
 /obj/structure/machinery/clonepod/attackby(obj/item/attacking_item, mob/user)
+	// Resleeving pipeline hooks (resleever_cloning.dm): a multitool links this
+	// pod to a resleever, and holding a neural lace to it orders a clone of
+	// whoever that lace is registered to. Checked before the deconstruction
+	// handling below so neither is shadowed by it.
+	if(attacking_item.tool_behaviour == TOOL_MULTITOOL)
+		return handle_multitool(attacking_item, user)
+	if(istype(attacking_item, /obj/item/organ/internal/neural_lace))
+		order_clone_from_lace(attacking_item, user)
+		return TRUE
 	if(isnull(occupant))
 		if(default_deconstruction_screwdriver(user, attacking_item))
 			return TRUE

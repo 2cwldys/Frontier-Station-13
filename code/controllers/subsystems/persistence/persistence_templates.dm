@@ -209,7 +209,7 @@
 
 /datum/admins/proc/capture_world_template()
 	set name = "Capture World Template"
-	set category = "Persistence"
+	set category = "Persistence.World Templates"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -324,7 +324,7 @@
 
 /datum/admins/proc/load_world_template_next_start()
 	set name = "Load World Template (Next Restart)"
-	set category = "Persistence"
+	set category = "Persistence.World Templates"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -358,7 +358,7 @@
 
 /datum/admins/proc/load_world_template_immediate()
 	set name = "Load World Template (Immediate)"
-	set category = "Persistence"
+	set category = "Persistence.World Templates"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -387,7 +387,7 @@
 
 /datum/admins/proc/delete_world_template()
 	set name = "Delete World Template"
-	set category = "Persistence"
+	set category = "Persistence.World Templates"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -420,7 +420,7 @@
 
 /datum/admins/proc/list_world_templates()
 	set name = "List World Templates"
-	set category = "Persistence"
+	set category = "Persistence.World Templates"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -444,7 +444,7 @@
 
 /datum/admins/proc/revert_to_map_default()
 	set name = "Revert to Map Default"
-	set category = "Persistence"
+	set category = "Persistence.World Templates"
 
 	if(!check_rights(R_ADMIN))
 		return

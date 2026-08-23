@@ -286,6 +286,13 @@
 		fire = 0	//used for firedoor checks
 		update_icon()
 		mouse_opacity = MOUSE_OPACITY_TRANSPARENT
+		// The fire itself is out, but don't blindly reopen firedoors if this
+		// area is still independently atmos-alarmed (breach, contamination,
+		// pressure) for an unrelated reason -- atmosalm is the same live signal
+		// the area's own air alarms already maintain, so this defers to
+		// whichever hazard genuinely still needs the room sealed.
+		if(atmosalm)
+			return
 		for(var/obj/structure/machinery/door/firedoor/D in all_doors)
 			if(!D.blocked)
 				if(D.operating)

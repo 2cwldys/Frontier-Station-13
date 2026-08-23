@@ -8,8 +8,10 @@
 /obj/structure/machinery/resleever
 	name = "resleeving machine"
 	desc = "A medical device that transfers a neural lace consciousness into a new body."
-	icon = 'icons/obj/machinery/cryopod.dmi'
-	icon_state = "resleever"
+	// Borrows the prison cryopod's sprite (cryopod_prison.dm) -- cryopod.dmi has
+	// no "resleever" state, so this rendered as a blank tile.
+	icon = 'icons/obj/machinery/bodyscanner.dmi'
+	icon_state = "body_scanner"
 	anchored = TRUE
 	density = TRUE
 
@@ -22,20 +24,123 @@
 	. += SPAN_NOTICE("Body slot: [target_body ? target_body.real_name : "no body"]")
 
 /obj/structure/machinery/resleever/attack_hand(mob/user)
-	// Context-sensitive interaction
-	if(!inserted_lace && !target_body)
-		to_chat(user, SPAN_NOTICE("Insert a neural lace or place a body adjacent to use this machine."))
+	if(..())
 		return
+	ui_interact(user)
 
-	if(inserted_lace && target_body)
-		// Both present — perform resleeve
-		if(tgui_alert(user, "Resleeve [inserted_lace.registered_name] into [target_body.real_name]?", "Confirm Resleeve", list("Resleeve", "Cancel")) == "Resleeve")
-			_do_resleeve(user)
+/obj/structure/machinery/resleever/ui_interact(mob/user, datum/tgui/ui)
+	ui = SStgui.try_update_ui(user, src, ui)
+	if(!ui)
+		ui = new(user, src, "Resleever", "Resleeving Machine", 420, 460)
+		ui.open()
+
+/obj/structure/machinery/resleever/ui_data(mob/user)
+	var/list/data = list()
+
+	data["lace_name"] = inserted_lace ? inserted_lace.registered_name : null
+	data["lace_occupied"] = inserted_lace ? !!inserted_lace.lace_occupied : FALSE
+	data["body_name"] = target_body ? target_body.real_name : null
+	// Both halves have to be present, and the lace has to actually be carrying
+	// somebody -- _do_resleeve() refuses otherwise, so surface it up front
+	// rather than letting the button fail on click.
+	data["can_resleeve"] = (inserted_lace && target_body && inserted_lace.lace_occupied) ? TRUE : FALSE
+
+	var/obj/structure/machinery/clonepod/pod = get_linked_pod()
+	data["linked_pod"] = pod ? TRUE : FALSE
+	data["pod_occupied"] = (pod && pod.occupant) ? TRUE : FALSE
+	data["pod_clone_name"] = (pod && pod.occupant) ? pod.occupant.real_name : null
+	// A clone can only be ordered against a lace that names someone.
+	data["can_order_clone"] = (pod && !pod.occupant && inserted_lace && inserted_lace.registered_name) ? TRUE : FALSE
+
+	// 0 when cloning is free (CLONING_COSTS_CREDITS, _compile_options.dm), so
+	// the UI advertises a price only when one is actually charged.
+#ifdef CLONING_COSTS_CREDITS
+	data["clone_cost"] = CLONE_ORDER_COST
+	// Which account an order would hit, shown before the player commits.
+	// Passing the viewer, so the payer line reflects whoever is actually
+	// standing here -- a non-member must not be shown the faction as payer
+	// and then be billed personally on click.
+	var/list/billing = pod ? pod.resolve_clone_billing(src, user) : null
+	var/billing_faction = billing ? billing["faction"] : null
+	data["clone_payer"] = billing_faction ? get_faction_name(billing_faction) : "personal account"
+#else
+	data["clone_cost"] = 0
+	data["clone_payer"] = null
+#endif
+
+	return data
+
+/obj/structure/machinery/resleever/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
+	if(..())
+		return TRUE
+	var/mob/living/user = usr
+	if(!istype(user))
+		return TRUE
+
+	switch(action)
+		if("eject_lace")
+			if(!inserted_lace)
+				return TRUE
+			user.put_in_hands(inserted_lace)
+			inserted_lace = null
+			to_chat(user, SPAN_NOTICE("Lace removed."))
+			return TRUE
+
+		if("set_target")
+			_pick_target_body(user)
+			return TRUE
+
+		if("clear_target")
+			target_body = null
+			return TRUE
+
+		if("order_clone")
+			var/obj/structure/machinery/clonepod/pod = get_linked_pod()
+			if(!pod)
+				to_chat(user, SPAN_WARNING("No cloning pod is linked to \the [src]."))
+				return TRUE
+			if(!inserted_lace)
+				to_chat(user, SPAN_WARNING("Insert the neural lace to clone from first."))
+				return TRUE
+			pod.order_clone_from_lace(inserted_lace, user)
+			return TRUE
+
+		if("resleeve")
+			if(tgui_alert(user, "Resleeve [inserted_lace ? inserted_lace.registered_name : "nobody"] into [target_body ? target_body.real_name : "nothing"]?", "Confirm Resleeve", list("Resleeve", "Cancel")) == "Resleeve")
+				_do_resleeve(user)
+			return TRUE
+
+/// Shared body picker -- used by both the UI action and the legacy verb, so
+/// the two can't drift apart.
+/obj/structure/machinery/resleever/proc/_pick_target_body(mob/user)
+	var/list/candidates = list()
+	for(var/mob/living/carbon/human/H in range(2, src))
+		if(H.stat == DEAD && !H.mind?.key)
+			candidates["[H.real_name] at ([H.x],[H.y],[H.z])"] = H
+		else if(H.stat == DEAD && H != target_body)
+			candidates["[H.real_name] (HAS MIND - careful!) at ([H.x],[H.y],[H.z])"] = H
+	// A freshly grown clone is UNCONSCIOUS rather than DEAD and has no mind,
+	// so it wouldn't match the dead-body checks above -- offer it explicitly.
+	var/obj/structure/machinery/clonepod/pod = get_linked_pod()
+	if(pod && ishuman(pod.occupant))
+		var/mob/living/carbon/human/clone = pod.occupant
+		if(!clone.mind?.key)
+			candidates["[clone.real_name] (clone, in the linked pod)"] = clone
+
+	if(!length(candidates))
+		to_chat(user, SPAN_WARNING("No suitable bodies nearby. A dead, mindless body or a grown clone is required."))
 		return
-
-	to_chat(user, SPAN_NOTICE("Lace: [inserted_lace ? inserted_lace.registered_name : "none"] | Body: [target_body ? target_body.real_name : "none"]"))
+	var/chosen = tgui_input_list(user, "Select target body:", "Set Target Body", candidates)
+	if(!chosen)
+		return
+	target_body = candidates[chosen]
+	to_chat(user, SPAN_NOTICE("Target body set to [target_body.real_name]."))
 
 /obj/structure/machinery/resleever/attackby(obj/item/I, mob/user, params)
+	// Multitool links this resleever to a cloning pod (resleever_cloning.dm).
+	if(I.tool_behaviour == TOOL_MULTITOOL)
+		return handle_multitool(I, user)
+
 	// Insert a neural lace
 	if(istype(I, /obj/item/organ/internal/neural_lace))
 		var/obj/item/organ/internal/neural_lace/lace = I
@@ -67,22 +172,9 @@
 	set category = "Persistence"
 	set src in oview(2)
 
-	// Look for a dead/empty body on adjacent surgical tables or floor
-	var/list/candidates = list()
-	for(var/mob/living/carbon/human/H in range(2, src))
-		if(H.stat == DEAD && !H.mind?.key)
-			candidates["[H.real_name] at ([H.x],[H.y],[H.z])"] = H
-		else if(H.stat == DEAD && H != target_body)
-			candidates["[H.real_name] (HAS MIND - careful!) at ([H.x],[H.y],[H.z])"] = H
-
-	if(!length(candidates))
-		to_chat(usr, SPAN_WARNING("No suitable bodies nearby. A dead, mindless body is required."))
-		return
-
-	var/chosen = tgui_input_list(usr, "Select target body:", "Set Target Body", candidates)
-	if(!chosen) return
-	target_body = candidates[chosen]
-	to_chat(usr, SPAN_NOTICE("Target body set to [target_body.real_name]."))
+	// Delegates to the same picker the UI uses, so the verb and the interface
+	// can never offer different candidate sets.
+	_pick_target_body(usr)
 
 /obj/structure/machinery/resleever/proc/_do_resleeve(mob/living/user)
 	if(!inserted_lace || !target_body)
@@ -91,6 +183,14 @@
 
 	if(!inserted_lace.lace_occupied || !inserted_lace.lace_mob)
 		to_chat(user, SPAN_WARNING("The lace does not contain a consciousness."))
+		return
+
+	// Any damage at all blocks resleeving until repaired -- weld it, or use
+	// repair nanites/nanopaste (neural_lace.dm's attackby()). > 0 mirrors
+	// LACE_DAMAGE_NONE from neural_lace.dm, which #undefs it at end of file
+	// so it isn't visible here.
+	if(inserted_lace.lace_damage > 0)
+		to_chat(user, SPAN_WARNING("The lace shows damage and cannot be resleeved until repaired."))
 		return
 
 	if(QDELETED(target_body))

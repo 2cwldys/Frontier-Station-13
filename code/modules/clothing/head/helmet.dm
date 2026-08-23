@@ -157,7 +157,7 @@
 	action_button_name = "Toggle Visor"
 	// See persistent_toggle_vars' own doc comment (obj/item base vars,
 	// items.dm) -- do_flip() (below) mutates exactly this set together.
-	// Inherited as-is by riot/lancer (Ceres Lance), which shares do_flip().
+	// Inherited as-is by riot/lancer (Hub Lancer), which shares do_flip().
 	persistent_toggle_vars = list("icon_state", "item_state", "body_parts_covered")
 
 /obj/item/clothing/head/helmet/riot/mechanics_hints(mob/user, distance, is_adjacent)
@@ -190,8 +190,8 @@
 	update_clothing_icon()
 
 /obj/item/clothing/head/helmet/riot/lancer
-	name = "ceres lance helmet"
-	desc = "A state-of-the-art combat helmet used by Ceres Lance. It is made with an additional layer of padding and ballstic visor designed to protect operatives attempting to physically restrain hostile IPCs, but has poor heat dissipation characteristics as a result."
+	name = "hub lancer helmet"
+	desc = "A state-of-the-art combat helmet used by Hub Lancer. It is made with an additional layer of padding and ballstic visor designed to protect operatives attempting to physically restrain hostile IPCs, but has poor heat dissipation characteristics as a result."
 	icon_state = "helm_lance"
 	item_state = "helm_lance"
 	// Only this specific helmet -- the plain riot helmet (parent) keeps

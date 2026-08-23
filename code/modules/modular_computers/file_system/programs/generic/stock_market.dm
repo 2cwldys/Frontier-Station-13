@@ -142,7 +142,10 @@
 			if(!target_ckey_raw) return TRUE
 			var/target_ckey = ckey(target_ckey_raw)
 			if(!target_ckey) return TRUE
-			var/target_char_name = tgui_input_text(user, "Exact character name for '[target_ckey]':", "Give Shares", "", max_length = 64)
+			// encode = FALSE -- identity key compared raw against real_name
+			// below and in get_account_by_ckey_and_name(), not display text.
+			// See ship_schematic.dm's "add_crew" for the same reasoning.
+			var/target_char_name = tgui_input_text(user, "Exact character name for '[target_ckey]':", "Give Shares", "", max_length = 64, encode = FALSE)
 			if(!target_char_name) return TRUE
 			if(target_ckey == user.ckey && target_char_name == user.real_name)
 				to_chat(user, SPAN_WARNING("You can't give shares to yourself."))

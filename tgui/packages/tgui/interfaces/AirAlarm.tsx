@@ -154,7 +154,7 @@ const StatusSection = (props) => {
     <Section title="Air Status">
       {data.has_environment ? (
         <LabeledList>
-          {data.environment.map((entry) => (
+          {(data.environment ?? []).map((entry) => (
             <LabeledList.Item key={entry.name} label={entry.name}>
               <Box color={DANGER_COLOR[entry.danger_level]}>
                 {entry.value.toFixed(1)} {entry.unit}
@@ -242,13 +242,13 @@ const VentsSection = (props) => {
     Record<string, Partial<Pick<VentEntry, 'power' | 'checks'>>>
   >({});
 
-  if (!data.vents.length) {
+  if (!data.vents?.length) {
     return <NoticeBox>No vents connected.</NoticeBox>;
   }
 
   return (
     <>
-      {data.vents.map((vent) => {
+      {(data.vents ?? []).map((vent) => {
         const localVent = ventOverrides[vent.id_tag];
         const power = localVent?.power ?? vent.power;
         const checks = localVent?.checks ?? vent.checks;
@@ -357,13 +357,13 @@ const ScrubbersSection = (props) => {
     >
   >({});
 
-  if (!data.scrubbers.length) {
+  if (!data.scrubbers?.length) {
     return <NoticeBox>No scrubbers connected.</NoticeBox>;
   }
 
   return (
     <>
-      {data.scrubbers.map((scrubber) => {
+      {(data.scrubbers ?? []).map((scrubber) => {
         const localScrubber = scrubberOverrides[scrubber.id_tag];
         const power = localScrubber?.power ?? scrubber.power;
         const scrubbing = localScrubber?.scrubbing ?? scrubber.scrubbing;
@@ -416,7 +416,7 @@ const ScrubbersSection = (props) => {
                 />
               </LabeledList.Item>
               <LabeledList.Item label="Filters">
-                {scrubber.filters.map((filter) => {
+                {(scrubber.filters ?? []).map((filter) => {
                   const filterValue =
                     localScrubber?.filters?.[filter.command] ?? filter.val;
 
@@ -463,7 +463,7 @@ const ModeSection = (props) => {
 
   return (
     <Section title="Environmental Mode">
-      {data.modes.map((m) => (
+      {(data.modes ?? []).map((m) => (
         <Box key={m.mode} mb={0.5}>
           <Button
             fluid
@@ -506,10 +506,10 @@ const SensorsSection = (props) => {
             </Table.Cell>
           ))}
         </Table.Row>
-        {data.thresholds.map((threshold) => (
+        {(data.thresholds ?? []).map((threshold) => (
           <Table.Row key={threshold.name}>
             <Table.Cell>{threshold.name}</Table.Cell>
-            {threshold.settings.map((setting) => (
+            {(threshold.settings ?? []).map((setting) => (
               <Table.Cell key={setting.val} textAlign="center">
                 <Button
                   content={

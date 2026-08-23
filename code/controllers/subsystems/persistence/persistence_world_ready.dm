@@ -41,6 +41,7 @@ SUBSYSTEM_DEF(persistence_world_ready)
 			// Delete everything on the station's own Z-levels -- every object,
 			// mob, structure, and the turfs themselves. No reset/revert logic,
 			// just gone -- open space. The Z-levels stay allocated, just empty.
+			//
 			for(var/z in station_zs)
 				for(var/turf/T in block(locate(1, 1, z), locate(world.maxx, world.maxy, z)))
 					for(var/atom/movable/AM in T)
@@ -56,6 +57,28 @@ SUBSYSTEM_DEF(persistence_world_ready)
 	log_world("Persistent world: all subsystems initialized. Server is now open.")
 #ifdef REPUBLISH_HUB_VISIBILITY_ON_BOOT
 	_republish_hub_visibility()
+#endif
+
+#ifdef DISCORD_STATUS_BOT_AUTOSTART
+	// Launched HERE rather than from SSpersistence.Initialize(), because this
+	// is the first point at which the server can actually answer
+	// world.Topic() -- which is the only thing the bot ever asks it.
+	//
+	// Started any earlier, the bot spends the whole remaining boot polling a
+	// world that is still initialising and cannot reply, times out, and
+	// reports "server offline" for a server that is coming up perfectly
+	// normally. That is a lie told at exactly the moment someone is most
+	// likely to be watching for the server to come back.
+	//
+	// This subsystem is init_order -100 -- after every other subsystem,
+	// including SSpersistence (-10) -- so by definition nothing is left to
+	// wait for.
+	if(SSpersistence)
+		log_world("Starting Discord status bot...")
+		try
+			SSpersistence.discordStatusBotStart()
+		catch(var/exception/discord_bot_e)
+			log_world("ERROR: Unhandled exception starting the Discord status bot: [discord_bot_e]")
 #endif
 	return SS_INIT_SUCCESS
 

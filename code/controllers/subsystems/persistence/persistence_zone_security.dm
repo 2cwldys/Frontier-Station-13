@@ -79,6 +79,11 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 ///   member of that SAME faction is exempt (mirrors
 ///   get_cargo_tax_beneficiary()'s and _drydock_raid_blocked()'s own
 ///   identical same-faction carve-out).
+/// - OR a piracy beacon on that z is currently claimed by a faction
+///   (piracy_beacon_claimed_faction_on_z(), piracy_beacon.dm -- tethered AND
+///   faction-tagged) -- same same-faction exemption as the faction-beacon
+///   case above. An unclaimed (or untethered) piracy beacon provides no
+///   bombardment protection at all.
 /proc/site_bombardment_protected(obj/effect/overmap/visitable/O, mob/user)
 	if(!istype(O))
 		return FALSE
@@ -86,21 +91,34 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 		if(zone_security_get(target_z) == ZONE_HIGHSEC)
 			return TRUE
 		var/obj/structure/machinery/faction_beacon/B = get_owning_faction_beacon(target_z)
-		if(!B)
-			continue
-		if(B.faction_uid && ishuman(user))
-			var/mob/living/carbon/human/H = user
-			var/obj/item/card/id/ID = H.GetIdCard()
-			var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
-#ifdef FACTION_ALLIANCES
-			if(own_faction && (own_faction == normalize_faction_uid(B.faction_uid) || factions_are_allied(own_faction, B.faction_uid)))
+		if(B)
+			if(_user_exempt_from_bombardment(user, B.faction_uid))
 				continue
-#else
-			if(own_faction && own_faction == normalize_faction_uid(B.faction_uid))
+			return TRUE
+		var/pirate_claim = piracy_beacon_claimed_faction_on_z(target_z)
+		if(pirate_claim)
+			if(_user_exempt_from_bombardment(user, pirate_claim))
 				continue
-#endif //FACTION_ALLIANCES
-		return TRUE
+			return TRUE
 	return FALSE
+
+/// TRUE if user (a human) is employed by (or, under FACTION_ALLIANCES,
+/// allied with) faction_uid -- the same-faction exemption shared by both
+/// branches of site_bombardment_protected() above, factored out so the
+/// faction-beacon and piracy-beacon-claim cases can never drift apart.
+/proc/_user_exempt_from_bombardment(mob/user, faction_uid)
+	if(!faction_uid || !ishuman(user))
+		return FALSE
+	var/mob/living/carbon/human/H = user
+	var/obj/item/card/id/ID = H.GetIdCard()
+	var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+	if(!own_faction)
+		return FALSE
+#ifdef FACTION_ALLIANCES
+	return own_faction == normalize_faction_uid(faction_uid) || factions_are_allied(own_faction, faction_uid)
+#else
+	return own_faction == normalize_faction_uid(faction_uid)
+#endif //FACTION_ALLIANCES
 
 /// TRUE if z belongs to an asteroid exoplanet body (any variant) -- covers
 /// romanovich/ice/dumas/ytizi/chanterel/burzsia/etc, all subtypes of one
@@ -441,8 +459,10 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
  * Two independent ways to qualify:
  *  - Hub faction membership PLUS engineering access on the ID (the original
  *    rule -- an actual Hub engineer).
- *  - Any Hub member above the base/Civilian rank tier, regardless of what
- *    access their ID happens to carry. Same get_effective_faction_rank()
+ *  - Any Hub member holding a real job -- FACTION_RANK_CREW (0) or above
+ *    (__DEFINES/persistence.dm: CIVILIAN -1, CREW 0, OFFICER 1, COMMAND 2),
+ *    regardless of what access their ID happens to carry. Only
+ *    FACTION_RANK_CIVILIAN is excluded. Same get_effective_faction_rank()
  *    threshold airlock.dm and RFD.dm already use for exactly this "trusted
  *    Hub personnel" concept, so the rule stays consistent codebase-wide.
  *
@@ -453,7 +473,7 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 	if(!M || !ishuman(M) || !M.ckey)
 		return FALSE
 	var/mob/living/carbon/human/H = M
-	if(get_effective_faction_rank(H, "hub") > 0)
+	if(get_effective_faction_rank(H, "hub") > FACTION_RANK_CIVILIAN)
 		return TRUE
 	var/obj/item/card/id/I = H.GetIdCard()
 	if(!I || !(ACCESS_ENGINE in I.access))
@@ -516,6 +536,20 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 		if(length(GLOB.highsec_offense_log) > HIGHSEC_OFFENSE_LOG_MAX)
 			GLOB.highsec_offense_log.Cut(1, 2)
 		zone_security_alert_responders(attacker, anchor)
+		// Mirrored to the law-enforcement channel on the SAME path as the PDA
+		// alert -- i.e. only for offenses that actually got tracked, past the
+		// per-attacker cooldown above. Posting alongside the message_admins()
+		// at the top instead would re-fire on every blow of a sustained
+		// beating and flood the channel with one incident.
+		// Character names, not key_name() -- this is an in-character security
+		// feed, and key_name() leads with the ckey ("ckey/(Character Name)")
+		// which is accountability information for the admin log, not something
+		// a responding officer reads. The admin-facing message_admins() above
+		// still carries the full key_name for exactly that reason.
+		var/area/offense_area = get_area(anchor)
+		var/attacker_name = attacker ? (attacker.real_name || attacker.name) : "Unknown"
+		var/victim_name = victim ? (victim.real_name || victim.name) : "Unknown"
+		log_law_enforcement("[attacker_name] against [victim_name] in [offense_area ? offense_area.name : "unknown location"]: [admin_message]", "Highsec offense")
 
 /// ckey -> world.time of their last distress call. Separate from the offense
 /// tracking map so a distress can't be swallowed by an unrelated offense cooldown.
@@ -557,6 +591,7 @@ GLOBAL_LIST_EMPTY(hub_distress_last_called)
 		GLOB.highsec_offense_log.Cut(1, 2)
 	// Same PDA-beep alert path a normal offense uses (zone_security_alert_responders below).
 	zone_security_alert_responders(caller, caller, "DISTRESS CALL: [caller.name] requests Hub security in [A ? A.name : "unknown location"]! Open First Responder to respond.")
+	log_law_enforcement("[caller.real_name || caller.name] requests Hub security in [A ? A.name : "unknown location"].", "Distress call")
 	return TRUE
 
 /// ckey -> world.time of their last recorded death emergency. Separate from
@@ -679,6 +714,29 @@ GLOBAL_LIST_EMPTY(hub_emergency_last_tracked)
 		CHECK_TICK
 
 /**
+ * Roll call -- unlike zone_security_alert_responders() above, this bypasses
+ * the PDA/modular_computer channel entirely and delivers straight to the
+ * mob (chat line + sound), so it reaches active Hub security regardless of
+ * whether their PDA is off, silenced, or not even on them. "Active Hub
+ * security" is any connected human with a genuine Hub faction membership
+ * above civilian rank (get_effective_faction_rank(), persistence_factions.dm
+ * -- the same bar can_access_hub_depot() uses), not just whoever happens to
+ * be carrying a Hub-tagged PDA right now. Returns the number of people
+ * reached, for the caller's own confirmation message.
+ */
+/proc/zone_security_roll_call(mob/user)
+	var/reached = 0
+	for(var/mob/living/carbon/human/H in GLOB.player_list)
+		if(!H.client)
+			continue
+		if(get_effective_faction_rank(H, "hub") <= FACTION_RANK_CIVILIAN)
+			continue
+		to_chat(H, SPAN_ALERT(FONT_LARGE("ROLL CALL: [user ? user.real_name : "Hub Command"] is calling all active Hub security to report in.")))
+		playsound(get_turf(H), 'sound/machines/twobeep.ogg', 40, 1)
+		reached++
+	return reached
+
+/**
  * Find every security telepad for the given faction network.
  * Priority: faction telepads -> public telepads -> empty list. Returns
  * every match within whichever tier wins (never mixes tiers) so a caller
@@ -707,7 +765,7 @@ GLOBAL_LIST_EMPTY(hub_emergency_last_tracked)
 /// markers (zone outlines, pinned-site names/icons) in action.
 /datum/admins/proc/view_overmap()
 	set name = "View Overmap"
-	set category = "Persistence"
+	set category = "Persistence.Zones & Z-Levels"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -728,7 +786,7 @@ GLOBAL_LIST_EMPTY(hub_emergency_last_tracked)
 /// Admin verb: set a z-level's security zone, stored to DB immediately.
 /datum/admins/proc/set_zone_security()
 	set name = "Set Z-Level Security Zone"
-	set category = "Persistence"
+	set category = "Persistence.Zones & Z-Levels"
 
 	if(!check_rights(R_ADMIN))
 		return

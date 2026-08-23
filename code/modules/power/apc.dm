@@ -216,6 +216,43 @@ ABSTRACT_TYPE(/obj/structure/machinery/power/apc)
 	if(!mapload)
 		set_pixel_offsets()
 
+/obj/structure/machinery/power/apc/persistent_objects_get_content()
+	. = ..()
+	.["locked"] = locked
+	.["coverlocked"] = coverlocked
+	.["operating"] = operating
+	.["equipment"] = equipment
+	.["lighting"] = lighting
+	.["environ"] = environ
+	.["chargemode"] = chargemode
+	.["night_mode"] = night_mode
+	.["emergency_lights"] = emergency_lights
+
+/obj/structure/machinery/power/apc/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if("locked" in content)
+		locked = content["locked"]
+	if("coverlocked" in content)
+		coverlocked = content["coverlocked"]
+	if("operating" in content)
+		operating = content["operating"]
+	if("equipment" in content)
+		equipment = text2num(content["equipment"])
+	if("lighting" in content)
+		lighting = text2num(content["lighting"])
+	if("environ" in content)
+		environ = text2num(content["environ"])
+	if("chargemode" in content)
+		chargemode = content["chargemode"]
+	if("night_mode" in content)
+		night_mode = content["night_mode"]
+	if("emergency_lights" in content)
+		emergency_lights = content["emergency_lights"]
+	update_icon()
+	update()
+
 /obj/structure/machinery/power/apc/Destroy()
 	update()
 	area.apc = null

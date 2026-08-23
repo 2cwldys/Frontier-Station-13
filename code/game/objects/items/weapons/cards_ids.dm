@@ -260,7 +260,17 @@
 	id_card.employer_faction    = employer_faction
 
 /obj/item/card/id/proc/dat()
-	var/dat = ("<table><tr><td>")
+	var/dat = ""
+	// A revoked card is dead -- update_name() renames it to "REVOKED" and
+	// GetAccess() returns nothing -- but this readout used to print its
+	// details as though it were perfectly valid, with no mention of the flag
+	// anywhere. That is how a revoked card seated in a PDA's card slot looked
+	// entirely untouched: the PDA shows its OWN name, and examining it opens
+	// this popup, which said nothing either. Say it here and it is visible
+	// however the card is being looked at.
+	if(revoked)
+		dat += "<div style='border:2px solid #a00; padding:4px; margin-bottom:6px; color:#a00;'><b>** THIS CARD HAS BEEN REVOKED **</b><br>It grants no access. A replacement must be printed.</div>"
+	dat += ("<table><tr><td>")
 	dat += "Name: [registered_name]<br>"
 	dat += "Age: [age]<br>\n"
 	dat += "Sex: [sex]<br>\n"

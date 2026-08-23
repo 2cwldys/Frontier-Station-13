@@ -112,6 +112,23 @@
 /obj/item/multitool/attack_self(mob/user)
 	interact(user)
 
+// Read-only reflection of a faction shackle -- reuses the SAME status
+// module the bound mob's own "Break Free of Shackle" verb opens
+// (faction_bound.dm), just viewed by someone else here, so the data
+// shown can never drift from what the bound mob itself sees. The
+// break-free action stays owner-only (ui_act() there already gates on
+// usr == owner), so this is inert for anyone but the bound mob.
+/obj/item/multitool/afterattack(atom/target, mob/user, proximity_flag, click_parameters)
+	. = ..()
+	if(!proximity_flag || !ismob(target))
+		return
+	var/mob/living/L = target
+	if(!istype(L) || !L.faction_tagger_compatible())
+		return
+	if(!L.faction_bound_status_ui)
+		L.faction_bound_status_ui = new(L)
+	L.faction_bound_status_ui.ui_interact(user)
+
 /obj/item/multitool/interact(mob/user)
 	ui_interact(user)
 
@@ -146,10 +163,12 @@
 		data["has_interior_sensor"] = controller.has_interior_sensor
 		data["internal_pressure"] = round(controller.program.memory["internal_sensor_pressure"])
 
-	// Door button (blast_door_button.dm) -- covers both blast doors/shutters
-	// and airlocks, whatever mix is currently linked (_get_linked_doors()
-	// is the same shared scan trigger()/the multi-door picker use).
-	var/obj/structure/machinery/button/remote/blast_door/buildable/door_button = get_buffer(/obj/structure/machinery/button/remote/blast_door/buildable)
+	// Door button (door_control.dm/blast_door_button.dm) -- covers both
+	// blast doors/shutters and airlocks, whatever mix is currently linked
+	// (_get_linked_doors() is the same shared scan trigger()/the multi-door
+	// picker use). Base type, not just the buildable subtype, so this
+	// checklist also populates for an already-mapped button.
+	var/obj/structure/machinery/button/remote/blast_door/door_button = get_buffer(/obj/structure/machinery/button/remote/blast_door)
 	if(door_button)
 		var/list/checklist = list()
 		for(var/obj/structure/machinery/door/D in door_button._get_linked_doors())

@@ -56,6 +56,22 @@
 // chased.
 #define WALL_RESTORE_DIAGNOSTICS
 
+// If defined, wall-mounted machine save/restore logs each machine's
+// type/position/dir/pixel offset at save time and at worldstate restore
+// time -- so a mismatch can be diagnosed by comparing what was saved
+// against what came back. Offsets are now persisted verbatim rather than
+// re-derived from dir, so a healthy boot should show the saved and restored
+// values matching exactly. Defined by default while wall-mount positioning
+// is still being actively chased.
+#define WALL_MACHINE_DIAGNOSTICS
+
+// If defined, fastening a pipe fitting logs its pipe_type/dir/pipe_dir
+// before construction (construction.dm), and explicitly logs when no case
+// in the build switch matched -- so a fitting that vanishes without
+// building anything leaves a trace of exactly which pipe_type value was
+// responsible. Defined by default while this is actively being chased.
+#define PIPE_CONSTRUCTION_DIAGNOSTICS
+
 // If defined, the floor-item persistence path logs every decision it makes
 // for a faction-tagged clothing item: which branch dropped it (if any),
 // whether its extra state blob was built, and which restore branch ran on
@@ -106,6 +122,35 @@
 // leave undefined to require the admin verb to be run manually instead.
 //#define FORCE_COMPILE_ON_MERGE
 
+// ##### Local game-server shards (containerized, admin/auto-spawned) #####
+// DO NOT ENABLE THIS UNLESS YOU KNOW WHAT YOU'RE DOING.
+//
+// If defined, this server can create and manage OTHER local DreamDaemon
+// instances ("shards") on the same machine -- each a fresh-local-data
+// Docker container sharing this server's own central database (see
+// docs/cross_server_persistence.md), triggered by an admin TGUI panel
+// (default) or, optionally, automatically once population crosses a
+// configured threshold. This works by letting the game process shell out
+// to Docker (world.shelleo(), same Trusted-security-level gate every other
+// shelleo() call site in this codebase already requires) -- that's real
+// blast radius beyond anything else compile-gated in this file, which is
+// why this is a compile-time barrier rather than just a config.txt toggle
+// like everything else in the cross-server system. Off by default; a
+// normal build never compiles any of this in, not even as dead code behind
+// a runtime check.
+//#define ALLOW_CENTRAL_SHARD_SPAWNING
+
+// If defined (default), the periodic persistence autosave (SSpersistence)
+// reschedules itself to the next real-world wall-clock boundary (e.g. every
+// :00/:30, via _next_aligned_fire(), persistence.dm) instead of a flat
+// "wait minutes from whenever this save finished" -- see
+// docs/cross_server_persistence.md. This is what lets every central-linked
+// server land its autosave within seconds of each other instead of
+// drifting apart by boot time. Undefine to fall back to the old flat
+// schedule (no alignment query against the local DB) -- useful to compare
+// behavior against, or as a quick rollback without reverting code.
+//#define CENTRAL_AUTOSAVE_ALIGNMENT
+
 // If defined, every log_admin() entry is also mirrored to Discord via a new
 // "admin_log" webhook tag (WEBHOOK_ADMIN_LOG, __DEFINES/webhook.dm) -- add a
 // webhook to config/webhooks.json (or ss13_webhooks) with "admin_log" in its
@@ -113,7 +158,69 @@
 // log_adminsay() are deliberately NOT included -- see admin.dm's own
 // ADMINPRIVATE-is-stripped-from-public-logs convention. Off by default --
 // leave undefined to keep admin logs server-local only.
-//#define EXPORT_ADMIN_LOG_TO_DISCORD
+#define EXPORT_ADMIN_LOG_TO_DISCORD
+
+// If defined, security events are mirrored to a separate law-enforcement
+// Discord channel via the "law_enforcement" webhook tag
+// (WEBHOOK_LAW_ENFORCEMENT, __DEFINES/webhook.dm) -- highsec offenses and
+// distress calls as they reach responders' PDAs, plus First Responder
+// enforcement actions (repossession, force-stash, scuttling, schematic
+// withdrawal, stolen-flag clearing). Separate from EXPORT_ADMIN_LOG_TO_DISCORD
+// so a security channel can get these WITHOUT being handed the whole admin
+// log; admin logging is unaffected either way. Add a webhook carrying that
+// tag to config/webhooks.json (its optional "mention" field is what pings a
+// role). On by default -- harmless when no such webhook is configured, since
+// post_webhook_event() only delivers to webhooks that carry the tag.
+#define EXPORT_LAW_ENFORCEMENT_TO_DISCORD
+
+// If defined, the last active player character going to cryo immediately
+// triggers a full persistence autosave (runLobbyEmptyAutosave(),
+// persistence.dm) instead of waiting for the next periodic save. Comment
+// out to disable -- lobby-empty saves then only happen on the regular
+// periodic timer.
+#define LOBBY_EMPTY_AUTOSAVE
+
+// If defined, growing a clone through the resleeving pipeline
+// (order_clone_from_lace(), resleever_cloning.dm) charges CLONE_ORDER_COST --
+// to the faction when the cloning pod and resleever are both tagged to the
+// same faction, otherwise to the ordering character's own account. Comment
+// out to make cloning free: the charge, the refund-on-failure path, and the
+// affordability checks are all skipped, and the resleever's UI stops showing
+// a price. On by default.
+#define CLONING_COSTS_CREDITS
+/// Credits charged per clone while CLONING_COSTS_CREDITS is enabled. Lives
+/// here rather than beside the pipeline so the machine, its UI data and the
+/// billing path all read one number.
+#define CLONE_ORDER_COST 10000
+
+// If defined, the server launches the Discord status bot
+// (scripts/discord_status_bot.py) on startup and kills it when the server
+// actually closes -- see discordStatusBotStart()/Stop() (persistence.dm).
+// Requires config/discord_status_bot.json (a bot token), Python with
+// discord.py installed, AND a TGS security level of Trusted, since this is a
+// raw OS shell-out that BYOND refuses under Safe/Ultrasafe. All three are
+// checked at runtime; a missing one skips the launch with a logged reason
+// rather than failing the round.
+//
+// Off by default -- it spawns an OS process that outlives the call, so opting
+// in should be deliberate. Leave undefined to keep starting the bot by hand.
+#define DISCORD_STATUS_BOT_AUTOSTART
+
+// If defined, faction raiding is SUSPENDED whenever no staff are online and
+// restored when one returns -- raidingUpdateForStaffPresence()
+// (persistence_factions.dm), driven off the GLOB.staff transitions in
+// client_procs.dm and holder2.dm. Two config.txt settings tune it:
+// RAIDING_STAFF_RIGHTS (who counts -- any/mod/admin) and
+// RAIDING_STAFF_MINIMUM (how many of those are needed).
+//
+// Suspension is deliberately LIVE-ONLY: it never writes
+// ss13_faction_raiding_toggle, so staff's own setting survives an unattended
+// stretch and is what gets restored. Raiding turned off on purpose therefore
+// stays off when an admin logs back in, rather than being silently re-enabled.
+//
+// Off by default -- it changes live gameplay behaviour with no admin action,
+// so opting in should be deliberate.
+#define AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
 
 // If defined, faction-tagged equipment can only be WORN by people employed by
 // that faction (can_use_faction_equipment(), persistence_factions.dm) -- gated

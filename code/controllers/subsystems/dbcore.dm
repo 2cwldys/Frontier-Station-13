@@ -340,7 +340,7 @@ SUBSYSTEM_DEF(dbcore)
 	if(!allow_during_shutdown && shutting_down)
 		CRASH("Attempting to create a new db query during the world shutdown")
 
-	return new /datum/db_query(connection, sql_query, arguments)
+	return new /datum/db_query(connection, sql_query, arguments, src)
 
 /**
  * Creates a new /datum/db_query_template
@@ -404,9 +404,19 @@ SUBSYSTEM_DEF(dbcore)
 
 	var/list/item  //list of data values populated by NextRow()
 
-/datum/db_query/New(connection, sql, arguments)
-	SSdbcore.all_queries += src
-	SSdbcore.all_queries_num++
+	/// Which db subsystem instance this query belongs to -- SSdbcore (the
+	/// local, per-server connection) unless a caller explicitly passes
+	/// another, e.g. SScentraldb (centraldb.dm, the shared cross-server
+	/// connection). Every proc below that used to hardcode "SSdbcore" reads
+	/// this instead, so the exact same query datum works correctly no matter
+	/// which connection created it -- see NewQuery() (below), the one place
+	/// that constructs these, which passes src (itself) as the owner.
+	var/datum/controller/subsystem/dbcore/owner
+
+/datum/db_query/New(connection, sql, arguments, owner_ss)
+	owner = owner_ss || SSdbcore
+	owner.all_queries += src
+	owner.all_queries_num++
 	Activity("Created")
 	item = list()
 
@@ -416,9 +426,9 @@ SUBSYSTEM_DEF(dbcore)
 
 /datum/db_query/Destroy()
 	Close()
-	SSdbcore.all_queries -= src
-	SSdbcore.queries_standby -= src
-	SSdbcore.queries_active -= src
+	owner.all_queries -= src
+	owner.queries_standby -= src
+	owner.queries_active -= src
 	return ..()
 
 /**
@@ -492,7 +502,7 @@ SUBSYSTEM_DEF(dbcore)
 	if(status == DB_QUERY_STARTED)
 		CRASH("Attempted to start a new query while waiting on the old one")
 
-	if(!SSdbcore.Connect())
+	if(!owner.Connect())
 		last_error = "No connection!"
 		return FALSE
 
@@ -502,10 +512,10 @@ SUBSYSTEM_DEF(dbcore)
 	Close()
 	status = DB_QUERY_STARTED
 	if(async)
-		if(!MC_RUNNING(SSdbcore.init_stage))
-			SSdbcore.run_query_sync(src)
+		if(!MC_RUNNING(owner.init_stage))
+			owner.run_query_sync(src)
 		else
-			SSdbcore.queue_query(src)
+			owner.queue_query(src)
 		sync()
 	else
 		var/job_result_str = rustg_sql_query_blocking(connection, sql, json_encode(arguments))
@@ -531,19 +541,19 @@ SUBSYSTEM_DEF(dbcore)
 	if(status == DB_QUERY_STARTED)
 		CRASH("Attempted to start a new query while waiting on the old one")
 
-	if(!SSdbcore.Connect())
+	if(!owner.Connect())
 		last_error = "No connection!"
 		return FALSE
 
 	Close()
 	status = DB_QUERY_STARTED
-	if(!MC_RUNNING(SSdbcore.init_stage) && !permit_before_dbcore_running)
+	if(!MC_RUNNING(owner.init_stage) && !permit_before_dbcore_running)
 		status = DB_QUERY_BROKEN
 		last_error = "MC not running, Cant Execute NoSleep Query"
 		log_subsystem_dbcore("Attemted to Execute NoSleep Query while MC was not running: [sql], Arguments: [json_encode(arguments)], error: [last_error]")
 		return FALSE
 	else
-		SSdbcore.queue_query(src)
+		owner.queue_query(src)
 		return TRUE
 
 /// Sleeps until execution of the query has finished.

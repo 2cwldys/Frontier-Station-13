@@ -269,12 +269,14 @@
 
 	if(action == "move")
 		if(can_move(shuttle, user))
+			_play_launch_sound()
 			shuttle.launch(src)
 			return TRUE
 		return FALSE
 
 	if(action == "force")
 		if(can_move(shuttle, user))
+			_play_launch_sound()
 			shuttle.force_launch(src)
 			return TRUE
 		return FALSE
@@ -288,6 +290,22 @@
 		if(new_name)
 			shuttle.name = new_name
 		return TRUE
+
+/// Plays the shuttle takeoff sound to everyone on this console's own z
+/// unconditionally, on every successful Launch Shuttle/Force Launch press --
+/// deliberately NOT gated on any engine on/off state or transition, unlike
+/// _update_engine_hum()'s own engine_startup.ogg trigger (ship.dm), which
+/// only fires on a genuine off->on flip and could silently sit out a launch
+/// whose engines were already flagged on from an earlier trip. This is the
+/// button-press cue players actually asked for: it plays every time, full
+/// stop, regardless of what background engine bookkeeping believes.
+/obj/structure/machinery/computer/shuttle_control/proc/_play_launch_sound()
+	for(var/mob/M in GLOB.player_list)
+		if(!M.client || M.ear_deaf || GET_Z(M) != GET_Z(src))
+			continue
+		if(!(M.client.prefs.sfx_toggles & ASFX_ENGINE_HUM))
+			continue
+		M << sound('sound/effects/shuttle_takeoff.ogg', volume = 50)
 
 /obj/structure/machinery/computer/shuttle_control/proc/update_helmets(var/datum/shuttle/autodock/shuttle)
 	var/shuttle_status = get_shuttle_status(shuttle)

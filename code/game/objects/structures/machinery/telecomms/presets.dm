@@ -8,6 +8,7 @@
 		if (istype(my_sector, /obj/effect/overmap/visitable))
 			attempt_hook_up(my_sector)
 
+/obj/structure/machinery/telecomms/hub/preset_map/configure_preset_map_linkage()
 	if(istype(linked) && linked.comms_support)
 		var/preset_name = linked.comms_name
 		var/name_lower = replacetext(lowertext(preset_name), " ", "_")
@@ -44,6 +45,7 @@
 		if (istype(my_sector, /obj/effect/overmap/visitable))
 			attempt_hook_up(my_sector)
 
+/obj/structure/machinery/telecomms/receiver/preset_map/configure_preset_map_linkage()
 	if(istype(linked) && linked.comms_support)
 		var/preset_name = linked.comms_name
 		var/name_lower = replacetext(lowertext(preset_name), " ", "_")
@@ -87,6 +89,7 @@
 		if (istype(my_sector, /obj/effect/overmap/visitable))
 			attempt_hook_up(my_sector)
 
+/obj/structure/machinery/telecomms/bus/preset_map/configure_preset_map_linkage()
 	if(istype(linked) && linked.comms_support)
 		var/preset_name = linked.comms_name
 		var/name_lower = replacetext(lowertext(preset_name), " ", "_")
@@ -147,6 +150,7 @@
 		if (istype(my_sector, /obj/effect/overmap/visitable))
 			attempt_hook_up(my_sector)
 
+/obj/structure/machinery/telecomms/processor/preset_map/configure_preset_map_linkage()
 	if(istype(linked) && linked.comms_support)
 		var/preset_name = linked.comms_name
 		var/name_lower = replacetext(lowertext(preset_name), " ", "_")
@@ -193,6 +197,7 @@
 		if (istype(my_sector, /obj/effect/overmap/visitable))
 			attempt_hook_up(my_sector)
 
+/obj/structure/machinery/telecomms/server/preset_map/configure_preset_map_linkage()
 	if(istype(linked) && linked.comms_support)
 		var/preset_name = linked.comms_name
 		var/name_lower = replacetext(lowertext(preset_name), " ", "_")
@@ -282,6 +287,7 @@
 		if (istype(my_sector, /obj/effect/overmap/visitable))
 			attempt_hook_up(my_sector)
 
+/obj/structure/machinery/telecomms/broadcaster/preset_map/configure_preset_map_linkage()
 	if(istype(linked) && linked.comms_support)
 		var/preset_name = linked.comms_name
 		var/name_lower = replacetext(lowertext(preset_name), " ", "_")

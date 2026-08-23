@@ -293,13 +293,19 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
  */
 /datum/controller/subsystem/persistence/proc/objectsGetTrackContent(obj/track)
 	PRIVATE_PROC(TRUE)
-	var/result = json_encode(list("__dir" = track.dir, "__anchored" = track.anchored))
+	var/result = json_encode(list("__dir" = track.dir, "__anchored" = track.anchored, "__pixel_x" = track.pixel_x, "__pixel_y" = track.pixel_y))
 	try
 		var/list/content = track.persistent_objects_get_content()
 		if(!islist(content))
 			content = list()
 		content["__dir"]      = track.dir
 		content["__anchored"] = track.anchored
+		// Saved verbatim rather than re-derived on restore. A wall-mounted
+		// device's offset is not a function of its dir -- see the note on
+		// airlock_sensor's worldstate_vars (persistence_worldstate.dm) -- so
+		// the value it actually had at save time is the only correct source.
+		content["__pixel_x"]  = track.pixel_x
+		content["__pixel_y"]  = track.pixel_y
 		result = json_encode(content)
 	catch(var/exception/e)
 		log_subsystem_persistence_error("Error during json serialization for persistent object. Failed to get/encode track content: [e]")
@@ -321,6 +327,16 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
 			track.dir = text2num(content["__dir"])
 		if(islist(content) && ("__anchored" in content))
 			track.anchored = content["__anchored"]
+		if(islist(content) && ("__pixel_x" in content))
+			// Restore the offset that was actually saved. Authoritative, so no
+			// dir-derived recompute runs and nothing gets relocated.
+			track.pixel_x = text2num(content["__pixel_x"])
+			track.pixel_y = text2num(content["__pixel_y"])
+		else
+			// Legacy row written before offsets were persisted -- fall back to
+			// the old re-derive so existing player-built devices still come
+			// back on their wall instead of dead-centered.
+			track.persistence_reapply_wall_offset()
 	catch(var/exception/e)
 		log_subsystem_persistence_error("Error during json deserialization for persistent object. Failed to apply/decode track content: [e]")
 

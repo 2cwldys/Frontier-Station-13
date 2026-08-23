@@ -117,6 +117,16 @@ SUBSYSTEM_DEF(shuttle)
 	sectors_to_initialize = null
 
 /datum/controller/subsystem/shuttle/proc/register_landmark(shuttle_landmark_tag, obj/effect/shuttle_landmark/shuttle_landmark)
+	// A null tag can never be a valid registry key, and indexing a list with
+	// null is a "bad index" runtime in BYOND -- so this has to be rejected
+	// before the lookup below, not after. Landmarks are routinely built with
+	// `new(loc)` and given their landmark_tag on the NEXT line (the public
+	// hangar slot in persistence_shuttles.dm, the docking beacon's own pad in
+	// docking_beacon.dm), which means Initialize() -> register_landmark()
+	// always fires once with a null tag first. Those callers register
+	// explicitly once the tag is set.
+	if(isnull(shuttle_landmark_tag))
+		return
 	if (registered_shuttle_landmarks[shuttle_landmark_tag])
 		// Skip instead of crash — can happen on hot-reload or if persistence restores landmarks
 		log_world("SSshuttle: Duplicate landmark tag '[shuttle_landmark_tag]' ignored.")
@@ -137,6 +147,12 @@ SUBSYSTEM_DEF(shuttle)
 				landmarks_awaiting_sector += shuttle_landmark
 
 /datum/controller/subsystem/shuttle/proc/get_landmark(var/shuttle_landmark_tag)
+	// Same reason as register_landmark() above -- indexing a list with null is
+	// a "bad index" runtime in BYOND, and plenty of callers pass a tag var
+	// that is simply unset. "no such landmark" is the correct answer, not a
+	// crash.
+	if(isnull(shuttle_landmark_tag))
+		return null
 	return registered_shuttle_landmarks[shuttle_landmark_tag]
 
 //Checks if the given sector's landmarks have initialized; if so, registers them with the sector, if not, marks them for assignment after they come in.

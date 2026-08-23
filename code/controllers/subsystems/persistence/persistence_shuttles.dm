@@ -45,6 +45,175 @@
 /// shuttle_id -> /datum/drydock_ship, for every purchased drydock ship (owned, stashed or deployed).
 GLOBAL_LIST_EMPTY(drydock_ships)
 
+// ============================================================
+// CENTRAL SHIP SYNC (CENTRAL_SYNC_SHIPS)
+// ============================================================
+//
+// Core ownership/existence fields only -- see V010__ship_sync.sql's own
+// header for exactly what's covered vs. explicitly deferred (interiors,
+// crew ACLs, schematic banking, deployment position). Write-through +
+// (drydock-terminal-triggered) read-through-on-miss, same shape every
+// other central sync this session uses, keyed by global_ship_id
+// (V154__drydock_global_ship_id.sql) instead of the bare per-server
+// shuttle_id, which has no cross-server meaning at all.
+//
+// No presence-lock-equivalent concern here the way faction treasury had:
+// nothing on this table is a routinely-concurrently-mutated numeric
+// balance -- ownership/name/repossession changes are each a deliberate,
+// one-at-a-time action taken by whoever currently has the ship's
+// schematic in hand or console access, not routine simultaneous
+// multi-party activity. Plain last-write-wins upserts are the right fit,
+// same reasoning as faction metadata.
+
+/// Shared gate, same shape as every other _*CentralSyncActive() this
+/// session.
+/proc/_shipCentralSyncActive()
+	if(!GLOB.config.central_sql_enabled || !GLOB.config.central_sync_ships)
+		return FALSE
+	return SSpersistence.centralDatabaseReachable()
+
+/// Central write-through for core ss13_drydock_ships columns -- a plain
+/// UPDATE (not upsert) for everything except the initial creation, which
+/// goes through _shipCentralCreateWriteThrough() instead (an UPDATE has
+/// nothing to apply against before the row exists). `columns`/`values` are
+/// parallel lists.
+/proc/_shipCentralPartialUpdate(global_ship_id, list/set_columns, list/set_values)
+	if(!global_ship_id || !_shipCentralSyncActive())
+		return
+	var/list/set_clauses = list()
+	var/list/params = list("gsid" = global_ship_id)
+	for(var/i in 1 to length(set_columns))
+		var/col = set_columns[i]
+		set_clauses += "`[col]` = :[col]"
+		params[col] = set_values[i]
+	var/datum/db_query/q = SScentraldb.NewQuery(
+		"UPDATE `ss13_drydock_ships` SET [jointext(set_clauses, ", ")] WHERE global_ship_id = :gsid",
+		params
+	)
+	q.Execute()
+	qdel(q)
+
+/// Deletes a ship's central row -- called from drydockSell()/drydockScuttle(),
+/// alongside their existing local DELETE, when a ship is permanently
+/// destroyed/sold. Without this, a scuttled ship would stay
+/// hydrate-able from another server that had never seen it yet.
+/proc/_shipCentralDelete(global_ship_id)
+	if(!global_ship_id || !_shipCentralSyncActive())
+		return
+	var/datum/db_query/q = SScentraldb.NewQuery(
+		"DELETE FROM `ss13_drydock_ships` WHERE global_ship_id = :gsid",
+		list("gsid" = global_ship_id)
+	)
+	q.Execute()
+	qdel(q)
+
+/// Writes a just-bought ship's full core row centrally -- called from
+/// drydockBuy() once global_ship_id is known. Non-fatal on failure, same
+/// reasoning as every other write-through this session.
+/proc/_shipCentralCreateWriteThrough(datum/drydock_ship/DS)
+	if(!DS.global_ship_id || !_shipCentralSyncActive())
+		return
+	var/datum/db_query/q = SScentraldb.NewQuery(
+		{"INSERT INTO `ss13_drydock_ships`
+		(global_ship_id, origin_server_id, template_id, owner_ckey, owner_char_name, owner_account_number, faction_uid,
+		stashed, custom_name, custom_class, title_ckey, title_char_name, title_faction_uid, purchased_at)
+		VALUES (:gsid, :origin, :tid, :ckey, :cname, :acct, :faction, :stashed, :custom_name, :custom_class, :t_ckey, :t_cname, :t_faction, :purchased)
+		ON DUPLICATE KEY UPDATE template_id = VALUES(template_id)"},
+		list(
+			"gsid" = DS.global_ship_id, "origin" = GLOB.config.central_server_id, "tid" = DS.template_id,
+			"ckey" = DS.owner_ckey, "cname" = DS.owner_char_name, "acct" = DS.owner_account_number, "faction" = DS.faction_uid,
+			"stashed" = DS.stashed ? 1 : 0, "custom_name" = DS.custom_name, "custom_class" = DS.custom_class,
+			"t_ckey" = DS.title_ckey, "t_cname" = DS.title_char_name, "t_faction" = DS.title_faction_uid,
+			"purchased" = DS.purchased_at
+		)
+	)
+	q.Execute()
+	qdel(q)
+
+/// Read-through-on-miss: SELECTs every ship centrally owned by
+/// (ckey, char_name) that ISN'T already in GLOB.drydock_ships (this
+/// server has never seen it), hydrating each into a live
+/// /datum/drydock_ship AND self-healing it into this server's own local
+/// ss13_drydock_ships table -- same pattern as every other central
+/// read-through this session. Called from the drydock terminal's own
+/// ship-listing (drydock.dm) right before it builds "your ships", so a
+/// ship bought on another server just shows up here once its owner opens
+/// a drydock terminal on this one.
+/proc/_shipHydrateOwnedFromCentral(ckey, char_name)
+	if(!ckey || !char_name || !_shipCentralSyncActive())
+		return
+
+	var/datum/db_query/q = SScentraldb.NewQuery(
+		{"SELECT global_ship_id, template_id, owner_account_number, faction_uid, repossessed, prev_owner_ckey,
+		prev_owner_char_name, prev_faction_uid, stashed, custom_name, custom_class, title_ckey, title_char_name,
+		title_faction_uid, reported_stolen, purchased_at
+		FROM `ss13_drydock_ships` WHERE owner_ckey = :ckey AND owner_char_name = :char_name"},
+		list("ckey" = ckey, "char_name" = char_name)
+	)
+	q.Execute()
+
+	var/list/rows = list()
+	while(q.NextRow())
+		rows += list(q.item.Copy())
+	qdel(q)
+
+	for(var/list/row in rows)
+		var/global_ship_id = row[1]
+		var/already_known = FALSE
+		for(var/sid in GLOB.drydock_ships)
+			var/datum/drydock_ship/existing = GLOB.drydock_ships[sid]
+			if(existing && existing.global_ship_id == global_ship_id)
+				already_known = TRUE
+				break
+		if(already_known)
+			continue
+
+		if(!GLOB.config.sql_enabled || !SSdbcore.Connect())
+			return // can't allocate a local shuttle_id without a local DB
+
+		var/datum/db_query/lins = SSdbcore.NewQuery(
+			{"INSERT INTO ss13_drydock_ships
+			(template_id, owner_ckey, owner_char_name, owner_account_number, faction_uid, repossessed, prev_owner_ckey,
+			prev_owner_char_name, prev_faction_uid, stashed, custom_name, custom_class, title_ckey, title_char_name,
+			title_faction_uid, reported_stolen, purchased_at, global_ship_id)
+			VALUES (:tid, :ckey, :cname, :acct, :faction, :repo, :p_ckey, :p_cname, :p_faction, :stashed, :cust_name,
+			:cust_class, :t_ckey, :t_cname, :t_faction, :stolen, :purchased, :gsid)"},
+			list(
+				"tid" = row[2], "ckey" = ckey, "cname" = char_name, "acct" = text2num(row[3]), "faction" = row[4],
+				"repo" = text2num(row[5]), "p_ckey" = row[6], "p_cname" = row[7], "p_faction" = row[8],
+				"stashed" = text2num(row[9]), "cust_name" = row[10], "cust_class" = row[11], "t_ckey" = row[12],
+				"t_cname" = row[13], "t_faction" = row[14], "stolen" = text2num(row[15]), "purchased" = row[16],
+				"gsid" = global_ship_id
+			)
+		)
+		lins.Execute()
+		var/new_local_id = text2num(lins.last_insert_id)
+		qdel(lins)
+		if(!new_local_id)
+			continue
+
+		var/datum/drydock_ship/DS = new()
+		DS.shuttle_id = new_local_id
+		DS.global_ship_id = global_ship_id
+		DS.template_id = row[2]
+		DS.owner_ckey = ckey
+		DS.owner_char_name = char_name
+		DS.owner_account_number = text2num(row[3])
+		DS.faction_uid = row[4]
+		DS.repossessed = !!text2num(row[5])
+		DS.prev_owner_ckey = row[6]
+		DS.prev_owner_char_name = row[7]
+		DS.prev_faction_uid = row[8]
+		DS.stashed = !!text2num(row[9])
+		DS.custom_name = row[10]
+		DS.custom_class = row[11]
+		DS.title_ckey = row[12]
+		DS.title_char_name = row[13]
+		DS.title_faction_uid = row[14]
+		DS.reported_stolen = !!text2num(row[15])
+		DS.purchased_at = row[16]
+		GLOB.drydock_ships["[new_local_id]"] = DS
+
 /// TRUE once the periodic access re-sweep (below) has been armed -- lazily
 /// started from the first drydock retrieve rather than wiring into
 /// SSpersistence's own (30-minute-cadence, far too slow for this) Initialize().
@@ -96,7 +265,7 @@ GLOBAL_VAR_INIT(drydock_periodic_sweep_started, FALSE)
 		var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
 		if(!istype(marker) || !marker.landmark)
 			continue
-		var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
+		var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = _drydock_shuttle_of(marker)
 		// _drydock_ship_is_home(), NOT a comparison against marker.landmark. A
 		// ship parked on its own z at a landmark that simply isn't the home one
 		// (its own landmark_transition, most often) was being flagged as
@@ -130,7 +299,7 @@ GLOBAL_VAR_INIT(drydock_periodic_sweep_started, FALSE)
 		var/datum/map_template/drydock_ship/sub_template = SSmapping.drydock_ship_templates[DS.template_id]
 		if(sub_template && length(sub_template.sub_shuttle_tags))
 			for(var/sub_tag in sub_template.sub_shuttle_tags)
-				var/datum/shuttle/autodock/sub = SSshuttle.shuttles[sub_tag]
+				var/datum/shuttle/autodock/sub = SSshuttle.shuttles[_drydock_subship_key(DS.shuttle_id, sub_tag)]
 				if(!istype(sub) || !istype(sub.current_location))
 					continue
 				if(sub.current_location.landmark_tag == sub.logging_home_tag)
@@ -160,6 +329,48 @@ GLOBAL_VAR_INIT(drydock_op_active, FALSE)
 /// is mid-retrieve/stash somewhere else.
 GLOBAL_VAR_INIT(drydock_op_active_shuttle_id, null)
 
+/// Per-instance uniqueness suffix (e.g. "#42") applied to every shuttle datum
+/// name and landable marker created during a drydock template load, so more
+/// than one hull of the same class can be deployed at once.
+///
+/// Shuttle datum names and the home landmark tags derived from them
+/// (/obj/effect/shuttle_landmark/ship/Initialize() builds "ship_[shuttle_name]")
+/// are otherwise per-TEMPLATE: a second instance made /datum/shuttle/New()
+/// hard-CRASH on the duplicate name, and made register_landmark() silently
+/// skip the second ship's landmark so it believed it was parked where the
+/// first one was. Naming has to be unique BEFORE the load builds any of that,
+/// which is why this is a load-scoped global rather than the post-load rename
+/// that drydockRetrieve() already does.
+///
+/// Set immediately before template.load_new_z()/load_into_z() and cleared
+/// immediately after -- that whole call is synchronous through init_atoms()
+/// and init_shuttles(), so the window never spans a yield.
+GLOBAL_VAR_INIT(drydock_loading_suffix, null)
+
+/// Area instances created for the drydock load currently in flight, keyed by
+/// area type. Populated by the maploader (reader.dm) and consumed by
+/// /datum/shuttle/New() (shuttle.dm); cleared with the suffix above.
+///
+/// BYOND areas are singletons keyed by type (GLOB.areas_by_type), so two hulls
+/// of the same class would otherwise share one set of area objects -- and
+/// everything area-scoped (ownership checks, APC/power, atmos alarms) would
+/// treat both as a single ship. Giving each drydock load its own area
+/// instances is what makes same-class deployment actually independent rather
+/// than merely non-crashing. Safe to clone: /area/New() (areas.dm) only
+/// records the FIRST instance of a type as canonical, so extra instances never
+/// displace it.
+GLOBAL_LIST_EMPTY(drydock_loading_areas)
+
+/// Appends GLOB.drydock_loading_suffix to a name when a drydock load is in
+/// flight, skipping names that already carry it (a retrieve of an already
+/// suffixed hull, or the post-load rename running over the top).
+/proc/drydock_apply_instance_suffix(base_name)
+	if(!GLOB.drydock_loading_suffix || !base_name)
+		return base_name
+	if(findtext(base_name, GLOB.drydock_loading_suffix))
+		return base_name
+	return "[base_name] [GLOB.drydock_loading_suffix]"
+
 /// Pending retrieve/stash requests that arrived while drydock_op_active was
 /// TRUE, each an assoc list of the args needed to re-invoke the matching
 /// public proc. Drained one at a time by _drydockProcessNextQueued().
@@ -181,6 +392,12 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 /datum/drydock_ship
 	var/shuttle_id
+	/// Cross-server identity for CENTRAL_SYNC_SHIPS -- "[CENTRAL_SERVER_ID]:[shuttle_id]",
+	/// set once at purchase (drydockBuy()) since shuttle_id alone is a bare
+	/// per-server AUTO_INCREMENT with no cross-server meaning. Null for any
+	/// ship bought before this existed (not backfilled) or on a server that's
+	/// never had CENTRAL_SERVER_ID set.
+	var/global_ship_id
 	var/template_id
 	var/owner_ckey
 	/// Paired with owner_ckey -- ownership belongs to a CHARACTER (real_name),
@@ -315,6 +532,27 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return user_faction == title_faction_uid
 	return title_ckey && user.ckey == title_ckey && user.real_name == title_char_name
 
+/// Who may sign this ship's title over to someone else.
+///
+/// Deliberately stricter than is_title_holder() for FACTION-titled ships:
+/// that check is plain membership, which is right for "is this your ship"
+/// questions (stolen-flag clearing, examining) but would let any rank-0
+/// civilian member give away faction property. Signing over a faction ship
+/// requires officer (rank 1) or command (rank 2) --
+/// can_configure_faction_shackle()'s standard "officer or better" idiom, which
+/// also covers a faction master card holder.
+///
+/// Personally-titled ships are unchanged: only their own title holder.
+/// Admins always.
+/datum/drydock_ship/proc/can_transfer_title(mob/user)
+	if(check_rights(R_ADMIN, 0, user))
+		return TRUE
+	if(!user)
+		return FALSE
+	if(title_faction_uid)
+		return can_configure_faction_shackle(user, title_faction_uid, 1)
+	return is_title_holder(user)
+
 /// Shown everywhere a ship's own name appears (overmap marker, admin logs,
 /// chat messages, the Drydock program's own list, the schematic item's own
 /// name) -- custom_name if set, else the template's own default name, with
@@ -425,7 +663,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return null
 	if(marker.status != SHIP_STATUS_LANDED)
 		return marker
-	var/datum/shuttle/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
+	var/datum/shuttle/shuttle_datum = _drydock_shuttle_of(marker)
 	if(!istype(shuttle_datum) || !shuttle_datum.current_location)
 		return marker
 	var/turf/T = get_turf(shuttle_datum.current_location)
@@ -558,7 +796,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return
 
 	var/datum/db_query/q = SSdbcore.NewQuery(
-		"SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed, z, overmap_x, overmap_y, custom_name, custom_class, repossessed, prev_owner_ckey, prev_owner_char_name, prev_faction_uid, owner_account_number, purchased_at, schematic_banked, renamed_at, title_ckey, title_char_name, title_faction_uid, reported_stolen FROM ss13_drydock_ships",
+		"SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed, z, overmap_x, overmap_y, custom_name, custom_class, repossessed, prev_owner_ckey, prev_owner_char_name, prev_faction_uid, owner_account_number, purchased_at, schematic_banked, renamed_at, title_ckey, title_char_name, title_faction_uid, reported_stolen, global_ship_id FROM ss13_drydock_ships",
 		list()
 	)
 	q.Execute()
@@ -590,6 +828,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		DS.title_char_name = q.item[21]
 		DS.title_faction_uid = q.item[22]
 		DS.reported_stolen = !!text2num(q.item[23])
+		DS.global_ship_id = q.item[24]
 
 		if(!DS.stashed)
 			log_drydock("drydockShipLedgerRestore: shuttle_id=[DS.shuttle_id] ('[DS.template_id]') was still stashed=0 at boot -- graceful shutdown's auto-stash sweep didn't run (crash/hard kill). Forcing back to stashed; interior recovers from the last autosave.")
@@ -804,6 +1043,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 	DS.custom_name = (new_name != "" ? new_name : null)
 	DS.custom_class = (new_class != "" ? new_class : null)
+	_shipCentralPartialUpdate(DS.global_ship_id, list("custom_name", "custom_class"), list(DS.custom_name, DS.custom_class))
 
 	var/datum/db_query/rq = SSdbcore.NewQuery("SELECT renamed_at FROM ss13_drydock_ships WHERE shuttle_id = :id", list("id" = shuttle_id))
 	rq.Execute()
@@ -858,6 +1098,9 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	DS.owner_char_name = null
 	DS.faction_uid = "hub"
 	DS.repossessed = TRUE
+	_shipCentralPartialUpdate(DS.global_ship_id,
+		list("repossessed", "prev_owner_ckey", "prev_owner_char_name", "prev_faction_uid", "owner_ckey", "owner_char_name", "faction_uid"),
+		list(1, DS.prev_owner_ckey, DS.prev_owner_char_name, DS.prev_faction_uid, null, null, "hub"))
 	// Forced into the bank alongside the seizure -- whatever schematic is out
 	// there (found below, wherever it physically is) gets killed permanently,
 	// and there's deliberately no personal replacement minted for the seizing
@@ -911,6 +1154,9 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	DS.prev_owner_ckey = null
 	DS.prev_owner_char_name = null
 	DS.prev_faction_uid = null
+	_shipCentralPartialUpdate(DS.global_ship_id,
+		list("repossessed", "owner_ckey", "owner_char_name", "faction_uid", "prev_owner_ckey", "prev_owner_char_name", "prev_faction_uid"),
+		list(0, DS.owner_ckey, DS.owner_char_name, DS.faction_uid, null, null, null))
 
 	log_and_message_admins("returned drydock ship #[shuttle_id] ('[DS.display_name()]') to its original owner.", user)
 	log_drydock("drydockReturnToOwner: [acting] returned shuttle_id=[shuttle_id] to its original owner.")
@@ -959,6 +1205,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		oq.Execute()
 		databaseCheckQueryResult(oq, "drydockBankSchematic ownership transfer")
 		qdel(oq)
+		_shipCentralPartialUpdate(DS.global_ship_id, list("owner_ckey", "owner_char_name", "faction_uid"), list(user.ckey, user.real_name, null))
 		log_drydock("drydockBankSchematic: [key_name(user)] (not the title-holder) banked shuttle_id=[shuttle_id] -- current ownership transferred to them.")
 
 	_drydockFlagIfStolen(DS, user)
@@ -983,6 +1230,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return
 	qdel(q)
 	DS.reported_stolen = TRUE
+	_shipCentralPartialUpdate(DS.global_ship_id, list("reported_stolen"), list(1))
 	_drydockRefreshDisplayedName(DS)
 	log_drydock("_drydockFlagIfStolen: [key_name(user)] (not the title-holder) flagged shuttle_id=[DS.shuttle_id] as stolen.")
 
@@ -1002,52 +1250,80 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return
 	qdel(q)
 	DS.reported_stolen = FALSE
+	_shipCentralPartialUpdate(DS.global_ship_id, list("reported_stolen"), list(0))
 	_drydockRefreshDisplayedName(DS)
 	log_drydock("drydockClearStolenFlag: shuttle_id=[shuttle_id] is back with its title-holder -- stolen flag cleared.")
 
 /// Lets shuttle_id's CURRENT owner (not necessarily its permanent
 /// title-holder -- see the gate below) formally sign the ship's title over
-/// to someone else -- console-only (requires the ship already banked), the
-/// deliberate "sign over the title" counterpart to just physically handing
-/// someone the schematic (which, per is_title_holder(), never moves title on
-/// its own). Personal-target only. Refuses outright while reported_stolen --
+/// to someone else -- driven from the schematic's own UI, the deliberate
+/// "sign over the title" counterpart to just physically handing someone the
+/// schematic (which, per is_title_holder(), never moves title on its own).
+/// The recipient may be a single character (target_ckey/target_char_name) or
+/// a whole faction (target_faction_uid); ownership follows title either way.
+/// Refuses outright while reported_stolen --
 /// handing off a stolen ship is still handing off a stolen ship, so this can
 /// never be used to launder one; it only ever succeeds on a ship that was
 /// never stolen (or already recovered by its title-holder, clearing the
 /// flag), never as a shortcut around that.
-/datum/controller/subsystem/persistence/proc/drydockGiveSchematic(shuttle_id, target_ckey, target_char_name, mob/user)
+/datum/controller/subsystem/persistence/proc/drydockGiveSchematic(shuttle_id, target_ckey, target_char_name, mob/user, target_faction_uid = null)
 	var/acting = user ? key_name(user) : "SYSTEM"
 	var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
-	if(!DS || !DS.schematic_banked || DS.repossessed)
+	// schematic_banked is deliberately NOT required any more: this is now
+	// driven from the physical schematic's own UI (ship_schematic.dm), so the
+	// schematic is in the holder's hand rather than banked in a console.
+	if(!DS || DS.repossessed)
 		return FALSE
-	// Gated on the CURRENT owner identity, same as drydockWithdrawSchematic()'s
-	// caller-side check -- NOT the permanent title. Whoever the system
-	// currently recognizes as owner controls this ship's fate, including a
-	// thief who successfully banked a stolen ship (drydockBankSchematic()
-	// already reassigned current ownership to them). The title-holder alone,
-	// having lost current ownership, has no say here anymore.
-	if(!(check_rights(R_ADMIN, 0, user) || (DS.owner_ckey == user.ckey && DS.owner_char_name == user.real_name) || (DS.faction_uid && can_configure_faction_shackle(user, DS.faction_uid, 1))))
+	// Gated on the PERMANENT title holder, not current ownership. The old
+	// console action let whoever currently owned the hull sign the title over,
+	// which meant a thief who banked a stolen ship could launder its
+	// provenance. is_title_holder() covers both the personally-titled and
+	// faction-titled cases.
+	if(!DS.can_transfer_title(user))
 		if(user)
-			to_chat(user, SPAN_WARNING("You don't have permission to give away this ship's title."))
-		log_drydock_warning("drydockGiveSchematic: refused -- [acting] isn't the current owner of shuttle_id=[shuttle_id].")
+			to_chat(user, DS.title_faction_uid \
+				? SPAN_WARNING("Only an officer or command member of [get_faction_name(DS.title_faction_uid)] can sign this ship's title over.") \
+				: SPAN_WARNING("Only this ship's title holder can sign its title over."))
+		log_drydock_warning("drydockGiveSchematic: refused -- [acting] may not transfer the title of shuttle_id=[shuttle_id].")
 		return FALSE
 	if(DS.reported_stolen && !check_rights(R_ADMIN, 0, user))
 		if(user)
 			to_chat(user, SPAN_WARNING("This ship is reported stolen -- its title can't be legitimately transferred until it's back with its rightful owner."))
 		log_drydock_warning("drydockGiveSchematic: refused -- shuttle_id=[shuttle_id] is reported_stolen (acting=[acting]).")
 		return FALSE
-	target_ckey = ckey(target_ckey)
-	if(!target_ckey || !target_char_name)
-		return FALSE
+	// Two mutually exclusive targets. target_faction_uid signs the ship over to
+	// a faction as a whole (title AND current ownership both become the
+	// faction's, and the personal identity columns are cleared); otherwise the
+	// ckey/char_name pair names one character. Ownership follows title in both
+	// cases -- a transfer hands over the ship, not just its provenance.
+	var/datum/db_query/q
+	if(target_faction_uid)
+		target_faction_uid = normalize_faction_uid(target_faction_uid)
+		if(!target_faction_uid || !(target_faction_uid in GLOB.persistence_faction_cache))
+			if(user)
+				to_chat(user, SPAN_WARNING("That faction doesn't exist."))
+			return FALSE
+		if(!databaseCheckConnection("drydockGiveSchematic"))
+			if(user)
+				to_chat(user, SPAN_WARNING("Database connection failed."))
+			return FALSE
+		q = SSdbcore.NewQuery(
+			"UPDATE ss13_drydock_ships SET title_ckey = NULL, title_char_name = NULL, title_faction_uid = :fid, owner_ckey = NULL, owner_char_name = NULL, faction_uid = :fid, reported_stolen = 0 WHERE shuttle_id = :id",
+			list("fid" = target_faction_uid, "id" = shuttle_id)
+		)
+	else
+		target_ckey = ckey(target_ckey)
+		if(!target_ckey || !target_char_name)
+			return FALSE
+		if(!databaseCheckConnection("drydockGiveSchematic"))
+			if(user)
+				to_chat(user, SPAN_WARNING("Database connection failed."))
+			return FALSE
+		q = SSdbcore.NewQuery(
+			"UPDATE ss13_drydock_ships SET title_ckey = :ck, title_char_name = :cn, title_faction_uid = NULL, owner_ckey = :ck, owner_char_name = :cn, faction_uid = NULL, reported_stolen = 0 WHERE shuttle_id = :id",
+			list("ck" = target_ckey, "cn" = target_char_name, "id" = shuttle_id)
+		)
 
-	if(!databaseCheckConnection("drydockGiveSchematic"))
-		if(user)
-			to_chat(user, SPAN_WARNING("Database connection failed."))
-		return FALSE
-	var/datum/db_query/q = SSdbcore.NewQuery(
-		"UPDATE ss13_drydock_ships SET title_ckey = :ck, title_char_name = :cn, title_faction_uid = NULL, owner_ckey = :ck, owner_char_name = :cn, faction_uid = NULL, reported_stolen = 0 WHERE shuttle_id = :id",
-		list("ck" = target_ckey, "cn" = target_char_name, "id" = shuttle_id)
-	)
 	q.Execute()
 	if(!databaseCheckQueryResult(q, "drydockGiveSchematic update"))
 		qdel(q)
@@ -1056,17 +1332,45 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return FALSE
 	qdel(q)
 
-	DS.title_ckey = target_ckey
-	DS.title_char_name = target_char_name
-	DS.title_faction_uid = null
-	DS.owner_ckey = target_ckey
-	DS.owner_char_name = target_char_name
-	DS.faction_uid = null
+	if(target_faction_uid)
+		DS.title_ckey = null
+		DS.title_char_name = null
+		DS.title_faction_uid = target_faction_uid
+		DS.owner_ckey = null
+		DS.owner_char_name = null
+		DS.faction_uid = target_faction_uid
+	else
+		DS.title_ckey = target_ckey
+		DS.title_char_name = target_char_name
+		DS.title_faction_uid = null
+		DS.owner_ckey = target_ckey
+		DS.owner_char_name = target_char_name
+		DS.faction_uid = null
 	DS.reported_stolen = FALSE
+	_shipCentralPartialUpdate(DS.global_ship_id,
+		list("title_ckey", "title_char_name", "title_faction_uid", "owner_ckey", "owner_char_name", "faction_uid", "reported_stolen"),
+		list(DS.title_ckey, DS.title_char_name, DS.title_faction_uid, DS.owner_ckey, DS.owner_char_name, DS.faction_uid, 0))
 
+	// Wipe the crew roster along with the title. Boarding rights resolve as
+	// owned_by() OR faction match OR membership of crew_ckeys
+	// (_drydock_full_access_check(), telepad_drydock_boarding.dm) -- so
+	// reassigning ownership alone left the PREVIOUS owner and everyone they
+	// had added still able to board, and still hearing that ship's boarding
+	// audio. The new title holder starts with a clean roster and re-adds whom
+	// they want via the schematic's own Add Crew.
+	var/datum/db_query/crew_wipe = SSdbcore.NewQuery(
+		"DELETE FROM ss13_ship_crew WHERE shuttle_id = :id",
+		list("id" = shuttle_id)
+	)
+	crew_wipe.Execute()
+	databaseCheckQueryResult(crew_wipe, "drydockGiveSchematic crew wipe")
+	qdel(crew_wipe)
+	DS.crew_ckeys = list()
+
+	var/recipient_desc = target_faction_uid ? "[get_faction_name(target_faction_uid)] (faction)" : "'[target_char_name]' ([target_ckey])"
 	if(user)
-		to_chat(user, SPAN_GOOD("Title for [DS.display_name()] transferred to '[target_char_name]'."))
-	log_drydock("drydockGiveSchematic: [acting] transferred title for shuttle_id=[shuttle_id] to '[target_char_name]' ([target_ckey]).")
+		to_chat(user, SPAN_GOOD("Title for [DS.display_name()] transferred to [recipient_desc]. Its crew roster has been cleared."))
+	log_drydock("drydockGiveSchematic: [acting] transferred title for shuttle_id=[shuttle_id] to [recipient_desc].")
 	return TRUE
 
 /// Reverses drydockBankSchematic() -- mints a fresh /obj/item/ship_schematic
@@ -1141,60 +1445,156 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		if(!DS || DS.stashed)
 			continue
 		var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
-		if(template && (shuttle_name in template.sub_shuttle_tags))
-			return DS.faction_uid
+		if(!template)
+			continue
+		// Compared against the per-instance registry key, not the bare tag.
+		// sub_shuttle_tags holds "Xanu Fighter" while the live shuttle is
+		// named "Xanu Fighter #18" (drydock_apply_instance_suffix()), so the
+		// old `shuttle_name in template.sub_shuttle_tags` never matched and
+		// every sub-ship resolved as factionless -- which then got it refused
+		// from docking in its own faction's claimed territory.
+		for(var/sub_tag in template.sub_shuttle_tags)
+			if(shuttle_name == _drydock_subship_key(DS.shuttle_id, sub_tag))
+				return DS.faction_uid
 	return null
+
+/// SSshuttle.shuttles[] looked up by a marker's own .shuttle, guarded against
+/// that var being unset. Indexing a list with null is a "bad index" runtime in
+/// BYOND, and a landable overmap marker with no shuttle datum assigned is an
+/// ordinary thing to encounter -- especially while walking another ship's
+/// nested contents during a stash, which is where this kept killing the whole
+/// operation. "No shuttle" is the correct answer, not a crash.
+/proc/_drydock_shuttle_of(obj/effect/overmap/visitable/ship/landable/marker)
+	if(!istype(marker) || isnull(marker.shuttle))
+		return null
+	return SSshuttle.shuttles[marker.shuttle]
+
+/// A deployed sub-ship's real SSshuttle.shuttles key. sub_shuttle_tags holds
+/// the bare template tag ("Solarian Frigate Shuttle"), but a sub-ship's
+/// shuttle datum registers under a per-instance suffixed name
+/// (drydock_apply_instance_suffix(), applied in /datum/shuttle/New() BEFORE
+/// SSshuttle.shuttles[src.name] = src) -- so the bare tag is never the key,
+/// and every lookup through it silently returned null.
+/proc/_drydock_subship_key(shuttle_id, shuttle_tag)
+	return "[shuttle_tag] #[shuttle_id]"
+
+/// The overmap marker for a deployed sub-ship, or null. Markers carry the
+/// registry key in .shuttle, so this matches on the real key above.
+/proc/_drydock_subship_marker(shuttle_id, shuttle_tag)
+	var/key = _drydock_subship_key(shuttle_id, shuttle_tag)
+	for(var/obj/effect/overmap/visitable/ship/landable/sub_marker in SSshuttle.ships)
+		if(sub_marker.shuttle == key)
+			return sub_marker
+	return null
+
+/// TRUE if this nested marker's home hangar is aboard `marker` itself -- i.e.
+/// it is one of my own sub-ships parked at home, not a foreign guest.
+///
+/// on_landing() (landable.dm) forceMove()s a landing ship's marker into the
+/// marker of whatever z it touched down on, so a sub-ship sitting in its own
+/// hangar is ALWAYS nested in its parent's contents -- that's its normal
+/// parked state, not a docked visitor.
+///
+/// Keyed on logging_home_tag rather than name: a sub-ship's identity is
+/// matched elsewhere in this file by its CURRENT name against the template's
+/// fixed sub_shuttle_tags (see _drydock_sub_shuttle_owner_faction() above),
+/// but drydockRenameSubship() changes that name while sub_shuttle_tags keeps
+/// the original tag -- so a renamed sub-ship stopped matching and started
+/// reading as a foreign ship docked aboard its own carrier, which blocked the
+/// carrier from ever stashing. logging_home_tag is assigned at shuttle
+/// creation and no rename path touches it.
+/proc/_drydock_guest_is_own_subship(obj/effect/overmap/visitable/ship/landable/guest, obj/effect/overmap/visitable/ship/landable/marker)
+	if(!istype(guest) || !istype(marker))
+		return FALSE
+	// guest.shuttle must be checked BEFORE it is used as a list index.
+	// Indexing a list with null is a "bad index" runtime in BYOND, and a
+	// landable overmap marker with no shuttle datum assigned is a perfectly
+	// ordinary thing to find nested in another ship's contents -- which made
+	// stashing any hull with such a marker aboard die with
+	// "drydockStash: uncaught exception ... bad index".
+	if(!guest.shuttle)
+		return FALSE
+	var/datum/shuttle/guest_shuttle = SSshuttle.shuttles[guest.shuttle]
+	if(!istype(guest_shuttle) || !guest_shuttle.logging_home_tag)
+		return FALSE
+	var/obj/effect/shuttle_landmark/guest_home = SSshuttle.get_landmark(guest_shuttle.logging_home_tag)
+	if(!guest_home)
+		return FALSE
+	return (guest_home.z in marker.map_z)
 
 /// Restricted rather than generic: only this sub-ship may dock in its own
 /// parent's hangar. Keyed by the shuttle's CURRENT name, because that's what
 /// get_waypoints(name) matches on -- see drydockRenameSubship(), which has to
 /// re-key when that name changes.
-/proc/_drydock_register_subship_waypoints(obj/effect/overmap/visitable/marker, datum/map_template/drydock_ship/template)
+/proc/_drydock_register_subship_waypoints(obj/effect/overmap/visitable/marker, datum/map_template/drydock_ship/template, shuttle_id)
 	if(!istype(marker) || !template || !length(template.sub_shuttle_tags))
 		return
 	for(var/sub_tag in template.sub_shuttle_tags)
-		var/datum/shuttle/sub = SSshuttle.shuttles[sub_tag]
-		if(!istype(sub) || !sub.logging_home_tag)
-			continue
-		var/obj/effect/shuttle_landmark/home = SSshuttle.get_landmark(sub.logging_home_tag)
-		if(!home)
-			// Expected for hulls whose map simply has no hangar landmark (the
-			// Idris Cruiser only maps port/starboard berths), and for a tag
-			// dropped by SSshuttle's duplicate guard when the matching away
-			// site spawned the same round and claimed it first.
-			log_drydock_warning("_drydock_register_subship_waypoints: no home landmark '[sub.logging_home_tag]' for sub-ship '[sub_tag]' -- it will not be able to return to its hangar.")
-			continue
-		if(home in LAZYACCESS(marker.restricted_waypoints, sub.name))
-			continue // already registered (re-deploy)
-		marker.add_landmark(home, sub.name)
+		// One tag's work is its own proc so the whole thing can sit inside a
+		// try/catch cleanly (a `continue` inside a try block is exactly the
+		// kind of control flow to avoid here). This body never actually
+		// executed while the lookup resolved null, so any latent runtime in
+		// it must degrade to a logged error rather than aborting the caller's
+		// entire retrieve -- see reverted commit bd131aaa.
+		try
+			_drydock_register_one_subship_waypoint(marker, shuttle_id, sub_tag)
+		catch(var/exception/wp_e)
+			log_drydock_error("_drydock_register_subship_waypoints: failed for sub-ship '[sub_tag]' (shuttle_id=[shuttle_id]): [wp_e]")
 
-		// Also expose this same hangar slot publicly -- a
-		// size-gated proxy at the same turf, discoverable by any
-		// appropriately sized outside ship's own navigation console, valid
-		// only while sub isn't physically parked here right now
-		// (hangar_slot/is_valid(), docking_beacon.dm). The real home
-		// landmark above is untouched -- still restricted to sub's own name
-		// for its "return to hangar" waypoint.
-		var/public_tag = "[home.landmark_tag]_public"
-		if(!SSshuttle.registered_shuttle_landmarks[public_tag])
-			var/obj/effect/shuttle_landmark/player_dock/hangar_slot/slot = new(get_turf(home))
-			slot.landmark_tag = public_tag
-			slot.name = "[sub.name] Hangar Slot"
-			slot.base_area = home.base_area
-			slot.base_turf = home.base_turf
-			slot.max_footprint_x = SUBSHIP_FOOTPRINT_X
-			slot.max_footprint_y = SUBSHIP_FOOTPRINT_Y
-			slot.bound_sub_shuttle = sub
-			slot.real_home = home
-			marker.add_landmark(slot, null)
+/// One sub-ship's hangar registration -- see the caller above for why this is
+/// split out.
+/proc/_drydock_register_one_subship_waypoint(obj/effect/overmap/visitable/marker, shuttle_id, sub_tag)
+	var/datum/shuttle/sub = SSshuttle.shuttles[_drydock_subship_key(shuttle_id, sub_tag)]
+	if(!istype(sub) || !sub.logging_home_tag)
+		return
+	var/obj/effect/shuttle_landmark/home = SSshuttle.get_landmark(sub.logging_home_tag)
+	if(!home)
+		// Expected for hulls whose map simply has no hangar landmark (the
+		// Idris Cruiser only maps port/starboard berths), and for a tag
+		// dropped by SSshuttle's duplicate guard when the matching away
+		// site spawned the same round and claimed it first.
+		log_drydock_warning("_drydock_register_subship_waypoints: no home landmark '[sub.logging_home_tag]' for sub-ship '[sub_tag]' -- it will not be able to return to its hangar.")
+		return
+	if(home in LAZYACCESS(marker.restricted_waypoints, sub.name))
+		return // already registered (re-deploy)
+	marker.add_landmark(home, sub.name)
+
+	// Also expose this same hangar slot publicly -- a
+	// size-gated proxy at the same turf, discoverable by any
+	// appropriately sized outside ship's own navigation console, valid
+	// only while sub isn't physically parked here right now
+	// (hangar_slot/is_valid(), docking_beacon.dm). The real home
+	// landmark above is untouched -- still restricted to sub's own name
+	// for its "return to hangar" waypoint.
+	var/public_tag = "[home.landmark_tag]_public"
+	if(!SSshuttle.registered_shuttle_landmarks[public_tag])
+		var/obj/effect/shuttle_landmark/player_dock/hangar_slot/slot = new(get_turf(home))
+		slot.landmark_tag = public_tag
+		slot.name = "[sub.name] Hangar Slot"
+		slot.base_area = home.base_area
+		slot.base_turf = home.base_turf
+		slot.max_footprint_x = SUBSHIP_FOOTPRINT_X
+		slot.max_footprint_y = SUBSHIP_FOOTPRINT_Y
+		slot.bound_sub_shuttle = sub
+		slot.real_home = home
+		// Registered explicitly, because /obj/effect/shuttle_landmark/Initialize()
+		// (landmarks.dm) already ran its own register_landmark() during the
+		// new() above -- while landmark_tag was still null, since it's only
+		// assigned on the line after. Without this the tag never enters
+		// registered_shuttle_landmarks at all, so the dedup guard just above
+		// passes on every single retrieve (leaking another duplicate slot each
+		// time) and _drydock_unregister_subship_waypoints() below can never
+		// find this slot to clean it up.
+		SSshuttle.register_landmark(public_tag, slot)
+		marker.add_landmark(slot, null)
 
 /// Drops those registrations again, so a stashed ship's hangar stops being
 /// offered as a destination to anything still flying.
-/proc/_drydock_unregister_subship_waypoints(obj/effect/overmap/visitable/marker, datum/map_template/drydock_ship/template)
+/proc/_drydock_unregister_subship_waypoints(obj/effect/overmap/visitable/marker, datum/map_template/drydock_ship/template, shuttle_id)
 	if(!istype(marker) || !template || !length(template.sub_shuttle_tags))
 		return
 	for(var/sub_tag in template.sub_shuttle_tags)
-		var/datum/shuttle/sub = SSshuttle.shuttles[sub_tag]
+		var/datum/shuttle/sub = SSshuttle.shuttles[_drydock_subship_key(shuttle_id, sub_tag)]
 		if(!istype(sub) || !sub.logging_home_tag)
 			continue
 		var/obj/effect/shuttle_landmark/home = SSshuttle.get_landmark(sub.logging_home_tag)
@@ -1243,21 +1643,16 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return FALSE
 	qdel(q)
 
-	var/datum/shuttle/sub = SSshuttle.shuttles[shuttle_tag]
-	if(istype(sub))
-		var/old_name = sub.name
-		sub.name = new_name
-		// restricted_waypoints is keyed by the shuttle's exact name, so a
-		// rename would otherwise silently orphan this sub-ship's hangar
-		// registration and it would lose the ability to return home again.
-		// See _drydock_register_subship_waypoints().
-		if(old_name != new_name && !DS.stashed && DS.z)
-			var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[DS.z]"]
-			if(istype(marker) && sub.logging_home_tag)
-				var/obj/effect/shuttle_landmark/home = SSshuttle.get_landmark(sub.logging_home_tag)
-				if(home)
-					marker.remove_landmark(home, old_name)
-					marker.add_landmark(home, new_name)
+	// Renames the player-facing overmap MARKER, deliberately not the shuttle
+	// datum's own name. That's the same split the parent ship already uses --
+	// _drydockRetrieveRun() keeps the datum as "<template> #id" (its
+	// SSshuttle.shuttles key) and sets marker.name = DS.display_name() for
+	// players. Leaving the datum name alone means no re-keying of
+	// SSshuttle.shuttles, and no orphaning of restricted_waypoints, which is
+	// keyed by that datum name.
+	var/obj/effect/overmap/visitable/ship/landable/sub_marker = _drydock_subship_marker(shuttle_id, shuttle_tag)
+	if(istype(sub_marker))
+		sub_marker.name = new_name
 
 	if(user)
 		to_chat(user, SPAN_GOOD("Sub-ship renamed."))
@@ -1281,9 +1676,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	q.Execute()
 	if(databaseCheckQueryResult(q, "_drydockApplySubshipNames select"))
 		while(q.NextRow())
-			var/datum/shuttle/sub = SSshuttle.shuttles[q.item[1]]
-			if(istype(sub))
-				sub.name = q.item[2]
+			// Marker, not the shuttle datum -- see drydockRenameSubship().
+			var/obj/effect/overmap/visitable/ship/landable/sub_marker = _drydock_subship_marker(shuttle_id, q.item[1])
+			if(istype(sub_marker))
+				sub_marker.name = q.item[2]
 	qdel(q)
 
 /**
@@ -1309,19 +1705,32 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
  * as-is, exactly like a pristine ship interior today.
  */
 /datum/controller/subsystem/persistence/proc/subshipSnapshotSave(shuttle_id, shuttle_tag)
-	var/datum/shuttle/sub = SSshuttle.shuttles[shuttle_tag]
+	var/datum/shuttle/sub = SSshuttle.shuttles[_drydock_subship_key(shuttle_id, shuttle_tag)]
 	if(!istype(sub))
 		return
+	// Everything below is best-effort bookkeeping: losing one turf or one item
+	// from a snapshot is far better than an uncaught runtime aborting the
+	// whole stash, which is exactly what "drydockStash: uncaught exception ...
+	// bad index" was. This body never executed at all until the sub-ship
+	// lookup above was fixed, so it is newly exposed code. The logs name the
+	// sub tag, turf and item type so a real failure is pinpointable instead of
+	// being a bare "bad index".
 	var/list/turf_rows = list()
 	for(var/area/A in sub.shuttle_area)
 		for(var/turf/T in get_area_turfs(A))
 			CHECK_TICK
-			var/list/items = list()
-			for(var/obj/item/I in T)
-				var/list/item_data = serializePersistentItem(I)
-				if(item_data)
-					items += list(item_data)
-			turf_rows += list(list("x" = T.x, "y" = T.y, "type" = "[T.type]", "items" = items))
+			try
+				var/list/items = list()
+				for(var/obj/item/I in T)
+					try
+						var/list/item_data = serializePersistentItem(I)
+						if(item_data)
+							items += list(item_data)
+					catch(var/exception/item_e)
+						log_drydock_error("subshipSnapshotSave: failed to serialize [I?.type] at ([T.x],[T.y],[T.z]) for shuttle_id=[shuttle_id] tag='[shuttle_tag]': [item_e]")
+				turf_rows += list(list("x" = T.x, "y" = T.y, "type" = "[T.type]", "items" = items))
+			catch(var/exception/turf_e)
+				log_drydock_error("subshipSnapshotSave: failed on turf ([T.x],[T.y],[T.z]) for shuttle_id=[shuttle_id] tag='[shuttle_tag]': [turf_e]")
 	if(!databaseCheckConnection("subshipSnapshotSave"))
 		return
 	var/datum/db_query/q = SSdbcore.NewQuery(
@@ -1377,18 +1786,32 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	var/list/turf_rows = json_decode(turf_data)
 	if(!islist(turf_rows))
 		return
+	// Per-row validation + try/catch, because until subshipSnapshotSave() was
+	// fixed nothing ever wrote to ss13_drydock_subship_snapshot, so this body
+	// has effectively never executed in production. One malformed or
+	// truncated row must degrade to a logged warning, not abort the caller --
+	// an uncaught runtime here surfaces as drydockRetrieve()'s "uncaught
+	// exception" and takes the whole retrieve down with it.
 	for(var/list/row in turf_rows)
+		if(!islist(row) || !isnum(row["x"]) || !isnum(row["y"]))
+			log_drydock_warning("subshipSnapshotApply: skipped malformed row for shuttle_id=[shuttle_id] tag='[shuttle_tag]'.")
+			continue
 		var/turf/T = locate(row["x"], row["y"], z)
 		if(!T)
 			continue
-		var/turf_type = text2path(row["type"])
-		if(turf_type && ispath(turf_type, /turf))
-			T = T.ChangeTurf(turf_type)
-		for(var/obj/item/existing in T)
-			qdel(existing)
-		if(islist(row["items"]))
-			for(var/list/item_data in row["items"])
-				deserializePersistentItem(item_data, T)
+		try
+			var/turf_type = text2path(row["type"])
+			if(turf_type && ispath(turf_type, /turf))
+				T = T.ChangeTurf(turf_type)
+			for(var/obj/item/existing in T)
+				qdel(existing)
+			if(islist(row["items"]))
+				for(var/list/item_data in row["items"])
+					if(!islist(item_data))
+						continue
+					deserializePersistentItem(item_data, T)
+		catch(var/exception/row_e)
+			log_drydock_error("subshipSnapshotApply: row ([row["x"]],[row["y"]]) failed for shuttle_id=[shuttle_id] tag='[shuttle_tag]': [row_e]")
 
 // ============================================================
 // BUY  pure purchase transaction, no world footprint
@@ -1501,6 +1924,19 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	DS.title_char_name = owner_char_name
 	DS.title_faction_uid = faction_uid
 	GLOB.drydock_ships["[new_id]"] = DS
+
+	// CENTRAL_SYNC_SHIPS -- both gated inside their own procs (no-op
+	// entirely when central_sql_enabled/central_sync_ships are off), see
+	// this file's "CENTRAL SHIP SYNC" section.
+	if(GLOB.config.central_sql_enabled && GLOB.config.central_server_id)
+		DS.global_ship_id = "[GLOB.config.central_server_id]:[new_id]"
+		var/datum/db_query/gq = SSdbcore.NewQuery(
+			"UPDATE ss13_drydock_ships SET global_ship_id = :gsid WHERE shuttle_id = :id",
+			list("gsid" = DS.global_ship_id, "id" = new_id)
+		)
+		gq.Execute()
+		qdel(gq)
+		_shipCentralCreateWriteThrough(DS)
 
 	if(user)
 		var/obj/item/ship_schematic/schematic = new(get_turf(user))
@@ -1722,14 +2158,26 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// Navigation is buildable/orderable but deliberately NOT required here --
 	// only helm and shuttle_control gate commissioning.
 
-	// Drydock ships genuinely consume fuel (fuel_consumption is non-zero for
-	// every hull -- see player_built_shuttle.dm) -- without a fuel port
-	// there's nowhere to ever load a tank.
-	if(!_drydock_envelope_find_fuel_port(envelope))
+	// The decorative propulsion count above is structural only -- a real
+	// engine (one that actually populates datum/ship_engine) is a separate,
+	// additional requirement. Either a piped nozzle engine or a
+	// self-contained ion engine satisfies this -- not both. Checked before
+	// the fuel port requirement below, since whether a fuel port is even
+	// relevant depends on which engine type was actually found.
+	var/obj/structure/machinery/atmospherics/unary/engine/nozzle_engine = _drydock_envelope_find_ship_engine(envelope)
+	var/obj/structure/machinery/ion_engine/ion_engine_found = _drydock_envelope_find_ion_engine(envelope)
+	if(!nozzle_engine && !ion_engine_found)
 		if(user)
-			to_chat(user, SPAN_WARNING("No fuel port found in the build envelope -- without one, this hull could never be refuelled."))
-		log_drydock_warning("drydockCommission: refused -- no fuel port in envelope near [console] (acting=[acting]).")
+			to_chat(user, SPAN_WARNING("No engine found in the build envelope -- without a nozzle engine (piped to a fuel-gas network) or an ion engine (self-contained, needs only power), this hull has nothing to actually burn for thrust."))
+		log_drydock_warning("drydockCommission: refused -- no engine of either type in envelope near [console] (acting=[acting]).")
 		return FALSE
+
+	// A fuel port is NOT required to commission -- it's a backup/emergency
+	// fuel source only (_draw_backup_fuel(), gas_thruster.dm: tops up a
+	// nozzle engine's own gas reservoir from a loaded tank once its piped
+	// network alone isn't enough to burn). A nozzle engine's real fuel
+	// comes from that piped network, and an ion engine needs no fuel at
+	// all -- neither ever needed a fuel port just to commission.
 
 	// Fuel/helm/propulsion alone still can't move a hull -- engines_state
 	// can only ever be set TRUE via this specific console (engine_control.dm).
@@ -1737,16 +2185,6 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		if(user)
 			to_chat(user, SPAN_WARNING("No engine control terminal found in the build envelope -- without one, this hull's engines could never actually be turned on."))
 		log_drydock_warning("drydockCommission: refused -- no engine control terminal in envelope near [console] (acting=[acting]).")
-		return FALSE
-
-	// The decorative propulsion count above is structural only -- a real
-	// engine (one that actually populates datum/ship_engine) is a separate,
-	// additional requirement. Either a piped nozzle engine or a
-	// self-contained ion engine satisfies this -- not both.
-	if(!_drydock_envelope_find_ship_engine(envelope) && !_drydock_envelope_find_ion_engine(envelope))
-		if(user)
-			to_chat(user, SPAN_WARNING("No engine found in the build envelope -- without a nozzle engine (piped to a fuel-gas network) or an ion engine (self-contained, needs only power), this hull has nothing to actually burn for thrust."))
-		log_drydock_warning("drydockCommission: refused -- no engine of either type in envelope near [console] (acting=[acting]).")
 		return FALSE
 
 	// Without a sensors terminal + array, crew have no way to see anything
@@ -1857,6 +2295,18 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	DS.custom_name = new_name
 	GLOB.drydock_ships["[new_id]"] = DS
 
+	// CENTRAL_SYNC_SHIPS -- see drydockBuy()'s matching block and this
+	// file's "CENTRAL SHIP SYNC" section; both gated inside their own procs.
+	if(GLOB.config.central_sql_enabled && GLOB.config.central_server_id)
+		DS.global_ship_id = "[GLOB.config.central_server_id]:[new_id]"
+		var/datum/db_query/gq = SSdbcore.NewQuery(
+			"UPDATE ss13_drydock_ships SET global_ship_id = :gsid WHERE shuttle_id = :id",
+			list("gsid" = DS.global_ship_id, "id" = new_id)
+		)
+		gq.Execute()
+		qdel(gq)
+		_shipCentralCreateWriteThrough(DS)
+
 	// Materialize -- mirrors _drydockRetrieveRun()'s own Z-provisioning
 	// exactly, just sourced from the live capture below instead of a saved
 	// interior.
@@ -1865,6 +2315,12 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	var/new_z
 	var/bounds
 	SSair.can_fire = FALSE
+	// Same per-instance naming the retrieve path uses -- a commissioned hull
+	// is built from the same shared shell template as every other one, so
+	// without this the second commission collides exactly as a second
+	// retrieve would. See GLOB.drydock_loading_suffix.
+	GLOB.drydock_loading_suffix = "#[new_id]"
+	GLOB.drydock_loading_areas = list()
 	if(pool_z)
 		bounds = template.load_into_z(pool_z, TRUE)
 		new_z = pool_z
@@ -1872,6 +2328,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		var/z_before = world.maxz
 		bounds = template.load_new_z(FALSE, TRUE)
 		new_z = z_before + 1
+	GLOB.drydock_loading_suffix = null
+	// Cleared only AFTER the load returns -- init_shuttles() runs inside it,
+	// and /datum/shuttle/New() reads this list to bind its own areas.
+	GLOB.drydock_loading_areas = list()
 	SSair.can_fire = TRUE
 	if(!bounds)
 		GLOB.drydock_ships -= "[new_id]"
@@ -1917,7 +2377,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// before it physically leaves that Z. See the dock_at_beacon block near
 	// the end of this proc, right after shipInteriorSave().
 
-	var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
+	var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = _drydock_shuttle_of(marker)
 	if(istype(shuttle_datum))
 		// Commission always materializes a player-built ship, by definition --
 		// read by player_dock/is_valid() (docking_beacon.dm) to decide whether
@@ -2310,10 +2770,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	try
 		. = _drydockRetrieveRun(shuttle_id, anchor, from_turf, user)
 	catch(var/exception/e)
-		log_drydock_error("drydockRetrieve: uncaught exception retrieving shuttle_id=[shuttle_id] (acting=[user ? key_name(user) : "SYSTEM"]): [e]")
+		log_drydock_error("drydockRetrieve: uncaught exception retrieving shuttle_id=[shuttle_id] (acting=[user ? key_name(user) : "SYSTEM"]): [e] at [e.file]:[e.line]")
 		if(user)
 			to_chat(user, SPAN_WARNING("Something went wrong retrieving that ship -- an admin has been notified."))
-		log_and_message_admins("drydockRetrieve: uncaught exception retrieving shuttle_id=[shuttle_id]: [e]", user)
+		log_and_message_admins("drydockRetrieve: uncaught exception retrieving shuttle_id=[shuttle_id]: [e] at [e.file]:[e.line]", user)
 	GLOB.drydock_op_active = FALSE
 	GLOB.drydock_op_active_shuttle_id = null
 	_drydockProcessNextQueued()
@@ -2359,11 +2819,12 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			to_chat(user, SPAN_WARNING("Rename this ship before retrieving it -- use the schematic's Rename Ship option."))
 		log_drydock_warning("drydockRetrieve: refused -- shuttle_id=[shuttle_id] hasn't been renamed from its default yet (acting=[acting]).")
 		return FALSE
-	if(ship_template_already_deployed(DS.template_id))
-		if(user)
-			to_chat(user, SPAN_WARNING("A ship of this class is already deployed somewhere -- stash it first."))
-		log_drydock_warning("drydockRetrieve: refused -- template '[DS.template_id]' already has a deployed instance (acting=[acting]).")
-		return FALSE
+	// The old "a ship of this class is already deployed" refusal lived here.
+	// It existed only because shuttle datum names and their derived landmark
+	// tags were per-TEMPLATE; GLOB.drydock_loading_suffix now makes both
+	// per-instance at load time, so any number of hulls of one class can be
+	// deployed at once. The per-OWNER limit immediately below is unrelated and
+	// still applies.
 	var/datum/drydock_ship/other_deployed = _drydock_owner_other_deployed_ship(DS)
 	if(other_deployed)
 		if(user)
@@ -2485,6 +2946,13 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	var/new_z
 	var/bounds
 	SSair.can_fire = FALSE
+	// Per-instance naming for everything this load creates -- the shuttle
+	// datum(s) and the landable marker, which in turn names the home landmark.
+	// Without it a second hull of the same class CRASHes on the duplicate
+	// shuttle name and loses its landmark to the first one's tag. Cleared
+	// immediately after the load, before any of the failure returns below.
+	GLOB.drydock_loading_suffix = "#[shuttle_id]"
+	GLOB.drydock_loading_areas = list()
 	if(pool_z)
 		bounds = template.load_into_z(pool_z, TRUE)
 		new_z = pool_z
@@ -2492,6 +2960,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		var/z_before = world.maxz
 		bounds = template.load_new_z(FALSE, TRUE)
 		new_z = z_before + 1
+	GLOB.drydock_loading_suffix = null
+	// Cleared only AFTER the load returns -- init_shuttles() runs inside it,
+	// and /datum/shuttle/New() reads this list to bind its own areas.
+	GLOB.drydock_loading_areas = list()
 	SSair.can_fire = TRUE
 	if(!bounds)
 		DS.stashed = TRUE // revert -- retrieve never actually happened
@@ -2510,7 +2982,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return FALSE
 	shipPlaceOvermapMarker(marker, target_sector, placement_radius)
 
-	var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
+	var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = _drydock_shuttle_of(marker)
 	if(istype(shuttle_datum))
 		// A retrieved ship's shuttle datum is freshly recreated every time
 		// (template.load_new_z()/load_into_z() above), so player_built has
@@ -2605,7 +3077,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// After the rename pass -- restricted_waypoints is keyed by the shuttle's
 	// exact CURRENT name, so registering before renaming would file the hangar
 	// under a name get_waypoints() will never ask for.
-	_drydock_register_subship_waypoints(marker, template)
+	_drydock_register_subship_waypoints(marker, template, shuttle_id)
 
 	// Missing-sub-ship detection -- checked LAST, after the replenish pass
 	// above -- log and alert rather than attempt anything further. Should
@@ -2614,7 +3086,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// still isn't valid), not a normal case.
 	if(length(template.sub_shuttle_tags))
 		for(var/sub_tag in template.sub_shuttle_tags)
-			var/datum/shuttle/sub = SSshuttle.shuttles[sub_tag]
+			var/datum/shuttle/sub = SSshuttle.shuttles[_drydock_subship_key(shuttle_id, sub_tag)]
 			if(!istype(sub) || !length(sub.shuttle_area))
 				log_drydock_warning("drydockRetrieve: sub-ship '[sub_tag]' missing or invalid for shuttle_id=[shuttle_id] template='[DS.template_id]' -- may need manual recovery.")
 				log_and_message_admins("[SPAN_WARNING("Drydock sub-ship missing:")] '[sub_tag]' not found aboard [DS.display_name()] (#[shuttle_id]) after retrieve.", user, marker)
@@ -2641,6 +3113,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		if(!databaseCheckQueryResult(uq, "drydockRetrieve update"))
 			log_drydock_error("drydockRetrieve: DB update failed for shuttle_id=[shuttle_id].")
 		qdel(uq)
+		_shipCentralPartialUpdate(DS.global_ship_id, list("stashed"), list(0))
 
 	if(user)
 		to_chat(user, SPAN_GOOD("Ship retrieved -- fly it in via its nav console. You'll be notified when it's ready to board."))
@@ -2674,7 +3147,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /datum/controller/subsystem/persistence/proc/drydockAutoFurnish(z, datum/map_template/drydock_ship/template, obj/effect/overmap/visitable/ship/landable/drydock_ship/marker)
 	if(!template.bridge_area_type)
 		return
-	var/datum/shuttle/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
+	var/datum/shuttle/shuttle_datum = _drydock_shuttle_of(marker)
 	if(!istype(shuttle_datum))
 		return
 	if(length(shuttle_datum.shuttle_computers))
@@ -2834,10 +3307,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	try
 		. = _drydockStashRun(shuttle_id, user, force)
 	catch(var/exception/e)
-		log_drydock_error("drydockStash: uncaught exception stashing shuttle_id=[shuttle_id] (acting=[user ? key_name(user) : "SYSTEM"]): [e]")
+		log_drydock_error("drydockStash: uncaught exception stashing shuttle_id=[shuttle_id] (acting=[user ? key_name(user) : "SYSTEM"]): [e] at [e.file]:[e.line]")
 		if(user)
 			to_chat(user, SPAN_WARNING("Something went wrong stashing that ship -- an admin has been notified."))
-		log_and_message_admins("drydockStash: uncaught exception stashing shuttle_id=[shuttle_id]: [e]", user)
+		log_and_message_admins("drydockStash: uncaught exception stashing shuttle_id=[shuttle_id]: [e] at [e.file]:[e.line]", user)
 	GLOB.drydock_op_active = FALSE
 	GLOB.drydock_op_active_shuttle_id = null
 	_drydockProcessNextQueued()
@@ -2866,18 +3339,33 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 					return TRUE
 	var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
 	if(template && length(template.sub_shuttle_tags))
+		var/list/sub_areas = list()
 		for(var/sub_tag in template.sub_shuttle_tags)
-			var/datum/shuttle/autodock/sub = SSshuttle.shuttles[sub_tag]
+			var/datum/shuttle/autodock/sub = SSshuttle.shuttles[_drydock_subship_key(DS.shuttle_id, sub_tag)]
 			if(!istype(sub))
 				continue
-			for(var/area/A in sub.shuttle_area)
-				for(var/turf/T in get_area_turfs(A))
-					for(var/mob/M in T)
-						if(M.stat != DEAD && (M.client || M.ckey))
-							return TRUE
-					for(var/obj/item/organ/internal/neural_lace/L in T)
-						if(L.lace_occupied)
-							return TRUE
+			sub_areas |= sub.shuttle_area
+		if(length(sub_areas))
+			// Resolved by AREA rather than by scanning each turf's own
+			// contents: get_area() sees through nesting, so someone inside a
+			// closet, cryo pod or mech -- or a lace inside a body, locker or
+			// autodoc -- still counts. Iterating `for(var/mob/M in T)` only
+			// sees what lies directly on the turf and missed every one of
+			// those, while the DS.z sweep above already resolves at any depth
+			// via get_turf(). One pass over each list for all sub-ships, not
+			// one per tag.
+			for(var/mob/M in GLOB.mob_list)
+				CHECK_TICK
+				if(M.stat == DEAD || !(M.client || M.ckey))
+					continue
+				if(get_area(M) in sub_areas)
+					return TRUE
+			for(var/obj/item/organ/internal/neural_lace/L in world)
+				CHECK_TICK
+				if(!L.lace_occupied)
+					continue
+				if(get_area(L) in sub_areas)
+					return TRUE
 	return FALSE
 
 /// TRUE if any mob (dead OR alive) or occupied neural lace is anywhere
@@ -2930,18 +3418,6 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		var/obj/structure/machinery/computer/ship/navigation/nav = locate() in T
 		if(nav)
 			return nav
-	return null
-
-/// The first fuel port found anywhere in envelope, or null -- required at
-/// commission time since drydock ships genuinely consume fuel
-/// (fuel_consumption is non-zero for every hull, player-built ships
-/// included -- see player_built_shuttle.dm) and have nowhere to load a fuel
-/// tank without one.
-/proc/_drydock_envelope_find_fuel_port(list/turf/envelope)
-	for(var/turf/T in envelope)
-		var/obj/structure/fuel_port/port = locate() in T
-		if(port)
-			return port
 	return null
 
 /// The first engine control terminal found anywhere in envelope, or null --
@@ -3048,7 +3524,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		log_drydock_warning("drydockStash: refused -- [acting] lacks permission for shuttle_id=[shuttle_id] (owner=[DS.owner_ckey || "none"], faction=[DS.faction_uid || "none"]).")
 		return FALSE
 	var/obj/effect/overmap/visitable/ship/landable/check_marker = GLOB.map_sectors["[DS.z]"]
-	var/datum/shuttle/autodock/overmap/drydock_ship/stashing_shuttle_datum = istype(check_marker) ? SSshuttle.shuttles[check_marker.shuttle] : null
+	var/datum/shuttle/autodock/overmap/drydock_ship/stashing_shuttle_datum = istype(check_marker) ? _drydock_shuttle_of(check_marker) : null
 	if(!force)
 		// A personal ship may stash near ANY faction's beacon (not
 		// necessarily one it owns), provided that beacon's own sector is
@@ -3100,6 +3576,8 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		// need that fallback in the first place -- refuse and explain instead.
 		if(istype(check_marker))
 			for(var/obj/effect/overmap/visitable/ship/landable/guest in check_marker.contents)
+				if(_drydock_guest_is_own_subship(guest, check_marker))
+					continue // my own sub-ship parked at home, not a foreign guest
 				if(user)
 					to_chat(user, SPAN_WARNING("[guest.shuttle] is currently docked with you -- it must undock before you can stash."))
 				log_drydock_warning("drydockStash: refused -- shuttle_id=[shuttle_id] has guest ship '[guest.shuttle]' docked with it (acting=[acting]).")
@@ -3184,12 +3662,30 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// Drop the hangar waypoint registrations before the z goes away, so a
 	// stashed ship's hangar stops being offered as a destination to anything
 	// still flying. Mirrors _drydock_register_subship_waypoints() at retrieve.
-	_drydock_unregister_subship_waypoints(GLOB.map_sectors["[stash_z]"], save_template)
+	_drydock_unregister_subship_waypoints(GLOB.map_sectors["[stash_z]"], save_template, shuttle_id)
 	SSpersistence.shipInteriorSave(stash_z, scope)
 
 	if(save_template && length(save_template.sub_shuttle_tags))
 		for(var/sub_tag in save_template.sub_shuttle_tags)
 			SSpersistence.subshipSnapshotSave(shuttle_id, sub_tag)
+
+	// Destroy each sub-ship's own shuttle datum, AFTER its snapshot is saved
+	// above. shipZTeardown() (persistence_ship_interiors.dm) only ever qdels
+	// the single datum it is handed -- the parent hull's -- so a sub-ship's
+	// datum outlived every stash and stayed in SSshuttle.shuttles under its
+	// per-instance name. The next retrieve then rebuilt the same sub-ship
+	// from the template and /datum/shuttle/New() hard-CRASHed on the
+	// duplicate name ("A shuttle with the name '... #22' is already
+	// defined."). Areas are pulled from SSshuttle.shuttle_areas first,
+	// exactly as shipZTeardown() does for the parent.
+	if(save_template && length(save_template.sub_shuttle_tags))
+		for(var/sub_tag in save_template.sub_shuttle_tags)
+			var/datum/shuttle/sub = SSshuttle.shuttles[_drydock_subship_key(shuttle_id, sub_tag)]
+			if(!istype(sub))
+				continue
+			for(var/area/A in sub.shuttle_area)
+				SSshuttle.shuttle_areas -= A
+			qdel(sub) // Destroy() clears SSshuttle.shuttles/process_shuttles itself
 
 	// Ledger flips to stashed BEFORE the marker is torn down -- the qdel
 	// below fires drydock_ship/Destroy()'s defensive orphan-recovery check
@@ -3212,6 +3708,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		if(!databaseCheckQueryResult(uq, "drydockStash update"))
 			log_drydock_error("drydockStash: DB write failed for shuttle_id=[shuttle_id].")
 		qdel(uq)
+		_shipCentralPartialUpdate(DS.global_ship_id, list("stashed"), list(1))
 
 	// Grabbed before teardown -- there's no marker left to JMP to afterward.
 	var/turf/stash_location = istype(check_marker) ? get_turf(check_marker) : null
@@ -3322,7 +3819,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
 	if(!istype(marker))
 		return FALSE
-	var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
+	var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = _drydock_shuttle_of(marker)
 	var/obj/effect/shuttle_landmark/home_landmark = _drydock_resolve_home_landmark(marker, shuttle_datum)
 	// FAIL CLOSED. This used to read marker.landmark directly and, when that
 	// was null, skip the whole move and still return TRUE -- reporting a
@@ -3361,7 +3858,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	var/datum/map_template/drydock_ship/sub_template = SSmapping.drydock_ship_templates[DS.template_id]
 	if(sub_template && length(sub_template.sub_shuttle_tags))
 		for(var/sub_tag in sub_template.sub_shuttle_tags)
-			var/datum/shuttle/autodock/sub = SSshuttle.shuttles[sub_tag]
+			var/datum/shuttle/autodock/sub = SSshuttle.shuttles[_drydock_subship_key(DS.shuttle_id, sub_tag)]
 			if(!istype(sub) || !istype(sub.current_location))
 				continue
 			if(sub.current_location.landmark_tag == sub.logging_home_tag)
@@ -3406,7 +3903,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[DS.z]"]
 		if(!istype(marker) || !istype(marker.landmark))
 			continue
-		var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = SSshuttle.shuttles[marker.shuttle]
+		var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = _drydock_shuttle_of(marker)
 		if(!istype(shuttle_datum) || shuttle_datum.current_location == marker.landmark)
 			continue // already home, nothing to recall
 		if(_drydock_recall_ship_home(DS, allow_rehome = FALSE))
@@ -3750,7 +4247,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
 	if(template && length(template.sub_shuttle_tags))
 		for(var/sub_tag in template.sub_shuttle_tags)
-			var/datum/shuttle/autodock/sub = SSshuttle.shuttles[sub_tag]
+			var/datum/shuttle/autodock/sub = SSshuttle.shuttles[_drydock_subship_key(DS.shuttle_id, sub_tag)]
 			if(istype(sub) && istype(sub.current_location))
 				zs |= sub.current_location.z
 
@@ -3822,7 +4319,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// (drydock_ship.dm) calls when a marker is destroyed some other way.
 /datum/controller/subsystem/persistence/proc/_drydockMarkerTeardown(z)
 	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[z]"]
-	var/datum/shuttle/shuttle_datum = istype(marker) ? SSshuttle.shuttles[marker.shuttle] : null
+	var/datum/shuttle/shuttle_datum = istype(marker) ? _drydock_shuttle_of(marker) : null
 	var/shuttle_name = shuttle_datum?.name
 	if(istype(marker))
 		// Evacuate anything currently docked WITH this ship before it's
@@ -3838,6 +4335,12 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		// destroyed -- this ship isn't the guest's to lose just because its
 		// host stashed out from under it.
 		for(var/obj/effect/overmap/visitable/ship/landable/guest in marker.contents)
+			// My own sub-ship goes down WITH me -- it's part of this hull, and
+			// it comes back from the template on the next retrieve. Kicking it
+			// to open space like a foreign guest would leave it drifting,
+			// orphaned, the moment its carrier stashed.
+			if(_drydock_guest_is_own_subship(guest, marker))
+				continue
 			var/turf/safe_turf = get_turf(marker)
 			if(safe_turf)
 				guest.forceMove(safe_turf)
@@ -3912,6 +4415,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		log_drydock_warning("drydockSell: refused -- shuttle_id=[shuttle_id] busy (acting=[acting]).")
 		return FALSE
 
+	_shipCentralDelete(DS.global_ship_id)
 	var/datum/db_query/dq = SSdbcore.NewQuery("DELETE FROM ss13_drydock_ships WHERE shuttle_id = :id", list("id" = shuttle_id))
 	dq.Execute()
 	if(!databaseCheckQueryResult(dq, "drydockSell delete"))
@@ -4007,6 +4511,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// means that check correctly finds nothing to "recover" here.
 	SSpersistence.purgeShipScopeRows("ship:d:[shuttle_id]")
 
+	_shipCentralDelete(DS.global_ship_id)
 	var/datum/db_query/dq = SSdbcore.NewQuery("DELETE FROM ss13_drydock_ships WHERE shuttle_id = :id", list("id" = shuttle_id))
 	dq.Execute()
 	databaseCheckQueryResult(dq, "drydockScuttle delete")
@@ -4082,7 +4587,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// right now, not just at server shutdown.
 /datum/admins/proc/force_stash_ship()
 	set name = "Force Stash Ship"
-	set category = "Persistence"
+	set category = "Persistence.Ships & Drydock"
 	if(!check_rights(R_ADMIN))
 		return
 
@@ -4114,7 +4619,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// restricted to only broken ones.
 /datum/admins/proc/free_drydock_ship_name()
 	set name = "Free Drydock Ship Name"
-	set category = "Persistence"
+	set category = "Persistence.Ships & Drydock"
 	if(!check_rights(R_ADMIN))
 		return
 
@@ -4152,7 +4657,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// already runs at shutdown.
 /datum/admins/proc/force_stash_all_ships()
 	set name = "Force Stash All Ships"
-	set category = "Persistence"
+	set category = "Persistence.Ships & Drydock"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -4173,7 +4678,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// regardless of this setting.
 /datum/admins/proc/toggle_ship_z_reuse()
 	set name = "Toggle Ship Z Reuse"
-	set category = "Persistence"
+	set category = "Persistence.Ships & Drydock"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -4201,7 +4706,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// may be under construction in that envelope.
 /datum/admins/proc/clear_docking_beacons()
 	set name = "Clear Docking Beacons"
-	set category = "Persistence"
+	set category = "Persistence.Ships & Drydock"
 
 	if(!check_rights(R_ADMIN))
 		return
@@ -4395,7 +4900,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// a deployment is lost before the next successful Stash.
 /datum/admins/proc/restore_ship_backup()
 	set name = "Restore Ship Backup"
-	set category = "Persistence"
+	set category = "Persistence.Ships & Drydock"
 	if(!check_rights(R_ADMIN))
 		return
 
@@ -4482,7 +4987,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// takes effect immediately, survives a restart. 0 = no limit.
 /datum/admins/proc/set_drydock_ship_cap()
 	set name = "Set Drydock Ship Cap"
-	set category = "Persistence"
+	set category = "Persistence.Ships & Drydock"
 	if(!check_rights(R_ADMIN))
 		return
 
@@ -4524,7 +5029,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// already-handled ships are skipped every time.
 /datum/admins/proc/backfill_ship_schematics()
 	set name = "Backfill Ship Schematics"
-	set category = "Persistence"
+	set category = "Persistence.Ships & Drydock"
 	if(!check_rights(R_ADMIN))
 		return
 

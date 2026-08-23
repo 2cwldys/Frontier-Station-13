@@ -124,10 +124,13 @@ GLOBAL_VAR_INIT(persistence_interior_save_z, 0)
 	return GLOB.persistence_docked_turf_scope[T]
 
 /// TRUE if any deployed drydock ship is already using this template.
-/// Shuttle datum names are per-template, and /datum/shuttle/New() hard-
-/// CRASHes on a duplicate name (shuttle.dm) -- so only one instance of a
-/// given hull class can be deployed at a time until per-instance shuttle
-/// naming lands (Phase 4).
+/// TRUE if any deployed (non-stashed) ship uses this template.
+///
+/// No longer a deployment gate: per-instance shuttle/landmark naming
+/// (GLOB.drydock_loading_suffix, persistence_shuttles.dm) means multiple hulls
+/// of one class can now be deployed simultaneously, so drydockRetrieve() no
+/// longer refuses on this. Kept as a plain query for anything that wants to
+/// know whether a class is currently in play.
 /proc/ship_template_already_deployed(template_id)
 	for(var/sid in GLOB.drydock_ships)
 		var/datum/drydock_ship/D = GLOB.drydock_ships[sid]
@@ -269,7 +272,16 @@ GLOBAL_VAR_INIT(persistence_interior_save_z, 0)
 /// ship's ready flag is FALSE, so nobody boards mid-load; this is what
 /// clears that gate once the background settle genuinely finishes.
 /datum/controller/subsystem/persistence/proc/_shipInteriorApplyFinish(z, scope)
-	atmosApplyZ(z, scope)
+	// Every optional step below is individually guarded, because this proc is
+	// the ONLY thing that sets DS.ready. It runs detached on a timer, so an
+	// uncaught runtime anywhere in it used to leave ready FALSE forever: no
+	// "ready to board" notification, boarding refused permanently, and the
+	// ship recoverable only by stashing it again. A skipped atmos settle or
+	// fuel-port refresh is recoverable; a permanently unboardable ship is not.
+	try
+		atmosApplyZ(z, scope)
+	catch(var/exception/atmos_e)
+		log_subsystem_persistence_error("Ship interiors: deferred atmos apply failed for [scope]: [atmos_e]")
 	if(copytext(scope, 1, 8) != "ship:d:")
 		return
 	var/shuttle_id = text2num(copytext(scope, 8))
@@ -283,9 +295,12 @@ GLOBAL_VAR_INIT(persistence_interior_save_z, 0)
 	// permanently empty on every single retrieve, not just the first
 	// commission -- same gap, same fix, run here for every ship type.
 	var/obj/effect/overmap/visitable/ship/landable/marker = GLOB.map_sectors["[z]"]
-	var/datum/shuttle/autodock/overmap/shuttle_datum = istype(marker) ? SSshuttle.shuttles[marker.shuttle] : null
+	var/datum/shuttle/autodock/overmap/shuttle_datum = _drydock_shuttle_of(marker)
 	if(istype(shuttle_datum))
-		shuttle_datum.refresh_fuel_ports_list()
+		try
+			shuttle_datum.refresh_fuel_ports_list()
+		catch(var/exception/fuel_e)
+			log_subsystem_persistence_error("Ship interiors: fuel port refresh failed for [scope]: [fuel_e]")
 #ifdef DRYDOCK_ENGINE_DIAGNOSTICS
 		log_debug("ENGINE DIAG: retrieve refresh_fuel_ports_list() for '[shuttle_datum.name]' found [length(shuttle_datum.fuel_ports)] fuel port(s) across areas [english_list(shuttle_datum.shuttle_area)].")
 #endif
@@ -300,7 +315,10 @@ GLOBAL_VAR_INIT(persistence_interior_save_z, 0)
 	// a mapper-authored template ship's landmark is placed deliberately.
 	var/datum/map_template/drydock_ship/finish_template = SSmapping.drydock_ship_templates[DS.template_id]
 	if(istype(shuttle_datum) && finish_template && finish_template.hidden_from_catalog)
-		_drydock_reposition_ship_landmark(marker, shuttle_datum, "retrieve (shuttle_id=[shuttle_id])")
+		try
+			_drydock_reposition_ship_landmark(marker, shuttle_datum, "retrieve (shuttle_id=[shuttle_id])")
+		catch(var/exception/anchor_e)
+			log_subsystem_persistence_error("Ship interiors: landmark re-anchor failed for [scope]: [anchor_e]")
 
 	// A sector created at RUNTIME never goes through initialize_sectors(), so
 	// the waypoint tags populate_sector_objects() queued -- including this
@@ -309,7 +327,10 @@ GLOBAL_VAR_INIT(persistence_interior_save_z, 0)
 	// no way to select home again. Safe here: the marker and its landmark are
 	// fully settled by this point, and the call is idempotent.
 	// See register_sector_waypoints() (controllers/subsystems/processing/shuttle.dm).
-	SSshuttle.register_sector_waypoints(marker)
+	try
+		SSshuttle.register_sector_waypoints(marker)
+	catch(var/exception/wp_e)
+		log_subsystem_persistence_error("Ship interiors: sector waypoint registration failed for [scope]: [wp_e]")
 
 	DS.ready = TRUE
 	log_drydock("_shipInteriorApplyFinish: shuttle_id=[shuttle_id] finished background settle, ready to board.")
@@ -318,6 +339,27 @@ GLOBAL_VAR_INIT(persistence_interior_save_z, 0)
 		if(C?.mob)
 			to_chat(C.mob, SPAN_GOOD("Your ship '[DS.display_name()]' has finished initializing and is ready to board."))
 			play_announcer_sound_priority(C.mob, 'sound/AI/announcements/ship_ready_to_board.ogg')
+	else if(DS.faction_uid)
+		// A faction-owned ship has NO owner_ckey -- it is null by construction
+		// for a faction purchase, and drydockRepossess() explicitly nulls it
+		// when seizing a hull for the Hub (persistence_shuttles.dm). So the
+		// owner branch above matched nobody and these ships silently never
+		// announced themselves ready, even though DS.ready had flipped and
+		// their Enter/Stash buttons had already ungreyed. Tell the faction
+		// instead. Member detection mirrors notify_faction_members()
+		// (persistence_factions.dm); that helper is chat-only, and this needs
+		// each mob to play the announcer line too, so the loop is inline.
+		var/faction_uid = normalize_faction_uid(DS.faction_uid)
+		for(var/mob/living/carbon/human/H in GLOB.human_mob_list)
+			if(!H.client)
+				continue
+			var/obj/item/card/id/ID = H.GetIdCard()
+			if(!ID || !ID.employer_faction)
+				continue
+			if(normalize_faction_uid(ID.employer_faction) != faction_uid)
+				continue
+			to_chat(H, SPAN_GOOD("[get_faction_name(faction_uid)]'s ship '[DS.display_name()]' has finished initializing and is ready to board."))
+			play_announcer_sound_priority(H, 'sound/AI/announcements/ship_ready_to_board.ogg')
 
 /**
  * Keeps each deployed ship's ledger overmap_x/y current with its live

@@ -24,9 +24,9 @@ type ShipCommissioningData = {
   propulsion_found: BooleanLike;
   helm_found: BooleanLike;
   navigation_found: BooleanLike;
-  fuel_port_found: BooleanLike;
   engine_control_found: BooleanLike;
   ship_engine_found: BooleanLike;
+  ion_engine_found: BooleanLike;
   sensors_terminal_found: BooleanLike;
   sensor_array_found: BooleanLike;
   can_generate_floor: BooleanLike;
@@ -45,9 +45,8 @@ export const ShipCommissioning = (props) => {
     !data.console_found ||
     !data.propulsion_found ||
     !data.helm_found ||
-    !data.fuel_port_found ||
     !data.engine_control_found ||
-    !data.ship_engine_found ||
+    (!data.ship_engine_found && !data.ion_engine_found) ||
     !data.sensors_terminal_found ||
     !data.sensor_array_found;
 
@@ -131,15 +130,6 @@ export const ShipCommissioning = (props) => {
             </Box>
           </Section>
         )}
-        {!!data.beacon_found && !data.fuel_port_found && (
-          <Section title="Fuel Port Required">
-            <Box color="bad">
-              No fuel port found in the build envelope -- without one, this
-              hull could never be refuelled. Cargo-order one (Fuel Port
-              Crate) and attach it to a wall anywhere inside the hull.
-            </Box>
-          </Section>
-        )}
         {!!data.beacon_found && !data.engine_control_found && (
           <Section title="Engine Control Terminal Required">
             <Box color="bad">
@@ -150,7 +140,7 @@ export const ShipCommissioning = (props) => {
             </Box>
           </Section>
         )}
-        {!!data.beacon_found && !data.ship_engine_found && (
+        {!!data.beacon_found && !data.ship_engine_found && !data.ion_engine_found && (
           <Section title="Engine Required">
             <Box color="bad">
               No engine found in the build envelope -- the decorative

@@ -39,6 +39,21 @@ def _connect() -> Presence | None:
 def _build_presence(status: dict) -> dict:
     players = status.get("players", "?")
 
+    # Present only when the server we're polling has CENTRAL_SQL_ENABLED on
+    # (server_query.dm omits both keys entirely otherwise, rather than
+    # sending 0 -- see get_serverstatus) -- a network-wide total across
+    # every server sharing that one central database, not just this one.
+    # Falls back to the plain single-server string below when absent, so
+    # this works unchanged against a non-central server or an older DM
+    # build that doesn't send these fields yet.
+    central_players = status.get("central_players")
+    central_servers = status.get("central_server_count")
+
+    if central_players is not None:
+        state = f"Players: {players} ({central_players} across {central_servers} servers)"
+    else:
+        state = f"Players: {players}"
+
     # "Frontier Station 13" already shows on its own as the bold header line
     # of the card -- that's the Discord Application's own registered name,
     # not something set here, so repeating it in "details" just duplicated
@@ -48,7 +63,7 @@ def _build_presence(status: dict) -> dict:
     # instead of the live round-type/gamemode string.
     presence = {
         "details": "Persistence",
-        "state": f"Players: {players}",
+        "state": state,
         "large_image": config.LARGE_IMAGE_KEY,
         "large_text": config.LARGE_IMAGE_TEXT,
     }

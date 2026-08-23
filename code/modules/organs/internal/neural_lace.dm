@@ -101,6 +101,19 @@
 	if(lace_damage >= LACE_DAMAGE_DESTROYED)
 		_destroy_consciousness()
 
+/// Damage from a botched field extraction (neural_lace_extractor.dm) --
+/// unlike take_lace_damage() above, this can NEVER push the lace to fully
+/// destroyed by itself, even if it already carried damage close to that
+/// ceiling from an earlier source. A field extraction can leave a lace
+/// badly damaged, but "unsalvageable" only ever happens from other/
+/// cumulative damage, never a single unlucky extraction (confirmed
+/// design decision).
+/obj/item/organ/internal/neural_lace/proc/take_field_extraction_damage(amount)
+	if(owner)
+		return
+	lace_damage = min(lace_damage + amount, LACE_DAMAGE_DESTROYED - 1)
+	_notify_damage_state("extraction")
+
 /// Notify the stored consciousness of the damage state
 /obj/item/organ/internal/neural_lace/proc/_notify_damage_state(damage_type)
 	if(!lace_mob || !lace_occupied) return
@@ -163,6 +176,41 @@
 		to_chat(user, SPAN_NOTICE("You carefully reseal the lace's neural mesh. Damage reduced from [old_damage] to [lace_damage]."))
 		if(lace_mob && lace_occupied)
 			to_chat(lace_mob, SPAN_NOTICE("The interference clears somewhat. Someone is welding your lace."))
+		return
+	// Repair nanites cartridge -- same one-tier-per-use power as a single
+	// weld, but consumable and instant rather than reusable.
+	if(istype(I, /obj/item/repairnanites) && !owner)
+		if(lace_damage >= LACE_DAMAGE_DESTROYED)
+			to_chat(user, SPAN_WARNING("The lace is completely destroyed. Repair nanites can't rebuild what's gone."))
+			return
+		if(lace_damage <= LACE_DAMAGE_NONE)
+			to_chat(user, SPAN_NOTICE("The lace is undamaged. No repairs needed."))
+			return
+		var/old_damage = lace_damage
+		repair_lace_tier()
+		playsound(src, 'sound/machines/rig/rig_deploy.ogg', 30, FALSE)
+		to_chat(user, SPAN_NOTICE("The repair nanites knit the lace's damage from [old_damage] to [lace_damage], then burn out."))
+		qdel(I)
+		return
+	// Nanopaste -- the strongest repair option: fully restores the lace in
+	// one application, matching its established position as the repair
+	// item that can fix what repairnanites can't (items.dm's wear_broken).
+	if(istype(I, /obj/item/stack/nanopaste) && !owner)
+		if(lace_damage >= LACE_DAMAGE_DESTROYED)
+			to_chat(user, SPAN_WARNING("The lace is completely destroyed. Even nanopaste can't rebuild what's gone."))
+			return
+		if(lace_damage <= LACE_DAMAGE_NONE)
+			to_chat(user, SPAN_NOTICE("The lace is undamaged. No repairs needed."))
+			return
+		var/obj/item/stack/nanopaste/NP = I
+		if(!NP.use(1))
+			to_chat(user, SPAN_WARNING("Not enough nanopaste left."))
+			return
+		lace_damage = LACE_DAMAGE_NONE
+		playsound(src, NP.surgerysound, 50, 1)
+		to_chat(user, SPAN_NOTICE("The nanite swarm floods the lace's neural mesh, fully repairing it."))
+		if(lace_mob && lace_occupied)
+			to_chat(lace_mob, SPAN_NOTICE("The interference vanishes entirely. Someone has fully repaired your lace."))
 		return
 	// Physical impact damages the lace
 	if(!owner && I.force > 0)
@@ -476,7 +524,7 @@
 
 /mob/living/carbon/human/proc/check_neural_lace_status()
 	set name = "Check Neural Lace"
-	set category = "Persistence"
+	set category = "Persistence.Characters"
 	set desc = "Query your neural lace for a status report."
 
 	var/obj/item/organ/internal/neural_lace/lace = internal_organs_by_name["neural_lace"]

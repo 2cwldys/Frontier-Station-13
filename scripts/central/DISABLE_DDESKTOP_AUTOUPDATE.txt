@@ -1,0 +1,8 @@
+Docker Desktop automatic updates can consume your mariaDB container, disable automatic updates in docker desktop.
+So you can manually update and make preperations for backups while doing so.
+
+########################
+
+YOU HAVE BEEN WARNED!!!
+
+########################
