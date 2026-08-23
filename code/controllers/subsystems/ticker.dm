@@ -59,6 +59,7 @@ SUBSYSTEM_DEF(ticker)
 		'sound/music/lobby/stem_4_6.ogg',
 		'sound/music/lobby/duneorange_nang.ogg',
 		'sound/music/lobby/jrb_naked_reality.ogg',
+		'sound/music/lobby/interkosmos_persistence.ogg',
 	)
 
 	var/lobby_ready = FALSE
