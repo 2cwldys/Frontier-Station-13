@@ -1522,6 +1522,19 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 				contents += list(child_data)
 		data["contents"] = contents
 
+	// Folders -- not /obj/item/storage (their own ad-hoc contents var and
+	// update_icon(), folders.dm), so they need the same recursive contents
+	// treatment spelled out separately, or a folder's papers silently
+	// vanish on restore -- same empty-list reasoning as the storage branch
+	// above (a saved-empty folder must restore empty, not skip the key).
+	else if(istype(I, /obj/item/folder))
+		var/list/contents = list()
+		for(var/obj/item/child in I.contents)
+			var/list/child_data = serializePersistentItem(child)
+			if(child_data)
+				contents += list(child_data)
+		data["contents"] = contents
+
 	// Internal storage -- suits-with-pockets, webbing/storage accessories,
 	// helmets: an /obj/item/storage/internal living in the item's contents
 	// rather than the item being a storage itself.
@@ -1911,6 +1924,16 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		// per-can overlays) would otherwise stay stale until something
 		// unrelated happened to trigger a redraw.
 		S.update_icon()
+
+	// Folder contents -- mirrors the storage branch above, see
+	// serializePersistentItem()'s matching folder branch for why this is
+	// separate from it.
+	else if(("contents" in data) && istype(I, /obj/item/folder))
+		while(length(I.contents))
+			qdel(I.contents[1])
+		for(var/list/child_data in data["contents"])
+			deserializePersistentItem(child_data, I)
+		I.update_icon() // toggles the "folder_paper" overlay, folders.dm
 
 	// Internal storage (suit pockets, webbing holds, helmet holds)
 	if(data["internal_storage"])
