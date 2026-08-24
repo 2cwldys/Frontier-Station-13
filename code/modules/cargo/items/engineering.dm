@@ -36,6 +36,18 @@
 	access = 0
 	container_type = "crate"
 
+/singleton/cargo_item/pilotseat
+	category = "engineering"
+	name = "pilot seat"
+	supplier = "Hub"
+	description = "A wheeled pilot's seat for a ship's bridge or cockpit. Wrench to secure after placement."
+	price = 150
+	items = list(
+		/obj/structure/bed/stool/chair/office/bridge/pilot/crate
+	)
+	access = 0
+	container_type = "crate"
+
 // ---- End Shuttle Construction ----
 
 /singleton/cargo_item/travel_pad
