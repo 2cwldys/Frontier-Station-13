@@ -239,8 +239,18 @@
 		unres_dir = electronics.unres_dir
 		req_access_faction = electronics.req_access_faction
 
-		bound_height = assembly.bound_height
-		bound_width = assembly.bound_width
+		// The base door Initialize() (../..()) already called SetBounds()
+		// earlier in this same call chain, but using the compile-time
+		// default dir -- set_dir() above hadn't run yet. For a width>1 door
+		// built in any orientation other than that default, the old
+		// bound_height/bound_width-only copy from the assembly left
+		// bound_x/bound_y stuck on the stale/wrong orientation, so the
+		// second tile of the door had no collision at all (custom
+		// /turf/Enter(), turf.dm, only ever checks turf.contents -- never
+		// the bounding box -- so a mismatched bound_x means that tile is as
+		// passable as open air). Re-running SetBounds() now, with the
+		// correct dir already applied, recomputes all four consistently.
+		SetBounds()
 
 	if (on_admin_z)
 		secured_wires = TRUE
