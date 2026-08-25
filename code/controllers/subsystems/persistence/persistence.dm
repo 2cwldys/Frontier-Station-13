@@ -664,6 +664,7 @@ SUBSYSTEM_DEF(persistence)
 		SSpersistence.mobsHealthFinalize()
 		SSpersistence.mobsInventoryFinalize()
 		SSpersistence.charIdentityFinalize()
+		SSpersistence.charSkillsFinalize()
 		SSpersistence.mobsPositionFinalizeAll()
 		to_chat(usr, SPAN_NOTICE("[SPAN_BOLD("5/8")] Saving turfs..."))
 		SSpersistence.turfsFinalize()
@@ -881,6 +882,11 @@ SUBSYSTEM_DEF(persistence)
 		charIdentityFinalize()
 	catch(var/exception/id_e)
 		log_subsystem_persistence_panic("Unhandled exception during character identity persistence finalization: [id_e]")
+
+	try
+		charSkillsFinalize()
+	catch(var/exception/skills_e)
+		log_subsystem_persistence_panic("Unhandled exception during character skills persistence finalization: [skills_e]")
 
 	try
 		mobsPositionFinalizeAll()
@@ -1312,6 +1318,12 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/id_e)
 		log_subsystem_persistence_panic("Unhandled exception during character identity persistence initialization: [id_e]")
 
+	log_subsystem_persistence_info("Starting character skills initialization...")
+	try
+		charSkillsInitialize()
+	catch(var/exception/skills_e)
+		log_subsystem_persistence_panic("Unhandled exception during character skills persistence initialization: [skills_e]")
+
 	log_subsystem_persistence_info("Starting mob position initialization...")
 	try
 		mobPositionInitialize()
@@ -1400,6 +1412,11 @@ SUBSYSTEM_DEF(persistence)
 		charIdentityFinalize()
 	catch(var/exception/id_e)
 		log_subsystem_persistence_panic("Unhandled exception during character identity persistence finalization: [id_e]")
+
+	try
+		charSkillsFinalize()
+	catch(var/exception/skills_e)
+		log_subsystem_persistence_panic("Unhandled exception during character skills persistence finalization: [skills_e]")
 
 	try
 		mobsPositionFinalizeAll()

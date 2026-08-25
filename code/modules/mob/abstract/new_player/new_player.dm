@@ -828,6 +828,12 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 			character.applyPersistentIdentity()
 		catch(var/exception/id_e)
 			log_subsystem_persistence_error("PersistentAutoSpawn: identity restore failed: [id_e]")
+		// After copy_to() has laid down the chargen defaults, so earned levels
+		// win over the Trained baseline the character slot holds.
+		try
+			character.applyPersistentSkills()
+		catch(var/exception/skills_e)
+			log_subsystem_persistence_error("PersistentAutoSpawn: skill restore failed: [skills_e]")
 		// Refresh visual icons after equipping saved items so the character doesn't appear naked
 		character.force_update_limbs()
 		character.update_body()

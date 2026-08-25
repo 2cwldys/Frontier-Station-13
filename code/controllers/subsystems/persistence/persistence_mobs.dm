@@ -653,7 +653,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 /proc/persistence_delete_character_data(ckey, char_name)
 	if(!GLOB.config.sql_enabled || !SSdbcore.Connect())
 		return
-	var/tables = list("ss13_char_health", "ss13_char_inventory", "ss13_char_identity", "ss13_mob_position")
+	var/tables = list("ss13_char_health", "ss13_char_inventory", "ss13_char_identity", "ss13_mob_position", "ss13_char_skills")
 	for(var/table in tables)
 		var/datum/db_query/q = SSdbcore.NewQuery(
 			"DELETE FROM [table] WHERE ckey = :ckey AND char_name = :char_name",

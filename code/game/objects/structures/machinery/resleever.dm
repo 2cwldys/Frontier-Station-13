@@ -242,6 +242,29 @@
 	qdel(LM)
 
 	to_chat(target_body, SPAN_GOOD("You are resleeved. Welcome back."))
+
+	// Restore what the lace was carrying BEFORE taking anything away, so the
+	// loss below comes off the character's real earned levels rather than the
+	// Trained baseline a clone body is built with. A clone is assembled by
+	// copy_to() from the saved chargen slot (resleever_cloning.dm), which knows
+	// nothing about skills learned in-round -- without this restore, resleeving
+	// would quietly erase every manual and every lesson.
+	if(islist(inserted_lace.stored_skills) && length(inserted_lace.stored_skills))
+		apply_skill_snapshot(target_body, inserted_lace.stored_skills)
+
+	// Coming back costs you. A random couple of skills lose a tier -- see
+	// apply_resleeve_skill_loss() (skill_progression.dm) for the exact bounds.
+	// Done HERE rather than when the clone body was grown because the mind has
+	// only just arrived: before the transfer above there was no client to read
+	// education from or to show this report to.
+	var/list/lost_skills = apply_resleeve_skill_loss(target_body)
+	if(length(lost_skills))
+		to_chat(target_body, SPAN_WARNING(FONT_LARGE("Some of what you knew didn't survive the transfer:")))
+		for(var/entry in lost_skills)
+			to_chat(target_body, SPAN_WARNING("&nbsp;&nbsp;[entry]"))
+		to_chat(target_body, SPAN_NOTICE("Skills can be relearned from someone who still holds them, or from a professional manual."))
+		log_game("[inserted_lace.registered_name] lost skills to resleeving: [jointext(lost_skills, ", ")].")
+
 	to_chat(user, SPAN_GOOD("Resleeve successful. [inserted_lace.registered_name] is now in the new body."))
 	log_game("[inserted_lace.registered_name] resleeved by [user.real_name] via resleever at ([x],[y],[z]).")
 

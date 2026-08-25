@@ -52,6 +52,16 @@
 	var/registered_name = ""
 	/// Faction UID of the owner (for routing to faction storage)
 	var/owner_faction = ""
+	/// Snapshot of the owner's skills, as skill typepath -> level, taken at the
+	/// moment their consciousness is captured (get_skill_snapshot(),
+	/// skill_progression.dm).
+	///
+	/// The lace carries the person, so it has to carry what the person knew.
+	/// A clone body is built by copy_to() from the saved chargen slot, which
+	/// only holds the Trained default fill -- so without this, resleeving would
+	/// reset every skill earned in-round from a manual or a teacher, instead of
+	/// costing the intended tier or two.
+	var/list/stored_skills
 
 /obj/item/organ/internal/neural_lace/Initialize(mapload, internal)
 	. = ..()
@@ -264,6 +274,11 @@
 		if(target.wear_id && istype(target.wear_id, /obj/item/card/id))
 			var/obj/item/card/id/card = target.wear_id
 			if(card.employer_faction) owner_faction = normalize_faction_uid(card.employer_faction)
+
+		// Taken from the body BEFORE the mind leaves it -- this is the only
+		// moment the dying character's actual, earned skill levels are still
+		// readable. See stored_skills' own doc comment.
+		stored_skills = get_skill_snapshot(target)
 
 		lace_mob = new /mob/living/carbon/lace_mob(get_turf(target))
 		lace_mob.name      = target.real_name
