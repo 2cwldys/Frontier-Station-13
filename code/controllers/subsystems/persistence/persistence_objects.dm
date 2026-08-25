@@ -325,6 +325,12 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
 		track.persistent_objects_apply_content(content, x, y, z)
 		if(islist(content) && ("__dir" in content))
 			track.dir = text2num(content["__dir"])
+			// Raw assignment, so nothing recomputes dir-derived state that
+			// Initialize() already worked out against the default dir -- see
+			// persistence_reapply_dir_state()'s own doc comment (objs.dm).
+			// Unconditional, unlike the wall-offset hook below, which must
+			// stay legacy-only so it can't clobber authoritative saved offsets.
+			track.persistence_reapply_dir_state()
 		if(islist(content) && ("__anchored" in content))
 			track.anchored = content["__anchored"]
 		if(islist(content) && ("__pixel_x" in content))

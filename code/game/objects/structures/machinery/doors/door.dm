@@ -115,6 +115,18 @@
 			bound_x = 0
 			bound_y = (dir == NORTH) ? -(width - 1) * world.icon_size : 0
 
+/// Persistence restores dir by raw assignment, long after Initialize() already
+/// ran SetBounds() against the compile-time default dir -- and forceMove()
+/// never routes through Move(), which is the only other place bounds are
+/// recomputed. For a width > 1 door saved in any other orientation that left
+/// bound_x/bound_y pointing at the wrong neighbouring tile, so the tile the
+/// sprite covers was as passable as open air. Exactly the bug already fixed on
+/// the construction path (see the SetBounds() call and its comment in
+/// airlock.dm's Initialize()); this is the restore-path half of it.
+/obj/structure/machinery/door/persistence_reapply_dir_state()
+	SetBounds()
+	update_nearby_tiles()
+
 /obj/structure/machinery/door/proc/open_hatch(var/atom/mover = null)
 	if (!hatchstate)
 		hatchstate = 1

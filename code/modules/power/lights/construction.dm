@@ -171,6 +171,16 @@
 					newlight = new /obj/structure/machinery/light/floor/built(get_turf(src))
 
 			newlight.dir = src.dir
+			// The new() above already ran Initialize() -> set_pixel_offsets()
+			// (fixtures.dm), while dir was still the compile-time default
+			// SOUTH -- and set_dir() doesn't recompute offsets. So every built
+			// fixture took the SOUTH branch regardless of the wall it was on:
+			// a small light landed at pixel_y = -22 where its frame had been
+			// at +32 on a north wall, a 54px drop that reads as the fixture
+			// teleporting a couple of tiles down. Recompute now that dir is
+			// right, the same way camera_assembly.dm already does after its
+			// own dir assignment.
+			newlight.set_pixel_offsets()
 			if(cell)
 				newlight.cell = cell
 				cell.forceMove(newlight)

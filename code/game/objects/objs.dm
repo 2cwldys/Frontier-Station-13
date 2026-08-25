@@ -464,3 +464,20 @@
  */
 /obj/proc/persistence_reapply_wall_offset()
 	return
+
+/**
+ * Called by the persistence subsystem immediately after a tracked object's dir
+ * has been restored, on EVERY row -- unlike persistence_reapply_wall_offset()
+ * above, which only runs for legacy rows because modern rows persist
+ * pixel_x/pixel_y authoritatively and re-deriving them would clobber the saved
+ * values.
+ *
+ * This exists for dir-derived state that is NOT a pixel offset and therefore
+ * isn't saved: a multi-tile door's bound_x/bound_y (SetBounds(), door.dm) is
+ * computed at Initialize() against the compile-time default dir, and the
+ * restore assigns dir raw afterwards -- forceMove() doesn't route through
+ * Move(), so nothing recomputed the bounding box and the door's second tile
+ * had no collision at all. No-op by default.
+ */
+/obj/proc/persistence_reapply_dir_state()
+	return

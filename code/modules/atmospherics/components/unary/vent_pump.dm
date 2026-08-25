@@ -129,6 +129,24 @@
 		id_tag = num2text(uid)
 	setup_radio()
 
+/// A vent defaults to POWER_USE_OFF (above), which makes the base
+/// post_machine_initialize() (power_usage.dm) return BEFORE it reaches
+/// setup_area_power_relationship() -- the only thing in the codebase that
+/// subscribes a machine to COMSIG_AREA_POWER_CHANGE. At init the area's APC
+/// hasn't restored its power channels yet (areas.dm), so power_change() sets
+/// stat |= NOPOWER, and with no subscription that bit can never be cleared
+/// again. receive_signal() below hard-returns on it, so the vent silently
+/// ignored every air alarm and tank-console command for the rest of its life.
+///
+/// POWER_USE_OFF here means "idle right now", not "never draws power" -- these
+/// switch themselves to POWER_USE_IDLE/ACTIVE at runtime -- so the area
+/// relationship has to exist regardless of the starting mode. The /on subtypes
+/// only ever worked because they start POWER_USE_IDLE and thus never hit that
+/// early return.
+/obj/structure/machinery/atmospherics/unary/vent_pump/post_machine_initialize()
+	..()
+	setup_area_power_relationship()
+
 /obj/structure/machinery/atmospherics/unary/vent_pump/proc/setup_radio()
 	//some vents work his own special way
 	radio_filter_in = frequency == 1439 ? (RADIO_FROM_AIRALARM) : null
