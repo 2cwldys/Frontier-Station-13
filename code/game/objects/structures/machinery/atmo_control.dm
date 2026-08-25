@@ -231,6 +231,34 @@
 	frequency = new_frequency
 	radio_connection = SSradio.add_object(src, frequency, RADIO_ATMOSIA)
 
+/// Requests a status broadcast from whichever device is linked as input
+/// (is_input = TRUE) or output (FALSE), so input_info/output_info get
+/// (re)populated without the player needing to click Refresh Status
+/// themselves. Declared once on the base -- shared by large_tank_control's
+/// and supermatter_core's near-identical ui_act() in_refresh_status/
+/// out_refresh_status cases below, and by worldstate_apply_content() (this
+/// type, further down) -- a restored link's input_tag/output_tag and
+/// frequency come back fine on their own, but input_info/output_info (what
+/// ui_data() actually reads) are only ever filled by a received broadcast,
+/// so without this the console's UI stayed blank until someone re-linked
+/// the device with a multitool.
+/obj/structure/machinery/computer/general_air_control/proc/request_status_broadcast(is_input)
+	if(!radio_connection)
+		return FALSE
+	var/tag = is_input ? input_tag : output_tag
+	if(!tag)
+		return FALSE
+	if(is_input)
+		input_info = null
+	else
+		output_info = null
+	var/datum/signal/signal = new
+	signal.transmission_method = TRANSMISSION_RADIO
+	signal.source = src
+	signal.data = list("tag" = tag, "status" = 1, "sigtype" = "command")
+	INVOKE_ASYNC(radio_connection, TYPE_PROC_REF(/datum/radio_frequency, post_signal), src, signal, filter = RADIO_ATMOSIA)
+	return TRUE
+
 /obj/structure/machinery/computer/general_air_control/Initialize()
 	. = ..()
 	set_frequency(frequency)
@@ -415,9 +443,8 @@
 	signal.source = src
 	switch(action)
 		if("in_refresh_status")
-			input_info = null
-			signal.data = list("tag" = input_tag, "status" = 1)
-			. = TRUE
+			request_status_broadcast(TRUE)
+			return TRUE
 
 		if("in_toggle_injector")
 			input_info = null
@@ -432,9 +459,8 @@
 				. = TRUE
 
 		if("out_refresh_status")
-			output_info = null
-			signal.data = list ("tag" = output_tag, "status" = 1)
-			. = TRUE
+			request_status_broadcast(FALSE)
+			return TRUE
 
 		if("out_toggle_power")
 			output_info = null
@@ -518,9 +544,8 @@
 	signal.source = src
 	switch(action)
 		if("in_refresh_status")
-			input_info = null
-			signal.data = list ("tag" = input_tag, "status" = 1)
-			. = TRUE
+			request_status_broadcast(TRUE)
+			return TRUE
 
 		if("in_toggle_injector")
 			input_info = null
@@ -535,9 +560,8 @@
 				. = TRUE
 
 		if("out_refresh_status")
-			output_info = null
-			signal.data = list ("tag" = output_tag, "status" = 1)
-			. = TRUE
+			request_status_broadcast(FALSE)
+			return TRUE
 
 		if("out_toggle_power")
 			output_info = null

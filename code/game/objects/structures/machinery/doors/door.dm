@@ -42,6 +42,10 @@
 	var/obj/item/stack/material/repairing
 	/// Integer. Width of the door in tiles.
 	var/width = 1
+	/// One /obj/effect/door_tile_blocker per EXTRA tile (width > 1 doors only,
+	/// empty otherwise) -- see _sync_tile_blockers()'s own doc comment for why
+	/// this exists at all.
+	var/list/tile_blockers
 	var/air_properties_vary_with_direction = 0
 	/// Integer. Corresponds to dirs. If opened from this dir, no access is required.
 	var/unres_dir = null
@@ -66,6 +70,90 @@
 	atmos_canpass = CANPASS_PROC
 
 	can_astar_pass = CANASTARPASS_ALWAYS_PROC
+
+/**
+ * Keeps tile_blockers in sync with locs (every tile bound_x/bound_width make
+ * this door visually span, computed by SetBounds()) -- called after every
+ * SetBounds() call site (Initialize(), Move(), persistence_reapply_dir_state())
+ * and from set_density() so an open door's extra tile(s) stop blocking too.
+ *
+ * This exists because bound_x/bound_width are NEVER consulted by movement/
+ * collision anywhere in this codebase -- /turf/Enter() (turf.dm) only ever
+ * scans turf.contents, populated purely by an atom's real .loc, and
+ * /atom/movable/Move() (atoms_movable.dm) explicitly documents multitile-
+ * aware movement as cut and never reimplemented ("we don't do multitile
+ * movement (yet)"). So a width > 1 door's extra tile(s), covered only by the
+ * bounding box, were always exactly as passable as open air, regardless of
+ * whether bound_x held the right value -- fixing that value (the earlier
+ * construction-path and persistence-restore-path fixes) could never have
+ * fixed this, since nothing ever reads it for collision purposes.
+ *
+ * The only working pattern for real multi-tile collision anywhere in this
+ * codebase is a genuine second object with its own real .loc per extra tile
+ * -- see /obj/effect/piston_blocker (crusher_piston.dm) and
+ * /datum/large_structure's per-tile /obj/structure/component (large.dm).
+ * This mirrors that same approach, scoped to the base door class so any
+ * width > 1 door (both airlock/multi_tile and firedoor/multi_tile, and any
+ * future one) gets it automatically -- a no-op loop for every ordinary
+ * width = 1 door, since locs - loc is empty for those.
+ */
+/obj/structure/machinery/door/proc/_sync_tile_blockers()
+	if(width <= 1)
+		if(length(tile_blockers))
+			QDEL_LIST(tile_blockers)
+		return
+	var/list/wanted = locs - loc
+	// Drop blockers no longer on a tile this door actually covers (dir/width
+	// changed since they were placed).
+	if(length(tile_blockers))
+		for(var/obj/effect/door_tile_blocker/existing in tile_blockers)
+			if(!(existing.loc in wanted))
+				tile_blockers -= existing
+				qdel(existing)
+			else
+				wanted -= existing.loc
+	for(var/turf/T in wanted)
+		var/obj/effect/door_tile_blocker/blocker = new(T)
+		blocker.parent_door = src
+		blocker.density = density
+		LAZYADD(tile_blockers, blocker)
+
+/obj/structure/machinery/door/set_density(new_value)
+	. = ..()
+	for(var/obj/effect/door_tile_blocker/blocker in tile_blockers)
+		blocker.density = new_value
+
+/obj/effect/door_tile_blocker
+	name = ""
+	anchored = TRUE
+	invisibility = INVISIBILITY_MAXIMUM
+	mouse_opacity = MOUSE_OPACITY_TRANSPARENT
+	/// The real door this tile's collision/interaction forwards to.
+	var/obj/structure/machinery/door/parent_door
+
+/obj/effect/door_tile_blocker/Destroy()
+	parent_door = null
+	return ..()
+
+/obj/effect/door_tile_blocker/CollidedWith(atom/bumped_atom)
+	. = ..()
+	if(parent_door && !QDELETED(parent_door))
+		parent_door.CollidedWith(bumped_atom)
+
+/obj/effect/door_tile_blocker/CanPass(atom/movable/mover, turf/target, height=0, air_group=0)
+	if(parent_door && !QDELETED(parent_door))
+		return parent_door.CanPass(mover, target, height, air_group)
+	return ..()
+
+/obj/effect/door_tile_blocker/attack_hand(mob/user)
+	if(parent_door && !QDELETED(parent_door))
+		return parent_door.attack_hand(user)
+	return ..()
+
+/obj/effect/door_tile_blocker/attackby(obj/item/I, mob/user, params)
+	if(parent_door && !QDELETED(parent_door))
+		return parent_door.attackby(I, user, params)
+	return ..()
 
 /obj/structure/machinery/door/mouse_drop_receive(atom/dropping, mob/user, params)
 	//Adds the component only once. We do it here & not in Initialize() because there are tons of walls & we don't want to add to their init times
@@ -92,6 +180,7 @@
 		explosion_resistance = 0
 
 	SetBounds()
+	_sync_tile_blockers()
 	update_nearby_tiles(need_rebuild=1)
 	if(turf_hand_priority)
 		AddComponent(/datum/component/turf_hand, turf_hand_priority)
@@ -99,6 +188,7 @@
 /obj/structure/machinery/door/Move(new_loc, new_dir)
 	. = ..()
 	SetBounds()
+	_sync_tile_blockers()
 	update_nearby_tiles()
 	update_icon()
 
@@ -125,6 +215,7 @@
 /// airlock.dm's Initialize()); this is the restore-path half of it.
 /obj/structure/machinery/door/persistence_reapply_dir_state()
 	SetBounds()
+	_sync_tile_blockers()
 	update_nearby_tiles()
 
 /obj/structure/machinery/door/proc/open_hatch(var/atom/mover = null)
@@ -149,6 +240,8 @@
 /obj/structure/machinery/door/Destroy()
 	set_density(FALSE)
 	update_nearby_tiles()
+	if(length(tile_blockers))
+		QDEL_LIST(tile_blockers)
 
 	return ..()
 

@@ -27,6 +27,14 @@
 	level = 1
 	var/area_uid
 	var/id_tag = null
+	/// TRUE when this vent's power was last set via the air alarm's
+	/// per-device control (not the room-wide mode) -- see receive_signal()'s
+	/// "power" handling and atmosAlarmsReset() (persistence.dm), which
+	/// otherwise unconditionally re-syncs every device in the area to the
+	/// room's mode on every restart, silently reverting an individual
+	/// override. Cleared by any non-individual power signal (room-wide mode
+	/// changes still win normally, live).
+	var/power_individually_set = FALSE
 
 	var/hibernate = 0 //Do we even process?
 	var/pump_direction = 1 //0 = siphoning, 1 = releasing
@@ -376,6 +384,7 @@
 
 	if(signal.data["power"] != null)
 		update_use_power(text2num(signal.data["power"]))
+		power_individually_set = !!signal.data["individual_override"]
 
 	if(signal.data["power_toggle"] != null)
 		update_use_power(!use_power)

@@ -14,6 +14,10 @@
 
 	var/area/initial_loc
 	var/id_tag = null
+	/// TRUE when this scrubber's power was last set via the air alarm's
+	/// per-device control (not the room-wide mode) -- see vent_pump.dm's
+	/// identical var for the full reasoning.
+	var/power_individually_set = FALSE
 	var/frequency = 1439
 	var/datum/radio_frequency/radio_connection
 
@@ -263,6 +267,7 @@
 
 	if(signal.data["power"] != null)
 		update_use_power(text2num(signal.data["power"]))
+		power_individually_set = !!signal.data["individual_override"]
 	if(signal.data["power_toggle"] != null)
 		update_use_power(!use_power)
 
