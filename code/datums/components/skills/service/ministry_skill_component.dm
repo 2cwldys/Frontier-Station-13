@@ -97,6 +97,7 @@
 			var/datum/moodlet/blessing = target_morale.load_moodlet(/datum/moodlet/ministry_blessing, moodlet_value)
 			blessing.refresh_moodlet()
 			blessing.moodlet_descriptor += " from [owner.name]."
+			ministry_skill.register_use(owner)
 
 		if ("No")
 			to_chat(owner, SPAN_NOTICE("[target] has refused your blessing."))

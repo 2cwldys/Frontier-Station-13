@@ -306,6 +306,7 @@ ABSTRACT_TYPE(/obj/item/gun)
 		playsound(user, safetyoff_sound, 25)
 		to_chat(user, SPAN_NOTICE("\The [src] is now set to [new_mode.name]."))
 		update_firing_delays()
+		user.GetComponent(FIREARMS_SKILL_COMPONENT)?.register_use(user)
 	for(var/M in message_mobs)
 		to_chat(M, SPAN_NOTICE("[user] has set \the [src] to [new_mode.name]."))
 
@@ -500,6 +501,7 @@ ABSTRACT_TYPE(/obj/item/gun)
 			handle_post_fire(user, target, pointblank, reflex, show_emote)
 			fired_any = TRUE
 			update_icon()
+			user.GetComponent(FIREARMS_SKILL_COMPONENT)?.register_use(user)
 
 		if(i < burst)
 			sleep(burst_delay)

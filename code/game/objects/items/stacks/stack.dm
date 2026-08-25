@@ -205,6 +205,14 @@
 
 	if (use(required))
 		recipe.Produce(produced, user.loc, user.dir, user, skill_diff)
+		// Generic over whichever skill(s) this specific recipe actually
+		// requires (required_skills_soft/hard, material_recipes.dm) -- not
+		// just mechanical_engineering, so any skill gating a craftable
+		// recipe trains from successfully building it.
+		for (var/skill_type in recipe.required_skills_soft)
+			user.GetComponent(skill_type)?.register_use(user)
+		for (var/skill_type in recipe.required_skills_hard)
+			user.GetComponent(skill_type)?.register_use(user)
 
 /obj/item/stack/Topic(href, href_list)
 	..()

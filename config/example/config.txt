@@ -396,6 +396,33 @@ MERCHANT_CHANCE 20
 ## How long before the crew can call the emergency shuttle. One hour by default.
 TIME_TO_CALL_EMERGENCY_SHUTTLE 36000
 
+## Skill decay/train-by-use tuning (all time values in deciseconds -- 36000 =
+## one hour). Decay only ever progresses while a character is spawned and
+## alive, so these are effectively hours of active play, not wall-clock.
+## How long a skill can sit unused before it starts decaying, and how long
+## between each further tier drop after that. 24 hours/24 hours by default.
+SKILL_DECAY_GRACE_PERIOD 864000
+SKILL_DECAY_INTERVAL 864000
+## Floor decay can never push a skill below (1 = Unfamiliar, 2 = Familiar,
+## 3 = Trained, 4 = Professional). 1 by default.
+SKILL_DECAY_FLOOR 2
+## Progress banked toward a skill's next tier per qualifying use, how much
+## total progress a tier costs, and the cooldown between banking attempts for
+## a single skill -- a steady build-up from practice, not a flat per-use
+## chance to instantly jump a tier. 5 per use / 100 needed / 20 seconds by
+## default -- 20 qualifying uses (at least 20 seconds apart each) per tier.
+SKILL_TRAIN_PROGRESS_PER_USE 5
+SKILL_TRAIN_PROGRESS_NEEDED 100
+SKILL_TRAIN_COOLDOWN 200
+
+## How many skills a single resleeve can touch, and how many tiers in total
+## it can take across them. 2/2 by default.
+RESLEEVE_MAX_SKILLS_AFFECTED 2
+RESLEEVE_MAX_TIERS_LOST 2
+## Skills at or below this level are left alone by a resleeve (1 = Unfamiliar,
+## 2 = Familiar, 3 = Trained, 4 = Professional). Familiar (2) by default.
+RESLEEVE_SKILL_LOSS_FLOOR 2
+
 ## Defines which races are allowed to join as ERT, in singular form. If unset, defaults to only human. Casing matters, separate using ;
 ## Example races include: Human, Tajara, Skrell, Unathi
 # ERT_SPECIES Human;Skrell;Unathi

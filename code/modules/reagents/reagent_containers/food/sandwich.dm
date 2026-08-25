@@ -40,6 +40,7 @@
 		user.drop_from_inventory(attacking_item, src)
 		ingredients += attacking_item
 		update()
+		user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 		return
 	..()
 

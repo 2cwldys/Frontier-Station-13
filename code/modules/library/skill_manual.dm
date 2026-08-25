@@ -1,28 +1,30 @@
 /*
  * Skill Manuals
  *
- * A cargo-orderable book that takes its one skill straight to Professional --
- * the top tier -- regardless of where the reader started, including back up
- * from the losses a resleeve inflicts. Ordering is per-skill (see
+ * A cargo-orderable book that raises its one skill by exactly ONE tier --
+ * the same amount a qualified teacher gives in one session (Teach Skills
+ * verb, skill_verbs.dm's min(their_level + 1, my_level)) -- then is
+ * consumed. Refuses (and is NOT consumed) if the reader is already at that
+ * skill's own ceiling. Ordering is per-skill (see
  * code/modules/cargo/items/skill_books.dm), so a crate contains exactly the
  * discipline that was paid for.
  *
  * Everyone starts Trained (the default fill, preference_setup/skills/skills.dm).
- * There are exactly two ways up from there: this, or being taught one tier at a
- * time by somebody who already holds the higher tier (Teach Skills verb). The
- * two are not redundant -- teaching needs a qualified teacher to already exist
- * on the server, so manuals are the bootstrap that seeds a discipline into the
- * population at all. That is what the price is for.
+ * There are three ways up from there: this, being taught one tier at a time by
+ * somebody who already holds a higher tier (Teach Skills verb), or slow
+ * practice (register_use(), skill_component.dm -- doing the thing the skill
+ * governs). Manuals and teaching are both instant but consumable/dependent on
+ * another player; practice is free but slow. None are redundant.
  *
- * Deliberately NOT offered for skills that cannot reach Professional (three
- * combat skills cap at Trained, pilot_mechs at Familiar) -- everyone is already
- * at those ceilings from the default fill, so a manual would either do nothing
- * or have to violate the cap. Losing one of those to a resleeve is recoverable
- * by teaching, which is the only way they can drop in the first place.
+ * Every skill has one, even pilot_spacecraft (capped at Familiar, the same as
+ * the default fill -- reading it does nothing today, but it's harmless and
+ * keeps the catalogue uniform). Losing a skill to a resleeve is recoverable by
+ * teaching or practice, which are the only ways it can drop in the first place
+ * (that, and decay from prolonged disuse -- skills.dm's fire()).
  *
  * Unlike the language primer this is modelled on, studying takes real time --
  * the primer is instant and infinitely reusable, which is fine for a tongue but
- * far too cheap for the top tier of a discipline.
+ * far too cheap for even one tier of a discipline.
  */
 
 /// How long studying a manual takes.
@@ -57,10 +59,12 @@
 		return ..()
 
 	var/current = get_skill_progression_level(user, skill)
-	var/target = min(SKILL_LEVEL_PROFESSIONAL, get_skill_progression_cap(user, skill))
+	var/cap = get_skill_progression_cap(user, skill)
+	var/target = min(current + 1, cap)
 
-	// Already there -- say so rather than burning half a minute to no effect.
-	if(current >= target)
+	// Already at the ceiling -- refuse outright, don't burn the book or the
+	// reader's time for a raise that can't happen.
+	if(current >= cap)
 		to_chat(user, SPAN_NOTICE("You already know everything \the [src] has to teach about [skill.name]."))
 		return TRUE
 
@@ -75,20 +79,27 @@
 	// Re-check: the study window is long enough that something else could have
 	// raised this skill in the meantime.
 	current = get_skill_progression_level(user, skill)
-	if(current >= target)
+	cap = get_skill_progression_cap(user, skill)
+	if(current >= cap)
 		to_chat(user, SPAN_NOTICE("You already know everything \the [src] has to teach about [skill.name]."))
 		return TRUE
+	target = min(current + 1, cap)
 
 	var/applied = set_skill_progression_level(user, skill, target)
-	if(isnull(applied))
+	if(isnull(applied) || applied <= current)
 		to_chat(user, SPAN_WARNING("You can't seem to make \the [src] stick."))
 		return TRUE
+
+	var/datum/component/skill/comp = user.GetComponent(skill.component_type)
+	if(comp)
+		comp.last_used_time = REALTIMEOFDAY
 
 	user.visible_message(
 		SPAN_NOTICE("\The [user] closes \the [src] with the air of someone who has just understood something."),
 		SPAN_GOOD("You finish \the [src]. Your [skill.name] is now [get_skill_level_name(skill, applied)].")
 	)
 	log_game("[key_name(user)] raised [skill.name] to [get_skill_level_name(skill, applied)] from \a [src].")
+	qdel(src)
 	return TRUE
 
 // ---- Everyday ----
@@ -109,6 +120,15 @@
 	taught_skill = /singleton/skill/ministry
 
 // ---- Combat ----
+
+/obj/item/book/skill_manual/unarmed_combat
+	taught_skill = /singleton/skill/unarmed_combat
+
+/obj/item/book/skill_manual/armed_combat
+	taught_skill = /singleton/skill/armed_combat
+
+/obj/item/book/skill_manual/firearms
+	taught_skill = /singleton/skill/firearms
 
 /obj/item/book/skill_manual/leadership
 	taught_skill = /singleton/skill/leadership
@@ -154,6 +174,9 @@
 
 /obj/item/book/skill_manual/pilot_spacecraft
 	taught_skill = /singleton/skill/pilot_spacecraft
+
+/obj/item/book/skill_manual/pilot_mechs
+	taught_skill = /singleton/skill/pilot_mechs
 
 // ---- Science ----
 

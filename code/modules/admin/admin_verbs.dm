@@ -208,6 +208,7 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/set_player_character_slots,
 	/datum/admins/proc/rename_persistent_character,
 	/datum/admins/proc/remove_persistent_character,
+	/datum/admins/proc/modify_character_skills,
 	/datum/admins/proc/toggle_server_joining,
 	/datum/admins/proc/manage_faction_account,
 	/datum/admins/proc/manage_faction_jobs,

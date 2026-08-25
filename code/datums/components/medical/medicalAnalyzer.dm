@@ -107,6 +107,7 @@
 
 		health_scan_mob(target_mob, user, FALSE, sound_scan = sound_scan)
 		ui_interact(user)
+		user.GetComponent(ANATOMY_SKILL_COMPONENT)?.register_use(user)
 		// Wear on a completed scan of someone else. Deliberately NOT in
 		// attack_self() below -- self-scans go through the item's own
 		// attack_self(), which the click handler already charges, and adding it

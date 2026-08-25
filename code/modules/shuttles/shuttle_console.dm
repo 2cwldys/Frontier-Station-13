@@ -114,6 +114,8 @@
 		return FALSE
 	user.set_machine(src)
 	ui_interact(user)
+	if(required_skill)
+		user.GetComponent(astype(required_skill, SKILL_COMPONENT))?.register_use(user)
 
 /obj/structure/machinery/computer/shuttle_control/attack_ai(mob/user)
 	if(!ai_can_interact(user))
@@ -271,6 +273,7 @@
 		if(can_move(shuttle, user))
 			_play_launch_sound()
 			shuttle.launch(src)
+			user.GetComponent(PILOT_SPACECRAFT_SKILL_COMPONENT)?.register_use(user)
 			return TRUE
 		return FALSE
 
@@ -278,6 +281,7 @@
 		if(can_move(shuttle, user))
 			_play_launch_sound()
 			shuttle.force_launch(src)
+			user.GetComponent(PILOT_SPACECRAFT_SKILL_COMPONENT)?.register_use(user)
 			return TRUE
 		return FALSE
 

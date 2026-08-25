@@ -239,18 +239,21 @@
 		unres_dir = electronics.unres_dir
 		req_access_faction = electronics.req_access_faction
 
-		// The base door Initialize() (../..()) already called SetBounds()
-		// earlier in this same call chain, but using the compile-time
-		// default dir -- set_dir() above hadn't run yet. For a width>1 door
-		// built in any orientation other than that default, the old
-		// bound_height/bound_width-only copy from the assembly left
-		// bound_x/bound_y stuck on the stale/wrong orientation, so the
-		// second tile of the door had no collision at all (custom
-		// /turf/Enter(), turf.dm, only ever checks turf.contents -- never
-		// the bounding box -- so a mismatched bound_x means that tile is as
-		// passable as open air). Re-running SetBounds() now, with the
-		// correct dir already applied, recomputes all four consistently.
+		// The base door Initialize() (../..()) already called SetBounds() +
+		// _sync_tile_blockers() earlier in this same call chain, but using
+		// the compile-time default dir -- set_dir() above hadn't run yet.
+		// bound_x/bound_width themselves are cosmetic (nothing reads them
+		// for collision); what actually matters is _sync_tile_blockers(),
+		// which places a real second /obj/effect/door_tile_blocker per
+		// extra tile based on locs (door.dm) -- and locs is derived from
+		// those same bound_x/bound_width values. So a width>1 door built
+		// in any orientation other than the default left its blocker
+		// parked on the stale/wrong tile, while the correctly-oriented
+		// tile the sprite actually covers had no blocker at all and was as
+		// passable as open air. Re-running both now, with the correct dir
+		// already applied, places the blocker(s) on the real tile(s).
 		SetBounds()
+		_sync_tile_blockers()
 
 	if (on_admin_z)
 		secured_wires = TRUE

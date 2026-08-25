@@ -548,6 +548,32 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 
 	var/time_to_call_emergency_shuttle = 36000  //how many time until the crew can call the transfer shuttle. One hour by default.
 
+	/// Real (deciseconds) hours of disuse before a skill starts decaying, and
+	/// real hours between each further tier drop after that. Only ever
+	/// checked against currently-spawned, alive mobs (SSskills.fire()), so in
+	/// effect this only counts hours a character is actually being played.
+	var/skill_decay_grace_period = 24 HOURS
+	var/skill_decay_interval = 24 HOURS
+	/// Floor decay can never push a skill below. SKILL_LEVEL_UNFAMILIAR (1) by
+	/// default -- no distinction from a character's chargen default is made.
+	var/skill_decay_floor = SKILL_LEVEL_UNFAMILIAR
+	/// Progress banked toward a skill's next tier per qualifying use, how much
+	/// total progress a tier costs, and the per-skill cooldown between
+	/// banking attempts (register_use(), datums/components/skills/
+	/// skill_component.dm) -- a steady build-up from practice, not a flat
+	/// per-use chance to instantly jump a tier.
+	var/skill_train_progress_per_use = 5
+	var/skill_train_progress_needed = 100
+	var/skill_train_cooldown = 20 SECONDS
+
+	/// How many skills a single resleeve can touch, and how many tiers it can
+	/// take in total across them (apply_resleeve_skill_loss(),
+	/// datums/skills/skill_progression.dm).
+	var/resleeve_max_skills_affected = 2
+	var/resleeve_max_tiers_lost = 2
+	/// Skills at or below this are left alone by a resleeve.
+	var/resleeve_skill_loss_floor = SKILL_LEVEL_FAMILIAR
+
 	var/forum_api_path
 	// global.forum_api_key - see modules/http/forum_api.dm
 	var/news_use_forum_api = FALSE
@@ -1171,6 +1197,33 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 
 				if("merchant_chance")
 					GLOB.config.merchant_chance = text2num(value)
+
+				if("skill_decay_grace_period")
+					GLOB.config.skill_decay_grace_period = text2num(value)
+
+				if("skill_decay_interval")
+					GLOB.config.skill_decay_interval = text2num(value)
+
+				if("skill_decay_floor")
+					GLOB.config.skill_decay_floor = text2num(value)
+
+				if("skill_train_progress_per_use")
+					GLOB.config.skill_train_progress_per_use = text2num(value)
+
+				if("skill_train_progress_needed")
+					GLOB.config.skill_train_progress_needed = text2num(value)
+
+				if("skill_train_cooldown")
+					GLOB.config.skill_train_cooldown = text2num(value)
+
+				if("resleeve_max_skills_affected")
+					GLOB.config.resleeve_max_skills_affected = text2num(value)
+
+				if("resleeve_max_tiers_lost")
+					GLOB.config.resleeve_max_tiers_lost = text2num(value)
+
+				if("resleeve_skill_loss_floor")
+					GLOB.config.resleeve_skill_loss_floor = text2num(value)
 
 				if("time_to_call_emergency_shuttle")
 					GLOB.config.time_to_call_emergency_shuttle = text2num(value)

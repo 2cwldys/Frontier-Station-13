@@ -340,6 +340,7 @@
 		// this is to stop reagents from burning when you're heating stuff
 		get_cooking_work(CI)
 		cooking = TRUE
+		user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 
 	return CI
 

@@ -356,6 +356,7 @@ If you add a drink with an empty icon sprite, ensure it is in the same folder, e
 			if (!isnull(drink_moodlet_value))
 				src.visible_message(SPAN_NOTICE("[user] stirs \the [src] with \the [attacking_item]."))
 				src.LoadComponent(/datum/component/drink_moodlet_provider, drink_moodlet_value, FALSE, drink_quality)
+				bar_skill.register_use(user)
 	return ..()
 
 //////////////////////////drinkingglass and shaker//
@@ -453,6 +454,7 @@ If you add a drink with an empty icon sprite, ensure it is in the same folder, e
 			drink_moodlet_value = moodlet_value_per_bartending_rank * bar_skill.skill_level
 			if (isnull(drink_quality))
 				drink_quality = rand(1, 20) + 3 * bar_skill.skill_level
+			bar_skill.register_use(user)
 
 	src.add_fingerprint(user)
 	return
@@ -489,9 +491,10 @@ If you add a drink with an empty icon sprite, ensure it is in the same folder, e
 		return TRUE
 	return ..()
 
-/obj/item/reagent_containers/food/drinks/shaker/on_pour(atom/target)
+/obj/item/reagent_containers/food/drinks/shaker/on_pour(atom/target, mob/user)
 	if (!isnull(drink_moodlet_value))
 		target.LoadComponent(/datum/component/drink_moodlet_provider, drink_moodlet_value, FALSE, drink_quality)
+		user?.GetComponent(BARTENDING_SKILL_COMPONENT)?.register_use(user)
 
 	// Bartender has finished pouring a drink, prepare the shaker to make the next one.
 	if (!reagents.total_volume)

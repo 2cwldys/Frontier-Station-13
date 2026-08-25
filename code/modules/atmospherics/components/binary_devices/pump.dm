@@ -216,6 +216,7 @@ Thus, the two variables affect pump operation are set in New():
 				. = TRUE
 			if(.)
 				target_pressure = clamp(pressure, 0, ATMOS_PUMP_MAX_PRESSURE)
+				usr.GetComponent(ATMOSPHERICS_SYSTEMS_SKILL_COMPONENT)?.register_use(usr)
 		if("toggle_measure")
 			measure_enabled = !measure_enabled
 		if("reset_measure")

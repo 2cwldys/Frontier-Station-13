@@ -53,6 +53,21 @@ ABSTRACT_TYPE(/singleton/cargo_item/skill_manual)
 
 // ---- Combat ----
 
+/singleton/cargo_item/skill_manual/unarmed_combat
+	name = "skill manual - Unarmed Combat"
+	description = "A professional-certification manual in hand-to-hand combat and close-quarters defense."
+	items = list(/obj/item/book/skill_manual/unarmed_combat)
+
+/singleton/cargo_item/skill_manual/armed_combat
+	name = "skill manual - Armed Combat"
+	description = "A professional-certification manual in melee weapon handling and technique."
+	items = list(/obj/item/book/skill_manual/armed_combat)
+
+/singleton/cargo_item/skill_manual/firearms
+	name = "skill manual - Firearms"
+	description = "A professional-certification manual in firearms handling, marksmanship and safety."
+	items = list(/obj/item/book/skill_manual/firearms)
+
 /singleton/cargo_item/skill_manual/leadership
 	name = "skill manual - Leadership"
 	description = "A professional-certification manual in command and small-unit leadership."
@@ -123,6 +138,11 @@ ABSTRACT_TYPE(/singleton/cargo_item/skill_manual)
 	name = "skill manual - Spacecraft Piloting"
 	description = "A professional-certification manual in spacecraft handling, navigation and docking procedure."
 	items = list(/obj/item/book/skill_manual/pilot_spacecraft)
+
+/singleton/cargo_item/skill_manual/pilot_mechs
+	name = "skill manual - Exosuit Piloting"
+	description = "A professional-certification manual in mech handling, covering strafing, reverse control and power management."
+	items = list(/obj/item/book/skill_manual/pilot_mechs)
 
 // ---- Science ----
 

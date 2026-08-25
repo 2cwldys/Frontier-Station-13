@@ -72,6 +72,7 @@
 		var/datum/moodlet/speech = receiver_morale.load_moodlet(/datum/moodlet/leadership, moodlet_value)
 		speech.refresh_moodlet()
 		speech.moodlet_descriptor += " from [owner.name]."
+	leadership_skill.register_use(owner)
 
 /datum/action/leadership/proc/deliver_speech_target(mob/owner, mob/target)
 	set waitfor = FALSE // Immediately return control to the caller.
@@ -125,6 +126,7 @@
 	var/datum/moodlet/speech = target_morale.load_moodlet(/datum/moodlet/leadership, moodlet_value)
 	speech.refresh_moodlet()
 	speech.moodlet_descriptor += " from [owner.name]."
+	leadership_skill.register_use(owner)
 
 /**
  * Component used for the Leadership Skill.

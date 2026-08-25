@@ -170,6 +170,7 @@ Contains:
 					W.bandage()
 					playsound(src, apply_sounds, 25)
 					used++
+					user.GetComponent(MEDICINE_SKILL_COMPONENT)?.register_use(user)
 				affecting.update_damages()
 				if(used == amount)
 					if(affecting.is_bandaged())
