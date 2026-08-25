@@ -333,13 +333,16 @@
 		if(istype(src, /obj/item/gun))
 			RegisterSignal(src, COMSIG_GUN_FIRED, PROC_REF(on_gun_fired))
 		// Freshly-created items (admin spawn, cargo orders, procedural loot,
-		// anything NOT part of the original compiled map) get a randomized
-		// starting condition for variety -- never bad enough to be broken.
+		// anything NOT part of the original compiled map) always start at
+		// full durability -- previously randomized (25-100%) for variety,
+		// but that meant ordered/manufactured items could come in already
+		// worn. wear_max_durability, not the flat 100 wear_durability
+		// itself defaults to, since many item types override their max.
 		// Restored items are unaffected: persistent_objects_apply_content()
 		// runs after Initialize() and overwrites this with the real saved
 		// value whenever one exists.
 		if(!mapload)
-			wear_durability = round(wear_max_durability * (rand(25, 100) / 100))
+			wear_durability = wear_max_durability
 
 /obj/item/Destroy()
 	if(ismob(loc))
