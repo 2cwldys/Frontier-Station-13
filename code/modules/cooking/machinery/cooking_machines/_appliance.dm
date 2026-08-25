@@ -68,7 +68,7 @@
 	if(is_adjacent)
 		. += list_contents(user)
 
-/obj/structure/machinery/appliance/Initialize()
+/obj/structure/machinery/appliance/Initialize(mapload)
 	. = ..()
 	if(length(output_options))
 		verbs += /obj/structure/machinery/appliance/proc/choose_output
@@ -77,6 +77,80 @@
 	else
 		stat |= NOPOWER
 	particle_holder = new particle_type
+	// Unlike most structures, appliances are tracked unconditionally, mapload
+	// or not -- the inherited machinery Initialize() (_machinery.dm) only
+	// registers non-mapload spawns, but appliances have no wrench-loose-and-
+	// drag interaction the way closets/filing cabinets do (only removed via
+	// deconstruction), so a normal, never-moved, map-placed stove would
+	// otherwise never get tracked at all and would never persist what's
+	// cooking on it. objectsRegisterTrack() is safe to call more than once.
+	if(mapload && GLOB.config.sql_enabled && GLOB.persistence_ready)
+		SSpersistence.objectsRegisterTrack(src)
+
+/// Contents persistence -- saves whether it's on, the chosen combination-cook
+/// output, and every pot/pan/tray currently in cooking_objs. Each
+/// cooking_item's container is an item, so its reagents and any nested food
+/// items already come along for free via serializePersistentItem() -- only
+/// the cooking_item's own progress fields (not carried by the container
+/// itself) need spelling out here. Cooker subtypes (stove/oven/fryer/grill)
+/// layer set_temp/temperature on top of this via ..() -- see _cooker.dm.
+/obj/structure/machinery/appliance/persistent_objects_get_content()
+	var/list/content = list()
+	content["poweroff"] = !!(stat & POWEROFF)
+	content["selected_option"] = selected_option
+	var/list/saved_objs = list()
+	for(var/datum/cooking_item/CI in cooking_objs)
+		if(!CI.container)
+			continue
+		saved_objs += list(list(
+			"container" = serializePersistentItem(CI.container),
+			"max_cookwork" = CI.max_cookwork,
+			"cookwork" = CI.cookwork,
+			"overcook_mult" = CI.overcook_mult,
+			"combine_target" = CI.combine_target,
+			"burned" = CI.burned,
+			"oil" = CI.oil,
+			"max_oil" = CI.max_oil
+		))
+	content["cooking_objs"] = saved_objs
+	return content
+
+/obj/structure/machinery/appliance/persistent_objects_apply_content(list/content, x, y, z)
+	..() // base: forceMove to saved position
+	if(!content)
+		return
+	// Remove whatever Initialize()'s starts_with loop already populated --
+	// restore from saved state instead, same reasoning as the closet's own
+	// fill()-defaults clear (persistence_objects.dm).
+	for(var/a in cooking_objs)
+		var/datum/cooking_item/CI = a
+		qdel(CI.container)
+		cooking_objs -= CI
+		qdel(CI)
+	if(!isnull(content["poweroff"]))
+		if(content["poweroff"])
+			stat |= POWEROFF
+		else
+			stat &= ~POWEROFF
+	selected_option = content["selected_option"]
+	if(islist(content["cooking_objs"]))
+		for(var/list/obj_data in content["cooking_objs"])
+			if(!islist(obj_data))
+				continue
+			var/obj/item/reagent_containers/cooking_container/CC = deserializePersistentItem(obj_data["container"], src)
+			if(!istype(CC))
+				continue
+			var/datum/cooking_item/CI = new /datum/cooking_item(CC)
+			CI.max_cookwork = obj_data["max_cookwork"] || 0
+			CI.cookwork = obj_data["cookwork"] || 0
+			CI.overcook_mult = obj_data["overcook_mult"] || 5
+			CI.combine_target = obj_data["combine_target"]
+			CI.burned = obj_data["burned"] ? TRUE : FALSE
+			CI.oil = obj_data["oil"] || 0
+			CI.max_oil = obj_data["max_oil"] || 0
+			cooking_objs += CI
+	cooking = length(cooking_objs) > 0
+	update_icon()
 
 /obj/structure/machinery/appliance/Destroy()
 	for (var/a in cooking_objs)
