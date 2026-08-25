@@ -10,6 +10,12 @@
 	icon_state_unpowered = "pda"
 	var/icon_add // this is the "bar" part in "pda-bar"
 	enrolled = DEVICE_PRIVATE
+	// PDAs otherwise inherit the base modular_computer rate (50W active /
+	// 5W idle, same as a full console) -- far too fast for a tiny handheld
+	// meant to sit in a pocket running off a small internal cell for a
+	// whole shift. Cut to a fifth of that.
+	base_active_power_usage = 10
+	base_idle_power_usage = 1
 
 /obj/item/modular_computer/handheld/pda/set_icon()
 	if(icon_add)

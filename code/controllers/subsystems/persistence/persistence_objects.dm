@@ -491,6 +491,15 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
 	for(var/list/item_data in content["items"])
 		if(islist(item_data))
 			deserializePersistentItem(item_data, src)
+	// Missing here was the one gap in an otherwise-consistent pattern -- both
+	// sibling handlers in this file (closet, cart/storage, above/below) close
+	// with this same call. Without it, a belt (or any other storage type with
+	// contents-dependent visuals, e.g. content_overlays -- belt.dm) restored
+	// as a standalone tracked object -- not worn, not nested inside another
+	// restored container, both of which already call update_icon() via
+	// deserializePersistentItem()'s own "contents" branch -- had its contents
+	// restored correctly but never showed them.
+	update_icon()
 
 // ============================================================
 // CARTS -- engineering/janitorial/parcel carts had NO persistence hook at all,
