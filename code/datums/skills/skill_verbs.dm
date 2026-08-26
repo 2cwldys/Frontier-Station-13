@@ -146,6 +146,12 @@
 		to_chat(src, SPAN_WARNING("The lesson doesn't seem to take."))
 		return
 
+	// Being taught counts as reinforcement, same as reading a manual --
+	// resets the decay clock (skill_component.dm).
+	var/datum/component/skill/comp = student.GetComponent(skill.component_type)
+	if(comp)
+		comp.decay_progress = 0
+
 	to_chat(src, SPAN_GOOD("You finish teaching \the [student]. Their [skill.name] is now [get_skill_level_name(skill, applied)]."))
 	to_chat(student, SPAN_GOOD("You finish learning from \the [src]. Your [skill.name] is now [get_skill_level_name(skill, applied)]."))
 	log_game("[key_name(src)] taught [key_name(student)] [skill.name] to [get_skill_level_name(skill, applied)].")

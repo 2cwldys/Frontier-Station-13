@@ -331,6 +331,16 @@
 		pump.set_frequency(frequency)
 		// Same reason as the injector above -- see that comment.
 		pump.broadcast_status_next_process = TRUE
+		// set_frequency() above retunes the vent's only radio connection off
+		// 1439 (the air alarm's channel) onto this console's -- without this,
+		// the room's air alarm can no longer reach a vent linked here at all,
+		// neither its individual toggle nor a room-wide mode change (unlike
+		// an airlock cycler link, which intentionally drops alarm control --
+		// see _ensure_id_tag()'s own comment -- there's no such reason for a
+		// console link, an alarm and a tank console should both be able to
+		// operate the same room vent). See ensure_alarm_reachable()'s own doc
+		// comment (vent_pump.dm).
+		pump.ensure_alarm_reachable()
 		to_chat(user, SPAN_NOTICE("You link \the [pump] to \the [src] as its output."))
 		return
 

@@ -92,7 +92,7 @@
 
 	var/datum/component/skill/comp = user.GetComponent(skill.component_type)
 	if(comp)
-		comp.last_used_time = REALTIMEOFDAY
+		comp.decay_progress = 0
 
 	user.visible_message(
 		SPAN_NOTICE("\The [user] closes \the [src] with the air of someone who has just understood something."),

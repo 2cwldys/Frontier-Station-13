@@ -22,6 +22,14 @@ SUBSYSTEM_DEF(skills)
 	/// singleton without every component subtype needing to know it.
 	var/list/skill_for_component_type = list()
 
+	/// world.time at this subsystem's last fire() -- the decay sweep advances
+	/// every skill component's decay_progress by the DELTA since this, not by
+	/// comparing against an absolute saved timestamp. Reinitialized to the
+	/// current (post-boot) world.time every startup, so the first delta after
+	/// a restart is always small and correct -- never a stale cross-restart
+	/// gap.
+	var/last_decay_tick = 0
+
 /datum/controller/subsystem/skills/Initialize()
 	// Initialize the skill category lists first.
 	// This creates linked lists as follows: "Science" -> empty list
@@ -46,6 +54,7 @@ SUBSYSTEM_DEF(skills)
 
 		if(!(skill in skill_tree[skill_category][skill.subcategory]))
 			skill_tree[skill_category][skill.subcategory] |= skill
+	last_decay_tick = world.time
 	return SS_INIT_SUCCESS
 
 /datum/controller/subsystem/skills/Destroy()
@@ -56,20 +65,28 @@ SUBSYSTEM_DEF(skills)
 
 /**
  * Decay sweep -- only ever looks at currently-spawned, alive human mobs, so
- * the decay clock only advances while a character is actually being played
- * (in-game hours, not wall-clock -- see skill_decay_grace_period's comment,
- * controllers/configuration.dm). A skill with no component isn't tracked at
- * all -- nothing to decay, it's already at (or below) the floor. A skill
- * flagged no_decay (a passive stat with no discrete use, or one with no
- * gameplay consumer implemented at all -- see its own doc comment,
- * _skills.dm) is skipped outright, regardless of activity -- it shouldn't be
- * able to rot away with no way for a player to earn it back through play.
- * Grace period, interval, and floor are all config.txt-tunable.
+ * the decay clock only advances while a character is actually being played.
+ * Measured in genuine in-game time (world.time), not wall-clock: each firing
+ * computes how much world.time has passed since the last one and banks that
+ * delta onto every tracked component's decay_progress, so time the server
+ * spends offline between sessions never counts against anyone -- see
+ * skill_decay_grace_period's comment, controllers/configuration.dm. A skill
+ * with no component isn't tracked at all -- nothing to decay, it's already
+ * at (or below) the floor. A skill flagged no_decay (a passive stat with no
+ * discrete use, or one with no gameplay consumer implemented at all -- see
+ * its own doc comment, _skills.dm) is skipped outright, regardless of
+ * activity -- it shouldn't be able to rot away with no way for a player to
+ * earn it back through play. Grace period, interval, and floor are all
+ * config.txt-tunable.
  */
 /datum/controller/subsystem/skills/fire()
 	var/grace_period = GLOB.config.skill_decay_grace_period
 	var/interval = GLOB.config.skill_decay_interval
 	var/floor = GLOB.config.skill_decay_floor
+	var/delta = world.time - last_decay_tick
+	last_decay_tick = world.time
+	if(delta <= 0)
+		return
 	for(var/mob/living/carbon/human/H as anything in GLOB.human_mob_list)
 		if(QDELETED(H) || H.stat == DEAD || !H.ckey)
 			continue
@@ -79,10 +96,10 @@ SUBSYSTEM_DEF(skills)
 			var/datum/component/skill/comp = H.GetComponent(sk.component_type)
 			if(!comp)
 				continue
-			var/elapsed = REALTIMEOFDAY - comp.last_used_time
-			if(elapsed < grace_period)
+			comp.decay_progress += delta
+			if(comp.decay_progress < grace_period)
 				continue
-			var/tiers_to_drop = 1 + round((elapsed - grace_period) / interval)
+			var/tiers_to_drop = 1 + round((comp.decay_progress - grace_period) / interval)
 			var/new_level = max(floor, comp.skill_level - tiers_to_drop)
 			if(new_level >= comp.skill_level)
 				continue
@@ -90,5 +107,5 @@ SUBSYSTEM_DEF(skills)
 			var/applied = set_skill_progression_level(H, sk, new_level)
 			if(isnull(applied) || applied >= old_level)
 				continue
-			comp.last_used_time = REALTIMEOFDAY
+			comp.decay_progress = 0
 			to_chat(H, SPAN_WARNING("Your [sk.name] feels rusty from disuse -- it's slipped to [get_skill_level_name(sk, applied)]."))

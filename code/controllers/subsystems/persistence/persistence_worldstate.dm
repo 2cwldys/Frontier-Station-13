@@ -878,6 +878,15 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	..()
 	if(frequency)
 		set_frequency(frequency)
+		// set_frequency() above rebuilds the PRIMARY radio connection from the
+		// saved value, but a vent linked to a console (general_air_control's
+		// _link_atmos_device(), atmo_control.dm) also needs its SECONDARY
+		// always-on air-alarm connection re-established here too -- the live
+		// linking action already calls this, restore never did, silently
+		// reproducing the exact "console-linked vent unreachable by its room
+		// alarm" bug on every restart. Safe unconditionally -- already a
+		// no-op when frequency == 1439 (see its own doc comment, vent_pump.dm).
+		ensure_alarm_reachable()
 
 // ------- Reagent containers (fluids in machinery/structures) -------
 // serializePersistentItem() (persistence_mobs.dm) already round-trips reagents

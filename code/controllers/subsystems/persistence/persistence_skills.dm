@@ -226,9 +226,9 @@ GLOBAL_LIST_EMPTY(persistence_skills_cache)
 	// New shape is {"levels": {...}, "last_used": {...}}. Anything saved
 	// before this feature existed is a bare {"typepath": level, ...} map --
 	// treat the whole decoded object as the levels map in that case, with no
-	// activity data (each component's own fresh-creation last_used_time,
-	// REALTIMEOFDAY at this exact restore, is left alone -- no retroactive
-	// mass-decay for a character who's never seen this feature before).
+	// activity data (each component's own fresh-creation decay_progress,
+	// 0 at this exact restore, is left alone -- no retroactive mass-decay
+	// for a character who's never seen this feature before).
 	var/list/levels = islist(decoded["levels"]) ? decoded["levels"] : decoded
 	var/list/last_used = islist(decoded["last_used"]) ? decoded["last_used"] : list()
 
@@ -380,7 +380,7 @@ GLOBAL_LIST_EMPTY(persistence_skills_cache)
 				continue
 			var/datum/component/skill/comp = H.GetComponent(sk.component_type)
 			if(comp)
-				comp.last_used_time = REALTIMEOFDAY
+				comp.decay_progress = 0
 				comp.training_progress = 0
 			log_lines += "[sk.name]: [get_skill_level_name(sk, old_level)] -> [get_skill_level_name(sk, applied)]"
 		SSpersistence.charSkillsSaveOne(H)
@@ -410,7 +410,7 @@ GLOBAL_LIST_EMPTY(persistence_skills_cache)
 			if(new_level == old_level)
 				continue
 			levels[skill_key] = new_level
-			last_used[skill_key] = list("last_used" = REALTIMEOFDAY, "progress" = 0)
+			last_used[skill_key] = list("decay_progress" = 0, "progress" = 0)
 			if(lace)
 				LAZYINITLIST(lace.stored_skills)
 				lace.stored_skills[skill_key] = new_level

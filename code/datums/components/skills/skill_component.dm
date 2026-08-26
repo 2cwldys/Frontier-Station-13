@@ -20,25 +20,32 @@ ABSTRACT_TYPE(/datum/component/skill)
 	 */
 	var/skill_diff_reference = SKILL_LEVEL_TRAINED
 
-	/// REALTIMEOFDAY of the last time this skill was used or deliberately
-	/// raised (teaching, a manual, or an admin edit) -- NOT touched by
-	/// restoring a snapshot (DB load, resleeve), only by something that
-	/// actually happened. Drives decay: see SSskills' fire() and the
-	/// SKILL_DECAY_* defines (skill_progression.dm). Set to "now" on every
-	/// component creation so a brand-new component never starts already
-	/// decay-eligible; persistence restore (persistence_skills.dm) overwrites
-	/// it with the real saved value when there is one.
-	var/last_used_time = 0
+	/// Accumulated in-game (world.time) deciseconds of disuse since this skill
+	/// was last used or deliberately raised (teaching, a manual, or an admin
+	/// edit) -- NOT touched by restoring a snapshot (DB load, resleeve), only
+	/// by something that actually happened. A duration, not a timestamp --
+	/// incremented by SSskills' fire() each firing, using a world.time delta,
+	/// so it only ever grows while the game is actually running (server
+	/// downtime between sessions doesn't count) and needs no special
+	/// cross-restart handling (a delta against a subsystem var reinitialized
+	/// at boot is always small and correct, never a stale gap). Drives decay:
+	/// see SSskills' fire() and the SKILL_DECAY_* config vars
+	/// (controllers/configuration.dm). Reset to 0 on component creation and
+	/// by every deliberate-raise call site; persistence restore
+	/// (persistence_skills.dm) overwrites it with the real saved value when
+	/// there is one.
+	var/decay_progress = 0
 	/// Per-instance cooldown gate for register_use()'s progress gain, so a
 	/// burst of rapid actions (spam-clicking an attack, a mech's per-tile
 	/// move signal) can't bank many ticks of progress in a second. Does not
-	/// gate the last_used_time refresh itself -- every qualifying use still
-	/// counts as "kept up," only progress accrual is throttled.
+	/// gate the decay_progress reset itself -- every qualifying use still
+	/// counts as "kept up," only progress accrual is throttled. Real-world
+	/// time on purpose -- an anti-spam throttle, not a decay measurement.
 	var/next_train_roll = 0
 	/// Accumulated practice toward the next tier, out of
 	/// GLOB.config.skill_train_progress_needed -- builds up gradually from
 	/// register_use(), not a flat per-use chance to instantly jump a tier.
-	/// Persisted alongside last_used_time (persistence_skills.dm); carries
+	/// Persisted alongside decay_progress (persistence_skills.dm); carries
 	/// its remainder across a tier-up rather than resetting to zero.
 	var/training_progress = 0
 
@@ -51,7 +58,7 @@ ABSTRACT_TYPE(/datum/component/skill)
 	SHOULD_CALL_PARENT(TRUE)
 	. = ..()
 	skill_level = level
-	last_used_time = REALTIMEOFDAY
+	decay_progress = 0
 
 /**
  * Called whenever the parent mob successfully does something this skill
@@ -65,7 +72,7 @@ ABSTRACT_TYPE(/datum/component/skill)
  * controllers/configuration.dm.
  */
 /datum/component/skill/proc/register_use(mob/user)
-	last_used_time = REALTIMEOFDAY
+	decay_progress = 0
 	if(REALTIMEOFDAY < next_train_roll)
 		return
 	next_train_roll = REALTIMEOFDAY + GLOB.config.skill_train_cooldown
@@ -81,7 +88,7 @@ ABSTRACT_TYPE(/datum/component/skill)
 	if(!isnull(applied) && applied > skill_level)
 		training_progress -= GLOB.config.skill_train_progress_needed
 		to_chat(user, SPAN_GOOD("You feel yourself getting better at [sk.name]. It's now [get_skill_level_name(sk, applied)]."))
-		last_used_time = REALTIMEOFDAY
+		decay_progress = 0
 	else
 		// Couldn't actually apply (e.g. cap changed between the check above
 		// and here) -- don't silently discard the practice that was banked.

@@ -128,14 +128,15 @@
 	return TRUE
 
 /**
- * Snapshots the decay clock (last_used_time) and banked train-by-use
- * progress (training_progress) of every skill component `user` currently
- * has, as skill typepath -> {"last_used": REALTIMEOFDAY, "progress": N}.
- * Companion to get_skill_snapshot() for persistence_skills.dm's own DB
- * round-trip -- deliberately NOT folded into get_skill_snapshot()/
- * apply_skill_snapshot() themselves, since those are also used by the
- * neural lace and widening their shape would ripple into that working,
- * unrelated path.
+ * Snapshots the decay clock (decay_progress -- accumulated in-game/world.time
+ * deciseconds of disuse, see its own doc comment on skill_component.dm) and
+ * banked train-by-use progress (training_progress) of every skill component
+ * `user` currently has, as skill typepath ->
+ * {"decay_progress": N, "progress": N}. Companion to get_skill_snapshot() for
+ * persistence_skills.dm's own DB round-trip -- deliberately NOT folded into
+ * get_skill_snapshot()/apply_skill_snapshot() themselves, since those are
+ * also used by the neural lace and widening their shape would ripple into
+ * that working, unrelated path.
  */
 /proc/get_skill_activity_snapshot(mob/user)
 	var/list/snapshot = list()
@@ -147,16 +148,19 @@
 		var/datum/component/skill/comp = user.GetComponent(sk.component_type)
 		if(!comp)
 			continue
-		snapshot["[sk.type]"] = list("last_used" = comp.last_used_time, "progress" = comp.training_progress)
+		snapshot["[sk.type]"] = list("decay_progress" = comp.decay_progress, "progress" = comp.training_progress)
 	return snapshot
 
 /// Applies an activity snapshot from get_skill_activity_snapshot() onto
 /// `user` -- run this AFTER apply_skill_snapshot() so the components it
 /// writes to already exist. Skills with no component (still at the default,
-/// never raised) are silently skipped -- nothing to track yet. Backward
-/// compatible with rows saved before training_progress existed, where each
-/// entry was a bare last_used number rather than a {"last_used", "progress"}
-/// list -- those restore with progress at 0.
+/// never raised) are silently skipped -- nothing to track yet. Rows saved
+/// before decay_progress existed (a bare number, or a {"last_used",
+/// "progress"} list from the old REALTIMEOFDAY-based clock -- not
+/// meaningfully convertible to an in-game-time duration) simply have no
+/// "decay_progress" key here, so they fall back to each component's own
+/// fresh-creation default of 0 -- not decay-eligible yet, same as any other
+/// legacy row, rather than attempting a conversion that can't be correct.
 /proc/apply_skill_activity_snapshot(mob/user, list/snapshot)
 	if(!user || !islist(snapshot) || !length(snapshot))
 		return FALSE
@@ -172,10 +176,8 @@
 			continue
 		var/entry = snapshot[skill_key]
 		if(islist(entry))
-			comp.last_used_time = entry["last_used"]
+			comp.decay_progress = entry["decay_progress"] || 0
 			comp.training_progress = entry["progress"] || 0
-		else
-			comp.last_used_time = entry
 	return TRUE
 
 /**
