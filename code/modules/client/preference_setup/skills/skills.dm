@@ -145,7 +145,7 @@ GLOBAL_LIST_INIT(skill_default_fill_excluded, list(
 	// Everyone defaults to Trained (capped per skill) automatically; Professional
 	// is earned in-round via teaching or a cargo skill book, and cloning takes it
 	// back. See the default fill in load_character_special() above.
-	return "<center><br><b>Skills are not configured on this server.</b><br>Everyone starts Trained. Learn from others or study a manual to reach Professional.</center>"
+	return "<center><b>Skills may not be configured in the character creation process.</b><br>You learn by doing, and everyone defaults to trained on the frontier.</center>"
 
 	if(!SSskills.initialized)
 		return "<center><large>Skills not initialized yet. Please wait a bit and reload this section.</large></center>"

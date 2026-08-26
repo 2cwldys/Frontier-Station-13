@@ -36,6 +36,14 @@
 		// assume a manual or a teacher could still take them higher.
 		if(level >= cap)
 			line += " <i>(at maximum)</i>"
+		else if(!sk.no_decay)
+			// no_decay doubles as "no register_use() hook exists for this
+			// skill at all" (skill_component.dm) -- skip the percentage for
+			// those rather than show a permanently-stuck, meaningless 0%.
+			var/datum/component/skill/comp = src.GetComponent(sk.component_type)
+			var/needed = GLOB.config.skill_train_progress_needed
+			var/progress_percent = (comp && needed > 0) ? round(100 * comp.training_progress / needed) : 0
+			line += " <i>([SPAN_BOLD("[progress_percent]%")] to next tier)</i>"
 		by_category[cat_name] += line
 
 	var/list/out = list(SPAN_NOTICE(FONT_LARGE("Your skills:")))

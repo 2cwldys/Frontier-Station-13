@@ -138,6 +138,10 @@
 /// Signal raised against the surgeon attempting to perform a surgery to query their components for any rate mods.
 #define COMSIG_GET_SURGERY_SUCCESS_MODIFIERS "get_surgery_success_modifiers"
 
+/// Signal raised against a mob when set_skill_progression_level() changes one
+/// of their skills. Args: singleton/skill skill, old_level, new_level.
+#define COMSIG_SKILL_LEVEL_CHANGED "skill_level_changed"
+
 /// Signal raised against a character attempting to give a ministry moodlet to someone.
 #define COMSIG_GET_MINISTRY_MODIFIERS "get_ministry_modifiers"
 /// Signal raised against the recipient of the Ministry skill action, allowing effects to interrupt the received moodlet.

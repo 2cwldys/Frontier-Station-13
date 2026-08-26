@@ -72,6 +72,7 @@
 	var/datum/component/skill/skill_comp = user.LoadComponent(skill.component_type, capped)
 	if(!skill_comp)
 		return null
+	var/old_level = skill_comp.skill_level
 	skill_comp.skill_level = capped
 	if(istype(user, /mob/living/carbon/human))
 		var/mob/living/carbon/human/H = user
@@ -79,6 +80,14 @@
 		if(lace)
 			LAZYINITLIST(lace.stored_skills)
 			lace.stored_skills["[skill.type]"] = capped
+	// A handful of skills (Ministry, Leadership) gate an action button on
+	// component EXISTENCE rather than skill_level, granting it once in
+	// Initialize() and never re-checking. Removing the component to express
+	// loss is off the table (trap 1, header of this file), so this is the one
+	// hook those components need to notice a level drop -- or a later rise --
+	// and grant/revoke accordingly.
+	if(old_level != capped)
+		SEND_SIGNAL(user, COMSIG_SKILL_LEVEL_CHANGED, skill, old_level, capped)
 	return capped
 
 /// Human-readable tier name ("Trained"), for the messages every consumer shows.

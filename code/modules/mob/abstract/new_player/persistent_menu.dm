@@ -166,6 +166,15 @@
 			var/new_name = tgui_input_text(NP, "Enter your character's name:", "Character Name", "", max_length = MAX_NAME_LEN)
 			if(!new_name) return TRUE
 			NP.client.prefs.new_setup(1)
+			// new_setup(1) leaves hair/facial/skin/eye colors zeroed and
+			// h_style/f_style/tail_style/s_tone untouched -- every brand-new
+			// slot started out looking identical (same hair style, same
+			// black hair/eyes, etc.) until a player manually found the small
+			// "(R)" randomize link buried in the Body tab. Randomize it here
+			// instead, same proc that link already calls
+			// (preferences_setup.dm) -- still fully editable afterward, this
+			// only picks the starting point.
+			NP.client.prefs.randomize_appearance_for()
 			NP.client.prefs.can_edit_character = TRUE
 			NP.client.prefs.can_edit_name      = TRUE
 			NP.client.prefs.can_edit_ipc_tag   = TRUE

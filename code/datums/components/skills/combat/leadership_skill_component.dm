@@ -150,21 +150,41 @@
 
 	leadership_action = new /datum/action/leadership()
 	leadership_action.SetTarget(leadership_action)
-	leadership_action.Grant(parent)
+	// Only grant if this component is already above Unfamiliar -- LoadComponent()
+	// creates one at whatever level is passed, including Unfamiliar itself when
+	// something like a resleeve loss floor-creates it. on_skill_level_changed()
+	// below handles every level change from here on.
+	if (level > SKILL_LEVEL_UNFAMILIAR)
+		leadership_action.Grant(parent)
 
 	RegisterSignal(parent, COMSIG_MOB_AFTER_LOGIN, PROC_REF(setup_action_button), override = TRUE)
+	RegisterSignal(parent, COMSIG_SKILL_LEVEL_CHANGED, PROC_REF(on_skill_level_changed))
 
 /datum/component/skill/leadership/Destroy(force)
 	if (!parent)
 		return ..()
 
-	UnregisterSignal(parent, COMSIG_MOB_AFTER_LOGIN)
+	UnregisterSignal(parent, list(COMSIG_MOB_AFTER_LOGIN, COMSIG_SKILL_LEVEL_CHANGED))
 	leadership_action?.Remove(parent)
 	QDEL_NULL(leadership_action)
 	return ..()
 
 /datum/component/skill/leadership/proc/setup_action_button()
 	astype(parent, /mob)?.update_action_buttons()
+
+/// Leadership's ability is gated on this component's EXISTENCE (granted once,
+/// above), not on skill_level -- so a level change that crosses the
+/// Unfamiliar line has to grant or revoke the action explicitly. See the
+/// signal's own doc comment (signals.dm) and set_skill_progression_level()
+/// (skill_progression.dm) for why this can't just be a component removal.
+/datum/component/skill/leadership/proc/on_skill_level_changed(datum/source, singleton/skill/sk, old_level, new_level)
+	SIGNAL_HANDLER
+	if (sk.component_type != LEADERSHIP_SKILL_COMPONENT)
+		return
+	if (new_level <= SKILL_LEVEL_UNFAMILIAR && leadership_action?.owner)
+		leadership_action.Remove(parent)
+	else if (new_level > SKILL_LEVEL_UNFAMILIAR && !leadership_action?.owner)
+		leadership_action.Grant(parent)
 
 #undef GET_SPEECH_TYPE
 #undef GET_SPEECH_TEXT

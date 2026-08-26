@@ -192,18 +192,19 @@
 	update_nearby_tiles()
 	update_icon()
 
+// Matches upstream Aurora.3's SetBounds() exactly -- no bound_x/bound_y offset
+// at all. This fork had grown a dir-conditional bound_x/bound_y sign flip on
+// top of this that doesn't exist upstream and was never correct; a door's
+// .loc is always the south/west-most tile of the pair, and the box only ever
+// needs to extend toward positive X/Y (east/north) from there.
 /obj/structure/machinery/door/proc/SetBounds()
 	if(width > 1)
 		if(dir in list(EAST, WEST))
 			bound_width = width * world.icon_size
 			bound_height = world.icon_size
-			bound_x = (dir == EAST) ? -(width - 1) * world.icon_size : 0
-			bound_y = 0
 		else
 			bound_width = world.icon_size
 			bound_height = width * world.icon_size
-			bound_x = 0
-			bound_y = (dir == NORTH) ? -(width - 1) * world.icon_size : 0
 
 /// Persistence restores dir by raw assignment, long after Initialize() already
 /// ran SetBounds() against the compile-time default dir -- and forceMove()
