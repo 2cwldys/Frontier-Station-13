@@ -6,10 +6,11 @@ import { Window } from '../layouts';
 type ResleeverData = {
   lace_name: string | null;
   lace_occupied: BooleanLike;
-  /** Name of the linked pod's occupant, but only when they're a valid
-   * (mindless) resleeve target -- null if the pod is empty, still growing,
-   * or already holds somebody with a mind of their own. */
+  /** Name of the body physically placed inside THIS machine, but only when
+   * it's a valid (mindless) resleeve target -- null if empty or already
+   * holding somebody with a mind of their own. */
   body_name: string | null;
+  occupied: BooleanLike;
   can_resleeve: BooleanLike;
   linked_pod: BooleanLike;
   pod_occupied: BooleanLike;
@@ -27,6 +28,7 @@ export const Resleever = (props) => {
     lace_name,
     lace_occupied,
     body_name,
+    occupied,
     can_resleeve,
     linked_pod,
     pod_occupied,
@@ -38,7 +40,7 @@ export const Resleever = (props) => {
   } = data;
 
   return (
-    <Window width={420} height={460} title="Resleeving Machine">
+    <Window width={420} height={480} title="Resleeving Machine">
       <Window.Content scrollable>
         <Section title="Neural Lace">
           <LabeledList>
@@ -63,6 +65,32 @@ export const Resleever = (props) => {
           </Button>
         </Section>
 
+        <Section title="Occupant">
+          <LabeledList>
+            <LabeledList.Item label="Body">
+              {!occupied ? (
+                <Box color="label">
+                  Empty. Drag a body onto this machine, or grab-and-click it,
+                  to place one inside.
+                </Box>
+              ) : body_name ? (
+                <Box color="good">{body_name}</Box>
+              ) : (
+                <Box color="bad">Has a mind of their own -- not resleevable.</Box>
+              )}
+            </LabeledList.Item>
+          </LabeledList>
+          <Button
+            fluid
+            mt={1}
+            icon="eject"
+            disabled={!occupied}
+            onClick={() => act('eject_occupant')}
+          >
+            Eject Occupant
+          </Button>
+        </Section>
+
         <Section title="Cloning Pod">
           {!linked_pod ? (
             <NoticeBox>
@@ -75,15 +103,19 @@ export const Resleever = (props) => {
                 {pod_growing ? (
                   <Box color="average">Growing...</Box>
                 ) : pod_occupied ? (
-                  <Box color={body_name ? 'good' : 'bad'}>
-                    {body_name
-                      ? `Clone ready: ${pod_clone_name}`
-                      : `${pod_clone_name} (has a mind of their own -- not resleevable)`}
-                  </Box>
+                  <Box color="good">Clone ready: {pod_clone_name}</Box>
                 ) : (
                   <Box color="label">Empty.</Box>
                 )}
               </LabeledList.Item>
+              {pod_occupied && !pod_growing && (
+                <LabeledList.Item label="Note">
+                  <Box color="label">
+                    Carry the clone over and place it in this machine to
+                    resleeve into it.
+                  </Box>
+                </LabeledList.Item>
+              )}
               {clone_cost > 0 && (
                 <LabeledList.Item label="Billed to">
                   {clone_payer}
@@ -127,7 +159,7 @@ export const Resleever = (props) => {
                 : !lace_occupied
                   ? 'That lace carries no consciousness.'
                   : !body_name
-                    ? 'No resleevable body in the linked pod.'
+                    ? 'No resleevable body inside this machine.'
                     : undefined
             }
             onClick={() => act('resleeve')}

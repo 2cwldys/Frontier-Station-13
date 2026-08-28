@@ -767,6 +767,12 @@ SUBSYSTEM_DEF(persistence)
 			skipped_alive++
 			continue
 
+		// An empty lace (never captured, or already resleeved back out) has no
+		// consciousness to protect -- vaulting it just burns a finite
+		// has_free_slot() slot a lace that actually needs one might want.
+		if(!L.lace_occupied)
+			continue
+
 		L._auto_transfer_to_storage()
 		// A lace still installed on a dead body only gets as far as surgical
 		// extraction on the call above -- _auto_transfer_to_storage() ejects

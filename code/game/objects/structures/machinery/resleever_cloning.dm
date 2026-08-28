@@ -7,9 +7,11 @@
  *      character's identity off the lace, charges the clone fee, and grows a
  *      body wearing that character's own likeness -- taking CLONE_GROWTH_TIME
  *      to actually finish.
- *   3. Once it's ready, insert the lace into the resleever and resleeve --
- *      no need to move the clone anywhere first, the resleever always acts
- *      directly on whatever the linked pod currently holds.
+ *   3. Once it's ready, eject the clone from the pod (right-click, "Eject
+ *      Cloner") and place it inside the resleever (drag-drop or grab-and-
+ *      click, same as any pod) -- the resleever is a pod in its own right
+ *      with its own occupant slot (resleever.dm), separate from the cloning
+ *      pod's. Insert the lace and resleeve.
  *
  * Billing follows the machines' faction tags: when the pod and the resleever
  * are both tagged to the SAME faction, that faction's account pays. Anything

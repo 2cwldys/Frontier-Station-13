@@ -311,6 +311,15 @@
 	if(auto_transfer_timer)
 		deltimer(auto_transfer_timer)
 	auto_transfer_timer = null
+	// Nothing to protect if there's no captured consciousness -- covers both
+	// callers: vaultAllLaces() already skips an unoccupied lace itself, but
+	// this proc is ALSO the direct target of the per-lace 4-hour timer
+	// (armed the moment a consciousness is captured, removed(), below), which
+	// has no equivalent loop to skip it in. If a resleeve empties the lace
+	// before that timer fires, this is what stops the now-stale timer from
+	// vaulting an empty lace anyway.
+	if(!lace_occupied)
+		return
 	// If still inside a body, surgically eject first
 	if(owner && istype(owner, /mob/living/carbon/human))
 		removed(owner, null, TRUE, TRUE)
