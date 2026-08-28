@@ -199,6 +199,43 @@
 	return list("personal" = TRUE)
 
 /**
+ * Peeks a saved character's chargen species without building a body --
+ * used by order_clone_from_lace()'s up-front IPC refusal check, which needs
+ * to know the species BEFORE charging or starting a grow, not just once
+ * build_cloned_body_for_character() actually constructs one. Returns the
+ * species id string (a GLOB.all_species key), or null if the character/DB
+ * is unavailable.
+ */
+/proc/resolve_saved_character_species(ckey, char_name)
+	if(!ckey || !char_name)
+		return null
+	if(!GLOB.config.sql_enabled || !SSdbcore.Connect())
+		return null
+
+	var/char_id
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"SELECT id FROM ss13_characters WHERE ckey = :ckey AND name = :name AND deleted_at IS NULL LIMIT 1",
+		list("ckey" = ckey, "name" = char_name)
+	)
+	q.Execute()
+	if(q.NextRow())
+		char_id = text2num(q.item[1])
+	qdel(q)
+	if(!char_id)
+		return null
+
+	var/datum/preferences/scratch = new()
+	scratch.current_character = char_id
+	var/species_id
+	try
+		scratch.player_setup.load_character(null)
+		species_id = scratch.species
+	catch()
+		species_id = null
+	qdel(scratch)
+	return species_id
+
+/**
  * Builds a body wearing the saved likeness of one specific character.
  *
  * The lace only carries an identity (registered_ckey/registered_name), and
@@ -257,16 +294,13 @@
 	// organs/limbs/icons rebuild correctly for the new species rather than
 	// leaving stale ones from the chargen body.
 	var/species_override = SSpersistence.charLaceDnaGetSpeciesOverride(ckey, char_name)
-	var/datum/species/override_species = species_override ? GLOB.all_species[species_override] : null
 	// Guard is defensive, not load-bearing -- the Modify Neural Lace panel
 	// (persistence_lace_dna.dm's _species_cloneable()) already refuses to
-	// store an uncloneable override in the first place. This only matters
-	// for a stale row written before that filter existed. Android
-	// (/datum/species/machine/android) is a /datum/species/machine subtype
-	// but is organically cloneable unlike every other IPC chassis brand, so
-	// it's carved back out the same way _species_cloneable() does.
-	var/uncloneable = istype(override_species, /datum/species/machine) && !istype(override_species, /datum/species/machine/android)
-	if(istype(override_species) && !uncloneable)
+	// store an uncloneable override in the first place, and
+	// order_clone_from_lace() already refuses to even start a grow for a
+	// native uncloneable species with no override. This only matters for a
+	// stale row written before those filters existed.
+	if(species_override && species_organically_cloneable(GLOB.all_species[species_override]))
 		clone.set_species(species_override)
 	// Grown blank and unconscious: it has no mind until a lace is resleeved
 	// into it, and it should not be walking around in the meantime.
@@ -284,6 +318,20 @@
 	if(!lace.registered_ckey || !lace.registered_name)
 		to_chat(user, SPAN_WARNING("\The [lace] carries no registered identity to clone from."))
 		return FALSE
+
+	// Refuse up front rather than waiting CLONE_GROWTH_TIME to fail --
+	// build_cloned_body_for_character() would only discover this once the
+	// grow finishes, well after the fee's already been charged. An admin
+	// override (Modify Neural Lace panel) can still rescue an IPC-chargen
+	// character into a cloneable species, so only refuse when there's no
+	// valid override on top of an uncloneable native species.
+	var/species_override = SSpersistence.charLaceDnaGetSpeciesOverride(lace.registered_ckey, lace.registered_name)
+	if(!species_organically_cloneable(GLOB.all_species[species_override]))
+		var/saved_species_id = resolve_saved_character_species(lace.registered_ckey, lace.registered_name)
+		if(!species_organically_cloneable(GLOB.all_species[saved_species_id]))
+			to_chat(user, SPAN_WARNING("[lace.registered_name] is an IPC -- they can't be organically cloned. Print a blank IPC chassis from a prosthetics fabricator instead, then resleeve this lace into it."))
+			return FALSE
+
 	if(occupant)
 		to_chat(user, SPAN_WARNING("\The [src] is already occupied."))
 		return FALSE

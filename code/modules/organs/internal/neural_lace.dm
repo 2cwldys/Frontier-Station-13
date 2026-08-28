@@ -122,6 +122,22 @@
 
 /obj/item/organ/internal/neural_lace/Initialize(mapload, internal)
 	. = ..()
+	// robotize() is what /obj/item/organ/internal/augment's own Initialize()
+	// calls for anything declaring robotic = ROBOTIC_MECHANICAL (augment.dm)
+	// -- neural lace never subclassed augment, so it was missing this
+	// entirely despite declaring the same robotic value. Without it,
+	// BP_IS_ROBOTIC(src) (status & ORGAN_ROBOT) was FALSE for every lace
+	// except the rare bioprinter-printed one (bioprinter.dm's _finish_print()
+	// calls O.robotize() itself for prosthetics products). That silently
+	// broke two things: replace_organ's surgery step (organs_internal.dm)
+	// refuses to install a non-robotic-flagged organ into an already-robotic
+	// body ("cannot install a naked organ into a robotic body"), blocking
+	// real surgical lace installs into IPC/Android; and organ.dm's own
+	// replaced() only calls set_dna(owner.dna) when BP_IS_ROBOTIC(src) is
+	// true, so a lace resleeved a second time into a different body kept
+	// whichever dna/species it was last synced to instead of adopting its
+	// new host's, same for _internal.dm's species emulation.
+	robotize()
 	// _bind_to_owner is NOT called here — Initialize fires on every construction including
 	// persistence restores (applyPersistentHealthData creates augments via new aug_path(mob)).
 	// Install sites call _bind_to_owner explicitly: new_player.dm, replaced(), admin verb.
