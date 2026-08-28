@@ -312,12 +312,17 @@
 	to_chat(user, SPAN_NOTICE("Beginning resleeve procedure..."))
 	sleep(3 SECONDS)
 
-	// Move lace into body
-	inserted_lace.forceMove(target_body)
-	head.internal_organs |= inserted_lace
-	target_body.internal_organs |= inserted_lace
-	target_body.internal_organs_by_name[inserted_lace.organ_tag] = inserted_lace
-	inserted_lace.owner = target_body
+	// Install the lace the same way a real surgical transplant does
+	// (organs_internal.dm's replace_organ surgery step calls this exact proc)
+	// rather than hand-splicing the organ lists ourselves. This used to skip
+	// what /obj/item/organ/internal/replaced() (_internal.dm) does for a
+	// robotic organ specifically -- syncing species/dna to the new body
+	// (BP_IS_ROBOTIC(src), which the lace is) -- leaving it with stale/absent
+	// dna that didn't match its new owner. That mismatch is exactly what
+	// handle_rejection() (organ.dm) checks for; it's now a permanent no-op on
+	// the lace regardless (neural_lace.dm), but this was the actual root
+	// cause of that necrosis report, not just a symptom to suppress.
+	inserted_lace.replaced(target_body, head)
 
 	// Transfer consciousness
 	var/mob/living/carbon/lace_mob/LM = inserted_lace.lace_mob
