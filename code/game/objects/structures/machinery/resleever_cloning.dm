@@ -249,6 +249,16 @@
 	// (and every persistence record) actually uses.
 	clone.real_name = char_name
 	clone.name = char_name
+
+	// Admin-set clone-species override (Modify Neural Lace panel,
+	// persistence_lace_dna.dm) -- null/unset means no override, so the
+	// chargen species copy_to() just applied stands untouched. set_species()
+	// is the same proc copy_to() itself calls for the chargen case, so
+	// organs/limbs/icons rebuild correctly for the new species rather than
+	// leaving stale ones from the chargen body.
+	var/species_override = SSpersistence.charLaceDnaGetSpeciesOverride(ckey, char_name)
+	if(species_override && GLOB.all_species[species_override])
+		clone.set_species(species_override)
 	// Grown blank and unconscious: it has no mind until a lace is resleeved
 	// into it, and it should not be walking around in the meantime.
 	clone.set_stat(UNCONSCIOUS)

@@ -599,6 +599,24 @@
 	to_chat(usr, SPAN_GOOD("Neural lace installed in [H.real_name]."))
 	log_and_message_admins("assigned a neural lace into [H.real_name]'s body via Assign Body", usr)
 
+/// Admin: opens the same Modify Neural Lace panel as the
+/// Persistence.Characters admin verb (persistence_lace_dna.dm), but
+/// pre-targeted at this exact lace's registered identity -- no ckey/
+/// character picker needed, since right-clicking the lace already answers
+/// that question.
+/obj/item/organ/internal/neural_lace/verb/modify_neural_lace_here()
+	set name = "Modify Neural Lace"
+	set src in view(1)
+
+	if(!check_rights(R_ADMIN))
+		return
+	if(!length(registered_ckey) || !length(registered_name))
+		to_chat(usr, SPAN_WARNING("This lace isn't registered to anyone yet."))
+		return
+
+	var/datum/tgui_module/admin/lace_editor/panel = new(registered_ckey, registered_name)
+	panel.ui_interact(usr)
+
 #undef LACE_DAMAGE_NONE
 #undef LACE_DAMAGE_MINOR
 #undef LACE_DAMAGE_MODERATE
