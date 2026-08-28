@@ -29,6 +29,27 @@
 	. += SPAN_NOTICE("Lace slot: [inserted_lace ? "[inserted_lace.registered_name]'s lace ([inserted_lace.lace_occupied ? "OCCUPIED" : "empty"])" : "empty"]")
 	. += SPAN_NOTICE("Body slot: [occupant ? occupant.real_name : "no body"]")
 
+/// Same occupant/BROKEN/NOPOWER branching as body_scanner.dm's own
+/// update_icon() -- this machine borrows that sprite sheet wholesale, so the
+/// same suffixed states ("-working", "-closed", "-broken", "-broken-closed")
+/// already exist for it. Minus body_scanner's panel_open overlay and
+/// name-append, which are specific to its own linked console and don't apply
+/// here. Without this override icon_state never left its compile-time
+/// default regardless of occupant.
+/obj/structure/machinery/resleever/update_icon()
+	if(occupant)
+		if(stat & BROKEN)
+			icon_state = "[initial(icon_state)]-broken-closed"
+		if(stat & NOPOWER)
+			icon_state = "[initial(icon_state)]-closed"
+		else
+			icon_state = "[initial(icon_state)]-working"
+	else
+		if(stat & BROKEN)
+			icon_state = "[initial(icon_state)]-broken"
+		else
+			icon_state = initial(icon_state)
+
 /obj/structure/machinery/resleever/attack_hand(mob/user)
 	if(..())
 		return
@@ -118,6 +139,10 @@
 				_do_resleeve(user)
 			return TRUE
 
+		if("eject_occupant")
+			_eject_occupant(user)
+			return TRUE
+
 /obj/structure/machinery/resleever/attackby(obj/item/I, mob/user, params)
 	// Multitool links this resleever to a cloning pod (resleever_cloning.dm).
 	if(I.tool_behaviour == TOOL_MULTITOOL)
@@ -193,22 +218,44 @@
 
 	M.forceMove(src)
 	occupant = M
+	update_icon()
 	to_chat(user, SPAN_NOTICE("\The [M] is now inside \the [src]."))
 
 /// Right-click "Eject Occupant" -- same convention as cryopod.dm's "Eject
-/// from Pod" / cloning.dm's "Eject Cloner".
+/// from Pod" / cloning.dm's "Eject Cloner". Thin wrapper so the verb, the
+/// TGUI button, and relaymove() below all go through the one shared proc.
 /obj/structure/machinery/resleever/verb/eject_occupant()
 	set name = "Eject Occupant"
 	set category = "Persistence"
 	set src in oview(1)
 
+	_eject_occupant(usr)
+
+/// Shared eject path -- see eject_occupant() (right-click), the
+/// "eject_occupant" ui_act() case (TGUI button), and relaymove() (walking or
+/// resisting out) below. All three used to only be wired to the verb, which
+/// is exactly why neither the TGUI button nor self-eject via movement worked
+/// for the occupant.
+/obj/structure/machinery/resleever/proc/_eject_occupant(mob/user)
 	if(!occupant)
-		to_chat(usr, SPAN_WARNING("\The [src] is empty."))
+		to_chat(user, SPAN_WARNING("\The [src] is empty."))
 		return
 	var/mob/living/carbon/human/leaving = occupant
 	occupant = null
 	leaving.forceMove(get_turf(src))
-	to_chat(usr, SPAN_NOTICE("You eject \the [leaving] from \the [src]."))
+	update_icon()
+	to_chat(user, SPAN_NOTICE("You eject \the [leaving] from \the [src]."))
+
+/// Lets a conscious occupant just walk (or resist) their way out, same as
+/// cryopod.dm/cloning.dm's own relaymove() overrides -- without this, the
+/// only way out was another person right-clicking the machine from outside.
+/// Skipped for an incapacitated occupant (stat != 0) so a stray relayed
+/// movement doesn't pop an unconscious/dead body out on its own.
+/obj/structure/machinery/resleever/relaymove(mob/living/user, direction)
+	. = ..()
+	if(user.stat)
+		return
+	_eject_occupant(user)
 
 /obj/structure/machinery/resleever/verb/remove_lace()
 	set name = "Remove Lace"
@@ -328,3 +375,4 @@
 	// forgotten more often, so do it automatically.
 	occupant = null
 	target_body.forceMove(get_turf(src))
+	update_icon()

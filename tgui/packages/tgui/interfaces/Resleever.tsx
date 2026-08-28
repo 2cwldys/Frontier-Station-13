@@ -108,7 +108,7 @@ export const Resleever = (props) => {
                   <Box color="label">Empty.</Box>
                 )}
               </LabeledList.Item>
-              {pod_occupied && !pod_growing && (
+              {!!pod_occupied && !pod_growing && (
                 <LabeledList.Item label="Note">
                   <Box color="label">
                     Carry the clone over and place it in this machine to
