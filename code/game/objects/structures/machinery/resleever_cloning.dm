@@ -258,11 +258,15 @@
 	// leaving stale ones from the chargen body.
 	var/species_override = SSpersistence.charLaceDnaGetSpeciesOverride(ckey, char_name)
 	var/datum/species/override_species = species_override ? GLOB.all_species[species_override] : null
-	// IS_MECHANICAL guard is defensive, not load-bearing -- the Modify Neural
-	// Lace panel (persistence_lace_dna.dm) already refuses to store a
-	// synthetic override in the first place. This only matters for a stale
-	// row written before that filter existed.
-	if(istype(override_species) && !(override_species.flags & IS_MECHANICAL))
+	// Guard is defensive, not load-bearing -- the Modify Neural Lace panel
+	// (persistence_lace_dna.dm's _species_cloneable()) already refuses to
+	// store an uncloneable override in the first place. This only matters
+	// for a stale row written before that filter existed. Android
+	// (/datum/species/machine/android) is a /datum/species/machine subtype
+	// but is organically cloneable unlike every other IPC chassis brand, so
+	// it's carved back out the same way _species_cloneable() does.
+	var/uncloneable = istype(override_species, /datum/species/machine) && !istype(override_species, /datum/species/machine/android)
+	if(istype(override_species) && !uncloneable)
 		clone.set_species(species_override)
 	// Grown blank and unconscious: it has no mind until a lace is resleeved
 	// into it, and it should not be walking around in the meantime.

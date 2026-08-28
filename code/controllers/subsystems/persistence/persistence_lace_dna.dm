@@ -289,14 +289,20 @@ GLOBAL_LIST_EMPTY(persistence_lace_species_override_cache)
 		return "Consciousness, unvaulted"
 	return "Loose"
 
-/// TRUE if a GLOB.all_species key names an organically-cloneable species --
-/// IS_MECHANICAL covers IPC (every chassis brand) and Android alike, so
-/// nothing here needs to know their individual names, only that they're
-/// synthetic. Shared by the dropdown build below and _apply_changes()'
-/// validation.
+/// TRUE if a GLOB.all_species key names an organically-cloneable species.
+/// Every IPC chassis brand (baseline, shell, industrial/hephaestus/xion,
+/// zeng-hu, bishop, unbranded, hunter-killer -- ipc_subspecies.dm) is a
+/// /datum/species/machine subtype and can't be cloned; Android
+/// (/datum/species/machine/android) is ALSO a /datum/species/machine
+/// subtype but -- unlike every other one -- is organically cloneable, so it
+/// gets carved back out explicitly rather than excluded by a blanket
+/// synthetic/IS_MECHANICAL flag check. Shared by the dropdown build below
+/// and _apply_changes()' validation.
 /datum/tgui_module/admin/lace_editor/proc/_species_cloneable(species_name)
 	var/datum/species/S = GLOB.all_species[species_name]
-	return istype(S) && !(S.flags & IS_MECHANICAL)
+	if(!istype(S))
+		return FALSE
+	return !istype(S, /datum/species/machine) || istype(S, /datum/species/machine/android)
 
 /datum/tgui_module/admin/lace_editor/ui_data(mob/user)
 	var/list/data = list()
