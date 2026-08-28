@@ -407,6 +407,9 @@ pixel_x = 10;
 /obj/structure/machinery/alarm/persistence_reapply_wall_offset()
 	set_pixel_offsets()
 
+/obj/structure/machinery/alarm/persistence_self_heal_wall_offset()
+	set_pixel_offsets()
+
 /obj/structure/machinery/alarm/persistent_objects_get_content()
 	. = ..()
 	.["buildstage"] = buildstage

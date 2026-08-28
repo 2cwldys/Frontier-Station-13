@@ -70,6 +70,12 @@ pixel_x = 8;
 	pixel_x = DIR2PIXEL_X(dir)
 	pixel_y = DIR2PIXEL_Y(dir)
 
+/obj/structure/machinery/ringer/persistence_reapply_wall_offset()
+	set_pixel_offsets()
+
+/obj/structure/machinery/ringer/persistence_self_heal_wall_offset()
+	set_pixel_offsets()
+
 /obj/structure/machinery/ringer/Destroy()
 	QDEL_NULL(ringers)
 	return ..()

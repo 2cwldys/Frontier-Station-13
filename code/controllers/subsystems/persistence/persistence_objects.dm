@@ -343,6 +343,10 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
 			// the old re-derive so existing player-built devices still come
 			// back on their wall instead of dead-centered.
 			track.persistence_reapply_wall_offset()
+		// Unconditional, unlike the branch above -- see
+		// persistence_self_heal_wall_offset()'s own doc comment (objs.dm) for
+		// which devices this is safe to override for and why.
+		track.persistence_self_heal_wall_offset()
 	catch(var/exception/e)
 		log_subsystem_persistence_error("Error during json deserialization for persistent object. Failed to apply/decode track content: [e]")
 

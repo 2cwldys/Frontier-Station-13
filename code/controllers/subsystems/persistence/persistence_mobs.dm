@@ -1449,8 +1449,16 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		// it destroyed on restore, so save the slot as empty and let the suit hand
 		// the part back on load.
 		if(I && _persistence_item_is_suit_component(H, I))
+#ifdef RIG_BOOT_RESTORE_DIAGNOSTICS
+			if(slot_name == "shoes")
+				log_subsystem_persistence_info("RigBoots: SAVE shoes slot for [H.real_name] -- [I.type] identified as a suit component, saving slot empty.")
+#endif
 			inv[slot_name] = null
 			continue
+#ifdef RIG_BOOT_RESTORE_DIAGNOSTICS
+		if(slot_name == "shoes")
+			log_subsystem_persistence_info("RigBoots: SAVE shoes slot for [H.real_name] -- [I ? "[I.type], NOT a suit component" : "empty"], saving normally.")
+#endif
 		// serializePersistentItem() has no internal guard and this proc has no outer
 		// one, so an uncaught throw on a single item used to abandon the whole save.
 		// The row then kept its previous contents, which the player experiences as
@@ -1794,7 +1802,15 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		// leave them be -- qdeling them here is precisely what used to strip a
 		// restored voidsuit of its helmet, boots, tank and cooler.
 		var/obj/item/existing = get_equipped_item(slot_id)
+#ifdef RIG_BOOT_RESTORE_DIAGNOSTICS
+		if(slot_name == "shoes")
+			log_subsystem_persistence_info("RigBoots: RESTORE shoes slot for [real_name] -- existing=[existing ? "[existing.type]" : "NULL"] saved_item_data=[item_data ? "[item_data["type"] || "present"]" : "NULL/empty"]")
+#endif
 		if(existing && _persistence_item_is_suit_component(src, existing))
+#ifdef RIG_BOOT_RESTORE_DIAGNOSTICS
+			if(slot_name == "shoes")
+				log_subsystem_persistence_info("RigBoots: RESTORE shoes slot for [real_name] -- SKIPPED, existing [existing.type] identified as a suit component. Saved shoes data (if any) is discarded here.")
+#endif
 			continue
 
 		// CONSTRUCT BEFORE DESTROYING. This proc used to qdel `existing` here, up

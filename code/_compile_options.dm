@@ -65,6 +65,16 @@
 // is still being actively chased.
 #define WALL_MACHINE_DIAGNOSTICS
 
+// If defined, logs the shoes slot specifically at mob inventory save and
+// restore time -- what's actually equipped there, whether it's identified as
+// a rig/voidsuit's own component (_persistence_item_is_suit_component(),
+// persistence_mobs.dm), and what the rig's own boots-deploy attempt
+// (toggle_piece(), rig.dm) does when it runs. For chasing a report of boots
+// worn under a sealed rig being lost across a cryo save/restore cycle --
+// comment out to strip it entirely. Defined by default while this is still
+// being actively chased.
+#define RIG_BOOT_RESTORE_DIAGNOSTICS
+
 // If defined, fastening a pipe fitting logs its pipe_type/dir/pipe_dir
 // before construction (construction.dm), and explicitly logs when no case
 // in the build switch matched -- so a fitting that vanishes without
