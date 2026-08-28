@@ -207,6 +207,19 @@
 /// previously instant, which read as the fee buying an already-finished body.
 #define CLONE_GROWTH_TIME 90 SECONDS
 
+/// Credits charged to print a blank IPC chassis from the prosthetics
+/// fabricator (bioprinter.dm's "IPC Body" product) -- billed the same
+/// faction-if-tagged-and-member/personal-otherwise way CLONE_ORDER_COST is,
+/// but always charged regardless of CLONING_COSTS_CREDITS: this is a
+/// deliberately steep, separate cost for the one legitimate way to get a
+/// synthetic body to resleeve into, not the ordinary (optionally free)
+/// organic clone path.
+#define IPC_BODY_CREDIT_COST 5000
+/// Stored-matter cost of the same print -- a large fraction of the
+/// fabricator's default max_stored_matter (500), so affording one takes a
+/// heavily-fed printer on top of the credit charge.
+#define IPC_BODY_MATTER_COST 400
+
 // If defined, the server launches the Discord status bot
 // (scripts/discord_status_bot.py) on startup and kills it when the server
 // actually closes -- see discordStatusBotStart()/Stop() (persistence.dm).

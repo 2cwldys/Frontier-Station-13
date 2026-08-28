@@ -289,6 +289,15 @@ GLOBAL_LIST_EMPTY(persistence_lace_species_override_cache)
 		return "Consciousness, unvaulted"
 	return "Loose"
 
+/// TRUE if a GLOB.all_species key names an organically-cloneable species --
+/// IS_MECHANICAL covers IPC (every chassis brand) and Android alike, so
+/// nothing here needs to know their individual names, only that they're
+/// synthetic. Shared by the dropdown build below and _apply_changes()'
+/// validation.
+/datum/tgui_module/admin/lace_editor/proc/_species_cloneable(species_name)
+	var/datum/species/S = GLOB.all_species[species_name]
+	return istype(S) && !(S.flags & IS_MECHANICAL)
+
 /datum/tgui_module/admin/lace_editor/ui_data(mob/user)
 	var/list/data = list()
 	data["ckey"] = target_ckey
@@ -297,7 +306,8 @@ GLOBAL_LIST_EMPTY(persistence_lace_species_override_cache)
 
 	var/list/species_options = list()
 	for(var/species_name in GLOB.all_species)
-		species_options += species_name
+		if(_species_cloneable(species_name))
+			species_options += species_name
 	data["species_options"] = species_options
 
 	var/obj/item/organ/internal/neural_lace/L = _resolve_live_lace()
@@ -329,8 +339,8 @@ GLOBAL_LIST_EMPTY(persistence_lace_species_override_cache)
 	var/new_override = params["species_override"]
 	if(!isnull(new_override))
 		new_override = trim("[new_override]")
-		if(length(new_override) && !GLOB.all_species[new_override])
-			to_chat(admin, SPAN_WARNING("'[new_override]' is not a valid species -- ignored."))
+		if(length(new_override) && !_species_cloneable(new_override))
+			to_chat(admin, SPAN_WARNING("'[new_override]' is not a valid, organically-cloneable species -- ignored."))
 		else
 			var/old_override = SSpersistence.charLaceDnaGetSpeciesOverride(target_ckey, target_char_name) || ""
 			var/normalized_new = length(new_override) ? new_override : null

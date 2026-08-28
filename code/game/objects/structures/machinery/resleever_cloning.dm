@@ -257,7 +257,12 @@
 	// organs/limbs/icons rebuild correctly for the new species rather than
 	// leaving stale ones from the chargen body.
 	var/species_override = SSpersistence.charLaceDnaGetSpeciesOverride(ckey, char_name)
-	if(species_override && GLOB.all_species[species_override])
+	var/datum/species/override_species = species_override ? GLOB.all_species[species_override] : null
+	// IS_MECHANICAL guard is defensive, not load-bearing -- the Modify Neural
+	// Lace panel (persistence_lace_dna.dm) already refuses to store a
+	// synthetic override in the first place. This only matters for a stale
+	// row written before that filter existed.
+	if(istype(override_species) && !(override_species.flags & IS_MECHANICAL))
 		clone.set_species(species_override)
 	// Grown blank and unconscious: it has no mind until a lace is resleeved
 	// into it, and it should not be walking around in the meantime.
