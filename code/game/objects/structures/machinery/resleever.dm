@@ -1,8 +1,10 @@
 /*
  * Resleever Machine
- * Transfers a neural lace consciousness into a new or original body.
- * Medical staff insert an extracted lace and a target body (or use adjacent
- * surgical table with stabilized original body).
+ * Transfers a neural lace consciousness into a body grown by its linked
+ * cloning pod. Medical staff insert an extracted lace, grow (or already have)
+ * a mindless clone sitting in the linked pod, and resleeve -- there is no
+ * separate targeting step, the resleever always acts on whatever the linked
+ * pod currently holds.
  */
 
 /obj/structure/machinery/resleever
@@ -16,12 +18,12 @@
 	density = TRUE
 
 	var/obj/item/organ/internal/neural_lace/inserted_lace = null
-	var/mob/living/carbon/human/target_body = null
 
 /obj/structure/machinery/resleever/examine(mob/user)
 	. = ..()
 	. += SPAN_NOTICE("Lace slot: [inserted_lace ? "[inserted_lace.registered_name]'s lace ([inserted_lace.lace_occupied ? "OCCUPIED" : "empty"])" : "empty"]")
-	. += SPAN_NOTICE("Body slot: [target_body ? target_body.real_name : "no body"]")
+	var/obj/structure/machinery/clonepod/pod = get_linked_pod()
+	. += SPAN_NOTICE("Body slot: [(pod && ishuman(pod.occupant)) ? pod.occupant.real_name : "no body"]")
 
 /obj/structure/machinery/resleever/attack_hand(mob/user)
 	if(..())
@@ -39,18 +41,28 @@
 
 	data["lace_name"] = inserted_lace ? inserted_lace.registered_name : null
 	data["lace_occupied"] = inserted_lace ? !!inserted_lace.lace_occupied : FALSE
-	data["body_name"] = target_body ? target_body.real_name : null
-	// Both halves have to be present, and the lace has to actually be carrying
-	// somebody -- _do_resleeve() refuses otherwise, so surface it up front
-	// rather than letting the button fail on click.
-	data["can_resleeve"] = (inserted_lace && target_body && inserted_lace.lace_occupied) ? TRUE : FALSE
 
 	var/obj/structure/machinery/clonepod/pod = get_linked_pod()
 	data["linked_pod"] = pod ? TRUE : FALSE
 	data["pod_occupied"] = (pod && pod.occupant) ? TRUE : FALSE
 	data["pod_clone_name"] = (pod && pod.occupant) ? pod.occupant.real_name : null
-	// A clone can only be ordered against a lace that names someone.
-	data["can_order_clone"] = (pod && !pod.occupant && inserted_lace && inserted_lace.registered_name) ? TRUE : FALSE
+	data["pod_growing"] = (pod && pod.growing_clone_data) ? TRUE : FALSE
+	// A clone can only be ordered against a lace that names someone, and only
+	// when the pod isn't already occupied or mid-grow.
+	data["can_order_clone"] = (pod && !pod.occupant && !pod.growing_clone_data && inserted_lace && inserted_lace.registered_name) ? TRUE : FALSE
+
+	// The resleever always acts on the linked pod's occupant directly -- no
+	// separate targeting step. Only a MINDLESS body is a valid resleeve
+	// target (a freshly grown clone, or the pod re-used to hold one some
+	// other way) -- one that already has a mind in it is somebody else's
+	// body, not an empty vessel.
+	var/mob/living/carbon/human/body = (pod && ishuman(pod.occupant)) ? pod.occupant : null
+	data["body_name"] = body ? body.real_name : null
+	// Both halves have to be present, the body must be mindless, and the lace
+	// has to actually be carrying somebody -- _do_resleeve() refuses
+	// otherwise, so surface it up front rather than letting the button fail
+	// on click.
+	data["can_resleeve"] = (inserted_lace && inserted_lace.lace_occupied && body && !body.mind?.key) ? TRUE : FALSE
 
 	// 0 when cloning is free (CLONING_COSTS_CREDITS, _compile_options.dm), so
 	// the UI advertises a price only when one is actually charged.
@@ -86,14 +98,6 @@
 			to_chat(user, SPAN_NOTICE("Lace removed."))
 			return TRUE
 
-		if("set_target")
-			_pick_target_body(user)
-			return TRUE
-
-		if("clear_target")
-			target_body = null
-			return TRUE
-
 		if("order_clone")
 			var/obj/structure/machinery/clonepod/pod = get_linked_pod()
 			if(!pod)
@@ -106,35 +110,11 @@
 			return TRUE
 
 		if("resleeve")
-			if(tgui_alert(user, "Resleeve [inserted_lace ? inserted_lace.registered_name : "nobody"] into [target_body ? target_body.real_name : "nothing"]?", "Confirm Resleeve", list("Resleeve", "Cancel")) == "Resleeve")
+			var/obj/structure/machinery/clonepod/pod = get_linked_pod()
+			var/body_name = (pod && ishuman(pod.occupant)) ? pod.occupant.real_name : "nothing"
+			if(tgui_alert(user, "Resleeve [inserted_lace ? inserted_lace.registered_name : "nobody"] into [body_name]?", "Confirm Resleeve", list("Resleeve", "Cancel")) == "Resleeve")
 				_do_resleeve(user)
 			return TRUE
-
-/// Shared body picker -- used by both the UI action and the legacy verb, so
-/// the two can't drift apart.
-/obj/structure/machinery/resleever/proc/_pick_target_body(mob/user)
-	var/list/candidates = list()
-	for(var/mob/living/carbon/human/H in range(2, src))
-		if(H.stat == DEAD && !H.mind?.key)
-			candidates["[H.real_name] at ([H.x],[H.y],[H.z])"] = H
-		else if(H.stat == DEAD && H != target_body)
-			candidates["[H.real_name] (HAS MIND - careful!) at ([H.x],[H.y],[H.z])"] = H
-	// A freshly grown clone is UNCONSCIOUS rather than DEAD and has no mind,
-	// so it wouldn't match the dead-body checks above -- offer it explicitly.
-	var/obj/structure/machinery/clonepod/pod = get_linked_pod()
-	if(pod && ishuman(pod.occupant))
-		var/mob/living/carbon/human/clone = pod.occupant
-		if(!clone.mind?.key)
-			candidates["[clone.real_name] (clone, in the linked pod)"] = clone
-
-	if(!length(candidates))
-		to_chat(user, SPAN_WARNING("No suitable bodies nearby. A dead, mindless body or a grown clone is required."))
-		return
-	var/chosen = tgui_input_list(user, "Select target body:", "Set Target Body", candidates)
-	if(!chosen)
-		return
-	target_body = candidates[chosen]
-	to_chat(user, SPAN_NOTICE("Target body set to [target_body.real_name]."))
 
 /obj/structure/machinery/resleever/attackby(obj/item/I, mob/user, params)
 	// Multitool links this resleever to a cloning pod (resleever_cloning.dm).
@@ -167,18 +147,19 @@
 	inserted_lace = null
 	to_chat(usr, SPAN_NOTICE("Lace removed."))
 
-/obj/structure/machinery/resleever/verb/set_target_body()
-	set name = "Set Target Body"
-	set category = "Persistence"
-	set src in oview(2)
-
-	// Delegates to the same picker the UI uses, so the verb and the interface
-	// can never offer different candidate sets.
-	_pick_target_body(usr)
-
 /obj/structure/machinery/resleever/proc/_do_resleeve(mob/living/user)
+	var/obj/structure/machinery/clonepod/pod = get_linked_pod()
+	if(!pod)
+		to_chat(user, SPAN_WARNING("No cloning pod is linked to \the [src]."))
+		return
+	var/mob/living/carbon/human/target_body = ishuman(pod.occupant) ? pod.occupant : null
+
 	if(!inserted_lace || !target_body)
-		to_chat(user, SPAN_WARNING("Both a lace and a target body are required."))
+		to_chat(user, SPAN_WARNING("Both a lace and a body in the linked pod are required."))
+		return
+
+	if(target_body.mind?.key)
+		to_chat(user, SPAN_WARNING("The linked pod's occupant already has a mind of their own."))
 		return
 
 	if(!inserted_lace.lace_occupied || !inserted_lace.lace_mob)
@@ -194,8 +175,7 @@
 		return
 
 	if(QDELETED(target_body))
-		to_chat(user, SPAN_WARNING("The target body is gone."))
-		target_body = null
+		to_chat(user, SPAN_WARNING("The body in the linked pod is gone."))
 		return
 
 	// Install the lace into the new body's head
@@ -269,4 +249,5 @@
 	log_game("[inserted_lace.registered_name] resleeved by [user.real_name] via resleever at ([x],[y],[z]).")
 
 	inserted_lace = null
-	target_body = null
+	// pod.occupant clears itself once the resleeved body's loc leaves the pod
+	// (cloning.dm's own occupant-tracking self-heal) -- nothing to do here.

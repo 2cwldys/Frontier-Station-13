@@ -764,7 +764,11 @@
 
 	// nutrition decrease over time
 	if(max_nutrition > 0)
-		if (nutrition > 0 && stat != 2)
+		// !GODMODE: a mob stored at the player storage telepad (persistence_cryo.dm)
+		// sits UNCONSCIOUS with GODMODE set specifically to prevent hunger/thirst/
+		// health loss while offline -- but stat != 2 alone never actually checked
+		// that, so a stored character kept starving/dehydrating to death regardless.
+		if (nutrition > 0 && stat != 2 && !(status_flags & GODMODE))
 			adjustNutritionLoss(nutrition_loss * nutrition_attrition_rate)
 
 		if (nutrition / max_nutrition > CREW_NUTRITION_OVEREATEN)
@@ -777,7 +781,8 @@
 
 	// hydration decrease over time
 	if(max_hydration > 0)
-		if (hydration > 0 && stat != 2)
+		// !GODMODE: see the matching note on the nutrition block above.
+		if (hydration > 0 && stat != 2 && !(status_flags & GODMODE))
 			adjustHydrationLoss(hydration_loss * hydration_attrition_rate)
 
 		if (hydration / max_hydration > CREW_HYDRATION_OVERHYDRATED)

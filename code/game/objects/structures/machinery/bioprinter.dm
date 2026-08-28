@@ -128,7 +128,8 @@
 		/obj/item/organ/external/hand,
 		/obj/item/organ/external/hand/right,
 		/obj/item/organ/external/foot,
-		/obj/item/organ/external/foot/right
+		/obj/item/organ/external/foot/right,
+		/obj/item/organ/internal/neural_lace
 	)
 	for(var/organtype in organs)
 		var/obj/item/organ/O = organtype

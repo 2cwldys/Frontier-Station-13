@@ -202,6 +202,10 @@
 /// here rather than beside the pipeline so the machine, its UI data and the
 /// billing path all read one number.
 #define CLONE_ORDER_COST 10000
+/// How long a resleeving-pipeline clone takes to grow after being ordered
+/// (order_clone_from_lace()/_finish_clone_growth(), resleever_cloning.dm) --
+/// previously instant, which read as the fee buying an already-finished body.
+#define CLONE_GROWTH_TIME 90 SECONDS
 
 // If defined, the server launches the Discord status bot
 // (scripts/discord_status_bot.py) on startup and kills it when the server

@@ -5,9 +5,11 @@
  *   1. Multitool-link a cloning pod to a resleever (either order).
  *   2. Hold a neural lace to the pod and order a clone. The pod reads the
  *      character's identity off the lace, charges the clone fee, and grows a
- *      body wearing that character's own likeness.
- *   3. Move the clone into the resleever, insert the lace, and resleeve --
- *      the clone becomes that character's body for good.
+ *      body wearing that character's own likeness -- taking CLONE_GROWTH_TIME
+ *      to actually finish.
+ *   3. Once it's ready, insert the lace into the resleever and resleeve --
+ *      no need to move the clone anywhere first, the resleever always acts
+ *      directly on whatever the linked pod currently holds.
  *
  * Billing follows the machines' faction tags: when the pod and the resleever
  * are both tagged to the SAME faction, that faction's account pays. Anything
@@ -32,6 +34,14 @@
 	/// with persistent_network.
 	var/personal_ckey = null
 	var/personal_char_name = null
+	/// Set for the CLONE_GROWTH_TIME window between ordering and the clone
+	/// actually appearing -- holds the info _finish_clone_growth() needs to
+	/// build and bill the clone, since nothing else survives that wait.
+	/// In-memory only, deliberately absent from worldstate_vars -- matches
+	/// every other in-progress world.time-relative timer in this codebase
+	/// (see bioprinter.dm's time_print_end): a restored pod always comes back
+	/// idle, never mid-grow.
+	var/list/growing_clone_data = null
 	worldstate_vars = list("persistent_network", "personal_ckey", "personal_char_name")
 
 /obj/structure/machinery/clonepod/faction_tagger_compatible()
@@ -256,6 +266,9 @@
 	if(occupant)
 		to_chat(user, SPAN_WARNING("\The [src] is already occupied."))
 		return FALSE
+	if(growing_clone_data)
+		to_chat(user, SPAN_WARNING("\The [src] is already growing a clone."))
+		return FALSE
 
 	var/obj/structure/machinery/resleever/sleever = null
 	for(var/obj/structure/machinery/resleever/candidate in range(7, src))
@@ -279,27 +292,106 @@
 	if(occupant)
 		to_chat(user, SPAN_WARNING("\The [src] is already occupied."))
 		return FALSE
+	if(growing_clone_data)
+		to_chat(user, SPAN_WARNING("\The [src] is already growing a clone."))
+		return FALSE
 
 	if(!_charge_clone_fee(faction_uid, user, lace.registered_name))
 		return FALSE
 
-	var/mob/living/carbon/human/clone = build_cloned_body_for_character(lace.registered_ckey, lace.registered_name, get_turf(src))
-	if(!clone)
-		to_chat(user, SPAN_WARNING("\The [src] cannot find a genetic record for [lace.registered_name]."))
-		_refund_clone_fee(faction_uid, user, lace.registered_name)
-		return FALSE
-
-	clone.forceMove(src)
-	occupant = clone
-	update_icon()
+	growing_clone_data = list(
+		"ckey" = lace.registered_ckey,
+		"name" = lace.registered_name,
+		"faction" = faction_uid,
+		"user" = user,
+	)
 	playsound(src, 'sound/machines/chime.ogg', 60, 1)
-	to_chat(user, SPAN_GOOD("\The [src] begins growing a clone of [lace.registered_name]."))
+	to_chat(user, SPAN_GOOD("\The [src] begins growing a clone of [lace.registered_name]. This will take a while."))
 #ifdef CLONING_COSTS_CREDITS
 	log_and_message_admins("ordered a clone of [lace.registered_name] ([lace.registered_ckey]) for [CLONE_ORDER_COST]cr, billed to [payer_desc].", user)
 #else
 	log_and_message_admins("ordered a clone of [lace.registered_name] ([lace.registered_ckey]) (cloning is free on this server).", user)
 #endif
+	addtimer(CALLBACK(src, PROC_REF(_finish_clone_growth)), CLONE_GROWTH_TIME)
 	return TRUE
+
+/// Fires CLONE_GROWTH_TIME after order_clone_from_lace() -- actually builds
+/// and places the clone that was paid for. Split out so the pod reads as
+/// "empty and growing" for the whole wait rather than the body existing
+/// (and being visible/orderable-against) the instant payment clears.
+/obj/structure/machinery/clonepod/proc/_finish_clone_growth()
+	if(!growing_clone_data)
+		return
+	var/ckey = growing_clone_data["ckey"]
+	var/char_name = growing_clone_data["name"]
+	var/faction_uid = growing_clone_data["faction"]
+	var/mob/living/user = growing_clone_data["user"]
+	growing_clone_data = null
+
+	// The pod may have been filled some other way (a second, non-lace grow
+	// path, admin action, etc.) during the wait -- refund rather than
+	// overwrite whatever is already there.
+	if(occupant)
+		_refund_clone_fee(faction_uid, user, char_name)
+		if(user && !QDELETED(user))
+			to_chat(user, SPAN_WARNING("\The [src] filled up before [char_name]'s clone finished growing -- refunded."))
+		return
+
+	var/mob/living/carbon/human/clone = build_cloned_body_for_character(ckey, char_name, get_turf(src))
+	if(!clone)
+		_refund_clone_fee(faction_uid, user, char_name)
+		if(user && !QDELETED(user))
+			to_chat(user, SPAN_WARNING("\The [src] lost [char_name]'s genetic record mid-grow -- refunded."))
+		log_game("_finish_clone_growth: build_cloned_body_for_character failed for '[char_name]' ([ckey]) at [src] after payment -- refunded.")
+		return
+
+	clone.forceMove(src)
+	occupant = clone
+	update_icon()
+	playsound(src, 'sound/machines/chime.ogg', 60, 1)
+	if(user && !QDELETED(user))
+		to_chat(user, SPAN_GOOD("\The [src] finishes growing a clone of [char_name]."))
+
+/// Right-click "Cancel Cloning" -- refunds and stops an in-progress grow.
+/// Gated exactly like resolve_clone_billing() above: a faction-tagged pod
+/// only trusts an actual member (rank 0 = plain crew upward, same
+/// get_effective_faction_rank() check) to touch its order, not a random
+/// civilian who happens to be standing nearby. An untagged/personally-tagged
+/// pod has no faction to protect, so anyone who can reach it may cancel.
+/obj/structure/machinery/clonepod/verb/cancel_cloning()
+	set name = "Cancel Cloning"
+	set category = "Persistence"
+	set src in oview(1)
+
+	if(!isliving(usr))
+		return
+	var/mob/living/user = usr
+
+	if(!growing_clone_data)
+		to_chat(user, SPAN_WARNING("\The [src] is not currently growing a clone."))
+		return
+
+	var/pod_faction = normalize_faction_uid(persistent_network)
+	if(pod_faction && get_effective_faction_rank(user, pod_faction) < 0)
+		to_chat(user, SPAN_WARNING("Only members of [get_faction_name(pod_faction)] may cancel cloning here."))
+		return
+
+	var/char_name = growing_clone_data["name"]
+	var/faction_uid = growing_clone_data["faction"]
+	var/mob/living/orderer = growing_clone_data["user"]
+	growing_clone_data = null
+
+	_refund_clone_fee(faction_uid, orderer, char_name)
+	// Flavor -- the half-grown biomass has to go somewhere. Same generic
+	// gibspawner the legacy clonepod's own failed-clone path uses (go_out(),
+	// this file's parent cloning.dm), just fired immediately rather than left
+	// waiting on a later eject -- there's no occupant object here for that
+	// mechanic to apply to, only unbuilt biomass.
+	gibs(get_turf(src))
+	to_chat(user, SPAN_NOTICE("You cancel the cloning of [char_name]. The fee is refunded."))
+	if(orderer && orderer != user && !QDELETED(orderer))
+		to_chat(orderer, SPAN_WARNING("[user] canceled your order to clone [char_name] -- the fee has been refunded."))
+	log_and_message_admins("canceled the cloning of [char_name] at \the [src].", user)
 
 /// Takes the clone fee. Returns FALSE (with the reason reported) if it can't.
 /// Always succeeds when CLONING_COSTS_CREDITS is off -- cloning is free then.

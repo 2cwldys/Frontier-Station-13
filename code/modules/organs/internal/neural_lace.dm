@@ -96,6 +96,12 @@
 	if(lace_occupied)
 		. += SPAN_ITALIC("A faint presence can be felt within.")
 
+/// A neural lace is a synthetic device, not tissue -- it has no business being
+/// blood-type-matched against whatever body it's installed in the way a real
+/// organ transplant is (handle_rejection(), organ.dm). Never rejected, period.
+/obj/item/organ/internal/neural_lace/handle_rejection()
+	return
+
 // ── Damage system (only when extracted — installed lace is protected by skull) ──
 
 /// Deal damage to an extracted lace. Does nothing when installed.

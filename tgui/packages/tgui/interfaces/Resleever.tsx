@@ -6,11 +6,15 @@ import { Window } from '../layouts';
 type ResleeverData = {
   lace_name: string | null;
   lace_occupied: BooleanLike;
+  /** Name of the linked pod's occupant, but only when they're a valid
+   * (mindless) resleeve target -- null if the pod is empty, still growing,
+   * or already holds somebody with a mind of their own. */
   body_name: string | null;
   can_resleeve: BooleanLike;
   linked_pod: BooleanLike;
   pod_occupied: BooleanLike;
   pod_clone_name: string | null;
+  pod_growing: BooleanLike;
   can_order_clone: BooleanLike;
   /** 0 when this server has cloning set to free (CLONING_COSTS_CREDITS). */
   clone_cost: number;
@@ -27,6 +31,7 @@ export const Resleever = (props) => {
     linked_pod,
     pod_occupied,
     pod_clone_name,
+    pod_growing,
     can_order_clone,
     clone_cost,
     clone_payer,
@@ -67,8 +72,14 @@ export const Resleever = (props) => {
           ) : (
             <LabeledList>
               <LabeledList.Item label="Pod">
-                {pod_occupied ? (
-                  <Box color="good">Clone ready: {pod_clone_name}</Box>
+                {pod_growing ? (
+                  <Box color="average">Growing...</Box>
+                ) : pod_occupied ? (
+                  <Box color={body_name ? 'good' : 'bad'}>
+                    {body_name
+                      ? `Clone ready: ${pod_clone_name}`
+                      : `${pod_clone_name} (has a mind of their own -- not resleevable)`}
+                  </Box>
                 ) : (
                   <Box color="label">Empty.</Box>
                 )}
@@ -88,11 +99,13 @@ export const Resleever = (props) => {
             tooltip={
               !linked_pod
                 ? 'No cloning pod linked.'
-                : pod_occupied
-                  ? 'The linked pod already holds a body.'
-                  : !lace_name
-                    ? 'Insert the neural lace to clone from.'
-                    : undefined
+                : pod_growing
+                  ? 'A clone is already growing.'
+                  : pod_occupied
+                    ? 'The linked pod already holds a body.'
+                    : !lace_name
+                      ? 'Insert the neural lace to clone from.'
+                      : undefined
             }
             onClick={() => act('order_clone')}
           >
@@ -100,27 +113,6 @@ export const Resleever = (props) => {
               ? `Order Clone (${clone_cost.toLocaleString()} cr)`
               : 'Order Clone'}
           </Button>
-        </Section>
-
-        <Section title="Target Body">
-          <LabeledList>
-            <LabeledList.Item label="Selected">
-              {body_name || <Box color="label">None.</Box>}
-            </LabeledList.Item>
-          </LabeledList>
-          <Button
-            fluid
-            mt={1}
-            icon="user-plus"
-            onClick={() => act('set_target')}
-          >
-            Select Body
-          </Button>
-          {!!body_name && (
-            <Button fluid mt={1} icon="times" onClick={() => act('clear_target')}>
-              Clear Selection
-            </Button>
-          )}
         </Section>
 
         <Section title="Resleeve">
@@ -135,7 +127,7 @@ export const Resleever = (props) => {
                 : !lace_occupied
                   ? 'That lace carries no consciousness.'
                   : !body_name
-                    ? 'No target body selected.'
+                    ? 'No resleevable body in the linked pod.'
                     : undefined
             }
             onClick={() => act('resleeve')}
