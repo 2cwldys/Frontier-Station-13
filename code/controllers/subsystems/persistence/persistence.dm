@@ -1330,6 +1330,12 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/skills_e)
 		log_subsystem_persistence_panic("Unhandled exception during character skills persistence initialization: [skills_e]")
 
+	log_subsystem_persistence_info("Starting character lace DNA initialization...")
+	try
+		charLaceDnaInitialize()
+	catch(var/exception/lace_dna_e)
+		log_subsystem_persistence_panic("Unhandled exception during character lace DNA persistence initialization: [lace_dna_e]")
+
 	log_subsystem_persistence_info("Starting mob position initialization...")
 	try
 		mobPositionInitialize()

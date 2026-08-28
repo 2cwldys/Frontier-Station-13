@@ -481,6 +481,7 @@
 #include "code\controllers\subsystems\persistence\persistence_removed_structures.dm"
 #include "code\controllers\subsystems\persistence\persistence_research.dm"
 #include "code\controllers\subsystems\persistence\persistence_ship_interiors.dm"
+#include "code\controllers\subsystems\persistence\persistence_lace_dna.dm"
 #include "code\controllers\subsystems\persistence\persistence_shuttles.dm"
 #include "code\controllers\subsystems\persistence\persistence_skills.dm"
 #include "code\controllers\subsystems\persistence\persistence_stock_market.dm"

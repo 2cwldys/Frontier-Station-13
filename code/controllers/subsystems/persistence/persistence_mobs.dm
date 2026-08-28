@@ -335,6 +335,13 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
 									lace.registered_name = aug_data["registered_name"] || ""
 									lace.registered_ckey = aug_data["registered_ckey"] || ""
 									lace.owner_faction   = aug_data["owner_faction"] || ""
+									// Restore whatever dna/species this lace was last
+									// synced to via replaced() -- new() above just built
+									// it fresh with neither, same gap that used to make
+									// every restore drop the sync a resleeve/transplant
+									// had applied. See persistence_lace_dna.dm.
+									if(lace.registered_ckey && lace.registered_name)
+										lace.apply_lace_dna_snapshot(SSpersistence.charLaceDnaResolve(lace.registered_ckey, lace.registered_name))
 							catch(var/exception/aug_e)
 								log_subsystem_persistence_error("MobHealth: Failed to restore augment [aug_type_str] for [real_name]: [aug_e]")
 
@@ -653,7 +660,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 /proc/persistence_delete_character_data(ckey, char_name)
 	if(!GLOB.config.sql_enabled || !SSdbcore.Connect())
 		return
-	var/tables = list("ss13_char_health", "ss13_char_inventory", "ss13_char_identity", "ss13_mob_position", "ss13_char_skills")
+	var/tables = list("ss13_char_health", "ss13_char_inventory", "ss13_char_identity", "ss13_mob_position", "ss13_char_skills", "ss13_char_lace_dna")
 	for(var/table in tables)
 		var/datum/db_query/q = SSdbcore.NewQuery(
 			"DELETE FROM [table] WHERE ckey = :ckey AND char_name = :char_name",
@@ -1242,6 +1249,14 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 					"registered_ckey" = lace.registered_ckey,
 					"owner_faction"   = lace.owner_faction
 				))
+				// Keyed on the LACE's own registered identity, not H -- the lace
+				// might be installed in a donor body that isn't its owner. See
+				// get_lace_dna_snapshot()'s own doc comment (neural_lace.dm) for
+				// why this needs its own table at all.
+				if(lace.registered_ckey && lace.registered_name)
+					var/list/dna_snapshot = lace.get_lace_dna_snapshot()
+					if(dna_snapshot)
+						charLaceDnaSaveOne(lace.registered_ckey, lace.registered_name, json_encode(dna_snapshot))
 			else
 				augments += "[A.type]"
 		if(!O.brute_dam && !O.burn_dam && !O.robotic && !length(augments))

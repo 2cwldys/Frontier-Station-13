@@ -41,13 +41,15 @@ GLOBAL_LIST_INIT(persistence_central_synced_char_tables, list(
 	"ss13_char_identity",
 	"ss13_char_inventory",
 	"ss13_mob_position",
-	"ss13_char_skills"
+	"ss13_char_skills",
+	"ss13_char_lace_dna"
 ))
 
 GLOBAL_LIST_INIT(persistence_char_name_columns, list(
 	"ss13_char_health"             = list("char_name" = "ckey"),
 	"ss13_char_identity"           = list("char_name" = "ckey"),
 	"ss13_char_skills"             = list("char_name" = "ckey"),
+	"ss13_char_lace_dna"           = list("char_name" = "ckey"),
 	"ss13_char_inventory"          = list("char_name" = "ckey"),
 	"ss13_crew_records"            = list("char_name" = "ckey"),
 	"ss13_mob_position"            = list("char_name" = "ckey"),

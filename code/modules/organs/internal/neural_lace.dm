@@ -63,6 +63,63 @@
 	/// costing the intended tier or two.
 	var/list/stored_skills
 
+/**
+ * Captures this lace's current /datum/dna + organ species singleton as a
+ * flat, JSON-safe list -- everything replaced() (organ.dm/_internal.dm) syncs
+ * onto the lace whenever it's surgically installed (including the
+ * resleever's own _do_resleeve(), resleever.dm).
+ *
+ * Without persisting this, that sync only lives as long as the physical lace
+ * object does -- persistence_mobs.dm rebuilds a restored lace fresh via
+ * new(), only ever reapplying lace_damage/registered_name/registered_ckey/
+ * owner_faction, so dna/species reset to blank on every save/restore
+ * regardless of the last body it was actually synced to.
+ */
+/obj/item/organ/internal/neural_lace/proc/get_lace_dna_snapshot()
+	if(!dna)
+		return null
+	var/list/snapshot = list(
+		"uni_identity"   = dna.uni_identity,
+		"struc_enzymes"  = dna.struc_enzymes,
+		"unique_enzymes" = dna.unique_enzymes,
+		"b_type"         = dna.b_type,
+		"real_name"      = dna.real_name,
+		"dna_species"    = dna.species,
+		"SE"             = dna.SE.Copy(),
+		"UI"             = dna.UI.Copy(),
+		"body_markings"  = dna.body_markings ? dna.body_markings.Copy() : list(),
+	)
+	if(species)
+		snapshot["organ_species"] = "[species.type]"
+	return snapshot
+
+/// Rebuilds this lace's /datum/dna + organ species singleton from a snapshot
+/// taken by get_lace_dna_snapshot(). Silently no-ops on a null/malformed
+/// snapshot -- a lace that's never been synced to a body yet has nothing to
+/// restore, same as any other legacy/never-saved row elsewhere in this
+/// codebase's persistence.
+/obj/item/organ/internal/neural_lace/proc/apply_lace_dna_snapshot(list/snapshot)
+	if(!islist(snapshot))
+		return
+	var/datum/dna/new_dna = new
+	new_dna.uni_identity   = snapshot["uni_identity"] || ""
+	new_dna.struc_enzymes  = snapshot["struc_enzymes"] || ""
+	new_dna.unique_enzymes = snapshot["unique_enzymes"] || ""
+	new_dna.b_type         = snapshot["b_type"] || "A+"
+	new_dna.real_name      = snapshot["real_name"]
+	new_dna.species        = snapshot["dna_species"] || SPECIES_HUMAN
+	if(islist(snapshot["SE"]))
+		new_dna.SE = snapshot["SE"].Copy()
+	if(islist(snapshot["UI"]))
+		new_dna.UI = snapshot["UI"].Copy()
+	if(islist(snapshot["body_markings"]))
+		new_dna.body_markings = snapshot["body_markings"].Copy()
+	dna = new_dna
+	if(snapshot["organ_species"])
+		var/species_path = text2path(snapshot["organ_species"])
+		if(species_path)
+			species = GET_SINGLETON(species_path)
+
 /obj/item/organ/internal/neural_lace/Initialize(mapload, internal)
 	. = ..()
 	// _bind_to_owner is NOT called here — Initialize fires on every construction including
