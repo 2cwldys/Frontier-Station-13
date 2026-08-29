@@ -7,6 +7,7 @@ type LaceEditorData = {
   ckey: string;
   char_name: string;
   species_override: string;
+  original_species: string;
   species_options: string[];
   lace_status: string | null;
   lace_damage: number | null;
@@ -21,6 +22,7 @@ export const LaceEditor = (_props) => {
     ckey,
     char_name,
     species_override,
+    original_species,
     species_options = [],
     lace_status,
     lace_damage,
@@ -77,6 +79,23 @@ export const LaceEditor = (_props) => {
             it back to "Use character default" reverts to their normal
             species.
           </Box>
+          {!!original_species && (
+            <Box mt={1}>
+              <Box color="label" inline>
+                Chargen species before their last resleeve:{' '}
+              </Box>
+              <Box inline bold>
+                {original_species}
+              </Box>
+              <Button
+                ml={1}
+                icon="undo"
+                content="Restore Original Species"
+                color="caution"
+                onClick={() => act('restore_original_species')}
+              />
+            </Box>
+          )}
         </Section>
         <Section title="Physical Lace">
           {lace_status === null ? (

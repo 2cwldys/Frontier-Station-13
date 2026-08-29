@@ -36,6 +36,13 @@ GLOBAL_LIST_EMPTY(persistence_lace_dna_cache)
 /// never by the automatic organ-replaced() dna sync.
 GLOBAL_LIST_EMPTY(persistence_lace_species_override_cache)
 
+/// Cached one-time pre-resleeve species backups, keyed "[ckey]|[char_name]"
+/// -> species id string. Written automatically by
+/// persistence_sync_character_species() the first time it changes a
+/// character's permanent chargen species; cleared by the "Modify Neural
+/// Lace" panel's Restore Original Species action once consumed.
+GLOBAL_LIST_EMPTY(persistence_lace_original_species_cache)
+
 /**
  * Load every saved lace DNA row (and any admin species override) into the
  * cache. Called from SSpersistence.Initialize().
@@ -44,12 +51,13 @@ GLOBAL_LIST_EMPTY(persistence_lace_species_override_cache)
 	PRIVATE_PROC(TRUE)
 	GLOB.persistence_lace_dna_cache = list()
 	GLOB.persistence_lace_species_override_cache = list()
+	GLOB.persistence_lace_original_species_cache = list()
 
 	if(!databaseCheckConnection("charLaceDnaInitialize"))
 		return
 
 	var/datum/db_query/query = SSdbcore.NewQuery(
-		"SELECT ckey, char_name, dna_json, species_override FROM ss13_char_lace_dna",
+		"SELECT ckey, char_name, dna_json, species_override, original_species FROM ss13_char_lace_dna",
 		list()
 	)
 	query.Execute()
@@ -64,6 +72,8 @@ GLOBAL_LIST_EMPTY(persistence_lace_species_override_cache)
 		GLOB.persistence_lace_dna_cache[key] = query.item[3]
 		if(!isnull(query.item[4]))
 			GLOB.persistence_lace_species_override_cache[key] = query.item[4]
+		if(!isnull(query.item[5]))
+			GLOB.persistence_lace_original_species_cache[key] = query.item[5]
 		loaded++
 	qdel(query)
 	log_subsystem_persistence_info("CharLaceDna: Loaded [loaded] lace DNA entries.")
@@ -205,6 +215,133 @@ GLOBAL_LIST_EMPTY(persistence_lace_species_override_cache)
 		return row[1]
 	return null
 
+/**
+ * Sets (or clears, with a null original_species) the one-time pre-resleeve
+ * species backup for (ckey, char_name). Written automatically by
+ * persistence_sync_character_species() the first time it changes this
+ * character's permanent species; cleared by the "Modify Neural Lace" panel's
+ * Restore Original Species action once consumed. Never touched by anything
+ * else -- completely separate from species_override (an admin's forward-
+ * looking clone choice) and dna_json (the lace object's own auto-synced
+ * physical state) above.
+ */
+/datum/controller/subsystem/persistence/proc/charLaceDnaSetOriginalSpecies(ckey, char_name, original_species)
+	if(!ckey || !char_name)
+		return FALSE
+	if(!databaseCheckConnection("charLaceDnaSetOriginalSpecies"))
+		return FALSE
+
+	if(!original_species)
+		original_species = null
+
+	var/datum/db_query/query = SSdbcore.NewQuery(
+		{"INSERT INTO ss13_char_lace_dna (ckey, char_name, original_species)
+		VALUES (:ckey, :char_name, :original_species)
+		ON DUPLICATE KEY UPDATE original_species = VALUES(original_species), saved_at = NOW()"},
+		list("ckey" = ckey, "char_name" = char_name, "original_species" = original_species)
+	)
+	query.Execute()
+	var/success = databaseCheckQueryResult(query, "charLaceDnaSetOriginalSpecies")
+	qdel(query)
+	if(!success)
+		return FALSE
+
+	var/key2 = "[ckey]|[char_name]"
+	if(isnull(original_species))
+		GLOB.persistence_lace_original_species_cache -= key2
+	else
+		GLOB.persistence_lace_original_species_cache[key2] = original_species
+
+	_centralCharacterWriteThrough("ss13_char_lace_dna",
+		list("ckey", "char_name", "original_species"),
+		list(ckey, char_name, original_species))
+	return TRUE
+
+/**
+ * Resolves the pre-resleeve species backup for (ckey, char_name) -- cache
+ * first, then a central read-through + local self-heal on a miss, same
+ * shape as charLaceDnaGetSpeciesOverride(). Returns the species id string,
+ * or null if no backup is on record -- the normal case for a character
+ * who's never been resleeved into a different species.
+ */
+/datum/controller/subsystem/persistence/proc/charLaceDnaGetOriginalSpecies(ckey, char_name)
+	if(!ckey || !char_name)
+		return null
+
+	var/key3 = "[ckey]|[char_name]"
+	if(GLOB.persistence_lace_original_species_cache[key3])
+		return GLOB.persistence_lace_original_species_cache[key3]
+
+	var/list/row3 = _centralCharacterReadThrough("ss13_char_lace_dna", list("original_species"), ckey, char_name)
+	if(row3 && !isnull(row3[1]))
+		GLOB.persistence_lace_original_species_cache[key3] = row3[1]
+		_centralCharacterSelfHealLocal("ss13_char_lace_dna",
+			list("ckey", "char_name", "original_species"),
+			list(ckey, char_name, row3[1]))
+		return row3[1]
+	return null
+
+/**
+ * Syncs a character's PERMANENT chargen species (ss13_characters.species) to
+ * match whatever they actually just got embodied as -- called
+ * unconditionally after every successful consciousness transfer
+ * (resleever.dm's _do_resleeve(), neural_lace.dm's
+ * _transfer_consciousness_into()), regardless of whether an admin species
+ * override was involved. Without this, PersistentAutoSpawn() (new_player.dm)
+ * reloads species fresh from this same column on every spawn and silently
+ * reverts a resleeved character to their old species the next time they
+ * Store Character and hit Play -- ss13_char_lace_dna's species_override only
+ * ever affects the ONE clone body grown at order_clone_from_lace() time
+ * (resleever_cloning.dm), never the character's own permanent record.
+ *
+ * A no-op when the species already matches -- the overwhelmingly common
+ * case (resleeving back into your own native species), so this is safe to
+ * call unconditionally rather than gating callers on "was an override
+ * involved". Captures a one-time original-species backup (above) the first
+ * time it actually changes something, so the "Modify Neural Lace" panel can
+ * offer to revert it later.
+ *
+ * organs_data/organs_robotic are reset to blank on an actual species change
+ * -- those are chargen-UI-authored, species-specific prosthetic/amputation
+ * choices (preference_setup/general/03_body.dm); leaving stale entries
+ * authored for the OLD species' limb layout risks copy_to() choking on a
+ * preference that doesn't map onto the new species at all. Round-time
+ * appearance is driven by the saved health/organ JSON overlay
+ * (mobsHealthRestoreOne, persistence_mobs.dm) regardless, so losing this
+ * chargen default costs nothing real.
+ *
+ * Writes directly via SQL rather than through save_character() (which
+ * refuses once first_spawned_at is set) -- same bypass pattern already
+ * established by save_metadata_to_db() (preference_setup/general/01_basic.dm).
+ */
+/proc/persistence_sync_character_species(ckey, char_name, datum/species/S)
+	if(!ckey || !char_name || !istype(S) || !GLOB.config.sql_saves || !SSdbcore.Connect())
+		return
+
+	var/datum/db_query/current_q = SSdbcore.NewQuery(
+		"SELECT species FROM ss13_characters WHERE ckey = :ckey AND name = :name AND deleted_at IS NULL LIMIT 1",
+		list("ckey" = ckey, "name" = char_name))
+	current_q.Execute()
+	var/current_species
+	if(current_q.NextRow())
+		current_species = current_q.item[1]
+	qdel(current_q)
+
+	if(current_species == S.name)
+		return
+
+	if(isnull(SSpersistence.charLaceDnaGetOriginalSpecies(ckey, char_name)))
+		SSpersistence.charLaceDnaSetOriginalSpecies(ckey, char_name, current_species)
+
+	var/datum/db_query/upd = SSdbcore.NewQuery(
+		{"UPDATE ss13_characters SET species = :species, organs_data = '', organs_robotic = ''
+		WHERE ckey = :ckey AND name = :name AND deleted_at IS NULL"},
+		list("ckey" = ckey, "name" = char_name, "species" = S.name))
+	upd.Execute()
+	SSpersistence.databaseCheckQueryResult(upd, "persistence_sync_character_species")
+	qdel(upd)
+	log_subsystem_persistence_info("CharLaceDna: Synced [char_name]'s ([ckey]) chargen species [current_species || "(none)"] -> [S.name].")
+
 // ============================================================
 // ADMIN: MODIFY NEURAL LACE
 // ============================================================
@@ -300,6 +437,7 @@ GLOBAL_LIST_EMPTY(persistence_lace_species_override_cache)
 	data["ckey"] = target_ckey
 	data["char_name"] = target_char_name
 	data["species_override"] = SSpersistence.charLaceDnaGetSpeciesOverride(target_ckey, target_char_name) || ""
+	data["original_species"] = SSpersistence.charLaceDnaGetOriginalSpecies(target_ckey, target_char_name) || ""
 
 	var/list/species_options = list()
 	for(var/species_name in GLOB.all_species)
@@ -329,6 +467,34 @@ GLOBAL_LIST_EMPTY(persistence_lace_species_override_cache)
 	if(action == "apply")
 		_apply_changes(usr, params)
 		return TRUE
+
+	if(action == "restore_original_species")
+		_restore_original_species(usr)
+		return TRUE
+
+/**
+ * Reverts this character's permanent chargen species (ss13_characters.species)
+ * to whatever it was before the first time a lace resleeve/robotic transfer
+ * changed it (persistence_sync_character_species(), above). One-shot: the
+ * backup is cleared once consumed, since the current state IS the original
+ * again afterward -- a later resleeve into yet another species captures a
+ * fresh backup from whatever's current at that point.
+ */
+/datum/tgui_module/admin/lace_editor/proc/_restore_original_species(mob/admin)
+	var/original = SSpersistence.charLaceDnaGetOriginalSpecies(target_ckey, target_char_name)
+	if(!original)
+		to_chat(admin, SPAN_WARNING("No original species is on record for [target_char_name] -- nothing to restore."))
+		return
+
+	var/datum/species/S = GLOB.all_species[original]
+	if(!istype(S))
+		to_chat(admin, SPAN_WARNING("'[original]' is no longer a valid species -- cannot restore."))
+		return
+
+	persistence_sync_character_species(target_ckey, target_char_name, S)
+	SSpersistence.charLaceDnaSetOriginalSpecies(target_ckey, target_char_name, null)
+	to_chat(admin, SPAN_GOOD("Restored [target_char_name]'s chargen species to [original]."))
+	log_and_message_admins("restored [target_char_name]'s ([target_ckey]) chargen species to [original] via Modify Neural Lace.", admin)
 
 /datum/tgui_module/admin/lace_editor/proc/_apply_changes(mob/admin, list/params)
 	var/list/log_lines = list()

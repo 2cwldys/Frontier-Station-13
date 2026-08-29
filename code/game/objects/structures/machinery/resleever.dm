@@ -341,6 +341,14 @@
 	// future reconnect (or server restart) doesn't route them back to the lace.
 	persistence_set_char_state(inserted_lace.registered_ckey, inserted_lace.registered_name, "alive")
 
+	// Sync their permanent chargen species to whatever they were actually
+	// just resleeved into -- unconditional (a no-op for the common case of
+	// resleeving back into your own native species), so an admin's clone-
+	// species override (order_clone_from_lace(), resleever_cloning.dm)
+	// actually sticks past this one body instead of reverting on the next
+	// Store Character -> Play cycle (persistence_lace_dna.dm).
+	persistence_sync_character_species(inserted_lace.registered_ckey, inserted_lace.registered_name, target_body.species)
+
 	inserted_lace.lace_occupied = FALSE
 	inserted_lace.lace_mob = null
 	qdel(LM)

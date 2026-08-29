@@ -380,6 +380,14 @@
 
 	_bind_to_owner(target)
 
+	// Sync their permanent chargen species to the synthetic body they were
+	// just transferred into -- unconditional, same reasoning as
+	// resleever.dm's own _do_resleeve() call to this proc: without it,
+	// PersistentAutoSpawn() (new_player.dm) reloads species fresh from
+	// ss13_characters on every spawn and silently rebuilds them as their old
+	// (organic) species the next time they Store Character and hit Play.
+	persistence_sync_character_species(registered_ckey, incoming_name, target.species)
+
 /// Called when surgically installed via the normal organ replacement path.
 /// If this lace is occupied, undamaged, and the target is a mindless
 /// synthetic body (IPC or Android -- isSynthetic(), not
