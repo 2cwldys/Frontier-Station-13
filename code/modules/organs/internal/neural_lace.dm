@@ -336,9 +336,67 @@
 		to_chat(H, SPAN_NOTICE("You feel a faint tingle at the base of your skull as the neural lace comes online."))
 	add_verb(H, /mob/living/carbon/human/proc/check_neural_lace_status)
 
-/// Called when surgically installed via the normal organ replacement path
-/obj/item/organ/internal/neural_lace/replaced(mob/living/carbon/human/target, obj/item/organ/external/affected)
+/**
+ * Wakes a mindless synthetic body with this lace's stored consciousness --
+ * the robotic counterpart to resleever.dm's _do_resleeve(), reached through
+ * ordinary robotics surgery instead of the dedicated machine. Renames off
+ * lace_mob.real_name (the captured person's own name), not registered_name --
+ * unlike a custom-grown clone body, a generic IPC/Android chassis has no
+ * reason to already carry the incoming person's name before this runs.
+ * Calls _bind_to_owner() itself, last, once target's real_name already
+ * reflects the incoming person rather than the chassis's own prior name.
+ */
+/obj/item/organ/internal/neural_lace/proc/_transfer_consciousness_into(mob/living/carbon/human/target)
+	var/mob/living/carbon/lace_mob/LM = lace_mob
+	var/incoming_name = LM.real_name
+
+	LM.forceMove(get_turf(target))
+	LM.mind.transfer_to(target)
+
+	target.set_stat(CONSCIOUS)
+	target.real_name = incoming_name
+	target.name = incoming_name
+	target.set_id_info(target)
+
+	persistence_set_char_state(registered_ckey, incoming_name, "alive")
+
+	lace_occupied = FALSE
+	lace_mob = null
+	qdel(LM)
+
+	to_chat(target, SPAN_GOOD("You power on. Welcome back."))
+
+	if(islist(stored_skills) && length(stored_skills))
+		apply_skill_snapshot(target, stored_skills)
+
+	var/list/lost_skills = apply_resleeve_skill_loss(target)
+	if(length(lost_skills))
+		to_chat(target, SPAN_WARNING(FONT_LARGE("Some of what you knew didn't survive the transfer:")))
+		for(var/entry in lost_skills)
+			to_chat(target, SPAN_WARNING("&nbsp;&nbsp;[entry]"))
+		to_chat(target, SPAN_NOTICE("Skills can be relearned from someone who still holds them, or from a professional manual."))
+
+	log_game("[incoming_name] resleeved into a synthetic chassis via robotic surgery.")
+
 	_bind_to_owner(target)
+
+/// Called when surgically installed via the normal organ replacement path.
+/// If this lace is occupied, undamaged, and the target is a mindless
+/// synthetic body (IPC or Android -- isSynthetic(), not
+/// species_organically_cloneable(), since this is about whether robotic
+/// surgery can physically move a mind into a body, not which respawn
+/// infrastructure a species uses), transfer the stored consciousness in
+/// instead of just registering the lace to whoever it landed in. An
+/// organic target, an already-minded target, or a damaged lace all fall
+/// through to the normal inert-augment registration -- a damaged lace's
+/// consciousness stays trapped until it's extracted and repaired, since
+/// every repair path on this organ requires !owner.
+/obj/item/organ/internal/neural_lace/replaced(mob/living/carbon/human/target, obj/item/organ/external/affected)
+	var/do_transfer = lace_occupied && lace_mob && !target.mind?.key && target.isSynthetic() && lace_damage <= 0
+	if(do_transfer)
+		_transfer_consciousness_into(target)
+	else
+		_bind_to_owner(target)
 	. = ..()
 
 /// Called when surgically removed from a mob

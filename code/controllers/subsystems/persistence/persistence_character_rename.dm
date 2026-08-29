@@ -36,6 +36,10 @@
 /// is deliberately NOT here: it syncs under its own separate gate
 /// (_economyCentralSyncActive(), persistence_economy.dm) and is handled by
 /// its own helper.
+/// ss13_char_lace_position is deliberately absent -- raw (map_path, x, y, z)
+/// is only meaningful to the exact server instance that saved it, unlike
+/// this table's siblings. It still gets its own LOCAL row renamed via
+/// persistence_char_name_columns below, just never synced centrally.
 GLOBAL_LIST_INIT(persistence_central_synced_char_tables, list(
 	"ss13_char_health",
 	"ss13_char_identity",
@@ -50,6 +54,7 @@ GLOBAL_LIST_INIT(persistence_char_name_columns, list(
 	"ss13_char_identity"           = list("char_name" = "ckey"),
 	"ss13_char_skills"             = list("char_name" = "ckey"),
 	"ss13_char_lace_dna"           = list("char_name" = "ckey"),
+	"ss13_char_lace_position"      = list("char_name" = "ckey"),
 	"ss13_char_inventory"          = list("char_name" = "ckey"),
 	"ss13_crew_records"            = list("char_name" = "ckey"),
 	"ss13_mob_position"            = list("char_name" = "ckey"),

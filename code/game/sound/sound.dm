@@ -228,9 +228,27 @@
 			var/mob/M = m
 			M.playsound_local(M, null, volume, vary, frequency, null, channel, pressure_affected, S)
 
+/// Pending _announce_lobby_track() timer IDs from the most recent
+/// playtitlemusic() call -- cancelled at the top of every call so a repeat
+/// invocation (cryo/store-character return, toggling the lobby music
+/// preference, etc. -- all explicitly expected, see playtitlemusic()'s own
+/// comment) can't leave an old shuffle's announcements still ticking down
+/// in the background. Without this, two calls close together each announce
+/// their own "track 1" immediately, stacking a stale announcement from the
+/// superseded shuffle on top of the new one's -- the actual audio channel
+/// was already being cleared and replaced, but nothing ever cancelled the
+/// scheduled to_chat() timers to match.
+/client/var/list/lobby_music_announce_timer_ids
+
 /client/proc/playtitlemusic()
 	set waitfor = FALSE
 	UNTIL(SSticker.login_music) //wait for SSticker init to set the login music
+
+	if(lobby_music_announce_timer_ids)
+		for(var/timer_id in lobby_music_announce_timer_ids)
+			deltimer(timer_id)
+	lobby_music_announce_timer_ids = list()
+
 	SEND_SOUND(src, sound(null, repeat = 0, wait = 0, volume = prefs.lobby_music_vol, channel = CHANNEL_LOBBYMUSIC))
 
 	if(prefs.lobby_music_vol)
@@ -273,7 +291,7 @@
 				if(elapsed <= 0)
 					to_chat(src, SPAN_NOTICE("Now playing lobby music: [link]"))
 				else
-					addtimer(CALLBACK(src, PROC_REF(_announce_lobby_track), link), elapsed)
+					lobby_music_announce_timer_ids += addtimer(CALLBACK(src, PROC_REF(_announce_lobby_track), link), elapsed, TIMER_STOPPABLE)
 				elapsed += GLOB.lobby_track_durations[track_path] || 5 MINUTES
 		for(var/i in 1 to length(shuffled_tracks))
 			CHECK_TICK

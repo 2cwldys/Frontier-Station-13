@@ -620,7 +620,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		return
 
 	var/datum/db_query/query = SSdbcore.NewQuery(
-		"SELECT ckey, char_name, x, y, z, char_state, in_lace, lace_pod_x, lace_pod_y, lace_pod_z, last_pod_x, last_pod_y, last_pod_z, imprisoned, imprisoned_until, imprisoned_by_faction_uid FROM ss13_mob_position",
+		"SELECT ckey, char_name, x, y, z, char_state, in_lace, lace_pod_x, lace_pod_y, lace_pod_z, last_pod_x, last_pod_y, last_pod_z, imprisoned, imprisoned_until, imprisoned_by_faction_uid, last_synth_x, last_synth_y, last_synth_z FROM ss13_mob_position",
 		list()
 	)
 	query.Execute()
@@ -646,7 +646,10 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			"last_pod_z"                = text2num(query.item[13]),
 			"imprisoned"                = text2num(query.item[14]),
 			"imprisoned_until"          = query.item[15],
-			"imprisoned_by_faction_uid" = query.item[16]
+			"imprisoned_by_faction_uid" = query.item[16],
+			"last_synth_x"              = text2num(query.item[17]),
+			"last_synth_y"              = text2num(query.item[18]),
+			"last_synth_z"              = text2num(query.item[19])
 		)
 		loaded++
 
@@ -660,7 +663,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 /proc/persistence_delete_character_data(ckey, char_name)
 	if(!GLOB.config.sql_enabled || !SSdbcore.Connect())
 		return
-	var/tables = list("ss13_char_health", "ss13_char_inventory", "ss13_char_identity", "ss13_mob_position", "ss13_char_skills", "ss13_char_lace_dna")
+	var/tables = list("ss13_char_health", "ss13_char_inventory", "ss13_char_identity", "ss13_mob_position", "ss13_char_skills", "ss13_char_lace_dna", "ss13_char_lace_position")
 	for(var/table in tables)
 		var/datum/db_query/q = SSdbcore.NewQuery(
 			"DELETE FROM [table] WHERE ckey = :ckey AND char_name = :char_name",
@@ -865,6 +868,44 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	SSpersistence._centralCharacterPartialUpdate("ss13_mob_position",
 		list("last_pod_x", "last_pod_y", "last_pod_z"),
 		list(pod.x, pod.y, pod.z),
+		ckey, char_name)
+
+/// IPC counterpart to persistence_set_last_pod() above -- deliberately
+/// separate columns (last_synth_x/y/z), not a reuse of last_pod_x/y/z,
+/// since those are specifically read back by persistence_find_saved_cryopod()
+/// searching for a /obj/structure/machinery/cryopod -- IPCs no longer use
+/// cryopods at all (cryopod.dm's check_occupant_allowed() refuses them), so
+/// sharing the column would risk corrupting its meaning for every other
+/// human character.
+/proc/persistence_set_last_synthetic_storage(ckey, char_name, obj/structure/machinery/recharge_station/synthetic_storage/unit)
+	if(!GLOB.config.sql_enabled || !ckey || !char_name)
+		return
+	if(!istype(unit) || !unit.z)
+		return
+	if(!SSpersistence.databaseCheckConnection("persistence_set_last_synthetic_storage"))
+		return
+
+	var/datum/db_query/upd = SSdbcore.NewQuery(
+		{"UPDATE ss13_mob_position SET last_synth_x = :x, last_synth_y = :y, last_synth_z = :z
+		WHERE ckey = :ckey AND char_name = :char_name"},
+		list("ckey" = ckey, "char_name" = char_name, "x" = unit.x, "y" = unit.y, "z" = unit.z)
+	)
+	upd.Execute()
+	SSpersistence.databaseCheckQueryResult(upd, "persistence_set_last_synthetic_storage")
+	qdel(upd)
+
+	var/key = "[ckey]|[char_name]"
+	var/list/entry = GLOB.persistence_position_cache[key]
+	if(!islist(entry))
+		entry = list()
+		GLOB.persistence_position_cache[key] = entry
+	entry["last_synth_x"] = unit.x
+	entry["last_synth_y"] = unit.y
+	entry["last_synth_z"] = unit.z
+
+	SSpersistence._centralCharacterPartialUpdate("ss13_mob_position",
+		list("last_synth_x", "last_synth_y", "last_synth_z"),
+		list(unit.x, unit.y, unit.z),
 		ckey, char_name)
 
 /**
@@ -1162,7 +1203,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		var/list/row = SSpersistence._centralCharacterReadThrough("ss13_mob_position",
 			list("x", "y", "z", "char_state", "in_lace", "lace_pod_x", "lace_pod_y", "lace_pod_z",
 				"last_pod_x", "last_pod_y", "last_pod_z", "imprisoned", "imprisoned_until", "imprisoned_by_faction_uid",
-				"faction_bound", "faction_bound_uid"),
+				"faction_bound", "faction_bound_uid", "last_synth_x", "last_synth_y", "last_synth_z"),
 			ckey, real_name)
 		if(!row)
 			_persistentSpawnDefault()
@@ -1183,18 +1224,22 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			"imprisoned_until"          = row[13],
 			"imprisoned_by_faction_uid" = row[14],
 			"faction_bound"             = text2num(row[15]),
-			"faction_bound_uid"         = row[16]
+			"faction_bound_uid"         = row[16],
+			"last_synth_x"              = text2num(row[17]),
+			"last_synth_y"              = text2num(row[18]),
+			"last_synth_z"              = text2num(row[19])
 		)
 		GLOB.persistence_position_cache[key] = entry
 		SSpersistence._centralCharacterSelfHealLocal("ss13_mob_position",
 			list("ckey", "char_name", "x", "y", "z", "char_state", "in_lace", "lace_pod_x", "lace_pod_y", "lace_pod_z",
 				"last_pod_x", "last_pod_y", "last_pod_z", "imprisoned", "imprisoned_until", "imprisoned_by_faction_uid",
-				"faction_bound", "faction_bound_uid"),
+				"faction_bound", "faction_bound_uid", "last_synth_x", "last_synth_y", "last_synth_z"),
 			list(ckey, real_name, entry["x"], entry["y"], entry["z"], entry["char_state"], entry["in_lace"],
 				entry["lace_pod_x"], entry["lace_pod_y"], entry["lace_pod_z"],
 				entry["last_pod_x"], entry["last_pod_y"], entry["last_pod_z"],
 				entry["imprisoned"], entry["imprisoned_until"], entry["imprisoned_by_faction_uid"],
-				entry["faction_bound"], entry["faction_bound_uid"]))
+				entry["faction_bound"], entry["faction_bound_uid"],
+				entry["last_synth_x"], entry["last_synth_y"], entry["last_synth_z"]))
 
 	var/sx = text2num(entry["x"]) || entry["x"]
 	var/sy = text2num(entry["y"]) || entry["y"]

@@ -58,6 +58,16 @@
 			chars_out += list(entry)
 		qdel(cq)
 	data["characters"] = chars_out
+
+	// A stored cyborg is a completely separate slot from the human roster
+	// above -- not chargen data, keyed by ckey alone (persistence_cyborg.dm),
+	// so it's surfaced as its own field rather than folded into "characters"
+	// (which would incorrectly count it against slot_limit/can_create).
+	data["cyborg_character"] = null
+	if(ckey && GLOB.config.sql_enabled)
+		var/list/cyborg_snapshot = SSpersistence.charCyborgResolve(ckey)
+		if(cyborg_snapshot)
+			data["cyborg_character"] = list("name" = cyborg_snapshot["real_name"] || "Cyborg")
 	// Blocks the empty-slot "Create Character" button while any of this
 	// ckey's characters is imprisoned -- otherwise a fresh alt in another
 	// slot is a trivial way to sidestep an active sentence entirely, same
@@ -124,6 +134,17 @@
 				to_chat(NP, SPAN_WARNING("The round is not ready yet."))
 				return TRUE
 			var/char_name = params["name"]
+
+			// A stored cyborg has no chargen row, no imprisonment concept, and
+			// a different spawn cascade entirely -- routed separately before
+			// any of the human-character checks below apply.
+			if(params["is_cyborg"])
+				spawning = TRUE
+				NP.PersistentAutoSpawnCyborg()
+				if(ui)
+					ui.close()
+				return TRUE
+
 			// Defense-in-depth, same reasoning as the checks above -- the
 			// frontend already greys Play out per-character for this, but
 			// never trust client-side disabling alone.

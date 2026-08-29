@@ -367,3 +367,141 @@ GLOBAL_LIST_EMPTY(persistence_lace_species_override_cache)
 
 	to_chat(admin, SPAN_GOOD("Updated [target_char_name]'s neural lace:\n[jointext(log_lines, "\n")]"))
 	log_and_message_admins("modified [target_char_name]'s ([target_ckey]) neural lace: [jointext(log_lines, ", ")]", admin)
+
+// ============================================================
+// LOOSE LACE POSITION
+// ============================================================
+//
+// ss13_neural_lace_vault (lace_storage.dm) already persists a lace sitting
+// in a vault; the organ-augment save path (persistence_mobs.dm) already
+// persists one installed in a human; persistence_floor_items.dm's own
+// sweep already persists one bare on a floor tile. None of those catch a
+// registered lace just sitting loose somewhere else -- in a bag, a locker,
+// a closet -- so it was silently lost on restart. This sweep catches
+// everything those three don't.
+//
+// Deliberately NOT central-synced, unlike this table's ss13_char_* siblings
+// -- a raw (map_path, x, y, z) is only ever meaningful to the exact server
+// instance that saved it. A different server running a different map has
+// nowhere sensible to put a restored lace at those coordinates; syncing it
+// there would just be dead weight, never actually consumed (charLacePositionRestore()'s
+// own map_path filter means it wouldn't even be misused, just wasted).
+
+/**
+ * Periodic sweep: wipe-and-reinsert, same convention floorItemsFinalize()
+ * uses -- delete every row for this map, then write one fresh row per
+ * currently-loose registered lace. Deliberately NOT a plain per-row UPSERT:
+ * a lace that WAS loose and got installed into a body (or vaulted) since
+ * the last sweep has to stop having a row here at all, or a stale one
+ * would survive to the next restart and charLacePositionRestore() would
+ * spawn a phantom duplicate of a lace that's actually sitting correctly
+ * installed/vaulted elsewhere. Wipe-and-reinsert makes that impossible by
+ * construction instead of requiring a delete hook at every place a lace's
+ * state can change (replaced(), store_lace(), etc.). Called from
+ * forceSaveAll() alongside charSkillsFinalize().
+ */
+/datum/controller/subsystem/persistence/proc/charLacePositionFinalize()
+	PRIVATE_PROC(TRUE)
+
+	if(!databaseCheckConnection("charLacePositionFinalize"))
+		return
+
+	var/datum/db_query/wipe_q = SSdbcore.NewQuery(
+		"DELETE FROM ss13_char_lace_position WHERE map_path = :mp",
+		list("mp" = "[SSatlas.current_map.path]")
+	)
+	wipe_q.Execute()
+	databaseCheckQueryResult(wipe_q, "charLacePositionFinalize wipe")
+	qdel(wipe_q)
+
+	var/saved = 0
+	for(var/obj/item/organ/internal/neural_lace/L in world)
+		if(QDELETED(L) || L.owner)
+			continue
+		if(istype(L.loc, /obj/structure/machinery/lace_storage))
+			continue
+		if(!length(L.registered_ckey) || !length(L.registered_name))
+			continue
+		var/turf/T = get_turf(L)
+		if(!T)
+			continue
+		// Drydock ships have their own separate ship-scoped persistence
+		// (persistence_ship_interiors.dm) with no stable x/y/z across a
+		// redeploy -- this table isn't ship-scope-aware, so a lace there
+		// would get a position that's meaningless (or wrong) on restore.
+		// Non-pinned away sites are procedurally regenerated each round --
+		// nothing there is meant to survive a restart. A PINNED away site
+		// is exempted, same as every other persistence sweep already
+		// exempts them. Station/centcom z's need no special-casing here --
+		// they're just never excluded by either check, the default.
+		if(GLOB.persistence_ship_z["[T.z]"])
+			continue
+		if(is_away_level(T.z) && !(T.z in GLOB.persistence_pinned_site_z))
+			continue
+
+		var/datum/db_query/query = SSdbcore.NewQuery(
+			{"INSERT INTO ss13_char_lace_position
+			(ckey, char_name, map_path, pos_x, pos_y, pos_z, owner_faction, lace_damage)
+			VALUES (:ckey, :char_name, :mp, :x, :y, :z, :faction, :damage)
+			ON DUPLICATE KEY UPDATE map_path = VALUES(map_path), pos_x = VALUES(pos_x),
+				pos_y = VALUES(pos_y), pos_z = VALUES(pos_z), owner_faction = VALUES(owner_faction),
+				lace_damage = VALUES(lace_damage), saved_at = NOW()"},
+			list(
+				"ckey" = L.registered_ckey, "char_name" = L.registered_name,
+				"mp" = "[SSatlas.current_map.path]", "x" = T.x, "y" = T.y, "z" = T.z,
+				"faction" = L.owner_faction || "", "damage" = L.lace_damage,
+			)
+		)
+		query.Execute()
+		if(databaseCheckQueryResult(query, "charLacePositionFinalize"))
+			saved++
+		qdel(query)
+	if(saved)
+		log_subsystem_persistence_info("CharLacePosition: Saved [saved] loose lace position(s).")
+
+/**
+ * Boot restore: rebuild a fresh neural lace object on the saved turf for
+ * every row matching the current map. Mirrors laceVaultInitialize()'s own
+ * restore shape (persistence_cryo.dm) -- placed on the open turf rather
+ * than re-nested inside whatever bag/locker it was last sitting in, same
+ * simplification persistence_floor_items.dm's own restore already makes.
+ * Called from SSpersistence.Initialize() alongside laceVaultInitialize().
+ */
+/datum/controller/subsystem/persistence/proc/charLacePositionRestore()
+	PRIVATE_PROC(TRUE)
+
+	if(!databaseCheckConnection("charLacePositionRestore"))
+		return
+
+	var/datum/db_query/query = SSdbcore.NewQuery(
+		"SELECT ckey, char_name, pos_x, pos_y, pos_z, owner_faction, lace_damage FROM ss13_char_lace_position WHERE map_path = :mp",
+		list("mp" = "[SSatlas.current_map.path]")
+	)
+	query.Execute()
+	if(!databaseCheckQueryResult(query, "charLacePositionRestore"))
+		qdel(query)
+		return
+
+	var/restored = 0
+	var/orphaned = 0
+	while(query.NextRow())
+		var/ckey = query.item[1]
+		var/char_name = query.item[2]
+		var/px = text2num(query.item[3])
+		var/py = text2num(query.item[4])
+		var/pz = text2num(query.item[5])
+		if(pz < 1 || pz > world.maxz)
+			orphaned++
+			continue
+		var/turf/T = locate(px, py, pz)
+		if(!T)
+			orphaned++
+			continue
+		var/obj/item/organ/internal/neural_lace/lace = new(T)
+		lace.registered_ckey = ckey
+		lace.registered_name = char_name
+		lace.owner_faction = query.item[6] || ""
+		lace.lace_damage = text2num(query.item[7]) || 0
+		restored++
+	qdel(query)
+	log_subsystem_persistence_info("CharLacePosition: Restored [restored] loose lace(s)[orphaned ? ", [orphaned] row(s) skipped (no valid turf)" : ""].")

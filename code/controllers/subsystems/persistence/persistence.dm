@@ -790,15 +790,50 @@ SUBSYSTEM_DEF(persistence)
 	log_subsystem_persistence_info("Lace vault sweep: [vaulted] vaulted, [skipped_alive] skipped (alive owner).")
 	return list("vaulted" = vaulted, "skipped_alive" = skipped_alive)
 
+/**
+ * Pre-reboot only (called from Shutdown(), immediately before vaultAllLaces())
+ * -- an MMI's occupied brainmob has no persistence of its own at all (a
+ * cyborg chassis is a fresh shell every round, confirmed), so a mind parked
+ * there would simply be lost across a restart with nothing to search for on
+ * reconnect. Converting it into a fresh, registered, occupied neural lace
+ * gives it exactly what a lace already has -- and since this runs right
+ * before vaultAllLaces(), that freshly-occupied lace gets swept into a vault
+ * (fully DB-backed) by the very next call, with no separate persistence path
+ * needed for MMIs at all.
+ *
+ * Deliberately NOT run on ordinary disconnect or the periodic autosave --
+ * same scoping vaultAllLaces() itself uses, and for the same reason: this is
+ * disruptive (it empties the MMI), appropriate only when the round is
+ * genuinely ending, not every time a cyborg pilot briefly reconnects.
+ */
+/datum/controller/subsystem/persistence/proc/extractAllMmiConsciousnesses()
+	var/extracted = 0
+	for(var/obj/item/mmi/M in world)
+		if(QDELETED(M) || !M.brainmob || !M.brainmob.mind)
+			continue
+		var/turf/T = get_turf(M)
+		if(!T)
+			continue
+		var/obj/item/organ/internal/neural_lace/lace = new(T)
+		if(M.extract_consciousness_to_lace(lace, null))
+			extracted++
+		else
+			qdel(lace)
+	log_subsystem_persistence_info("MMI: Extracted [extracted] consciousness(es) from occupied MMIs into neural laces before reboot.")
+	return extracted
+
 /datum/admins/proc/force_vault_all_laces()
 	set name = "Force Vault All Laces"
 	set category = "Persistence.Backups & Saves"
-	set desc = "Immediately vaults every neural lace belonging to a dead/unclaimed body, plus any sitting loose in the world. Never touches a living person's installed lace. Use before a server reboot."
+	set desc = "Immediately extracts every occupied MMI into a fresh lace and vaults every neural lace belonging to a dead/unclaimed body, plus any sitting loose in the world. Never touches a living person's installed lace. Use before a server reboot."
 
 	if(!check_rights(R_ADMIN))
 		return
 
+	var/mmi_extracted = SSpersistence.extractAllMmiConsciousnesses()
 	var/list/result = SSpersistence.vaultAllLaces()
+	if(mmi_extracted)
+		to_chat(usr, SPAN_NOTICE("Extracted [mmi_extracted] consciousness\s from occupied MMIs into fresh laces."))
 	to_chat(usr, SPAN_NOTICE("Force-vaulted [result["vaulted"]] neural lace\s ([result["skipped_alive"]] skipped -- still alive)."))
 	log_admin("[key_name(usr)] used Force Vault All Laces -- [result["vaulted"]] processed, [result["skipped_alive"]] skipped (alive owner).")
 
@@ -893,6 +928,17 @@ SUBSYSTEM_DEF(persistence)
 		charSkillsFinalize()
 	catch(var/exception/skills_e)
 		log_subsystem_persistence_panic("Unhandled exception during character skills persistence finalization: [skills_e]")
+
+	// Deliberately overlaps vaultAllLaces() (which only vaults an OCCUPIED
+	// lace, by design) -- this catches the unoccupied-but-registered loose
+	// lace that proc skips on purpose, in both the periodic autosave (which
+	// never runs vaultAllLaces() at all) and here at shutdown. Any lace
+	// vaultAllLaces() already relocated into a vault above is filtered out
+	// by this sweep's own lace_storage check, so there's no double-work.
+	try
+		charLacePositionFinalize()
+	catch(var/exception/lace_pos_e)
+		log_subsystem_persistence_panic("Unhandled exception during loose lace position persistence finalization: [lace_pos_e]")
 
 	try
 		mobsPositionFinalizeAll()
@@ -1261,6 +1307,12 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/vault_e)
 		log_subsystem_persistence_panic("Unhandled exception during lace vault initialization: [vault_e]")
 
+	log_subsystem_persistence_info("Starting loose lace position restore...")
+	try
+		charLacePositionRestore()
+	catch(var/exception/lace_pos_restore_e)
+		log_subsystem_persistence_panic("Unhandled exception during loose lace position restore: [lace_pos_restore_e]")
+
 	log_subsystem_persistence_info("Starting turf initialization...")
 	try
 		turfsInitialize()
@@ -1330,6 +1382,12 @@ SUBSYSTEM_DEF(persistence)
 	catch(var/exception/skills_e)
 		log_subsystem_persistence_panic("Unhandled exception during character skills persistence initialization: [skills_e]")
 
+	log_subsystem_persistence_info("Starting cyborg chassis initialization...")
+	try
+		charCyborgInitialize()
+	catch(var/exception/cyborg_e)
+		log_subsystem_persistence_panic("Unhandled exception during cyborg chassis persistence initialization: [cyborg_e]")
+
 	log_subsystem_persistence_info("Starting character lace DNA initialization...")
 	try
 		charLaceDnaInitialize()
@@ -1398,12 +1456,20 @@ SUBSYSTEM_DEF(persistence)
 		log_subsystem_persistence_panic("SQL error during persistence subsystem shutdown. Cannot finalise persistence of the round.")
 		return
 
-	//  PRIORITY 0: Vault laces before anything else touches mob/organ state
+	//  PRIORITY 0: Extract MMI consciousnesses, then vault laces, before
+	// anything else touches mob/organ state. Extraction runs FIRST so any
+	// consciousness it moves into a fresh lace is caught by vaultAllLaces()
+	// immediately after, rather than needing its own separate DB path.
 	// Runs automatically on every real reboot (admin verb, vote, round-end
 	// auto-restart, remote command) -- Shutdown() is the one proc every
 	// world.Reboot() path funnels through via Master.Shutdown(). Does NOT
 	// run on the periodic 30-minute autosave (fire()), which never restarts
 	// the server.
+	try
+		extractAllMmiConsciousnesses()
+	catch(var/exception/mmi_extract_e)
+		log_subsystem_persistence_panic("Unhandled exception during pre-reboot MMI consciousness extraction: [mmi_extract_e]")
+
 	try
 		vaultAllLaces()
 	catch(var/exception/lace_e)
@@ -1429,6 +1495,17 @@ SUBSYSTEM_DEF(persistence)
 		charSkillsFinalize()
 	catch(var/exception/skills_e)
 		log_subsystem_persistence_panic("Unhandled exception during character skills persistence finalization: [skills_e]")
+
+	// Deliberately overlaps vaultAllLaces() (which only vaults an OCCUPIED
+	// lace, by design) -- this catches the unoccupied-but-registered loose
+	// lace that proc skips on purpose, in both the periodic autosave (which
+	// never runs vaultAllLaces() at all) and here at shutdown. Any lace
+	// vaultAllLaces() already relocated into a vault above is filtered out
+	// by this sweep's own lace_storage check, so there's no double-work.
+	try
+		charLacePositionFinalize()
+	catch(var/exception/lace_pos_e)
+		log_subsystem_persistence_panic("Unhandled exception during loose lace position persistence finalization: [lace_pos_e]")
 
 	try
 		mobsPositionFinalizeAll()
