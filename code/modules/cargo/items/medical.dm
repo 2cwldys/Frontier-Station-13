@@ -681,7 +681,7 @@
 	name = "dermal regenerator"
 	supplier = "Hub"
 	description = "A hand-held medical device that resurfaces skin, hair follicles, and iris pigment. Colors only -- it can't alter someone's underlying features."
-	price = 350
+	price = 3500
 	items = list(
 		/obj/item/dermal_regenerator
 	)
