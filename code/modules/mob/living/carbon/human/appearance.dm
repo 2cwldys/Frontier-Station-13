@@ -3,6 +3,53 @@
 	AC.flags = flags
 	AC.ui_interact(user)
 
+/**
+ * Writes this character's current hair/gradient/facial-hair style and color,
+ * plus skin tone/color and eye color, straight into their ss13_characters
+ * row -- called only from the appearance-changer dialog's ui_close() when it
+ * was opened via a mirror or a dermal regenerator (human_appearance.dm),
+ * never for plastic surgery, disguise kits, the cosmetic surgery kit, or the
+ * admin "Edit Appearance" verb, which also open this same dialog but must
+ * stay round-only.
+ *
+ * Bypasses save_character()'s normal spawn-lock (writes directly via SQL)
+ * the same way save_metadata_to_db() (preference_setup/general/01_basic.dm)
+ * and persistence_sync_character_species() (persistence_lace_dna.dm) already
+ * do -- without this, a mirror/dermal-regenerator restyle only ever lived on
+ * the live mob and silently reverted to the old chargen look on the next
+ * Store Character -> Play cycle. Column/value shapes match 03_body.dm's own
+ * gather_save_parameters() exactly (hair_colour = rgb(r_hair, g_hair, b_hair),
+ * skin_tone = plain s_tone with no rgb encoding, etc.) -- no translation
+ * needed, these are the same encodings already.
+ *
+ * Always writes all nine fields regardless of which tool triggered this --
+ * the mirror never touches skin/eyes, the dermal regenerator never touches
+ * style, but writing back an untouched field's current, unchanged value is
+ * harmless.
+ */
+/mob/living/carbon/human/proc/persistence_sync_appearance_to_db()
+	if(!ckey || !real_name || !GLOB.config.sql_saves || !SSdbcore.Connect())
+		return
+
+	var/datum/db_query/upd = SSdbcore.NewQuery(
+		{"UPDATE ss13_characters
+		SET hair_style = :hair_style, hair_colour = :hair_colour,
+			gradient_style = :gradient_style, grad_colour = :grad_colour,
+			facial_style = :facial_style, facial_colour = :facial_colour,
+			skin_tone = :skin_tone, skin_colour = :skin_colour, eyes_colour = :eyes_colour
+		WHERE ckey = :ckey AND name = :name AND deleted_at IS NULL"},
+		list(
+			"ckey" = ckey, "name" = real_name,
+			"hair_style" = h_style, "hair_colour" = rgb(r_hair, g_hair, b_hair),
+			"gradient_style" = g_style, "grad_colour" = rgb(r_grad, g_grad, b_grad),
+			"facial_style" = f_style, "facial_colour" = rgb(r_facial, g_facial, b_facial),
+			"skin_tone" = s_tone, "skin_colour" = rgb(r_skin, g_skin, b_skin),
+			"eyes_colour" = rgb(r_eyes, g_eyes, b_eyes),
+		))
+	upd.Execute()
+	SSpersistence.databaseCheckQueryResult(upd, "persistence_sync_appearance_to_db")
+	qdel(upd)
+
 /mob/living/carbon/human/proc/change_species(var/new_species)
 	if(!new_species)
 		return

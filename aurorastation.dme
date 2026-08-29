@@ -1164,6 +1164,7 @@
 #include "code\game\objects\items\devices\colony_radio.dm"
 #include "code\game\objects\items\devices\cosmetic_surgery_kit.dm"
 #include "code\game\objects\items\devices\debugger.dm"
+#include "code\game\objects\items\devices\dermal_regenerator.dm"
 #include "code\game\objects\items\devices\dociler.dm"
 #include "code\game\objects\items\devices\faction_tagger.dm"
 #include "code\game\objects\items\devices\flash.dm"
