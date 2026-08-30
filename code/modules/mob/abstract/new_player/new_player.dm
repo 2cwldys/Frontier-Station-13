@@ -427,6 +427,127 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 	return new_character
 
 /**
+ * Cyborg counterpart to PersistentAutoSpawn() below -- reactivates a stored
+ * Synthetic Storage chassis (persistence_cyborg.dm) instead of a chargen
+ * character. Deliberately much smaller: no chargen prefs, no health/
+ * inventory/identity/skills restore, no imprisonment or dead-body/in-lace
+ * states -- none of that shape exists for a cyborg. Otherwise this is a
+ * 1:1 mirror of PersistentAutoSpawn()'s own cryopod cascade, same trigger
+ * conditions and same order: the tiered picker is ALWAYS attempted first
+ * (not a fallback when the last-used spot fails, and not gated on
+ * SSticker.random_players -- that flag only controls whether a HUMAN's
+ * same picker call happens before or after their character mob exists, a
+ * timing issue that doesn't apply here since ckey is already known
+ * up front). It silently returns null when there's no candidate at all,
+ * which is why a normal join usually never shows it in practice. Then
+ * last-used -> available (personal/crew/faction/public, public requiring
+ * the same separate persistent_spawn toggle a cryopod's own public tier
+ * does) -> a broader last-resort net -> fail.
+ */
+/mob/abstract/new_player/proc/PersistentAutoSpawnCyborg()
+	set waitfor = FALSE
+
+	if(!GLOB.persistence_ready)
+		to_chat(src, SPAN_WARNING("The server is still loading. Please wait a moment and try again."))
+		reopen_menu_after_failed_spawn()
+		return
+	if(SSpersistence.save_in_progress && !check_rights(R_ADMIN, 0))
+		to_chat(src, SPAN_WARNING("Cannot join server while a save is in progress."))
+		reopen_menu_after_failed_spawn()
+		return
+	if(!GLOB.config.enter_allowed && !check_rights(R_ADMIN, 0))
+		to_chat(src, SPAN_NOTICE("Joining is currently disabled by an administrator."))
+		reopen_menu_after_failed_spawn()
+		return
+	if(!persistence_is_whitelisted(ckey) && !check_rights(R_ADMIN, 0))
+		to_chat(src, SPAN_WARNING("You are not whitelisted to join this server. Contact an administrator."))
+		reopen_menu_after_failed_spawn()
+		return
+	if(SSticker.current_state != GAME_STATE_PLAYING)
+		to_chat(src, SPAN_WARNING("The round is not ready yet."))
+		reopen_menu_after_failed_spawn()
+		return
+	if(!client)
+		qdel(src)
+		return
+
+	var/ckey_lower = ckey(client.ckey)
+	if(!ckey_lower || !GLOB.config.sql_enabled)
+		to_chat(src, SPAN_WARNING("Persistence is not enabled -- nothing can be retrieved."))
+		reopen_menu_after_failed_spawn()
+		return
+
+	var/list/snapshot = SSpersistence.charCyborgResolve(ckey_lower)
+	if(!snapshot)
+		to_chat(src, SPAN_WARNING("No stored synthetic chassis found."))
+		reopen_menu_after_failed_spawn()
+		return
+
+	var/faction_uid = persistence_get_player_faction(ckey_lower)
+
+	// Exact same shape as PersistentAutoSpawn()'s own cryopod cascade: the
+	// picker is ALWAYS attempted on a fresh spawn (cryopod.dm's own
+	// pre_chosen_spawn_pod resolution runs unconditionally except for
+	// random_players, which only defers the SAME call to after character
+	// creation for a timing reason -- identity isn't known early enough in
+	// that one mode, not a "don't show it" decision). It silently no-ops
+	// when persistence_collect_available_synthetic_storage() finds no
+	// candidate at all (no tags, no admin-marked public spawn unit), which
+	// is why a normal join usually never sees it in practice -- that's an
+	// emergent result of an empty list, not a special-cased skip.
+	var/obj/structure/machinery/recharge_station/synthetic_storage/unit = persistence_prompt_synthetic_storage_choice(src, ckey_lower, faction_uid)
+	if(!unit)
+		unit = persistence_find_saved_synthetic_storage(ckey_lower)
+	if(!unit)
+		unit = persistence_find_available_synthetic_storage(faction_uid, ckey_lower)
+	if(!unit)
+		// Broader last-resort net, mirroring PersistentAutoSpawn()'s own --
+		// ignores the separate persistent_spawn toggle, but still refuses
+		// any unit explicitly claimed by a faction.
+		for(var/obj/structure/machinery/recharge_station/synthetic_storage/candidate in world)
+			if(QDELETED(candidate) || candidate.tagger_disabled || (candidate.stat & (NOPOWER|BROKEN)))
+				continue
+			if(candidate.persistent_network && candidate.persistent_network != "public")
+				continue
+			var/turf/ct = get_turf(candidate)
+			if(!ct || !ct.z)
+				continue
+			unit = candidate
+			break
+	if(!unit)
+		to_chat(src, SPAN_WARNING("No synthetic storage unit is currently available to reactivate your chassis. Try again later, or contact an administrator."))
+		reopen_menu_after_failed_spawn()
+		return
+
+	var/turf/spawn_turf = get_turf(unit)
+	if(!spawn_turf)
+		to_chat(src, SPAN_WARNING("Failed to resolve a location to reactivate in. Contact an administrator."))
+		reopen_menu_after_failed_spawn()
+		return
+
+	spawning = 1
+	close_spawn_windows()
+
+	var/mob/living/silicon/robot/R = SSpersistence.charCyborgRestore(ckey_lower, spawn_turf, snapshot)
+	if(!R)
+		to_chat(src, SPAN_WARNING("Failed to reconstruct your chassis. Contact an administrator."))
+		reopen_menu_after_failed_spawn()
+		return
+
+	// Direct key assignment is correct here specifically because src (this
+	// new_player mob) is a fresh lobby mob with no living body of its own --
+	// same mechanic create_character() already uses to attach a spawned
+	// character. Contrast synthetic_storage.dm's retrieve_cyborg(), where usr
+	// already has a mind mid-round and has to go through mind.transfer_to()
+	// instead.
+	R.key = ckey_lower
+
+	SSpersistence.charCyborgDelete(ckey_lower)
+	to_chat(R, SPAN_GOOD("You power back on. Welcome back."))
+	log_and_message_admins("reactivated their stored cyborg chassis at ([spawn_turf.x],[spawn_turf.y],[spawn_turf.z]).", R)
+	qdel(src)
+
+/**
  * Persistent-world spawn: bypasses job selection entirely.
  * Shows a character selection menu for players with multiple saved characters,
  * auto-selects for single-character players, and spawns fresh for first-timers.
@@ -828,6 +949,12 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 			character.applyPersistentIdentity()
 		catch(var/exception/id_e)
 			log_subsystem_persistence_error("PersistentAutoSpawn: identity restore failed: [id_e]")
+		// After copy_to() has laid down the chargen defaults, so earned levels
+		// win over the Trained baseline the character slot holds.
+		try
+			character.applyPersistentSkills()
+		catch(var/exception/skills_e)
+			log_subsystem_persistence_error("PersistentAutoSpawn: skill restore failed: [skills_e]")
 		// Refresh visual icons after equipping saved items so the character doesn't appear naked
 		character.force_update_limbs()
 		character.update_body()
@@ -895,40 +1022,86 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 	// pending. random_players is the one mode where identity wasn't knowable
 	// yet at that point -- resolve it here instead, same as before this fix.
 	var/spawner_faction = GLOB.config.sql_enabled ? persistence_get_player_faction(ckey_lower) : null
-	var/obj/structure/machinery/cryopod/spawn_pod = pre_chosen_spawn_pod
-	if(!spawn_pod && SSticker.random_players)
-		spawn_pod = persistence_prompt_cryopod_choice(character, ckey_lower, character.real_name, spawner_faction)
+	// Declared here (not inside either branch below) so the "wake inside the
+	// pod" block further down can still see it -- stays null for the entire
+	// IPC branch, which has no equivalent holding-pod visual at all (Synthetic
+	// Storage is an instant decommission unit, not a cryopod), so that block
+	// naturally falls through to the generic wake message instead.
+	var/obj/structure/machinery/cryopod/spawn_pod = null
 
-	// Wake inside the character's last-used cryopod when still valid, else
-	// faction pods -> public pods, any free working pod as last resort
-	if(!spawn_pod)
-		spawn_pod = persistence_find_saved_cryopod(ckey_lower, character.real_name)
-	if(!spawn_pod)
-		spawn_pod = persistence_find_available_cryopod(spawner_faction, ckey_lower, character.real_name)
-	if(!spawn_pod)
-		// Broader net than persistence_find_available_cryopod()'s own Priority
-		// 2 -- ignores the separate persistent_spawn admin toggle, but still
-		// refuses any pod explicitly claimed by a faction. A pod with no
-		// network set at all, or explicitly tagged public, is fair game; a
-		// faction's own pod (Hub included) never is -- that's the line a
-		// factionless civilian must not cross even as an absolute last resort.
-		for(var/obj/structure/machinery/cryopod/pod in world)
-			if(_cryopod_ignored_for_discovery(pod)) continue
-			if(pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
-			if(pod.persistent_network && pod.persistent_network != "public") continue
-			var/turf/pt = get_turf(pod)
-			if(!pt || !pt.z) continue
-			spawn_pod = pod
-			break
+	// IPC (any chassis brand, NOT Android -- species_organically_cloneable(),
+	// mob_helpers.dm) no longer uses cryopods at all
+	// (cryopod.dm's check_occupant_allowed() refuses them) -- same cascade
+	// shape, walking /obj/structure/machinery/recharge_station/synthetic_storage instead,
+	// parametrized with this character's own name since (unlike a cyborg)
+	// an IPC is a real chargen character (persistence_cyborg.dm's synthetic
+	// storage discovery procs).
+	if(character.species && !species_organically_cloneable(character.species))
+		// Always attempted, same as the cryopod cascade's own picker below --
+		// it silently returns null when persistence_collect_available_synthetic_storage()
+		// finds no candidate, which is the common case, not a special skip.
+		// Resolved post-creation here rather than mirroring cryopod's early/
+		// late random_players split -- character (and its species) doesn't
+		// exist yet at the point cryopod resolves early, and duplicating that
+		// timing dance isn't worth it for the minor UX difference (briefly
+		// visible in-world during the prompt, same as any random_players join
+		// already is for a normal human).
+		var/obj/structure/machinery/recharge_station/synthetic_storage/spawn_unit = persistence_prompt_synthetic_storage_choice(character, ckey_lower, spawner_faction, character.real_name)
+		if(!spawn_unit)
+			spawn_unit = persistence_find_saved_synthetic_storage(ckey_lower, character.real_name)
+		if(!spawn_unit)
+			spawn_unit = persistence_find_available_synthetic_storage(spawner_faction, ckey_lower)
+		if(!spawn_unit)
+			for(var/obj/structure/machinery/recharge_station/synthetic_storage/candidate in world)
+				if(QDELETED(candidate) || candidate.tagger_disabled || (candidate.stat & (NOPOWER|BROKEN)))
+					continue
+				if(candidate.persistent_network && candidate.persistent_network != "public")
+					continue
+				var/turf/ct = get_turf(candidate)
+				if(!ct || !ct.z)
+					continue
+				spawn_unit = candidate
+				break
 
-	if(spawn_pod)
-		// Interim placement on the pod's turf -- the wake block below force-
-		// ejects mobs whose loc is a cryopod, so the actual insertion happens
-		// after the wake completes.
-		character.forceMove(get_turf(spawn_pod))
+		if(spawn_unit)
+			character.forceMove(get_turf(spawn_unit))
+		else
+			character.applyPersistentPosition()
 	else
-		// Absolute last resort — saved position or landmark
-		character.applyPersistentPosition()
+		spawn_pod = pre_chosen_spawn_pod
+		if(!spawn_pod && SSticker.random_players)
+			spawn_pod = persistence_prompt_cryopod_choice(character, ckey_lower, character.real_name, spawner_faction)
+
+		// Wake inside the character's last-used cryopod when still valid, else
+		// faction pods -> public pods, any free working pod as last resort
+		if(!spawn_pod)
+			spawn_pod = persistence_find_saved_cryopod(ckey_lower, character.real_name)
+		if(!spawn_pod)
+			spawn_pod = persistence_find_available_cryopod(spawner_faction, ckey_lower, character.real_name)
+		if(!spawn_pod)
+			// Broader net than persistence_find_available_cryopod()'s own Priority
+			// 2 -- ignores the separate persistent_spawn admin toggle, but still
+			// refuses any pod explicitly claimed by a faction. A pod with no
+			// network set at all, or explicitly tagged public, is fair game; a
+			// faction's own pod (Hub included) never is -- that's the line a
+			// factionless civilian must not cross even as an absolute last resort.
+			for(var/obj/structure/machinery/cryopod/pod in world)
+				if(_cryopod_ignored_for_discovery(pod)) continue
+				if(pod.occupant || (pod.stat & (NOPOWER|BROKEN))) continue
+				if(pod.persistent_network && pod.persistent_network != "public") continue
+				var/turf/pt = get_turf(pod)
+				if(!pt || !pt.z) continue
+				spawn_pod = pod
+				break
+
+		if(spawn_pod)
+			// Interim placement on the pod's turf -- the wake block below force-
+			// ejects mobs whose loc is a cryopod, so the actual insertion happens
+			// after the wake completes.
+			character.forceMove(get_turf(spawn_pod))
+		else
+			// Absolute last resort — saved position or landmark
+			character.applyPersistentPosition()
 
 	// Fully wake the character from cryosleep.
 	// The life proc re-applies UNCONSCIOUS every tick if sleeping/drowsy/resting are set,

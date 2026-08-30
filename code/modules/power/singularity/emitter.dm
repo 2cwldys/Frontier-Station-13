@@ -119,6 +119,8 @@
 			return
 		to_chat(user, SPAN_NOTICE("You finally find the switch!"))
 	activate(user)
+	user.GetComponent(REACTOR_SYSTEMS_SKILL_COMPONENT)?.register_use(user)
+	user.GetComponent(ELECTRICAL_ENGINEERING_SKILL_COMPONENT)?.register_use(user)
 
 /obj/structure/machinery/power/emitter/proc/activate(mob/user)
 	if(state == EMITTER_WELDED)

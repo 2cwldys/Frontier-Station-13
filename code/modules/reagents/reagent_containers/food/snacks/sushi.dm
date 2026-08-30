@@ -96,6 +96,7 @@
 		if(attacking_item.reagents)
 			attacking_item.reagents.trans_to(src, attacking_item.reagents.total_volume)
 		qdel(attacking_item)
+		user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 		return
 
 	// Make sushi.
@@ -106,6 +107,7 @@
 			if(!user.unEquip(attacking_item))
 				return
 			new /obj/item/reagent_containers/food/snacks/sushi(get_turf(src), attacking_item, src)
+			user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 		return
 	. = ..()
 
@@ -128,27 +130,32 @@
 			return
 	if(is_type_in_typecache(attacking_item, acceptable_types))
 		new /obj/item/reagent_containers/food/snacks/sushi(get_turf(src), src, attacking_item)
+		user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 		return
 	. = ..()
 // Used for turning other food into sushi.
 /obj/item/reagent_containers/food/snacks/friedegg/attackby(obj/item/attacking_item, mob/user, params)
 	if((locate(/obj/structure/table) in loc) && istype(attacking_item, /obj/item/reagent_containers/food/snacks/boiledrice))
 		new /obj/item/reagent_containers/food/snacks/sushi(get_turf(src), attacking_item, src)
+		user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 		return
 	. = ..()
 /obj/item/reagent_containers/food/snacks/tofu/attackby(obj/item/attacking_item, mob/user, params)
 	if((locate(/obj/structure/table) in loc) && istype(attacking_item, /obj/item/reagent_containers/food/snacks/boiledrice))
 		new /obj/item/reagent_containers/food/snacks/sushi(get_turf(src), attacking_item, src)
+		user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 		return
 	. = ..()
 /obj/item/reagent_containers/food/snacks/rawcutlet/attackby(obj/item/attacking_item, mob/user, params)
 	if((locate(/obj/structure/table) in loc) && istype(attacking_item, /obj/item/reagent_containers/food/snacks/boiledrice))
 		new /obj/item/reagent_containers/food/snacks/sushi(get_turf(src), attacking_item, src)
+		user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 		return
 	. = ..()
 /obj/item/reagent_containers/food/snacks/cutlet/attackby(obj/item/attacking_item, mob/user, params)
 	if((locate(/obj/structure/table) in loc) && istype(attacking_item, /obj/item/reagent_containers/food/snacks/boiledrice))
 		new /obj/item/reagent_containers/food/snacks/sushi(get_turf(src), attacking_item, src)
+		user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 		return
 	. = ..()
 // End non-fish sushi.

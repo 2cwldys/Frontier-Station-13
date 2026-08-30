@@ -415,6 +415,9 @@ GLOBAL_LIST_EMPTY_TYPED(preferences_datums, /datum/preferences)
 		close_load_dialog(usr)
 	else if(href_list["new_character_sql"])
 		new_setup(1)
+		// See persistent_menu.dm's "create" case for why -- same un-randomized
+		// zeroed-defaults gap, same fix.
+		randomize_appearance_for()
 		to_chat(usr, SPAN_NOTICE("Your setup has been refreshed."))
 		usr.client.prefs.update_preview_icon()
 		close_load_dialog(usr)
@@ -777,6 +780,9 @@ GLOBAL_LIST_EMPTY_TYPED(preferences_datums, /datum/preferences)
 
 	// Create a new character.
 	new_setup(1)
+	// See persistent_menu.dm's "create" case for why -- same un-randomized
+	// zeroed-defaults gap, same fix.
+	randomize_appearance_for()
 
 	to_chat(C, SPAN_WARNING("Character successfully deleted! Please make a new one or load an existing setup."))
 

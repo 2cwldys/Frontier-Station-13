@@ -325,6 +325,12 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
 		track.persistent_objects_apply_content(content, x, y, z)
 		if(islist(content) && ("__dir" in content))
 			track.dir = text2num(content["__dir"])
+			// Raw assignment, so nothing recomputes dir-derived state that
+			// Initialize() already worked out against the default dir -- see
+			// persistence_reapply_dir_state()'s own doc comment (objs.dm).
+			// Unconditional, unlike the wall-offset hook below, which must
+			// stay legacy-only so it can't clobber authoritative saved offsets.
+			track.persistence_reapply_dir_state()
 		if(islist(content) && ("__anchored" in content))
 			track.anchored = content["__anchored"]
 		if(islist(content) && ("__pixel_x" in content))
@@ -337,6 +343,10 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
 			// the old re-derive so existing player-built devices still come
 			// back on their wall instead of dead-centered.
 			track.persistence_reapply_wall_offset()
+		// Unconditional, unlike the branch above -- see
+		// persistence_self_heal_wall_offset()'s own doc comment (objs.dm) for
+		// which devices this is safe to override for and why.
+		track.persistence_self_heal_wall_offset()
 	catch(var/exception/e)
 		log_subsystem_persistence_error("Error during json deserialization for persistent object. Failed to apply/decode track content: [e]")
 
@@ -491,6 +501,15 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
 	for(var/list/item_data in content["items"])
 		if(islist(item_data))
 			deserializePersistentItem(item_data, src)
+	// Missing here was the one gap in an otherwise-consistent pattern -- both
+	// sibling handlers in this file (closet, cart/storage, above/below) close
+	// with this same call. Without it, a belt (or any other storage type with
+	// contents-dependent visuals, e.g. content_overlays -- belt.dm) restored
+	// as a standalone tracked object -- not worn, not nested inside another
+	// restored container, both of which already call update_icon() via
+	// deserializePersistentItem()'s own "contents" branch -- had its contents
+	// restored correctly but never showed them.
+	update_icon()
 
 // ============================================================
 // CARTS -- engineering/janitorial/parcel carts had NO persistence hook at all,

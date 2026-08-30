@@ -260,6 +260,7 @@
 		mobsHealthSaveOne(H)
 		mobsInventorySaveOne(H)
 		charIdentitySaveOne(H)
+		charSkillsSaveOne(H)
 
 	H.persistence_stored_ckey = H.ckey
 	H.persistence_in_cryo     = TRUE
@@ -308,6 +309,7 @@
 	mobsHealthSaveOne(H)
 	mobsInventorySaveOne(H)
 	charIdentitySaveOne(H)
+	charSkillsSaveOne(H)
 
 	// Remember which pod they stored at so they wake from the same one --
 	// after mobPositionSave so the row exists, before the ckey is cleared.

@@ -90,16 +90,34 @@ GLOBAL_LIST_INIT(skill_default_fill_excluded, list(
 		if(istype(skill))
 			pref.skills[skill.type] = value
 
-	// Default any unset skill to PROFESSIONAL -- players who haven't configured
-	// skills start fully functional on this server rather than unfamiliar with
-	// everything. Excludes a couple of role-flavor skills that shouldn't be
-	// handed to everyone by this blanket policy -- see skill_default_fill_excluded.
+	// Default any unset skill to TRAINED -- players who haven't configured skills
+	// start competent rather than unfamiliar with everything, but NOT at the top
+	// tier. Professional is the thing you go and earn: either taught one tier at
+	// a time by someone who already holds it (Teach Skills verb), or in a single
+	// read from a very expensive cargo skill book. Cloning is what pushes you
+	// back down. None of that means anything if everyone starts maxed.
+	//
+	// Clamped per-skill, which the old blanket fill was not: maximum_level
+	// (_skills.dm) is otherwise only consulted by the chargen UI -- dead code
+	// behind the early return in content() below -- and the BST admin spawn. So
+	// the unclamped fill was pushing three combat skills and pilot_mechs above
+	// their own declared ceilings.
+	//
+	// Excludes a couple of role-flavor skills that shouldn't be handed to
+	// everyone by this blanket policy -- see skill_default_fill_excluded.
 	if(SSskills && length(SSskills.all_skills))
+		// Education gates the cap (get_maximum_level() crash_with()s on a
+		// non-instance), and this runs before sanitize_character() has
+		// guaranteed pref.education is valid -- so resolve defensively and fall
+		// back to the unclamped ceiling rather than runtiming on a fresh slot.
+		var/singleton/education/pref_education = ispath(text2path(pref.education), /singleton/education) ? GET_SINGLETON(text2path(pref.education)) : null
 		for(var/singleton/skill/sk as anything in SSskills.all_skills)
 			if(sk.type in GLOB.skill_default_fill_excluded)
 				continue
-			if(!(sk.type in pref.skills))
-				pref.skills[sk.type] = SKILL_LEVEL_PROFESSIONAL
+			if(sk.type in pref.skills)
+				continue
+			var/skill_cap = istype(pref_education) ? sk.get_maximum_level(pref_education) : sk.maximum_level
+			pref.skills[sk.type] = min(SKILL_LEVEL_TRAINED, skill_cap)
 
 /datum/category_item/player_setup_item/skills/sanitize_character(var/sql_load = 0)
 	//todomatt
@@ -124,8 +142,10 @@ GLOBAL_LIST_INIT(skill_default_fill_excluded, list(
 // Skills HTML UI, along with a lot of other components here, lifted from Baystation 12. Credit goes to Afterthought12. Thank you for saving me from HTML hell!
 /datum/category_item/player_setup_item/skills/content(var/mob/user)
 	// Persistent world — skills are not manually configured.
-	// Everyone defaults to Professional in all skills automatically.
-	return "<center><br><b>Skills are not configured on this server.</b></center>"
+	// Everyone defaults to Trained (capped per skill) automatically; Professional
+	// is earned in-round via teaching or a cargo skill book, and cloning takes it
+	// back. See the default fill in load_character_special() above.
+	return "<center><b>Skills may not be configured in the character creation process.</b><br>You learn by doing, and everyone defaults to trained on the frontier.</center>"
 
 	if(!SSskills.initialized)
 		return "<center><large>Skills not initialized yet. Please wait a bit and reload this section.</large></center>"

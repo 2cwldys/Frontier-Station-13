@@ -145,6 +145,25 @@
 	icon_state = "pilot"
 	base_icon = "pilot"
 
+/// Cargo-ordered copy -- starts unanchored so it can be carried out of its
+/// crate and placed before being wrenched down. The mapped-in base type's
+/// anchored = TRUE is left untouched.
+/obj/structure/bed/stool/chair/office/bridge/pilot/crate
+	anchored = FALSE
+
+/// Overridden rather than inherited: the base /obj/structure/bed's own
+/// attackby() (bed.dm) treats a wrench as DECONSTRUCT (dismantle()), not
+/// anchor toggle -- wrenching this down would otherwise destroy it. Mirrors
+/// /obj/structure/roller_rack's own wrench-bolt toggle (bed.dm), the closest
+/// non-machinery precedent for this exact "buy unanchored, wrench to secure"
+/// shape.
+/obj/structure/bed/stool/chair/office/bridge/pilot/crate/attackby(obj/item/attacking_item, mob/user)
+	if(attacking_item.tool_behaviour == TOOL_WRENCH)
+		anchored = !anchored
+		to_chat(user, SPAN_NOTICE("You [anchored ? "bolt" : "unbolt"] \the [src] [anchored ? "to" : "from"] the deck."))
+		return TRUE
+	return ..()
+
 /obj/structure/bed/stool/chair/office/hover
 	name = "hoverchair"
 	desc = "Adjusts itself to the sitter's weight resulting in a most comfortable sitting experience. Like floating on a cloud."

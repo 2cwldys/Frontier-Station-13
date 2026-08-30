@@ -21,7 +21,15 @@
 /proc/pick_wall_icon_variant(x, y, z, list/variants)
 	if(!length(variants))
 		return null
-	var/wall_hash = x * 12 + y * 197 + z * 51
+	// Mid-drydock-load, z is about to be thrown away and replaced with a
+	// different one on the ship's very next commission/retrieve -- substitute
+	// a seed that's stable for this ship's whole life instead, so its walls
+	// don't re-roll a different (if equally valid) weathered look every time
+	// it materializes on a new z. See GLOB.drydock_loading_wall_hash_seed's
+	// own doc comment (persistence_shuttles.dm). Null everywhere else, so
+	// every non-ship wall keeps using the real z exactly as before.
+	var/hash_z = GLOB.drydock_loading_wall_hash_seed ? text2num(GLOB.drydock_loading_wall_hash_seed) : z
+	var/wall_hash = x * 12 + y * 197 + hash_z * 51
 	wall_hash = wall_hash ^ (wall_hash << 5)
 	wall_hash = wall_hash ^ (wall_hash >> 3)
 	var/variant_index = 1 + (abs(wall_hash) % length(variants))

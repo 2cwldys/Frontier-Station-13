@@ -36,6 +36,18 @@
 	access = 0
 	container_type = "crate"
 
+/singleton/cargo_item/pilotseat
+	category = "engineering"
+	name = "pilot seat"
+	supplier = "Hub"
+	description = "A wheeled pilot's seat for a ship's bridge or cockpit. Wrench to secure after placement."
+	price = 150
+	items = list(
+		/obj/structure/bed/stool/chair/office/bridge/pilot/crate
+	)
+	access = 0
+	container_type = "crate"
+
 // ---- End Shuttle Construction ----
 
 /singleton/cargo_item/travel_pad
@@ -1211,6 +1223,30 @@
 	description = "A ready-to-place ion propulsion device -- a self-contained alternative to the rocket nozzle engine, converting stored electrical charge directly into thrust with no piped fuel gas or fuel port needed. Wrench it down and wire it to power. Either this or a piped nozzle engine satisfies a commissioned hull's engine requirement -- not both."
 	price = 20000
 	items = list(/obj/structure/machinery/ion_engine/buildable)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/portgen_basic_crate
+	category = "engineering"
+	name = "Portable Generator Crate"
+	supplier = "Hub"
+	description = "A ready-to-place portable generator that runs on graphite -- rated for 100 kW max safe output. Cheap, simple backup power for a hull with no proper grid."
+	price = 6000
+	items = list(/obj/structure/machinery/power/portgen/basic)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/portgen_advanced_crate
+	category = "engineering"
+	name = "Advanced Portable Generator Crate"
+	supplier = "Hub"
+	description = "A ready-to-place portable generator that runs on uranium -- rated for 200 kW max safe output. Runs more efficiently than the basic graphite model, at the cost of a small radiation hazard while under load."
+	price = 12000
+	items = list(/obj/structure/machinery/power/portgen/basic/advanced)
 	access = ACCESS_ENGINE
 	container_type = "crate"
 	groupable = TRUE

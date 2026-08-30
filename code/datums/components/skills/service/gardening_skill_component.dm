@@ -20,3 +20,4 @@
 	SIGNAL_HANDLER
 	*total_yield = *total_yield + bonus_yield_per_rank * (skill_level - 1)
 	*doafter = *doafter - harvest_speedup_per_rank * (skill_level - 1)
+	register_use(owner)

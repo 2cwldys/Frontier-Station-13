@@ -45,6 +45,31 @@
 	QDEL_NULL(oil)
 	return ..()
 
+/// Layers the oil reservoir on top of the cooker/base appliance content
+/// persistence (_cooker.dm/_appliance.dm) -- oil is its own /datum/reagents,
+/// entirely separate from cooking_objs, and its level/composition directly
+/// drives update_cooking_power()'s efficiency calc, topped up or scooped
+/// from over time via attackby() -- without this every restart would reset
+/// it to a fresh, randomly-varied fill from Initialize().
+/obj/structure/machinery/appliance/cooker/fryer/persistent_objects_get_content()
+	. = ..()
+	var/list/oil_reagents = list()
+	if(oil)
+		for(var/rtype in oil.reagent_volumes)
+			oil_reagents["[rtype]"] = oil.reagent_volumes[rtype]
+	.["oil"] = oil_reagents
+
+/obj/structure/machinery/appliance/cooker/fryer/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content) || !oil)
+		return
+	oil.clear_reagents()
+	if(islist(content["oil"]))
+		for(var/rtype_str in content["oil"])
+			var/rtype = text2path(rtype_str)
+			if(rtype)
+				oil.add_reagent(rtype, text2num(content["oil"][rtype_str]))
+
 /obj/structure/machinery/appliance/cooker/fryer/heat_up()
 	if (..())
 		//Set temperature of oil

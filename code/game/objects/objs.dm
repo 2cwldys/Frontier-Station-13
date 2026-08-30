@@ -464,3 +464,44 @@
  */
 /obj/proc/persistence_reapply_wall_offset()
 	return
+
+/**
+ * Unconditional counterpart to persistence_reapply_wall_offset() above --
+ * called every restore regardless of whether __pixel_x was saved, instead of
+ * only as a legacy-row fallback. No-op by default; override ONLY for a wall
+ * mount whose offset is a PURE function of dir with no other legitimate axis
+ * of variance -- lights, APCs, alarms, cameras, and similar. Those have
+ * exactly one correct position for a given dir, so re-deriving it fresh every
+ * time is strictly safer than trusting whatever was saved: it self-heals a
+ * row captured while an offset formula bug was still live (e.g. an
+ * EAST-facing light saved with a stale/wrong pixel_x keeps replaying that
+ * wrong value forever under the verbatim-restore path, no matter how many
+ * times the formula itself gets fixed afterward -- this is what breaks that).
+ *
+ * Do NOT override this for a device positioned along a SECOND, dir-independent
+ * axis too -- airlock_sensor, access_button, and the other
+ * apply_wall_mount_offset() users (see the note on airlock_sensor's
+ * worldstate_vars, persistence_worldstate.dm) are mapper-positioned beside a
+ * specific doorframe as well as facing a direction, and that formula can only
+ * ever recompute one axis, zeroing the other -- exactly the case
+ * persistence_reapply_wall_offset() above still exists to protect verbatim.
+ */
+/obj/proc/persistence_self_heal_wall_offset()
+	return
+
+/**
+ * Called by the persistence subsystem immediately after a tracked object's dir
+ * has been restored, on EVERY row -- unlike persistence_reapply_wall_offset()
+ * above, which only runs for legacy rows because modern rows persist
+ * pixel_x/pixel_y authoritatively and re-deriving them would clobber the saved
+ * values.
+ *
+ * This exists for dir-derived state that is NOT a pixel offset and therefore
+ * isn't saved: a multi-tile door's bound_x/bound_y (SetBounds(), door.dm) is
+ * computed at Initialize() against the compile-time default dir, and the
+ * restore assigns dir raw afterwards -- forceMove() doesn't route through
+ * Move(), so nothing recomputed the bounding box and the door's second tile
+ * had no collision at all. No-op by default.
+ */
+/obj/proc/persistence_reapply_dir_state()
+	return

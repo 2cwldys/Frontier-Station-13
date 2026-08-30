@@ -676,6 +676,20 @@
 	groupable = TRUE
 	spawn_amount = 1
 
+/singleton/cargo_item/dermalregenerator
+	category = "medical"
+	name = "dermal regenerator"
+	supplier = "Hub"
+	description = "A hand-held medical device that resurfaces skin, hair follicles, and iris pigment. Colors only -- it can't alter someone's underlying features."
+	price = 3500
+	items = list(
+		/obj/item/dermal_regenerator
+	)
+	access = ACCESS_SURGERY
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
 /singleton/cargo_item/fix_o_vein
 	category = "medical"
 	name = "vascular recoupler"

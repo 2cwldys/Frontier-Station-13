@@ -65,6 +65,16 @@
 // is still being actively chased.
 #define WALL_MACHINE_DIAGNOSTICS
 
+// If defined, logs the shoes slot specifically at mob inventory save and
+// restore time -- what's actually equipped there, whether it's identified as
+// a rig/voidsuit's own component (_persistence_item_is_suit_component(),
+// persistence_mobs.dm), and what the rig's own boots-deploy attempt
+// (toggle_piece(), rig.dm) does when it runs. For chasing a report of boots
+// worn under a sealed rig being lost across a cryo save/restore cycle --
+// comment out to strip it entirely. Defined by default while this is still
+// being actively chased.
+#define RIG_BOOT_RESTORE_DIAGNOSTICS
+
 // If defined, fastening a pipe fitting logs its pipe_type/dir/pipe_dir
 // before construction (construction.dm), and explicitly logs when no case
 // in the build switch matched -- so a fitting that vanishes without
@@ -192,6 +202,23 @@
 /// here rather than beside the pipeline so the machine, its UI data and the
 /// billing path all read one number.
 #define CLONE_ORDER_COST 10000
+/// How long a resleeving-pipeline clone takes to grow after being ordered
+/// (order_clone_from_lace()/_finish_clone_growth(), resleever_cloning.dm) --
+/// previously instant, which read as the fee buying an already-finished body.
+#define CLONE_GROWTH_TIME 90 SECONDS
+
+/// Credits charged to print a blank IPC chassis from the prosthetics
+/// fabricator (bioprinter.dm's "IPC Body" product) -- billed the same
+/// faction-if-tagged-and-member/personal-otherwise way CLONE_ORDER_COST is,
+/// but always charged regardless of CLONING_COSTS_CREDITS: this is a
+/// deliberately steep, separate cost for the one legitimate way to get a
+/// synthetic body to resleeve into, not the ordinary (optionally free)
+/// organic clone path.
+#define IPC_BODY_CREDIT_COST 5000
+/// Stored-matter cost of the same print -- a large fraction of the
+/// fabricator's default max_stored_matter (500), so affording one takes a
+/// heavily-fed printer on top of the credit charge.
+#define IPC_BODY_MATTER_COST 400
 
 // If defined, the server launches the Discord status bot
 // (scripts/discord_status_bot.py) on startup and kills it when the server

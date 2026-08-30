@@ -954,6 +954,10 @@
 					return
 
 				if(check_slot == use_obj)
+#ifdef RIG_BOOT_RESTORE_DIAGNOSTICS
+					if(piece == "boots")
+						log_subsystem_persistence_info("RigBoots: toggle_piece(boots) RETRACTING for [wearer] -- [use_obj] pulled back into the rig. Note: nothing here re-equips any original boots the wearer may have had before this piece deployed.")
+#endif
 					to_chat(wearer, "<font color='blue'><b>Your [use_obj.name] [use_obj.gender == PLURAL ? "retract" : "retracts"] swiftly.</b></font>")
 					playsound(src, 'sound/machines/rig/rig_retract.ogg', 30, FALSE)
 					use_obj.canremove = 1
@@ -989,11 +993,19 @@
 			if(!wearer.equip_to_slot_if_possible(use_obj, equip_to, 0, 1))
 				use_obj.forceMove(src)
 				if(check_slot)
+#ifdef RIG_BOOT_RESTORE_DIAGNOSTICS
+					if(piece == "boots")
+						log_subsystem_persistence_info("RigBoots: toggle_piece(boots) REFUSED for [wearer] -- [check_slot.type] is in the way, rig boots [use_obj] stay retracted.")
+#endif
 					to_chat(initiator, SPAN_DANGER("You are unable to deploy \the [piece] as \the [check_slot] [check_slot.gender == PLURAL ? "are" : "is"] in the way."))
 					playsound(src, 'sound/items/rfd_empty.ogg', 20, FALSE)
 					piece_being_deployed = FALSE
 					return FALSE
 			else
+#ifdef RIG_BOOT_RESTORE_DIAGNOSTICS
+				if(piece == "boots")
+					log_subsystem_persistence_info("RigBoots: toggle_piece(boots) SUCCEEDED for [wearer] -- [use_obj] now in wearer.shoes.")
+#endif
 				to_chat(wearer, SPAN_NOTICE("Your [use_obj.name] [use_obj.gender == PLURAL ? "deploy" : "deploys"] swiftly."))
 				playsound(src, 'sound/machines/rig/rig_deploy.ogg', 30, FALSE)
 

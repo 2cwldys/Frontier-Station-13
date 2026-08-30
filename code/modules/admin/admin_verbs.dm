@@ -36,6 +36,7 @@ GLOBAL_LIST_INIT(admin_verbs_admin, list(
 	/client/proc/jumptoshuttle,
 	/client/proc/jumptoship,
 	/client/proc/jumptosector,
+	/client/proc/jumptolobby,
 	/client/proc/Getmob,				/*teleports a mob to our location*/
 	/client/proc/Getkey,				/*teleports a mob with a certain ckey to our location*/
 //	/client/proc/sendmob,				/*sends a mob somewhere*/ -Removed due to it needing two sorting procs to work, which were executed every time an admin right-clicked. ~Errorage */
@@ -208,6 +209,7 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/set_player_character_slots,
 	/datum/admins/proc/rename_persistent_character,
 	/datum/admins/proc/remove_persistent_character,
+	/datum/admins/proc/modify_character_skills,
 	/datum/admins/proc/toggle_server_joining,
 	/datum/admins/proc/manage_faction_account,
 	/datum/admins/proc/manage_faction_jobs,
@@ -259,6 +261,7 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/install_neural_lace,
 	/datum/admins/proc/check_vitals,
 	/datum/admins/proc/force_vault_all_laces,
+	/datum/admins/proc/modify_neural_lace,
 	/datum/admins/proc/whitelist_players
 	))
 
@@ -296,6 +299,7 @@ GLOBAL_LIST_INIT(admin_verbs_debug, list(
 	/client/proc/jumptoshuttle,
 	/client/proc/jumptoship,
 	/client/proc/jumptosector,
+	/client/proc/jumptolobby,
 	/client/proc/dsay,
 	/client/proc/toggle_recursive_explosions,
 	/client/proc/restart_sql,
@@ -402,6 +406,7 @@ GLOBAL_LIST_INIT(admin_verbs_hideable, list(
 	/client/proc/jumptoshuttle,
 	/client/proc/jumptoship,
 	/client/proc/jumptosector,
+	/client/proc/jumptolobby,
 	/client/proc/colorooc,
 	/client/proc/add_client_color,
 	/datum/admins/proc/force_mode_latespawn,
@@ -562,6 +567,7 @@ GLOBAL_LIST_INIT(admin_verbs_dev, list( //will need to be altered - Ryan784
 	/client/proc/jumptoshuttle,
 	/client/proc/jumptoship,
 	/client/proc/jumptosector,
+	/client/proc/jumptolobby,
 	/client/proc/cmd_dev_say,
 	/client/proc/admin_ghost,
 	/client/proc/air_report,
@@ -613,6 +619,7 @@ GLOBAL_LIST_INIT(admin_verbs_storyteller, list(
 	/client/proc/jumptoshuttle,
 	/client/proc/jumptoship,
 	/client/proc/jumptosector,
+	/client/proc/jumptolobby,
 	/client/proc/Getmob,				/*teleports a mob to our location*/
 	/client/proc/Jump,
 	/client/proc/jumptomob,				//allows us to jump to a specific mob,

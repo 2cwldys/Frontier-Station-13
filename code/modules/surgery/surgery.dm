@@ -173,6 +173,11 @@
 
 			if(prob(success_rate) && do_mob(user, M, duration) && !autofail)
 				S.end_step(user, M, zone, tool)
+				// Generic over whichever skill(s) this specific step actually
+				// requires (S.skill_requirements, above) -- covers surgery,
+				// robotics, and xenobiology steps alike from this one site.
+				for (var/skill_comp in S.skill_requirements)
+					user.GetComponent(skill_comp)?.register_use(user)
 			else if ((tool in user.contents) && user.Adjacent(M))
 				S.fail_step(user, M, zone, tool)
 			else

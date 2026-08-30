@@ -6,11 +6,16 @@ import { Window } from '../layouts';
 type ResleeverData = {
   lace_name: string | null;
   lace_occupied: BooleanLike;
+  /** Name of the body physically placed inside THIS machine, but only when
+   * it's a valid (mindless) resleeve target -- null if empty or already
+   * holding somebody with a mind of their own. */
   body_name: string | null;
+  occupied: BooleanLike;
   can_resleeve: BooleanLike;
   linked_pod: BooleanLike;
   pod_occupied: BooleanLike;
   pod_clone_name: string | null;
+  pod_growing: BooleanLike;
   can_order_clone: BooleanLike;
   /** 0 when this server has cloning set to free (CLONING_COSTS_CREDITS). */
   clone_cost: number;
@@ -23,17 +28,19 @@ export const Resleever = (props) => {
     lace_name,
     lace_occupied,
     body_name,
+    occupied,
     can_resleeve,
     linked_pod,
     pod_occupied,
     pod_clone_name,
+    pod_growing,
     can_order_clone,
     clone_cost,
     clone_payer,
   } = data;
 
   return (
-    <Window width={420} height={460} title="Resleeving Machine">
+    <Window width={420} height={480} title="Resleeving Machine">
       <Window.Content scrollable>
         <Section title="Neural Lace">
           <LabeledList>
@@ -58,6 +65,32 @@ export const Resleever = (props) => {
           </Button>
         </Section>
 
+        <Section title="Occupant">
+          <LabeledList>
+            <LabeledList.Item label="Body">
+              {!occupied ? (
+                <Box color="label">
+                  Empty. Drag a body onto this machine, or grab-and-click it,
+                  to place one inside.
+                </Box>
+              ) : body_name ? (
+                <Box color="good">{body_name}</Box>
+              ) : (
+                <Box color="bad">Has a mind of their own -- not resleevable.</Box>
+              )}
+            </LabeledList.Item>
+          </LabeledList>
+          <Button
+            fluid
+            mt={1}
+            icon="eject"
+            disabled={!occupied}
+            onClick={() => act('eject_occupant')}
+          >
+            Eject Occupant
+          </Button>
+        </Section>
+
         <Section title="Cloning Pod">
           {!linked_pod ? (
             <NoticeBox>
@@ -67,12 +100,22 @@ export const Resleever = (props) => {
           ) : (
             <LabeledList>
               <LabeledList.Item label="Pod">
-                {pod_occupied ? (
+                {pod_growing ? (
+                  <Box color="average">Growing...</Box>
+                ) : pod_occupied ? (
                   <Box color="good">Clone ready: {pod_clone_name}</Box>
                 ) : (
                   <Box color="label">Empty.</Box>
                 )}
               </LabeledList.Item>
+              {!!pod_occupied && !pod_growing && (
+                <LabeledList.Item label="Note">
+                  <Box color="label">
+                    Carry the clone over and place it in this machine to
+                    resleeve into it.
+                  </Box>
+                </LabeledList.Item>
+              )}
               {clone_cost > 0 && (
                 <LabeledList.Item label="Billed to">
                   {clone_payer}
@@ -88,11 +131,13 @@ export const Resleever = (props) => {
             tooltip={
               !linked_pod
                 ? 'No cloning pod linked.'
-                : pod_occupied
-                  ? 'The linked pod already holds a body.'
-                  : !lace_name
-                    ? 'Insert the neural lace to clone from.'
-                    : undefined
+                : pod_growing
+                  ? 'A clone is already growing.'
+                  : pod_occupied
+                    ? 'The linked pod already holds a body.'
+                    : !lace_name
+                      ? 'Insert the neural lace to clone from.'
+                      : undefined
             }
             onClick={() => act('order_clone')}
           >
@@ -100,27 +145,6 @@ export const Resleever = (props) => {
               ? `Order Clone (${clone_cost.toLocaleString()} cr)`
               : 'Order Clone'}
           </Button>
-        </Section>
-
-        <Section title="Target Body">
-          <LabeledList>
-            <LabeledList.Item label="Selected">
-              {body_name || <Box color="label">None.</Box>}
-            </LabeledList.Item>
-          </LabeledList>
-          <Button
-            fluid
-            mt={1}
-            icon="user-plus"
-            onClick={() => act('set_target')}
-          >
-            Select Body
-          </Button>
-          {!!body_name && (
-            <Button fluid mt={1} icon="times" onClick={() => act('clear_target')}>
-              Clear Selection
-            </Button>
-          )}
         </Section>
 
         <Section title="Resleeve">
@@ -135,7 +159,7 @@ export const Resleever = (props) => {
                 : !lace_occupied
                   ? 'That lace carries no consciousness.'
                   : !body_name
-                    ? 'No target body selected.'
+                    ? 'No resleevable body inside this machine.'
                     : undefined
             }
             onClick={() => act('resleeve')}

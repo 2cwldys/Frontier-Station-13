@@ -51,6 +51,9 @@
 	category =  /singleton/skill_category/everyday
 	subcategory = SKILL_SUBCATEGORY_PHYSICAL
 	component_type = CAROUSING_SKILL_COMPONENT
+	// Passive per-tick stat, no discrete "use" moment to train from -- see
+	// no_decay's own doc comment (_skills.dm).
+	no_decay = TRUE
 	skill_level_descriptions = alist(
 		SKILL_LEVEL_UNFAMILIAR = "You have no modifiers to drinking or doing drugs.",
 		SKILL_LEVEL_FAMILIAR = "Your liver is 5% more effective at filtering drugs and alcohol.",

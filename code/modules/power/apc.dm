@@ -311,6 +311,12 @@ ABSTRACT_TYPE(/obj/structure/machinery/power/apc)
 	pixel_x = ((src.dir & (NORTH|SOUTH)) ? 0 : (src.dir == EAST ? 12 : -(12)))
 	pixel_y = ((src.dir & (NORTH|SOUTH)) ? (src.dir == NORTH ? 22 : -(8)) : 0)
 
+/obj/structure/machinery/power/apc/persistence_reapply_wall_offset()
+	set_pixel_offsets()
+
+/obj/structure/machinery/power/apc/persistence_self_heal_wall_offset()
+	set_pixel_offsets()
+
 /obj/structure/machinery/power/apc/proc/energy_fail(var/duration)
 	failure_timer = max(failure_timer, duration)
 

@@ -192,6 +192,8 @@
 				var/obj/item/reagent_containers/chem_disp_cartridge/C = cartridges[label]
 				playsound(src.loc, 'sound/machines/reagent_dispense.ogg', 25, 1)
 				C.reagents.trans_to(container, amount)
+				if(accept_drinking)
+					usr.GetComponent(BARTENDING_SKILL_COMPONENT)?.register_use(usr)
 				. = TRUE
 
 		if("ejectBeaker")

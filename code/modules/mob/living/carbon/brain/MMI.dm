@@ -79,7 +79,91 @@
 	if(extra_examine_info)
 		. += SPAN_NOTICE(extra_examine_info)
 
+/// Direct lace<->MMI transfer -- no resleever needed, matches the same
+/// casual "click it with the item" interaction the brain/diode/weld steps
+/// below already use. An occupied lace clicked on a sealed, empty-brainmob
+/// MMI gives it that consciousness; an empty lace clicked on a sealed,
+/// occupied MMI pulls the consciousness back out into the lace, portable
+/// again and ready to resleeve into an organic clone later.
+/obj/item/mmi/proc/_lace_transfer(obj/item/organ/internal/neural_lace/lace, mob/user)
+	if(cradle_state != STATE_SEALED || !brainmob)
+		to_chat(user, SPAN_WARNING("\The [src] isn't ready to receive a consciousness yet."))
+		return TRUE
+
+	if(lace.lace_occupied && lace.lace_mob)
+		if(brainmob.mind)
+			to_chat(user, SPAN_WARNING("\The [src] already has an occupant."))
+			return TRUE
+		if(lace.lace_damage > 0)
+			to_chat(user, SPAN_WARNING("\The [lace] shows damage and cannot be used until repaired."))
+			return TRUE
+		var/mob/living/carbon/lace_mob/LM = lace.lace_mob
+		LM.mind.transfer_to(brainmob)
+		brainmob.real_name = lace.registered_name
+		brainmob.name = lace.registered_name
+		update_name()
+		persistence_set_char_state(lace.registered_ckey, lace.registered_name, "alive")
+		lace.lace_occupied = FALSE
+		lace.lace_mob = null
+		qdel(LM)
+		if(islist(lace.stored_skills) && length(lace.stored_skills))
+			apply_skill_snapshot(brainmob, lace.stored_skills)
+		to_chat(brainmob, SPAN_GOOD("You are resleeved. Welcome back."))
+		to_chat(user, SPAN_GOOD("[lace.registered_name] is transferred into \the [src]."))
+		log_game("[lace.registered_name] resleeved into an MMI by [user.real_name].")
+		return TRUE
+
+	if(!lace.lace_occupied)
+		if(extract_consciousness_to_lace(lace, user))
+			to_chat(user, SPAN_GOOD("Extracted [lace.registered_name] from \the [src] into the neural lace."))
+		return TRUE
+
+	to_chat(user, SPAN_WARNING("The lace already contains a consciousness."))
+	return TRUE
+
+/**
+ * Pulls whatever consciousness is occupying this MMI's brainmob out into
+ * `lace` (must already be a physical, empty lace -- caller creates/provides
+ * it). Shared by the direct "click MMI with an empty lace" interaction above
+ * and neural_lace_extractor.dm's field-extraction path, which can now reach
+ * an MMI-holding cyborg without pulling the MMI out of the chassis first.
+ * Returns TRUE on success; FALSE (with its own chat message) if there's
+ * nothing there to extract. `user` may be null -- extractAllMmiConsciousnesses()
+ * (persistence.dm) calls this as an automatic pre-reboot sweep with no live
+ * user to attribute the action to.
+ */
+/obj/item/mmi/proc/extract_consciousness_to_lace(obj/item/organ/internal/neural_lace/lace, mob/user)
+	if(cradle_state != STATE_SEALED || !brainmob || !brainmob.mind)
+		to_chat(user, SPAN_WARNING("\The [src] has no occupant to extract."))
+		return FALSE
+	if(lace.lace_occupied)
+		to_chat(user, SPAN_WARNING("The lace already contains a consciousness."))
+		return FALSE
+
+	var/extracted_name = brainmob.real_name
+	var/extracted_ckey = brainmob.mind.key || brainmob.ckey
+	lace.registered_name = extracted_name
+	if(extracted_ckey)
+		lace.registered_ckey = extracted_ckey
+	var/mob/living/carbon/lace_mob/LM = new /mob/living/carbon/lace_mob(get_turf(lace))
+	LM.name = extracted_name
+	LM.real_name = extracted_name
+	LM.neural_lace = lace
+	if(brainmob.dna)
+		LM.dna = brainmob.dna.Clone()
+	brainmob.mind.transfer_to(LM)
+	lace.lace_occupied = TRUE
+	lace.lace_mob = LM
+	LM.forceMove(lace)
+	update_name()
+	to_chat(LM, SPAN_NOTICE("Your consciousness is pulled free of the braincase and settles into a neural lace."))
+	log_game("[extracted_name] extracted from an MMI into a neural lace[user ? " by [user.real_name]" : " (automatic pre-reboot sweep)"].")
+	return TRUE
+
 /obj/item/mmi/attackby(obj/item/attacking_item, mob/user)
+	if(istype(attacking_item, /obj/item/organ/internal/neural_lace))
+		return _lace_transfer(attacking_item, user)
+
 	switch(cradle_state)
 		if(STATE_EMPTY)
 			if(!brainmob && istype(attacking_item, /obj/item/organ/internal/brain)) //Time to stick a brain in it --NEO

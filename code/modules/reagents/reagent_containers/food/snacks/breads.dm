@@ -57,6 +57,7 @@
 			user.drop_from_inventory(src) //This has to be here in order to put the pun in the proper place
 			user.put_in_hands(result)
 
+		user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 		qdel(attacking_item)
 		qdel(src)
 

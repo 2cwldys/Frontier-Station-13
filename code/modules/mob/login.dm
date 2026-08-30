@@ -158,3 +158,14 @@
 			client.screen -= spell_master
 
 	SEND_SIGNAL(src, COMSIG_MOB_AFTER_LOGIN)
+
+	// The hud_used rebuild above (qdel + new /datum/hud(src)) invalidates every
+	// action button's place on the old hud -- only an action whose own owner
+	// happens to listen for COMSIG_MOB_AFTER_LOGIN (Ministry/Leadership's skill
+	// components, e.g.) gets itself redrawn against the new one. Everything else
+	// stays visually stale (reported as the action bar "reds out") until the
+	// player manually reopens the hide/show toggle, which is exactly what this
+	// call already does for every action at once -- so just do it here instead
+	// of relying on each grantor to opt in individually. No-op for anything that
+	// isn't /mob/living (action.dm's base stub).
+	update_action_buttons()

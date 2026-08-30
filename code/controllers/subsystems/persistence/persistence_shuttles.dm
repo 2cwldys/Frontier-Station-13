@@ -361,6 +361,32 @@ GLOBAL_VAR_INIT(drydock_loading_suffix, null)
 /// displace it.
 GLOBAL_LIST_EMPTY(drydock_loading_areas)
 
+/// Stable per-ship seed for pick_wall_icon_variant() (wall_icon.dm), read in
+/// place of the literal z coordinate whenever it's non-null.
+///
+/// A reinforced wall's "weathered" look is a deterministic hash of x/y/z --
+/// same wall, same z, forever the same variant, which is the whole point (it
+/// stops walls flickering between look-alike sprites, and keeps two unrelated
+/// rooms on two different Z-levels that happen to share x/y from always
+/// looking identically weathered). That assumption breaks for a drydock ship:
+/// its x/y are fixed but its z is NOT -- template.load_new_z()/
+/// acquireReusableZ() hand it a different z on every commission and every
+/// retrieve, by design (z-reuse pooling). Left alone, every reinforced wall on
+/// the hull would re-roll a different-but-equally-valid variant each time,
+/// which is exactly what a player would see as "the walls look different now"
+/// with nothing actually damaged or lost.
+///
+/// Set to a stable hash of the ship's own shuttle_id (constant for the ship's
+/// entire life, unlike its z) immediately before template.load_new_z() /
+/// load_into_z() and kept set through the shipInteriorApply() call that
+/// follows -- persistence_turfs.dm's own wall-restore re-pick
+/// (turfsApplyContent()) needs the same stable seed, not just the template's
+/// own Initialize() pass. Cleared back to null once both complete, same
+/// window discipline as drydock_loading_suffix above (both calls are
+/// synchronous, no yield in between). Null everywhere else, so every
+/// non-ship wall (station, away sites) is completely unaffected.
+GLOBAL_VAR_INIT(drydock_loading_wall_hash_seed, null)
+
 /// Appends GLOB.drydock_loading_suffix to a name when a drydock load is in
 /// flight, skipping names that already carry it (a retrieve of an already
 /// suffixed hull, or the post-load rename running over the top).
@@ -2321,6 +2347,11 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// retrieve would. See GLOB.drydock_loading_suffix.
 	GLOB.drydock_loading_suffix = "#[new_id]"
 	GLOB.drydock_loading_areas = list()
+	// See GLOB.drydock_loading_wall_hash_seed's own doc comment -- keyed on
+	// new_id (stable for the ship's whole life) rather than the z this load
+	// is about to assign, so reinforced walls look the same on every future
+	// retrieve as they do right now at commission.
+	GLOB.drydock_loading_wall_hash_seed = "[new_id]"
 	if(pool_z)
 		bounds = template.load_into_z(pool_z, TRUE)
 		new_z = pool_z
@@ -2329,6 +2360,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		bounds = template.load_new_z(FALSE, TRUE)
 		new_z = z_before + 1
 	GLOB.drydock_loading_suffix = null
+	GLOB.drydock_loading_wall_hash_seed = null
 	// Cleared only AFTER the load returns -- init_shuttles() runs inside it,
 	// and /datum/shuttle/New() reads this list to bind its own areas.
 	GLOB.drydock_loading_areas = list()
@@ -2953,6 +2985,13 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// immediately after the load, before any of the failure returns below.
 	GLOB.drydock_loading_suffix = "#[shuttle_id]"
 	GLOB.drydock_loading_areas = list()
+	// See GLOB.drydock_loading_wall_hash_seed's own doc comment -- keyed on
+	// shuttle_id (stable across every retrieve) rather than the z this load
+	// is about to assign. NOT cleared alongside drydock_loading_suffix below --
+	// stays set through shipInteriorApply() further down, since that's where
+	// persistence_turfs.dm re-picks a saved wall's icon and needs the same
+	// stable seed the template's own Initialize() pass just used.
+	GLOB.drydock_loading_wall_hash_seed = "[shuttle_id]"
 	if(pool_z)
 		bounds = template.load_into_z(pool_z, TRUE)
 		new_z = pool_z
@@ -2972,6 +3011,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		if(user)
 			to_chat(user, SPAN_WARNING("Failed to materialize ship."))
 		log_drydock_error("drydockRetrieve: template load failed for '[DS.template_id]', shuttle_id=[shuttle_id][pool_z ? " (pooled z=[pool_z])" : ""].")
+		GLOB.drydock_loading_wall_hash_seed = null
 		return FALSE
 	log_drydock("drydockRetrieve: shuttle_id=[shuttle_id] materialized at z=[new_z] ([pool_z ? "pooled" : "fresh"]) for template '[DS.template_id]'.")
 
@@ -2979,6 +3019,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	if(!istype(marker))
 		DS.stashed = TRUE // revert -- retrieve never actually happened
 		log_drydock_error("drydockRetrieve: no overmap marker found at loaded z=[new_z] for shuttle_id=[shuttle_id].")
+		GLOB.drydock_loading_wall_hash_seed = null
 		return FALSE
 	shipPlaceOvermapMarker(marker, target_sector, placement_radius)
 
@@ -3046,6 +3087,11 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// which flips this back on and notifies the owner.
 	DS.ready = FALSE
 	SSpersistence.shipInteriorApply(new_z, scope)
+	// Turf/object restore inside shipInteriorApply() is synchronous (only its
+	// final atmos settle is deferred, via its own addtimer) -- every
+	// pick_wall_icon_variant() call this retrieve will make has already
+	// happened by the time this returns, so it's safe to clear the seed now.
+	GLOB.drydock_loading_wall_hash_seed = null
 	SSpersistence.drydockAutoFurnish(new_z, template, marker)
 
 	// Auto-claim any still-unassigned equipment on this ship's Z, same as a

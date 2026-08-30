@@ -16,12 +16,14 @@
 		new /obj/item/reagent_containers/food/snacks/burger/cheese(src)
 		to_chat(user, "You make a cheeseburger.")
 		qdel(attacking_item)
+		user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 		qdel(src)
 		return
 	else if(istype(attacking_item, /obj/item/reagent_containers/food/snacks/nakarka_wedge)) // Burger + nakarka wedge = nakarka hamburger. You could make it this way but then it doesn't filter out the chem that upsets human and taj stomaches.
 		new /obj/item/reagent_containers/food/snacks/burger/nakarka_hamburger/ungrilled(src)
 		to_chat(user, "You slap a slice of ungrilled nakarka on the burger.")
 		qdel(attacking_item)
+		user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 		qdel(src)
 		return
 	else if(istype(attacking_item, /obj/item/reagent_containers/food/snacks/grown)) // Burger + Moss = A "less authentic" mossburger
@@ -30,6 +32,7 @@
 			new /obj/item/reagent_containers/food/snacks/burger/moss/sad(src)
 			to_chat(user, "You sprinkle some moss on top of the burger.")
 			qdel(attacking_item)
+			user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 			qdel(src)
 		return
 	else if(istype(attacking_item, /obj/item/reagent_containers/food/snacks))

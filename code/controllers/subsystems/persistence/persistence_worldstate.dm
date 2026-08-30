@@ -243,6 +243,22 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
  * air is correct. Genuinely bad zones re-trigger within one process tick.
  */
 /datum/controller/subsystem/persistence/proc/atmosAlarmsReset()
+	// Snapshotted BEFORE the alarm loop below -- AA.apply_mode() blanket-
+	// broadcasts the room's mode to every vent/scrubber in its area (via
+	// receive_signal()'s "power" handling), which both overwrites use_power
+	// back to the room default AND clears power_individually_set (any
+	// non-individual power signal does, by design -- see vent_pump.dm's
+	// receive_signal()). So the correct individually-overridden value has to
+	// be captured now, before that happens, not read back off the device
+	// afterward -- by then it's already been stomped.
+	var/list/individual_overrides = list()
+	for(var/obj/structure/machinery/atmospherics/unary/vent_pump/VP in SSmachinery.machinery)
+		if(VP.power_individually_set)
+			individual_overrides[VP] = VP.use_power
+	for(var/obj/structure/machinery/atmospherics/unary/vent_scrubber/VS in SSmachinery.machinery)
+		if(VS.power_individually_set)
+			individual_overrides[VS] = VS.use_power
+
 	var/alarms_reset = 0
 	var/list/alarmed_areas = list()
 	for(var/obj/structure/machinery/alarm/AA in SSmachinery.machinery)
@@ -267,6 +283,31 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	for(var/area/AR in alarmed_areas)
 		AR.atmosalert(0, null)
 	log_subsystem_persistence_info("Worldstate: Atmos alarms reset -- [alarms_reset] alarm(s), [length(alarmed_areas)] latched area(s) cleared.")
+
+	// Every AA.apply_mode() call above just blanket-re-broadcast the room's
+	// mode to EVERY vent/scrubber in its area, including ones a player had
+	// individually overridden (the alarm's per-device power control, not the
+	// room-wide mode) -- worldstateInitialize() already restored those
+	// devices' own correct use_power moments earlier, only for apply_mode()'s
+	// signal (received via receive_signal()) to immediately stomp use_power
+	// back to the room default AND clear power_individually_set to FALSE.
+	// Re-apply both from the snapshot taken before the loop above ran --
+	// reading the live vars here would just be reading back the already-
+	// stomped values, not the originally-restored ones. This only ever
+	// touches devices that were deliberately set independently of their
+	// room's mode; a live mode change still overrides them normally, exactly
+	// as before.
+	var/individual_overrides_reapplied = 0
+	for(var/obj/structure/machinery/atmospherics/unary/vent_pump/VP in individual_overrides)
+		VP.power_individually_set = TRUE
+		VP.update_use_power(individual_overrides[VP])
+		individual_overrides_reapplied++
+	for(var/obj/structure/machinery/atmospherics/unary/vent_scrubber/VS in individual_overrides)
+		VS.power_individually_set = TRUE
+		VS.update_use_power(individual_overrides[VS])
+		individual_overrides_reapplied++
+	if(individual_overrides_reapplied)
+		log_subsystem_persistence_info("Worldstate: Re-applied [individual_overrides_reapplied] individually-overridden vent/scrubber power state(s) after the alarm resync.")
 
 /**
  * Looks up the cache entry for this machine and applies its saved content.
@@ -811,7 +852,11 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	worldstate_vars = list("use_power", "target_pressure")
 
 /obj/structure/machinery/atmospherics/unary/vent_scrubber
-	worldstate_vars = list("use_power", "scrubbing", "welded")
+	// power_individually_set: whether use_power above was last set via the
+	// alarm's per-device control rather than its room-wide mode -- see
+	// atmosAlarmsReset() (persistence.dm), which respects this instead of
+	// unconditionally reverting the device to the room's mode on restore.
+	worldstate_vars = list("use_power", "scrubbing", "welded", "power_individually_set")
 
 /obj/structure/machinery/atmospherics/unary/vent_pump
 	// id_tag is load-bearing here, not cosmetic: _ensure_id_tag() mints the
@@ -823,12 +868,25 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	// "name" is load-bearing alongside id_tag: broadcast_status() auto-names an
 	// unnamed vent from a per-area counter, so without persisting the name a
 	// restored pump gets renamed to the next free number every boot.
-	worldstate_vars = list("use_power", "pump_direction", "external_pressure_bound", "internal_pressure_bound", "pressure_checks", "welded", "frequency", "id_tag", "name")
+	// power_individually_set: whether use_power above was last set via the
+	// alarm's per-device control rather than its room-wide mode -- see
+	// atmosAlarmsReset() (persistence.dm), which respects this instead of
+	// unconditionally reverting the device to the room's mode on restore.
+	worldstate_vars = list("use_power", "pump_direction", "external_pressure_bound", "internal_pressure_bound", "pressure_checks", "welded", "frequency", "id_tag", "name", "power_individually_set")
 
 /obj/structure/machinery/atmospherics/unary/vent_pump/worldstate_apply_content(list/content)
 	..()
 	if(frequency)
 		set_frequency(frequency)
+		// set_frequency() above rebuilds the PRIMARY radio connection from the
+		// saved value, but a vent linked to a console (general_air_control's
+		// _link_atmos_device(), atmo_control.dm) also needs its SECONDARY
+		// always-on air-alarm connection re-established here too -- the live
+		// linking action already calls this, restore never did, silently
+		// reproducing the exact "console-linked vent unreachable by its room
+		// alarm" bug on every restart. Safe unconditionally -- already a
+		// no-op when frequency == 1439 (see its own doc comment, vent_pump.dm).
+		ensure_alarm_reachable()
 
 // ------- Reagent containers (fluids in machinery/structures) -------
 // serializePersistentItem() (persistence_mobs.dm) already round-trips reagents
@@ -906,6 +964,16 @@ GLOBAL_LIST_EMPTY(persistence_worldstate_cache)
 	..()
 	if(frequency)
 		set_frequency(frequency)
+	// input_tag/output_tag (and frequency, just above) restore fine on their
+	// own, but the UI reads input_info/output_info -- a separate cache only
+	// ever filled by a received status broadcast -- which a restore never
+	// triggers on its own. Without this the console stayed blank until
+	// someone re-linked the device with a multitool (see
+	// request_status_broadcast()'s own doc comment, atmo_control.dm).
+	if(input_tag)
+		request_status_broadcast(TRUE)
+	if(output_tag)
+		request_status_broadcast(FALSE)
 
 /obj/structure/machinery/computer/general_air_control/large_tank_control
 	worldstate_vars = list("sensors", "input_tag", "output_tag", "frequency")

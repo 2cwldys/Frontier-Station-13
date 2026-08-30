@@ -128,6 +128,26 @@
 	else
 		to_chat(usr, SPAN_WARNING("No available lace storage vault found -- [target.registered_name]'s lace could not be vaulted."))
 
+/client/proc/jumptolobby()
+	set category = "Admin.Jump"
+	set name = "Jump to Lobby"
+
+	if(check_rights(R_ADMIN|R_MOD|R_DEBUG|R_DEV) || isstoryteller(src.mob))
+		if(isnewplayer(usr))
+			return
+
+		if(GLOB.config.allow_admin_jump)
+			if(!GLOB.lobby_mobs_location)
+				to_chat(usr, SPAN_WARNING("No lobby location is set."))
+				return
+			log_admin("[key_name(usr)] jumped to the lobby")
+			message_admins("[key_name_admin(usr)] jumped to the lobby", 1)
+			usr.on_mob_jump()
+			usr.forceMove(GLOB.lobby_mobs_location)
+			feedback_add_details("admin_verb","JL") //If you are copy-pasting this, ensure the 2nd parameter is unique to the new proc!
+		else
+			alert("Admin jumping disabled")
+
 /client/proc/jumptomob(var/mob/M in GLOB.mob_list)
 	set category = "Admin.Jump"
 	set name = "Jump to Mob Admin"

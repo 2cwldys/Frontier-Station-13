@@ -94,6 +94,24 @@
 
 	queue_icon_update()
 
+/// Layers the dial setting and current heat on top of the base appliance's
+/// own content persistence (_appliance.dm) -- same shape
+/// /obj/structure/closet/crate/supply_beacon uses on top of the base closet
+/// (persistence_objects.dm).
+/obj/structure/machinery/appliance/cooker/persistent_objects_get_content()
+	. = ..()
+	.["set_temp"] = set_temp
+	.["temperature"] = temperature
+
+/obj/structure/machinery/appliance/cooker/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["set_temp"]))
+		set_temp = content["set_temp"]
+	if(!isnull(content["temperature"]))
+		temperature = content["temperature"]
+
 /obj/structure/machinery/appliance/cooker/attempt_toggle_power(mob/user)
 	var/wasoff = stat & POWEROFF
 	if (use_check_and_message(user, issilicon(user) ? USE_ALLOW_NON_ADJACENT : 0))
