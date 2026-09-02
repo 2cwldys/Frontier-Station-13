@@ -10,6 +10,12 @@ type Withdrawable = {
   reported_stolen: BooleanLike;
 };
 
+type EvaRecallCandidate = {
+  shuttle_id: number;
+  display_name: string;
+  cooldown: number;
+};
+
 type Template = {
   template_id: string;
   display_name: string;
@@ -24,6 +30,7 @@ type DrydockData = {
   can_buy_faction: BooleanLike;
   templates: Template[];
   withdrawable: Withdrawable[];
+  eva_recallable: EvaRecallCandidate[];
   can_board: BooleanLike;
   board_cooldown: number;
   can_disembark: BooleanLike;
@@ -217,6 +224,42 @@ export const ShuttleDrydock = (props) => {
                         }
                       >
                         Withdraw Schematic
+                      </Button>
+                    </LabeledList.Item>
+                  ))
+                ) : (
+                  <LabeledList.Item label="">None.</LabeledList.Item>
+                )}
+              </LabeledList>
+            </Section>
+            <Section title="EVA Recall">
+              <Box color="label" mb={1}>
+                Pages every crew member of a ship to return aboard -- reaches
+                them directly regardless of whether their PDA is powered on,
+                but only those currently at or near the ship's own sector.
+              </Box>
+              <LabeledList>
+                {data.eva_recallable.length ? (
+                  data.eva_recallable.map((row) => (
+                    <LabeledList.Item key={row.shuttle_id} label={row.display_name}>
+                      <Button
+                        icon="bullhorn"
+                        color="bad"
+                        disabled={!!data.save_in_progress || row.cooldown > 0}
+                        tooltip={
+                          data.save_in_progress
+                            ? 'World save in progress -- please wait.'
+                            : row.cooldown > 0
+                              ? `Cooling down -- ${row.cooldown}s remaining.`
+                              : undefined
+                        }
+                        onClick={() =>
+                          act('eva_recall', { shuttle_id: row.shuttle_id })
+                        }
+                      >
+                        {row.cooldown > 0
+                          ? `Send EVA Recall (${row.cooldown}s)`
+                          : 'Send EVA Recall'}
                       </Button>
                     </LabeledList.Item>
                   ))

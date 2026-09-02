@@ -5,6 +5,9 @@
 		/datum/asset/simple/jquery_goonchat,
 		/datum/asset/simple/goonchat,
 		/datum/asset/simple/fontawesome_goonchat
+#if GOONCHAT_CUSTOM_FONT != GOONCHAT_FONT_NONE
+		, /datum/asset/simple/goonchat_font
+#endif
 	)
 
 /datum/asset/simple/jquery_goonchat
@@ -30,3 +33,20 @@
 		"font-awesome.css"   = 'html/font-awesome/css/all.min.css',
 		"v4shim.css"         = 'html/font-awesome/css/v4-shims.min.css',
 	)
+
+#if GOONCHAT_CUSTOM_FONT == GOONCHAT_FONT_INDUSTRIA_SOLID
+/datum/asset/simple/goonchat_font
+	assets = list(
+		"IndustriaSolid-Regular.otf" = 'code/modules/goonchat/browserassets/fonts/IndustriaSolid-Regular.otf',
+	)
+#elif GOONCHAT_CUSTOM_FONT == GOONCHAT_FONT_DEX_GOTHIC
+/datum/asset/simple/goonchat_font
+	assets = list(
+		"DexGothicBeckerSolid-Regular.ttf" = 'code/modules/goonchat/browserassets/fonts/DexGothicBeckerSolid-Regular.ttf',
+	)
+#elif GOONCHAT_CUSTOM_FONT == GOONCHAT_FONT_HANDEL_GOTHIC
+/datum/asset/simple/goonchat_font
+	assets = list(
+		"HandelGothic-Regular.ttf" = 'code/modules/goonchat/browserassets/fonts/HandelGothic-Regular.ttf',
+	)
+#endif

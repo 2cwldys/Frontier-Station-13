@@ -220,6 +220,15 @@
 /// heavily-fed printer on top of the credit charge.
 #define IPC_BODY_MATTER_COST 400
 
+/// Fraction of a full training bar (GLOB.config.skill_train_progress_needed)
+/// a teacher's OWN progress in a skill costs them per successful Teach
+/// Skills lesson (skill_verbs.dm) -- a FIXED amount subtracted each time,
+/// not a percentage of their current value (that would approach but never
+/// reach zero). Keeps teaching from being an infinite, free action -- a
+/// teacher has to keep practicing (or being taught themselves) to keep
+/// teaching indefinitely, the same as anyone else avoiding decay.
+#define SKILL_TEACH_COST_FRACTION 0.5
+
 // If defined, the server launches the Discord status bot
 // (scripts/discord_status_bot.py) on startup and kills it when the server
 // actually closes -- see discordStatusBotStart()/Stop() (persistence.dm).
@@ -277,6 +286,43 @@
 // nearby (playsound()), throttled to once per 4.5 seconds per device so
 // rapid clicking doesn't spam it. Off -- no click sound.
 #define PADD_BUTTON_PRESS_SOUNDS
+
+// Font choices selectable for GOONCHAT_CUSTOM_FONT below -- each one's font
+// file lives under browserassets/fonts/, and browserOutput.css already
+// declares an @font-face for every option here plus lists them all in the
+// chat body's font stack, so switching which one is picked below is the
+// only step needed: the others simply never get shipped and are skipped by
+// the browser's own font-fallback. Add a new option by dropping its file in
+// browserassets/fonts/, giving it a new constant here, and adding a
+// matching #if branch in asset_cache.dm/browserOutput.dm (ship the file)
+// and an @font-face + font-stack entry in browserOutput.css.
+#define GOONCHAT_FONT_NONE 0
+#define GOONCHAT_FONT_INDUSTRIA_SOLID 1
+#define GOONCHAT_FONT_DEX_GOTHIC 2
+#define GOONCHAT_FONT_HANDEL_GOTHIC 3
+
+// Which of the GOONCHAT_FONT_* choices above the goonchat browser output
+// window (browserOutput.dm, asset_cache.dm) actually ships to the client
+// and uses for its body font-family (browserOutput.css). Set to 0
+// (GOONCHAT_FONT_NONE) to ship no custom font at all -- falls back to Roboto
+// Condensed.
+//
+// Deliberately the literal number rather than the GOONCHAT_FONT_* constant it
+// corresponds to. The #if comparisons that read this (asset_cache.dm:8 and
+// :37, browserOutput.dm:53) cannot resolve a macro whose body is itself
+// another macro name -- DM's preprocessor stops after one expansion there and
+// fails with "unexpected token". Keep this a bare number matching one of the
+// constants above.
+#define GOONCHAT_CUSTOM_FONT 1 // GOONCHAT_FONT_INDUSTRIA_SOLID
+
+/// Base chat text size, in px, for the goonchat browser output window.
+/// browserOutput.css itself has no font-size on body -- assert_chat_html()
+/// (browserOutput.dm) injects a "body{font-size:...}" <style> tag into the
+/// chat HTML right before </head> at browse() time, using this value, so
+/// changing it needs no CSS edit. Bumped above the original 13px default
+/// since GOONCHAT_CUSTOM_FONT's display faces read smaller/tighter than
+/// Roboto Condensed at the same pixel size.
+#define GOONCHAT_FONT_SIZE 21
 
 // We want to use external resources. Kthx.
 #define PRELOAD_RSC 0

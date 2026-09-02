@@ -3,6 +3,24 @@
 * GLOBAL STYLES
 *
 ******************************************/
+@font-face {
+	font-family: "Industria Solid";
+	src: url("IndustriaSolid-Regular.otf") format("opentype");
+	font-weight: normal;
+	font-style: normal;
+}
+@font-face {
+	font-family: "Dex Gothic Becker Solid";
+	src: url("DexGothicBeckerSolid-Regular.ttf") format("truetype");
+	font-weight: normal;
+	font-style: normal;
+}
+@font-face {
+	font-family: "Handel Gothic BT";
+	src: url("HandelGothic-Regular.ttf") format("truetype");
+	font-weight: normal;
+	font-style: normal;
+}
 html, body {
 	padding: 0;
 	margin: 0;
@@ -14,8 +32,9 @@ body {
 	background-image: url("chatbg.png");
 	background-size: 50%;
 	background-attachment: fixed;
-	font-family: Roboto Condensed;
-	font-size: 13px;
+	font-family: "Handel Gothic BT", "Dex Gothic Becker Solid", "Industria Solid", Roboto Condensed, sans-serif;
+	/* font-size intentionally not set here -- assert_chat_html() (browserOutput.dm)
+	   injects it from GOONCHAT_FONT_SIZE (_compile_options.dm) at browse() time. */
 	font-color: #CCCCE2;
 	line-height: 1.2;
 	overflow-x: hidden;
@@ -84,7 +103,10 @@ a.popt {text-decoration: none;}
 #loading i {display: block; padding-bottom: 3px;}
 
 #messages {
-	font-size: 13px;
+	/* font-size intentionally not set here -- an ID selector would outrank the
+	   body{font-size} rule assert_chat_html() (browserOutput.dm) injects from
+	   GOONCHAT_FONT_SIZE (_compile_options.dm), regardless of cascade order.
+	   Inherits from body so that injection actually reaches message text. */
 	padding: 3px;
 	margin: 0;
 	word-wrap: break-word;

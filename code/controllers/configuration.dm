@@ -548,12 +548,23 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 
 	var/time_to_call_emergency_shuttle = 36000  //how many time until the crew can call the transfer shuttle. One hour by default.
 
-	/// Real (deciseconds) hours of disuse before a skill starts decaying, and
-	/// real hours between each further tier drop after that. Only ever
-	/// checked against currently-spawned, alive mobs (SSskills.fire()), so in
-	/// effect this only counts hours a character is actually being played.
-	var/skill_decay_grace_period = 24 HOURS
-	var/skill_decay_interval = 24 HOURS
+	/// Deciseconds of continuous disuse it takes to drain a full
+	/// skill_decay_progress_needed's worth of progress -- and so lose one
+	/// tier -- starting from a freshly-leveled (zero banked progress) skill.
+	/// Only ever checked against currently-spawned, alive mobs
+	/// (SSskills.fire()), so in effect this only counts time a character is
+	/// actually being played. Decay drains the SAME training_progress
+	/// register_use() fills (skill_component.dm), so this is a floor on how
+	/// fast a skill can rust, not a fixed clock -- any progress already
+	/// banked toward the next tier is a buffer decay has to burn through
+	/// first, making this gentler in practice than a flat timer for anyone
+	/// who wasn't sitting at exactly zero progress.
+	var/skill_decay_hours_to_tier = 24 HOURS
+	/// How much (negative) progress it takes to actually lose a tier --
+	/// independently tunable from skill_train_progress_needed below, but
+	/// matched to it by default for a symmetric "as hard to lose as it was
+	/// to earn" feel.
+	var/skill_decay_progress_needed = 100
 	/// Floor decay can never push a skill below. SKILL_LEVEL_UNFAMILIAR (1) by
 	/// default -- no distinction from a character's chargen default is made.
 	var/skill_decay_floor = SKILL_LEVEL_UNFAMILIAR
@@ -562,7 +573,7 @@ GLOBAL_LIST_EMPTY(gamemode_cache)
 	/// banking attempts (register_use(), datums/components/skills/
 	/// skill_component.dm) -- a steady build-up from practice, not a flat
 	/// per-use chance to instantly jump a tier.
-	var/skill_train_progress_per_use = 5
+	var/skill_train_progress_per_use = 2.5
 	var/skill_train_progress_needed = 100
 	var/skill_train_cooldown = 20 SECONDS
 
@@ -1198,11 +1209,11 @@ GENERAL_PROTECT_DATUM(/datum/configuration)
 				if("merchant_chance")
 					GLOB.config.merchant_chance = text2num(value)
 
-				if("skill_decay_grace_period")
-					GLOB.config.skill_decay_grace_period = text2num(value)
+				if("skill_decay_hours_to_tier")
+					GLOB.config.skill_decay_hours_to_tier = text2num(value)
 
-				if("skill_decay_interval")
-					GLOB.config.skill_decay_interval = text2num(value)
+				if("skill_decay_progress_needed")
+					GLOB.config.skill_decay_progress_needed = text2num(value)
 
 				if("skill_decay_floor")
 					GLOB.config.skill_decay_floor = text2num(value)

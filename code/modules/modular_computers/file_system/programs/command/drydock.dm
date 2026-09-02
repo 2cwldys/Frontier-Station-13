@@ -116,6 +116,21 @@
 			continue
 		data["withdrawable"] += list(list("shuttle_id" = DS.shuttle_id, "display_name" = DS.display_name(), "reported_stolen" = DS.reported_stolen))
 
+	// EVA Recall candidates -- every currently-deployed, non-repossessed ship
+	// this user holds the permanent title for (or officer+ rank in, for a
+	// faction ship) -- see can_trigger_eva_recall() (persistence_shuttles.dm).
+	// Excludes repossessed ships for the same reason withdrawable does just
+	// above: a Hub-repossessed ship isn't the title holder's to act on.
+	data["eva_recallable"] = list()
+	for(var/sid in GLOB.drydock_ships)
+		var/datum/drydock_ship/DS = GLOB.drydock_ships[sid]
+		if(!DS || DS.stashed || DS.repossessed)
+			continue
+		if(!DS.can_trigger_eva_recall(user))
+			continue
+		var/recall_cooldown = max(0, round((DS.last_recall_at + DRYDOCK_EVA_RECALL_COOLDOWN - world.time) / 10))
+		data["eva_recallable"] += list(list("shuttle_id" = DS.shuttle_id, "display_name" = DS.display_name(), "cooldown" = recall_cooldown))
+
 	return data
 
 /datum/computer_file/program/drydock/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
@@ -160,6 +175,30 @@
 				return TRUE
 			log_drydock("drydock ui_act: [key_name(user)] requested withdraw_schematic for shuttle_id=[shuttle_id].")
 			SSpersistence.drydockWithdrawSchematic(shuttle_id, user)
+			return TRUE
+
+		if("eva_recall")
+			// Gated by can_trigger_eva_recall() -- title holder for a
+			// personal ship, officer+ for a faction ship (same rule as
+			// signing over the title, can_transfer_title()). Resolved by
+			// shuttle_id, not proximity -- the triggering user may not be
+			// anywhere near the ship they're recalling crew to.
+			var/shuttle_id = text2num(params["shuttle_id"])
+			var/datum/drydock_ship/DS = GLOB.drydock_ships["[shuttle_id]"]
+			if(!DS || DS.stashed)
+				to_chat(user, SPAN_WARNING("That ship isn't currently deployed."))
+				return TRUE
+			if(!DS.can_trigger_eva_recall(user))
+				to_chat(user, SPAN_WARNING("You don't have permission to issue an EVA recall for this ship."))
+				log_drydock_warning("drydock ui_act: [key_name(user)] lacks permission to issue EVA recall for shuttle_id=[shuttle_id].")
+				return TRUE
+			if(DS.last_recall_at && world.time < (DS.last_recall_at + DRYDOCK_EVA_RECALL_COOLDOWN))
+				to_chat(user, SPAN_WARNING("[DS.display_name()]'s EVA recall is still cooling down -- try again in [round((DS.last_recall_at + DRYDOCK_EVA_RECALL_COOLDOWN - world.time) / 10)] second\s."))
+				return TRUE
+			DS.last_recall_at = world.time
+			var/reached = _drydock_eva_recall(DS, user)
+			to_chat(user, SPAN_GOOD("EVA recall sent for [DS.display_name()] -- reached [reached] crew member\s."))
+			log_drydock("drydock ui_act: [key_name(user)] issued EVA recall for shuttle_id=[shuttle_id] ([DS.display_name()]), reached [reached].")
 			return TRUE
 
 		// "give_schematic" deliberately no longer lives here -- title transfer

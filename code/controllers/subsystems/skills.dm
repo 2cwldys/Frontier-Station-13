@@ -22,8 +22,8 @@ SUBSYSTEM_DEF(skills)
 	/// singleton without every component subtype needing to know it.
 	var/list/skill_for_component_type = list()
 
-	/// world.time at this subsystem's last fire() -- the decay sweep advances
-	/// every skill component's decay_progress by the DELTA since this, not by
+	/// world.time at this subsystem's last fire() -- the decay sweep drains
+	/// training_progress by a rate scaled to the DELTA since this, not by
 	/// comparing against an absolute saved timestamp. Reinitialized to the
 	/// current (post-boot) world.time every startup, so the first delta after
 	/// a restart is always small and correct -- never a stale cross-restart
@@ -65,28 +65,39 @@ SUBSYSTEM_DEF(skills)
 
 /**
  * Decay sweep -- only ever looks at currently-spawned, alive human mobs, so
- * the decay clock only advances while a character is actually being played.
- * Measured in genuine in-game time (world.time), not wall-clock: each firing
- * computes how much world.time has passed since the last one and banks that
- * delta onto every tracked component's decay_progress, so time the server
- * spends offline between sessions never counts against anyone -- see
- * skill_decay_grace_period's comment, controllers/configuration.dm. A skill
- * with no component isn't tracked at all -- nothing to decay, it's already
- * at (or below) the floor. A skill flagged no_decay (a passive stat with no
- * discrete use, or one with no gameplay consumer implemented at all -- see
- * its own doc comment, _skills.dm) is skipped outright, regardless of
- * activity -- it shouldn't be able to rot away with no way for a player to
- * earn it back through play. Grace period, interval, and floor are all
- * config.txt-tunable.
+ * decay only advances while a character is actually being played. Measured
+ * in genuine in-game time (world.time), not wall-clock: each firing computes
+ * how much world.time has passed since the last one and drains that much
+ * (scaled by skill_decay_hours_to_tier) off every tracked component's
+ * training_progress, so time the server spends offline between sessions
+ * never counts against anyone.
+ *
+ * The mirror image of register_use()'s own progress gain: a component used
+ * at all since the last tick is skipped entirely (used_since_last_decay_tick,
+ * skill_component.dm) -- same all-or-nothing "kept up" semantics the old
+ * flat-timer system had. Otherwise training_progress drains continuously;
+ * once it crosses -skill_decay_progress_needed a tier is lost and the
+ * overshoot carries into the new tier's counter, the exact mirror of how a
+ * level-up banks its own remainder. This means banked positive progress is
+ * a buffer decay has to burn through first -- someone close to leveling up
+ * is much more than skill_decay_hours_to_tier away from losing their
+ * current tier, not stuck on the same flat clock as someone who just
+ * leveled. A skill with no component isn't tracked at all -- nothing to
+ * decay, it's already at (or below) the floor. A skill flagged no_decay (a
+ * passive stat with no discrete use, or one with no gameplay consumer
+ * implemented at all -- see its own doc comment, _skills.dm) is skipped
+ * outright, regardless of activity -- it shouldn't be able to rot away with
+ * no way for a player to earn it back through play. All config.txt-tunable.
  */
 /datum/controller/subsystem/skills/fire()
-	var/grace_period = GLOB.config.skill_decay_grace_period
-	var/interval = GLOB.config.skill_decay_interval
+	var/decay_needed = GLOB.config.skill_decay_progress_needed
+	var/hours_to_tier = GLOB.config.skill_decay_hours_to_tier
 	var/floor = GLOB.config.skill_decay_floor
 	var/delta = world.time - last_decay_tick
 	last_decay_tick = world.time
-	if(delta <= 0)
+	if(delta <= 0 || hours_to_tier <= 0 || decay_needed <= 0)
 		return
+	var/decay_rate = decay_needed / hours_to_tier
 	for(var/mob/living/carbon/human/H as anything in GLOB.human_mob_list)
 		if(QDELETED(H) || H.stat == DEAD || !H.ckey)
 			continue
@@ -96,16 +107,19 @@ SUBSYSTEM_DEF(skills)
 			var/datum/component/skill/comp = H.GetComponent(sk.component_type)
 			if(!comp)
 				continue
-			comp.decay_progress += delta
-			if(comp.decay_progress < grace_period)
+			if(comp.used_since_last_decay_tick)
+				comp.used_since_last_decay_tick = FALSE
 				continue
-			var/tiers_to_drop = 1 + round((comp.decay_progress - grace_period) / interval)
-			var/new_level = max(floor, comp.skill_level - tiers_to_drop)
-			if(new_level >= comp.skill_level)
+			if(comp.skill_level <= floor)
+				comp.training_progress = max(comp.training_progress, 0)
 				continue
-			var/old_level = comp.skill_level
-			var/applied = set_skill_progression_level(H, sk, new_level)
-			if(isnull(applied) || applied >= old_level)
-				continue
-			comp.decay_progress = 0
-			to_chat(H, SPAN_WARNING("Your [sk.name] feels rusty from disuse -- it's slipped to [get_skill_level_name(sk, applied)]."))
+			comp.training_progress -= decay_rate * delta
+			while(comp.training_progress <= -decay_needed && comp.skill_level > floor)
+				var/old_level = comp.skill_level
+				var/applied = set_skill_progression_level(H, sk, comp.skill_level - 1)
+				if(isnull(applied) || applied >= old_level)
+					break
+				comp.training_progress += decay_needed
+				to_chat(H, SPAN_WARNING("Your [sk.name] feels rusty from disuse -- it's slipped to [get_skill_level_name(sk, applied)]."))
+			if(comp.skill_level <= floor)
+				comp.training_progress = max(comp.training_progress, 0)

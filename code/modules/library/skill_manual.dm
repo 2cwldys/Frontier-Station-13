@@ -90,9 +90,12 @@
 		to_chat(user, SPAN_WARNING("You can't seem to make \the [src] stick."))
 		return TRUE
 
+	// Resets progress to exactly 0 (skill_component.dm) -- no carryover
+	// either direction, same reasoning Teach Skills uses (skill_verbs.dm).
 	var/datum/component/skill/comp = user.GetComponent(skill.component_type)
 	if(comp)
-		comp.decay_progress = 0
+		comp.training_progress = 0
+		comp.used_since_last_decay_tick = TRUE
 
 	user.visible_message(
 		SPAN_NOTICE("\The [user] closes \the [src] with the air of someone who has just understood something."),
