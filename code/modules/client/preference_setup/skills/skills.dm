@@ -106,18 +106,15 @@ GLOBAL_LIST_INIT(skill_default_fill_excluded, list(
 	// Excludes a couple of role-flavor skills that shouldn't be handed to
 	// everyone by this blanket policy -- see skill_default_fill_excluded.
 	if(SSskills && length(SSskills.all_skills))
-		// Education gates the cap (get_maximum_level() crash_with()s on a
-		// non-instance), and this runs before sanitize_character() has
-		// guaranteed pref.education is valid -- so resolve defensively and fall
-		// back to the unclamped ceiling rather than runtiming on a fresh slot.
-		var/singleton/education/pref_education = ispath(text2path(pref.education), /singleton/education) ? GET_SINGLETON(text2path(pref.education)) : null
+		// Chargen education plays no part in this -- everyone starts Trained
+		// (clamped only by the skill's own maximum_level, e.g. pilot_spacecraft's
+		// Familiar-only ceiling) regardless of what they picked.
 		for(var/singleton/skill/sk as anything in SSskills.all_skills)
 			if(sk.type in GLOB.skill_default_fill_excluded)
 				continue
 			if(sk.type in pref.skills)
 				continue
-			var/skill_cap = istype(pref_education) ? sk.get_maximum_level(pref_education) : sk.maximum_level
-			pref.skills[sk.type] = min(SKILL_LEVEL_TRAINED, skill_cap)
+			pref.skills[sk.type] = min(SKILL_LEVEL_TRAINED, sk.maximum_level)
 
 /datum/category_item/player_setup_item/skills/sanitize_character(var/sql_load = 0)
 	//todomatt

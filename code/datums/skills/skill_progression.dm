@@ -37,18 +37,14 @@
 		return SKILL_LEVEL_UNFAMILIAR
 	return skill_comp.skill_level
 
-/// The ceiling for `skill` on `user`, honouring their education where one can
-/// be resolved. Falls back to the skill's own maximum_level rather than
-/// runtiming, since get_maximum_level() crash_with()s on a non-instance and a
-/// mob without a client (a fresh clone body, notably) has no prefs to read.
+/// The ceiling for `skill` on `user` -- always the skill's own maximum_level.
+/// Chargen education is NOT consulted here: it only shapes the initial
+/// default fill (load_character_special(), preference_setup/skills/skills.dm),
+/// never a live ceiling. Anyone can train, be taught, or read a manual up to
+/// Professional in anything, regardless of what they picked at chargen.
 /proc/get_skill_progression_cap(mob/user, singleton/skill/skill)
 	if(!istype(skill))
 		return SKILL_LEVEL_UNFAMILIAR
-	var/singleton/education/user_education
-	if(user?.client?.prefs?.education && ispath(text2path(user.client.prefs.education), /singleton/education))
-		user_education = GET_SINGLETON(text2path(user.client.prefs.education))
-	if(istype(user_education))
-		return skill.get_maximum_level(user_education)
 	return skill.maximum_level
 
 /// Sets `skill` on `user` to `new_level`, clamped to [UNFAMILIAR, cap]. Loads
