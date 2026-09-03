@@ -222,15 +222,26 @@
 	return ..()
 
 /atom/movable/screen/store_character_button/process()
-	var/in_pod = !QDELETED(owner) && istype(owner.loc, /obj/structure/machinery/cryopod)
-	alpha = in_pod ? 255 : 0
-	mouse_opacity = in_pod ? MOUSE_OPACITY_ICON : MOUSE_OPACITY_TRANSPARENT
+	var/atom/L = QDELETED(owner) ? null : owner.loc
+	var/active = istype(L, /obj/structure/machinery/cryopod) || istype(L, /obj/structure/machinery/recharge_station/synthetic_storage)
+	alpha = active ? 255 : 0
+	mouse_opacity = active ? MOUSE_OPACITY_ICON : MOUSE_OPACITY_TRANSPARENT
 
+/// IPCs (uncloneable-species humans) sit in Synthetic Storage instead of a
+/// cryopod -- check_occupant_allowed() (cryopod.dm) refuses them the normal
+/// pod outright, so the two branches below are mutually exclusive per mob.
+/// Synthetic Storage's decommission action is a unit-side verb, not a mob
+/// verb (store_synthetic() acts on whoever is its occupant, not usr), so it
+/// has to be called on the unit rather than on H the way store_character() is.
 /atom/movable/screen/store_character_button/Click(location, control, params)
 	if(!istype(usr, /mob/living/carbon/human))
 		return TRUE
 	var/mob/living/carbon/human/H = usr
-	H.store_character()
+	if(istype(H.loc, /obj/structure/machinery/recharge_station/synthetic_storage))
+		var/obj/structure/machinery/recharge_station/synthetic_storage/unit = H.loc
+		unit.store_synthetic()
+	else
+		H.store_character()
 	return TRUE
 
 /client/verb/toggle_zone_shield()
