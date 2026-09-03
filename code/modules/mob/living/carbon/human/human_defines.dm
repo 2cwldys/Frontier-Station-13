@@ -137,6 +137,9 @@
 	// (Personal Travel leap / drydock Exit Ship), see drydock_pick_anchor
 	var/atom/movable/screen/exit_eye_view/eye_view_cancel_button = null
 
+	// Same slot as the above -- only visible while sitting in a cryopod
+	var/atom/movable/screen/store_character_button/cryo_store_button = null
+
 	// Post-cryo chill effect: movement_delay() adds a tally while world.time is below this
 	var/chilled_until = 0
 	// Chill visuals are active inside a pod; the pod exit (go_out) finishes the effect
