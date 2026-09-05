@@ -268,10 +268,14 @@
 /// than the cone's own hiding range: being hidden is the default, the cue is
 /// only for something practically on top of you.
 #define BEHIND_PING_RANGE 3
-/// How long a ping lingers after the mover's LAST step. Deliberately longer
-/// than a single move so someone walking continuously behind you stays softly
-/// marked instead of strobing once per tile.
-#define BEHIND_SILHOUETTE_LINGER (1.5 SECONDS)
+/// How long a ping lingers after the mover's LAST step. Has to stay longer than
+/// one step or a continuously-walking mover strobes once per tile instead of
+/// showing a steady marker, and an unhurried walk is ~4 deciseconds per step
+/// (GLOB.config.walk_speed, configuration.dm) -- so this is deliberately close
+/// to that floor and should not go lower. A mover slowed well past a normal
+/// walk (dragging a body, hurt legs, heavily loaded) can still outrun it and
+/// blink; raise this if that reads badly in play.
+#define BEHIND_SILHOUETTE_LINGER (0.5 SECONDS)
 
 /mob/living/Moved(atom/old_loc, movement_dir, forced, list/old_locs)
 	. = ..()
