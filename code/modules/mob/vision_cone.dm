@@ -150,6 +150,34 @@
 	if(client)
 		src.client.hidden_atoms = list()
 
+	// A ping marks movement you cannot see, so it must never outlive the
+	// override image that was hiding its mover. _refresh_rear_observers()'s own
+	// clear only fires when the MOVER moves, which leaves every observer-side
+	// route uncovered -- turning, stepping, entering or leaving a mech or pod,
+	// switching to computer view, or simply lying down. All of them land here:
+	// check_fov() above is hide_cone()/show_cone()'s only caller, and this proc
+	// is check_fov()'s only caller, so fov.alpha cannot change anywhere else.
+	//
+	// Runs after check_fov() so fov.alpha is current -- fov_hides_target()
+	// returns FALSE at !alpha, which is what makes the cone-off cases clear
+	// through the same single test -- and before the !fov return below, since a
+	// null fov reads the same way and still needs clearing.
+	//
+	// The test is bare fov_hides_target() rather than the full ping condition
+	// on purpose: a clear predicate stricter than the create predicate would
+	// destroy a ping the instant after it was made. Range and line of sight
+	// stay creation-side gates with the timer handling decay, so a mover who
+	// walks out of range or slips behind cover fades out over the linger, while
+	// one who becomes VISIBLE is cancelled immediately.
+	//
+	// Copy(): _clear_behind_silhouette() mutates the list being walked, and DM
+	// list iteration is index-based, so removing during the walk skips entries.
+	if(client && LAZYLEN(client.behind_silhouettes))
+		for(var/atom/movable/marked in client.behind_silhouettes.Copy())
+			if(!QDELETED(marked) && fov_hides_target(src, marked))
+				continue
+			_clear_behind_silhouette(client, marked)
+
 	if(!fov) return
 
 	// Update cone direction
@@ -299,9 +327,10 @@
 /// line-of-sight each time. Only a human holding an active cone can ever matter
 /// here, so walking the human list with a z + distance check scales with how
 /// many people are online rather than with how much is moving on the map.
-/// Ignoring walls in that check is deliberate and harmless -- reconciling the
-/// hide state for someone who cannot currently see this atom costs nothing and
-/// leaves their cache correct for the moment the wall stops being in the way.
+/// Ignoring walls in that check is deliberate and harmless for the HIDE state --
+/// reconciling it for someone who cannot currently see this atom costs nothing
+/// and leaves their cache correct for the moment the wall stops being in the
+/// way. The ping is the one exception and does test line of sight; see there.
 /atom/movable/proc/_refresh_rear_observers()
 	var/turf/my_turf = get_turf(src)
 	if(!my_turf)
@@ -323,7 +352,15 @@
 		// cache-agrees early-out below: someone already hidden and still walking
 		// is exactly the case this cue exists for, so it must not be skipped just
 		// because their hide state didn't change this step.
-		if(should_hide && distance <= BEHIND_PING_RANGE)
+		//
+		// can_see() is the one place this loop does care about walls, unlike the
+		// hide reconciliation below it (see the note there). A contact marker is
+		// information the observer is being given, so it must not carry through
+		// solid cover -- otherwise the rear arc leaks "someone is back there"
+		// straight through a wall you are standing against. Cheap here: a
+		// step-towards opacity walk bounded at BEHIND_PING_RANGE, reached only
+		// once something is already both hidden and within 3 tiles.
+		if(should_hide && distance <= BEHIND_PING_RANGE && can_see(H, src, BEHIND_PING_RANGE))
 			H.client.show_behind_silhouette(src)
 		// Ground truth is the override image itself, not hidden_mobs: that list
 		// only ever tracks mobs (update_vision_cone()), so items and vehicles
