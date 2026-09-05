@@ -25,4 +25,7 @@ GLOBAL_LIST_INIT(lobby_track_durations, list(
 	'sound/music/lobby/stellardrone_comet_halley.ogg' = 2255,
 	'sound/music/lobby/stem_4_6.ogg' = 2561,
 	'sound/music/lobby/zircon_ladder_to_the_sky.ogg' = 3062,
+	'sound/music/lobby/system_shock_executive_cover.ogg' = 4260,
+	'sound/music/lobby/zone_of_the_enders_2_zakat_extended.ogg' = 7024,
+	'sound/music/lobby/sysdoom_shock_medical.ogg' = 3111,
 ))
