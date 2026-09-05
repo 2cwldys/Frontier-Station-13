@@ -268,6 +268,11 @@
 /// than the cone's own hiding range: being hidden is the default, the cue is
 /// only for something practically on top of you.
 #define BEHIND_PING_RANGE 3
+/// How long the sonar_ping state takes to play out: 6 frames at 1 decisecond
+/// (effects.dmi, loop = 1). Kept as a define so the replay in
+/// show_behind_silhouette() restarts on the art's own cadence rather than a
+/// guessed interval -- update it if the frame count or delay ever changes.
+#define BEHIND_PING_ANIM_LENGTH 6
 /// How long a ping lingers after the mover's LAST step. Has to stay longer than
 /// one step or a continuously-walking mover strobes once per tile instead of
 /// showing a steady marker, and an unhurried walk is ~4 deciseconds per step
@@ -421,14 +426,26 @@
 /// observer -- two things moving behind you produce two pings.
 /client/var/list/behind_silhouettes
 
+/// Carries the moment its animation started, so show_behind_silhouette() can
+/// tell a ring still expanding from one already frozen on its last frame.
+/// Welded to the image rather than kept in a second per-client list, which
+/// would only be another thing to drift out of step with behind_silhouettes.
+/// Same shape as /image/hud_overlay (defines/procs/hud.dm).
+/image/behind_ping
+	var/started_at = 0
+
 /// Shows (or refreshes) one movement ping marking `mover` for this client.
 ///
 /// Anchored to the mover itself rather than their turf, so it FOLLOWS them for
-/// free -- which is why the image is only ever built when one doesn't already
-/// exist. A continuous walk therefore costs one image, not one per tile. The
-/// consequence worth knowing: the ring animation plays once on creation and
-/// then holds its last frame while travelling with them, so a long walk reads
-/// as one marker tracking them rather than a pulse per step.
+/// free rather than leaving a trail of rings on the tiles they walked over.
+///
+/// A BYOND image's icon animation starts when the image is built and cannot be
+/// replayed by any later assignment, so the only way to ping again is to build
+/// a fresh one. That is done once the previous ring has finished expanding --
+/// NOT once per step. A walk is ~4 deciseconds per tile and a run ~2.5, both
+/// shorter than the ring's own 6, so rebuilding per step would restart it
+/// before it ever cleared its first few frames and read as a stutter instead of
+/// a ping.
 ///
 /// Deliberately left on the ordinary game plane, UNDER the cone: the cone is
 /// black at ~53% opacity (hide_fov_darker.dmi, measured mean alpha 136/255), so
@@ -445,12 +462,21 @@
 	if(!mover)
 		return
 	LAZYINITLIST(behind_silhouettes)
-	if(!behind_silhouettes[mover])
+	var/image/behind_ping/current = behind_silhouettes[mover]
+	// Build when there is none, or when the previous ring has run its course and
+	// is sitting frozen on its last frame -- see the note above on why this is
+	// gated on the animation's length rather than on each step.
+	if(!current || (world.time - current.started_at) >= BEHIND_PING_ANIM_LENGTH)
+		if(current)
+			images -= current
+			behind_silhouettes -= mover
+			qdel(current)
 		// An abstract contact marker, never the mover's own appearance -- the
 		// rear arc must only leak THAT something is back there, not what.
 		// "sonar_ping" is an expanding ring, 6 frames at 1 decisecond with
-		// loop = 1, so it plays out over 0.6s and then holds its last frame.
-		var/image/silhouette = image('icons/effects/effects.dmi', mover, "sonar_ping")
+		// loop = 1, so it plays out over 0.6s.
+		var/image/behind_ping/silhouette = new('icons/effects/effects.dmi', mover, "sonar_ping")
+		silhouette.started_at = world.time
 		silhouette.override = FALSE
 		// Nothing to inherit a layer from, so set one explicitly -- the same
 		// layer /obj/effect/temp_visual uses for short-lived world cues.
@@ -492,6 +518,7 @@
 	qdel(silhouette)
 
 #undef BEHIND_PING_RANGE
+#undef BEHIND_PING_ANIM_LENGTH
 #undef BEHIND_SILHOUETTE_LINGER
 
 // ── Living mob cleanup when dying/disconnecting ───────────────────────────
