@@ -140,6 +140,8 @@ export const MainPage = (props) => {
   const { act, data } = useBackend<CargoData>();
   const [details, setDetails] = useLocalState<boolean>('details', false);
   const [searchTerm, setSearchTerm] = useLocalState<string>(`searchTerm`, ``);
+  const needsTelepadPick =
+    data.telepad_choices.length > 1 && !data.selected_telepad_ref;
 
   return (
     <Stack vertical>
@@ -257,6 +259,12 @@ export const MainPage = (props) => {
             <Button
               content="Submit Order"
               icon="check"
+              disabled={needsTelepadPick}
+              tooltip={
+                needsTelepadPick
+                  ? 'Select a delivery telepad above first.'
+                  : undefined
+              }
               onClick={() => act('submit_order')}
             />
           </Stack.Item>

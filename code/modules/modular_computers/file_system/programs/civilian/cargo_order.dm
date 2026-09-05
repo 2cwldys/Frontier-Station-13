@@ -53,6 +53,23 @@
 		return FALSE
 	return console_uid == normalize_faction_uid(ci.restricted_to_faction)
 
+/// The console's own-scope candidate delivery telepads (faction, personal,
+/// or crew -- whichever mode is active). Shared by ui_data() (to build the
+/// picker), select_telepad (to validate a pick), and submit_order (to know
+/// whether a pick was actually required) so the three can't drift out of
+/// sync with each other.
+/datum/computer_file/program/civilian/cargoorder/proc/get_candidate_telepads()
+	var/co_net = computer ? normalize_faction_uid(computer.persistent_network) : null
+	if(co_net)
+		return persistence_find_cargo_telepads(co_net)
+	if(computer && computer.personal_ckey)
+		return persistence_find_personal_cargo_telepads(computer.personal_ckey, computer.personal_char_name)
+	if(computer && computer.crew_tagged)
+		var/datum/drydock_ship/crew_ship_for_pads = _drydock_ship_at(GET_Z(computer))
+		if(crew_ship_for_pads)
+			return persistence_find_crew_cargo_telepads(crew_ship_for_pads.shuttle_id)
+	return list()
+
 /datum/computer_file/program/civilian/cargoorder/ui_data(mob/user)	//Check if a cargo order exists. If not create a new one
 	if(!co)
 		var/datum/cargo_order/crord = new
@@ -98,15 +115,7 @@
 	// selector shown. See cargo_telepad_choice_data() (persistence_cryo.dm).
 	data["telepad_choices"] = list()
 	data["selected_telepad_ref"] = null
-	var/list/candidate_pads = list()
-	if(co_net)
-		candidate_pads = persistence_find_cargo_telepads(co_net)
-	else if(is_personal)
-		candidate_pads = persistence_find_personal_cargo_telepads(computer.personal_ckey, computer.personal_char_name)
-	else if(is_crew)
-		var/datum/drydock_ship/crew_ship_for_pads = _drydock_ship_at(GET_Z(computer))
-		if(crew_ship_for_pads)
-			candidate_pads = persistence_find_crew_cargo_telepads(crew_ship_for_pads.shuttle_id)
+	var/list/candidate_pads = get_candidate_telepads()
 	data["telepad_choices"] = cargo_telepad_choice_data(candidate_pads, computer)
 	if(length(data["telepad_choices"]) && co.delivery_telepad && !QDELETED(co.delivery_telepad) && (co.delivery_telepad in candidate_pads))
 		data["selected_telepad_ref"] = "\ref[co.delivery_telepad]"
@@ -222,6 +231,11 @@
 		if("submit_order")
 			if(!co.items.len)
 				return TRUE //Only submit the order if there are items in it
+
+			var/list/candidate_pads = get_candidate_telepads()
+			if(length(candidate_pads) > 1 && !co.delivery_telepad)
+				status_message = "Unable to submit order. Please select a delivery telepad first."
+				return TRUE
 
 			if(!I)
 				status_message = "Unable to submit order. ID could not be located."
@@ -450,16 +464,7 @@
 			var/target_ref = params["select_telepad"]
 			co.delivery_telepad = null
 			if(target_ref)
-				var/co_net = computer ? normalize_faction_uid(computer.persistent_network) : null
-				var/list/candidate_pads = list()
-				if(co_net)
-					candidate_pads = persistence_find_cargo_telepads(co_net)
-				else if(computer && computer.personal_ckey)
-					candidate_pads = persistence_find_personal_cargo_telepads(computer.personal_ckey, computer.personal_char_name)
-				else if(computer && computer.crew_tagged)
-					var/datum/drydock_ship/crew_ship_for_select = _drydock_ship_at(GET_Z(computer))
-					if(crew_ship_for_select)
-						candidate_pads = persistence_find_crew_cargo_telepads(crew_ship_for_select.shuttle_id)
+				var/list/candidate_pads = get_candidate_telepads()
 				for(var/obj/structure/machinery/telepad_cargo/pad in candidate_pads)
 					if("\ref[pad]" == target_ref)
 						co.delivery_telepad = pad
