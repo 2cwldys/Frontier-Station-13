@@ -558,6 +558,22 @@
 	update_icon()
 	return
 
+// An unwrapped ration restores wrapped again -- and wrapped means it refuses to
+// be eaten (standard_feed_mob() below), so this is not purely cosmetic. The
+// icon follows from update_icon(), which deserializePersistentItem() runs after
+// this hook, so only the var needs saving.
+/obj/item/reagent_containers/food/snacks/explorer_ration/persistent_objects_get_content()
+	. = ..()
+	if(wrap != initial(wrap))
+		.["ration_wrap"] = wrap
+
+/obj/item/reagent_containers/food/snacks/explorer_ration/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["ration_wrap"]))
+		wrap = text2num("[content["ration_wrap"]]") ? TRUE : FALSE
+
 /obj/item/reagent_containers/food/snacks/explorer_ration/standard_feed_mob(var/mob/user, var/mob/target)
 	if(wrap)
 		to_chat(user, SPAN_NOTICE("You must unwrap \the [src] first."))

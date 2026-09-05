@@ -20,6 +20,13 @@
 
 /obj/item/reagent_containers/food/snacks/csandwich/feedback_hints(mob/user, distance, is_adjacent)
 	. += ..()
+	// Guarded because these round-trip through persistence now: a sandwich whose
+	// filling failed to come back (an ingredient typepath retired between saves,
+	// say) has empty contents, and pick() on an empty list hands back null to be
+	// dereferenced. Cannot happen in normal play -- one is only ever created with
+	// an ingredient already going into it -- but it is reachable on restore.
+	if(!length(contents))
+		return
 	var/obj/item/O = pick(contents)
 	. += SPAN_NOTICE("You think you can see [O.name] in there.")
 

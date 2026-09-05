@@ -92,6 +92,30 @@
 	if (filling_options)
 		SetInitialReagents(filling_options)
 
+// Both of these are consumed-once markers, so letting them reset to their type
+// defaults on restore hands the effect back: a spent self-heater works again,
+// and the hot_reagents bonus gets added a second time.
+//
+// is_hot is deliberately not saved -- it is backed by a 7 minute timer
+// (SetHot() below), so a restored donk pocket coming back cold is correct.
+/obj/item/reagent_containers/food/snacks/donkpocket/persistent_objects_get_content()
+	. = ..()
+	// Only meaningful on types that ship with a heater; saved when it has been
+	// spent, i.e. when it no longer matches the type default.
+	if(can_self_heat != initial(can_self_heat))
+		.["donk_can_self_heat"] = can_self_heat
+	if(was_heated)
+		.["donk_was_heated"] = TRUE
+
+/obj/item/reagent_containers/food/snacks/donkpocket/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["donk_can_self_heat"]))
+		can_self_heat = text2num("[content["donk_can_self_heat"]]") ? TRUE : FALSE
+	if(content["donk_was_heated"])
+		was_heated = TRUE
+
 /obj/item/reagent_containers/food/snacks/donkpocket/standard_feed_mob(mob/living/consumer, mob/living/feeder)
 	if (can_self_heat)
 		if (feeder)

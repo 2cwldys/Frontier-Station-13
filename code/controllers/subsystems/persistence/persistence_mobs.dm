@@ -1590,12 +1590,14 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 				contents += list(child_data)
 		data["contents"] = contents
 
-	// Folders -- not /obj/item/storage (their own ad-hoc contents var and
-	// update_icon(), folders.dm), so they need the same recursive contents
-	// treatment spelled out separately, or a folder's papers silently
-	// vanish on restore -- same empty-list reasoning as the storage branch
-	// above (a saved-empty folder must restore empty, not skip the key).
-	else if(istype(I, /obj/item/folder))
+	// Folders and custom sandwiches -- neither is /obj/item/storage, but both
+	// keep real items in plain contents that their appearance is built from, so
+	// they need the same recursive treatment spelled out separately or those
+	// items silently vanish on restore: a folder's papers (folders.dm), or a
+	// sandwich's entire filling (sandwich.dm, where contents also drive the
+	// generated name and w_class). Same empty-list reasoning as the storage
+	// branch above -- a saved-empty one must restore empty, not skip the key.
+	else if(istype(I, /obj/item/folder) || istype(I, /obj/item/reagent_containers/food/snacks/csandwich))
 		var/list/contents = list()
 		for(var/obj/item/child in I.contents)
 			var/list/child_data = serializePersistentItem(child)
@@ -2020,6 +2022,27 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			deserializePersistentItem(child_data, I)
 		I.update_icon() // toggles the "folder_paper" overlay, folders.dm
 
+	// Custom sandwich contents -- mirrors the folder branch, with one extra
+	// step. The ingredients live in plain contents AND in an `ingredients` list
+	// that the filling overlays, the generated name and w_class are all derived
+	// from (sandwich.dm). That list holds live object refs, so it cannot be
+	// serialized on its own -- rebuild it from the contents that just came back,
+	// preserving order, since the fillings are stacked by index.
+	else if(("contents" in data) && istype(I, /obj/item/reagent_containers/food/snacks/csandwich))
+		var/obj/item/reagent_containers/food/snacks/csandwich/CS = I
+		while(length(CS.contents))
+			qdel(CS.contents[1])
+		CS.ingredients = list()
+		for(var/list/child_data in data["contents"])
+			var/obj/item/child = deserializePersistentItem(child_data, CS)
+			if(istype(child, /obj/item/reagent_containers/food/snacks))
+				CS.ingredients += child
+		// update(), NOT update_icon(). A sandwich builds its whole appearance in
+		// its own update() proc and defines no update_icon() anywhere in its
+		// chain, so the generic food refresh further down this proc resolves to
+		// /atom/proc/update_icon()'s bare return and does nothing at all here.
+		CS.update()
+
 	// Internal storage (suit pockets, webbing holds, helmet holds)
 	if(data["internal_storage"])
 		var/obj/item/storage/internal/IS = locate() in I
@@ -2256,16 +2279,6 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		var/obj/item/reagent_containers/food/F = I
 		F.bitecount = text2num("[data["food_bitecount"]]") || 0
 
-	// Refresh food appearance -- many food subtypes' update_icon() switches
-	// sprite based on bitecount or the reagent percent remaining (missing
-	// slices, half-eaten steaks, etc; see meat.dm/pastries.dm for examples).
-	// Initialize() already ran update_icon() once against the item's fresh
-	// defaults before the reagents/bitecount restores above overwrote them,
-	// so without this a half-eaten item keeps its full-sprite look until
-	// something else in play happens to trigger a redraw.
-	if(istype(I, /obj/item/reagent_containers/food))
-		I.update_icon()
-
 	// Paper text
 	if(data["paper_info"] && istype(I, /obj/item/paper))
 		var/obj/item/paper/P = I
@@ -2277,6 +2290,21 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		ID.persistent_objects_apply_content(data["id_content"], null, null, null)
 	else if(data["obj_content"])
 		I.persistent_objects_apply_content(data["obj_content"], null, null, null)
+
+	// Refresh food appearance -- many food subtypes' update_icon() switches
+	// sprite based on bitecount, the reagent percent remaining, or their own
+	// restored state (missing slices, half-eaten steaks, a wrapped ration, a
+	// can's bomb casing; see meat.dm/pastries.dm/cans.dm). Initialize() already
+	// ran update_icon() once against the item's fresh defaults, so without this
+	// a restored item keeps its pristine look until something else in play
+	// happens to trigger a redraw.
+	//
+	// Deliberately AFTER the obj_content apply above, not before: food's
+	// per-type persistence overrides (snacks.dm and friends) restore the state
+	// this redraw reads, so running it any earlier would composite against the
+	// item's defaults and leave every one of them stale.
+	if(istype(I, /obj/item/reagent_containers/food))
+		I.update_icon()
 
 	// Stack amount
 	if(!isnull(data["stack_amount"]) && istype(I, /obj/item/stack))

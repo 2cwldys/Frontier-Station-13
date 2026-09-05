@@ -20,6 +20,35 @@
 	drop_sound = 'sound/items/drop/soda.ogg'
 	pickup_sound = 'sound/items/pickup/soda.ogg'
 
+// A can built up into a pipe bomb otherwise reverts to a plain soda can on
+// restore, losing the casing, the fuse and the shrapnel the builder secured
+// into it. update_icon() above rebuilds both overlays from these, and
+// deserializePersistentItem() runs it after this hook, so only the vars need
+// saving.
+//
+// fuselit is deliberately absent: a lit fuse must not survive a restart.
+/obj/item/reagent_containers/food/drinks/cans/persistent_objects_get_content()
+	. = ..()
+	if(fuselength)
+		.["can_fuselength"] = fuselength
+	if(bombcasing)
+		.["can_bombcasing"] = bombcasing
+	// Securing the casing raises this above the type default, so it is part of
+	// the built state rather than something derivable from the casing alone.
+	if(shrapnelcount != initial(shrapnelcount))
+		.["can_shrapnelcount"] = shrapnelcount
+
+/obj/item/reagent_containers/food/drinks/cans/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["can_fuselength"]))
+		fuselength = text2num("[content["can_fuselength"]]") || 0
+	if(!isnull(content["can_bombcasing"]))
+		bombcasing = text2num("[content["can_bombcasing"]]") || 0
+	if(!isnull(content["can_shrapnelcount"]))
+		shrapnelcount = text2num("[content["can_shrapnelcount"]]") || initial(shrapnelcount)
+
 /obj/item/reagent_containers/food/drinks/cans/mechanics_hints(mob/user, distance, is_adjacent)
 	. += ..()
 	. += "Click it in your hand to open it."
