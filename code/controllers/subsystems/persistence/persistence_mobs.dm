@@ -1762,6 +1762,15 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			reagents["[rtype]"] = I.reagents.reagent_volumes[rtype]
 		data["reagents"] = json_encode(reagents)
 
+	// Food bite count -- doesn't track reagent volume 1:1 (see food.dm's
+	// bitecount var), so without this a half-eaten item's remaining reagents
+	// restore correctly but the "was bitten N times" examine text
+	// (snacks.dm) resets as if it were never touched.
+	if(istype(I, /obj/item/reagent_containers/food))
+		var/obj/item/reagent_containers/food/F = I
+		if(F.bitecount)
+			data["food_bitecount"] = F.bitecount
+
 	// Paper / note written content
 	if(istype(I, /obj/item/paper))
 		var/obj/item/paper/P = I
@@ -2241,6 +2250,21 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 				var/rtype = text2path(rtype_str)
 				if(rtype)
 					I.reagents.add_reagent(rtype, text2num(reagents[rtype_str]))
+
+	// Food bite count
+	if(!isnull(data["food_bitecount"]) && istype(I, /obj/item/reagent_containers/food))
+		var/obj/item/reagent_containers/food/F = I
+		F.bitecount = text2num("[data["food_bitecount"]]") || 0
+
+	// Refresh food appearance -- many food subtypes' update_icon() switches
+	// sprite based on bitecount or the reagent percent remaining (missing
+	// slices, half-eaten steaks, etc; see meat.dm/pastries.dm for examples).
+	// Initialize() already ran update_icon() once against the item's fresh
+	// defaults before the reagents/bitecount restores above overwrote them,
+	// so without this a half-eaten item keeps its full-sprite look until
+	// something else in play happens to trigger a redraw.
+	if(istype(I, /obj/item/reagent_containers/food))
+		I.update_icon()
 
 	// Paper text
 	if(data["paper_info"] && istype(I, /obj/item/paper))
