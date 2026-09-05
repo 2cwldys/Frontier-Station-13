@@ -59,17 +59,6 @@
 	layer         = FULLSCREEN_LAYER
 	plane         = HIDDEN_SHIT_PLANE
 
-// Rear-observer "something moved behind you" flash -- see _ping_rear_observers().
-/atom/movable/screen/behind_ping
-	icon          = 'icons/mob/hide.dmi'
-	icon_state    = "behind"
-	name          = " "
-	screen_loc    = "1,1"
-	mouse_opacity = MOUSE_OPACITY_TRANSPARENT
-	layer         = GAMEUI_BORDER_LAYER
-	plane         = FULLSCREEN_PLANE
-	alpha         = 160
-
 // ── Film grain screen object ───────────────────────────────────────────────
 
 /atom/movable/screen/film_grain
@@ -121,8 +110,11 @@
 	var/mob/living/carbon/human/H = viewer
 	if(!H.fov || !H.fov.alpha)
 		return FALSE // no cone active (ghosts, computer view, cone disabled)
-	if(H.pulling == target)
-		return FALSE // matches update_vision_cone()'s own pulled-mob exemption
+	// No pulled-mob exemption: dragging someone behind you does not let you see
+	// them, it just means the thing you can't see is attached to you. They hide
+	// like anything else and get the same movement ping, which -- since a
+	// dragged body moves whenever you do, and is always adjacent -- means a
+	// steady marker trailing you rather than nothing at all.
 	return target.InCone(H, OPPOSITE_DIR(H.dir))
 
 /proc/cone(atom/center = usr, dir = NORTH, list/atoms = oview(center))
@@ -131,6 +123,12 @@
 			if(!M.InCone(center, dir)) atoms -= M
 		for(var/obj/item/It in T.contents)
 			if(!It.InCone(center, dir)) atoms -= It
+		// Vehicles/pods are neither /mob nor /obj/item, so without their own
+		// pass here they'd stay in the returned list unfiltered -- and the
+		// caller would hide every vehicle in view rather than only the ones
+		// actually behind the viewer.
+		for(var/obj/vehicle/V in T.contents)
+			if(!V.InCone(center, dir)) atoms -= V
 	return atoms
 
 // ── Vision cone update ────────────────────────────────────────────────────
@@ -184,14 +182,22 @@
 			src.client.hidden_atoms += I
 			src.hidden_mobs      += M
 			M.in_vision_cones[src.client] = TRUE
-			if(src.pulling == M)
-				I.override = FALSE
 		for(var/obj/item/It in hidden_candidates)
 			if(!isturf(It.loc))
 				continue
 			if(istype(It, /obj/item/modular_computer/console) || istype(It, /obj/item/radio/intercom/ship))
 				continue // anchored fixtures -- not loose floor items, always visible
 			I = image(null, It)
+			I.override = TRUE
+			src.client.images    += I
+			src.client.hidden_atoms += I
+		// Vehicles/pods hide on the same terms. Mechs need no case here --
+		// /mob/living/heavy_vehicle is a /mob/living, so the mob loop above
+		// already covers them.
+		for(var/obj/vehicle/V in hidden_candidates)
+			if(!isturf(V.loc))
+				continue
+			I = image(null, V)
 			I.override = TRUE
 			src.client.images    += I
 			src.client.hidden_atoms += I
@@ -226,58 +232,226 @@
 // The cone test depends on relative position, not just facing -- walking
 // past someone changes whether they're in-cone even with dir unchanged, so
 // this needs the same recompute set_dir() already triggers. Generalized to
-// every living mob (not just humans) so the rear-observer ping below fires
+// every living mob (not just humans) so the rear-observer cue below fires
 // for ANY mover stepping behind a human's cone -- the cone itself stays
 // human-only, gated by the ishuman() check.
+
+/// How close a mover has to be for its ping to show. Deliberately much tighter
+/// than the cone's own hiding range: being hidden is the default, the cue is
+/// only for something practically on top of you.
+#define BEHIND_PING_RANGE 3
+/// How long a ping lingers after the mover's LAST step. Deliberately longer
+/// than a single move so someone walking continuously behind you stays softly
+/// marked instead of strobing once per tile.
+#define BEHIND_SILHOUETTE_LINGER (1.5 SECONDS)
 
 /mob/living/Moved(atom/old_loc, movement_dir, forced, list/old_locs)
 	. = ..()
 	if(ishuman(src))
 		var/mob/living/carbon/human/H = src
 		if(H.fov) H.update_vision_cone()
-	_ping_rear_observers()
+	_refresh_rear_observers()
 
-// ── Behind-you awareness ping ──────────────────────────────────────────────
-// A personal-only pulse shown to a player when another human moves inside
-// their blind rear arc, up to BEHIND_PING_RANGE tiles away -- they can't
-// see the mover (FOV cone hides them), but they can tell something is
-// moving back there. Art is the hide.dmi "behind" state (Serenity family).
+// Vehicles/pods are hidden by the cone like anything else (update_vision_cone()
+// above), so they need the same hook -- otherwise a pod that drove out from
+// behind a standing player would stay invisible to them, and one driving past
+// behind them would give no ping at all. Deliberately hooked here on
+// /obj/vehicle specifically rather than on /atom/movable: every bullet, thrown
+// item and piece of debris in the game goes through Moved(), and none of them
+// should be paying for an observer scan.
+//
+// Mechs need no hook of their own -- /mob/living/heavy_vehicle is a /mob/living
+// and its Move() calls ..(), so the /mob/living hook above already covers them.
+/obj/vehicle/Moved(atom/old_loc, movement_dir, forced, list/old_locs)
+	. = ..()
+	_refresh_rear_observers()
 
-#define BEHIND_PING_RANGE 3
-
-/mob/living/carbon/human
-	var/next_behind_ping = 0
-
-/// Called from Moved() above: pulse every nearby player whose ACTIVE cone
-/// hides this mover (same InCone rear-arc test update_vision_cone() uses).
-/// Defined on /mob/living (not human-only) so any mob type moving behind a
-/// human's cone triggers the pulse -- the observers checked below are still
-/// always human, since only humans have a real cone to hide behind.
-/mob/living/proc/_ping_rear_observers()
-	var/turf/T = get_turf(src)
-	if(!T)
+/// Reconciles every nearby observer's cached hide-state for THIS mover against
+/// the live cone test, correcting only the entries that actually changed.
+///
+/// update_vision_cone() only ever runs for the mob whose own cone it is -- from
+/// its own set_dir() and Moved() hooks above -- so nothing else would ever
+/// touch a STATIONARY viewer's cache when somebody walks across their rear arc.
+/// Without this pass, walking out from behind a standing player leaves that
+/// player's override image in place and the mover stays invisible to them until
+/// they happen to turn or move, and walking in has the mirror problem. This is
+/// a straight cache-vs-truth reconciliation, so it covers both directions.
+///
+/// The sec/med HUD copes with the same staleness by ORing the cache with a live
+/// test (hud.dm); the override images that actually hide people need the cache
+/// itself to be correct, which is what this keeps true.
+///
+/// Single-mob add/remove rather than a full H.update_vision_cone() per
+/// observer: a rebuild walks every turf in view() and re-creates every override
+/// image, and would run whenever anyone crossed any nearby observer's cone
+/// boundary. This does exactly the work that rebuild would have done for this
+/// one mob, and nothing at all when the cache already agrees -- the common case.
+/// Defined on /atom/movable rather than /mob/living so vehicles can reuse it
+/// verbatim -- /obj/vehicle is neither a mob nor an item, and gets its own
+/// Moved() hook below. Nothing else calls it, so this stays limited to the two
+/// hooks rather than firing for every movable in the game.
+///
+/// Also does the movement ping in the same pass (see show_behind_silhouette()),
+/// because both jobs need the identical walk and the identical rear-arc answer.
+///
+/// Deliberately NOT viewers(): this fires on every step of every living mob and
+/// every vehicle, ambient wildlife included, and viewers() is a 15x15 scan with
+/// line-of-sight each time. Only a human holding an active cone can ever matter
+/// here, so walking the human list with a z + distance check scales with how
+/// many people are online rather than with how much is moving on the map.
+/// Ignoring walls in that check is deliberate and harmless -- reconciling the
+/// hide state for someone who cannot currently see this atom costs nothing and
+/// leaves their cache correct for the moment the wall stops being in the way.
+/atom/movable/proc/_refresh_rear_observers()
+	var/turf/my_turf = get_turf(src)
+	if(!my_turf)
 		return
-	for(var/mob/living/carbon/human/H in range(BEHIND_PING_RANGE, T))
+	for(var/mob/living/carbon/human/H in GLOB.human_mob_list)
 		if(H == src || !H.client || !H.fov || !H.fov.alpha)
 			continue
-		if(world.time < H.next_behind_ping)
+		var/turf/their_turf = get_turf(H)
+		if(!their_turf || their_turf.z != my_turf.z)
 			continue
-		if(!InCone(H, OPPOSITE_DIR(H.dir)))
+		var/distance = get_dist(my_turf, their_turf)
+		if(distance > world.view)
 			continue
-		H.next_behind_ping = world.time + 1 SECOND
-		// Screen overlay (not a world-turf image) -- GAMEUI_BORDER_LAYER on
-		// FULLSCREEN_PLANE so the pulse shows THROUGH the black rear-arc cone
-		// instead of under it, same rendering convention as fov/fov_mask_two.
-		var/atom/movable/screen/behind_ping/ping = new()
-		H.client.screen += ping
-		addtimer(CALLBACK(GLOBAL_PROC, /proc/_behind_ping_cleanup, H.client, ping), 1 SECOND)
+		// No pulled-atom special case here either -- see fov_hides_target().
+		// Something you are dragging behind you is exactly as out of sight as
+		// anything else back there.
+		var/should_hide = !!fov_hides_target(H, src)
+		// Movement ping, same pass and same answer. Deliberately BEFORE the
+		// cache-agrees early-out below: someone already hidden and still walking
+		// is exactly the case this cue exists for, so it must not be skipped just
+		// because their hide state didn't change this step.
+		if(should_hide && distance <= BEHIND_PING_RANGE)
+			H.client.show_behind_silhouette(src)
+		// Ground truth is the override image itself, not hidden_mobs: that list
+		// only ever tracks mobs (update_vision_cone()), so items and vehicles
+		// would always read as "not hidden" and get re-added on every step.
+		var/is_hidden = FALSE
+		for(var/image/existing in H.client.hidden_atoms)
+			if(existing.loc != src)
+				continue
+			is_hidden = TRUE
+			break
+		if(should_hide == is_hidden)
+			continue
+		// hidden_mobs / in_vision_cones are mob-only bookkeeping (hud.dm reads the
+		// former for sec/med icons), so they're only touched for mobs -- exactly
+		// how update_vision_cone() treats its own item pass.
+		var/mob/living/living_src = isliving(src) ? src : null
+		if(should_hide)
+			// Mirrors update_vision_cone()'s own hide block.
+			var/image/hide_image = image(null, src)
+			hide_image.override = TRUE
+			H.client.images += hide_image
+			H.client.hidden_atoms += hide_image
+			if(living_src)
+				H.hidden_mobs += living_src
+				living_src.in_vision_cones[H.client] = TRUE
+		else
+			// They just became visible to this observer, so any ping still
+			// lingering on them has to go NOW rather than waiting out its timer --
+			// otherwise the real, now-visible atom keeps a contact marker sitting
+			// on it for up to BEHIND_SILHOUETTE_LINGER.
+			_clear_behind_silhouette(H.client, src)
+			// Mirrors leave_vision_cones()'s own removal, scoped to this observer.
+			for(var/image/hide_image in H.client.hidden_atoms)
+				if(hide_image.loc != src)
+					continue
+				hide_image.override = FALSE
+				H.client.hidden_atoms -= hide_image
+				qdel(hide_image)
+			if(living_src)
+				H.hidden_mobs -= living_src
+				living_src.in_vision_cones -= H.client
 
-/proc/_behind_ping_cleanup(client/C, atom/movable/screen/behind_ping/I)
-	if(C)
-		C.screen -= I
-	qdel(I)
+// ── Behind-you movement ping ───────────────────────────────────────────────
+// A personal-only cue shown to a player when something moves inside their
+// blind rear arc, up to BEHIND_PING_RANGE tiles away -- they can't see the
+// mover (the FOV cone hides them), but they can make out roughly where it is.
+//
+// Position is the whole point: an abstract ring marks WHERE something is,
+// while deliberately saying nothing about what it is.
+
+/// Per-client map of mover -> its live ping image, so a second step by the same
+/// mover refreshes the existing ping instead of stacking another one. Also what
+/// makes the throttle per (observer, mover) rather than one blanket cue per
+/// observer -- two things moving behind you produce two pings.
+/client/var/list/behind_silhouettes
+
+/// Shows (or refreshes) one movement ping marking `mover` for this client.
+///
+/// Anchored to the mover itself rather than their turf, so it FOLLOWS them for
+/// free -- which is why the image is only ever built when one doesn't already
+/// exist. A continuous walk therefore costs one image, not one per tile. The
+/// consequence worth knowing: the ring animation plays once on creation and
+/// then holds its last frame while travelling with them, so a long walk reads
+/// as one marker tracking them rather than a pulse per step.
+///
+/// Deliberately left on the ordinary game plane, UNDER the cone: the cone is
+/// black at ~53% opacity (hide_fov_darker.dmi, measured mean alpha 136/255), so
+/// a pale ring still reads through it and looks like something picked up in the
+/// dark, rather than a HUD sticker pasted over the cone -- and it gets a free
+/// falloff with depth into the arc, since the cone's own darkness is uneven.
+///
+/// The mob is separately blanked for this client by update_vision_cone()'s
+/// override image; `override` replaces the ATOM's own appearance, not other
+/// images attached to it (hud.dm's sec/med icons already rely on several
+/// independent client.images entries per mob), so this renders on top of the
+/// blanked mob rather than fighting it.
+/client/proc/show_behind_silhouette(atom/movable/mover)
+	if(!mover)
+		return
+	LAZYINITLIST(behind_silhouettes)
+	if(!behind_silhouettes[mover])
+		// An abstract contact marker, never the mover's own appearance -- the
+		// rear arc must only leak THAT something is back there, not what.
+		// "sonar_ping" is an expanding ring, 6 frames at 1 decisecond with
+		// loop = 1, so it plays out over 0.6s and then holds its last frame.
+		var/image/silhouette = image('icons/effects/effects.dmi', mover, "sonar_ping")
+		silhouette.override = FALSE
+		// Nothing to inherit a layer from, so set one explicitly -- the same
+		// layer /obj/effect/temp_visual uses for short-lived world cues.
+		silhouette.layer = ABOVE_HUMAN_LAYER
+		// Flatten the ring to one tone. 20-value colour matrix, same form as
+		// human.dm's own channel swap: each group of four is one input channel's
+		// contribution to (R,G,B,A), the fifth group is a constant added on top.
+		// Every channel contributes nothing except alpha -> alpha, so only the
+		// constant colours it. A plain colour string cannot do this job -- it
+		// multiplies, so it could darken the source art's cyan but never
+		// neutralise it. Kept a light blue-grey rather than dark: the cone
+		// underneath is black, so a dark cue loses all contrast against it.
+		silhouette.color = list(0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1, 0.62,0.70,0.76,0)
+		// The one knob if this gives away too much (or too little). Note this is
+		// NOT what you actually see: the ping sits on the game plane UNDER the
+		// cone, so the cone's own black (mean 136/255, up to 178) composites
+		// over it. Net visibility is roughly this value x 0.47, so ~20% here --
+		// an edge-of-vision hint rather than a marker you read directly. Drop
+		// toward 80 to make it fainter still, raise toward 190 for a ping that
+		// is unmistakable the moment it appears.
+		silhouette.alpha = 110
+		images += silhouette
+		behind_silhouettes[mover] = silhouette
+	// Re-armed on every step, so the ping lasts until they actually stop.
+	addtimer(CALLBACK(GLOBAL_PROC, /proc/_clear_behind_silhouette, src, mover), BEHIND_SILHOUETTE_LINGER, TIMER_UNIQUE | TIMER_OVERRIDE)
+
+/// Timer target for show_behind_silhouette(). Self-contained on purpose:
+/// leave_vision_cones() (below) looks like the natural death/disconnect
+/// teardown hook but is dead code -- defined and called from nowhere -- so this
+/// cue cannot depend on it and instead guards its own inputs.
+/proc/_clear_behind_silhouette(client/C, atom/movable/mover)
+	if(!C)
+		return
+	var/image/silhouette = LAZYACCESS(C.behind_silhouettes, mover)
+	if(!silhouette)
+		return
+	C.images -= silhouette
+	C.behind_silhouettes -= mover
+	qdel(silhouette)
 
 #undef BEHIND_PING_RANGE
+#undef BEHIND_SILHOUETTE_LINGER
 
 // ── Living mob cleanup when dying/disconnecting ───────────────────────────
 
