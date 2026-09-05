@@ -590,6 +590,20 @@
 	groupable = TRUE
 	spawn_amount = 1
 
+/singleton/cargo_item/stimpack
+	category = "medical"
+	name = "stimpack autoinjector"
+	supplier = "Hub"
+	description = "A sterile autoinjector loaded with a hyperzine/mortaphenyl cocktail for emergency combat stimulation."
+	price = 500
+	items = list(
+		/obj/item/reagent_containers/hypospray/autoinjector/stimpack
+	)
+	access = ACCESS_MEDICAL
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
 //Surgery stuff
 
 /singleton/cargo_item/surgerykit
