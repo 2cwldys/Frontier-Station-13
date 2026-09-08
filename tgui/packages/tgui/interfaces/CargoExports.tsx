@@ -97,11 +97,13 @@ export const CargoExports = (props) => {
   }
 
   const canExport = is_personal || is_crew || op_rank >= 1;
-  const telepadReady = is_personal
-    ? has_personal_telepad
-    : is_crew
-      ? has_crew_telepad
-      : has_telepad;
+  const needsTelepadPick = telepad_choices.length > 1 && !selected_telepad_ref;
+  const telepadReady =
+    (is_personal
+      ? has_personal_telepad
+      : is_crew
+        ? has_crew_telepad
+        : has_telepad) && !needsTelepadPick;
 
   return (
     <NtosWindow resizable width={600} height={600}>
@@ -136,13 +138,15 @@ export const CargoExports = (props) => {
                 tooltip={
                   on_drydock_ship
                     ? 'Return to a station to be able to sell your exports.'
-                    : !telepadReady
-                      ? is_personal
-                        ? 'No personally-tagged telepad found. Place and personally tag one nearby.'
-                        : is_crew
-                          ? 'No crew-tagged telepad found. Place and crew-tag one nearby.'
-                          : 'No faction telepad found. Place and link a cargo telepad.'
-                      : 'Scan telepad and export all items.'
+                    : needsTelepadPick
+                      ? 'Select an export telepad above first.'
+                      : !telepadReady
+                        ? is_personal
+                          ? 'No personally-tagged telepad found. Place and personally tag one nearby.'
+                          : is_crew
+                            ? 'No crew-tagged telepad found. Place and crew-tag one nearby.'
+                            : 'No faction telepad found. Place and link a cargo telepad.'
+                        : 'Scan telepad and export all items.'
                 }
                 onClick={() => act('export_now')}
               >

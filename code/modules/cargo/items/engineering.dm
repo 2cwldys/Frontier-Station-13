@@ -480,6 +480,20 @@
 	groupable = TRUE
 	spawn_amount = 1
 
+/singleton/cargo_item/voidsuitmodkitmultispecies
+	category = "engineering"
+	name = "multi-species voidsuit modification kit"
+	supplier = "Hub"
+	description = "A kit containing all the needed tools and parts to refit a voidsuit, helmet, or rig for a different species. Prompts for a species on use."
+	price = 900
+	items = list(
+		/obj/item/modkit/multi_species
+	)
+	access = ACCESS_ENGINE
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
 /singleton/cargo_item/fieldgenerator
 	category = "engineering"
 	name = "Field Generator"

@@ -41,9 +41,19 @@
 			// skill at all" (skill_component.dm) -- skip the percentage for
 			// those rather than show a permanently-stuck, meaningless 0%.
 			var/datum/component/skill/comp = src.GetComponent(sk.component_type)
-			var/needed = GLOB.config.skill_train_progress_needed
-			var/progress_percent = (comp && needed > 0) ? round(100 * comp.training_progress / needed) : 0
-			line += " <i>([SPAN_BOLD("[progress_percent]%")] to next tier)</i>"
+			var/progress = comp ? comp.training_progress : 0
+			if(progress >= 0)
+				var/needed = GLOB.config.skill_train_progress_needed
+				var/progress_percent = needed > 0 ? round(100 * progress / needed) : 0
+				line += " <i>([SPAN_BOLD("[progress_percent]%")] to next tier)</i>"
+			else
+				// Rusting -- training_progress has gone negative toward
+				// skill_decay_progress_needed (SSskills' fire(),
+				// controllers/subsystems/skills.dm), the mirror of banking
+				// progress toward the next tier above.
+				var/decay_needed = GLOB.config.skill_decay_progress_needed
+				var/decay_percent = decay_needed > 0 ? round(100 * -progress / decay_needed) : 0
+				line += " <i>([SPAN_WARNING("[decay_percent]%")] toward losing this tier from disuse)</i>"
 		by_category[cat_name] += line
 
 	var/list/out = list(SPAN_NOTICE(FONT_LARGE("Your skills:")))
@@ -155,10 +165,28 @@
 		return
 
 	// Being taught counts as reinforcement, same as reading a manual --
-	// resets the decay clock (skill_component.dm).
+	// resets progress to exactly 0 (skill_component.dm). No carryover
+	// either direction: banked positive progress toward what USED to be
+	// the next tier doesn't survive the jump, same as rust doesn't.
 	var/datum/component/skill/comp = student.GetComponent(skill.component_type)
 	if(comp)
-		comp.decay_progress = 0
+		comp.training_progress = 0
+		comp.used_since_last_decay_tick = TRUE
+
+	// Teaching costs the teacher progress in the skill they just taught --
+	// otherwise one Professional could teach the whole crew forever for
+	// free. A skill at the teacher's own cap has nothing meaningful
+	// currently banked (register_use() stops accumulating once capped), so
+	// it's treated as a freshly-full bar for this one calculation instead
+	// of whatever stale value happens to be sitting there. A fixed amount,
+	// not a percentage of the current value -- see SKILL_TEACH_COST_FRACTION's
+	// own doc comment (_compile_options.dm) for why that distinction matters.
+	var/datum/component/skill/teacher_comp = src.GetComponent(skill.component_type)
+	if(teacher_comp)
+		var/at_cap = my_level >= get_skill_progression_cap(src, skill)
+		var/starting_progress = at_cap ? GLOB.config.skill_train_progress_needed : teacher_comp.training_progress
+		teacher_comp.training_progress = starting_progress - (GLOB.config.skill_train_progress_needed * SKILL_TEACH_COST_FRACTION)
+		teacher_comp.used_since_last_decay_tick = TRUE
 
 	to_chat(src, SPAN_GOOD("You finish teaching \the [student]. Their [skill.name] is now [get_skill_level_name(skill, applied)]."))
 	to_chat(student, SPAN_GOOD("You finish learning from \the [src]. Your [skill.name] is now [get_skill_level_name(skill, applied)]."))

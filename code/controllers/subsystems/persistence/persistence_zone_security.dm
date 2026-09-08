@@ -48,6 +48,17 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 		if(ZONE_MEDSEC)  return "medsec"
 	return "nullsec"
 
+/// The colour a tier is drawn in, so anything reporting a zone to a player
+/// reads as the same system. These are the values the zone security HUD
+/// indicator uses (screen_objects.dm), which still writes them out inline in
+/// three of its own procs -- worth pointing those at this once someone is
+/// touching that file for another reason.
+/proc/zone_security_color(level)
+	switch(level)
+		if(ZONE_HIGHSEC) return "#54c556"
+		if(ZONE_MEDSEC)  return "#e8bb4a"
+	return "#e04545"
+
 /// TRUE when damage/destruction at this turf is blocked by highsec zone
 /// protection (station anti-grief -- the CentCom-indestructibility idea
 /// generalized to any HIGHSEC z). Admins bypass when a user context is

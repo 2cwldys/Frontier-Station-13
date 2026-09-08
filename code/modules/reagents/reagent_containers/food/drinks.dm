@@ -24,6 +24,23 @@ If you add a drink with an empty icon sprite, ensure it is in the same folder, e
 	var/drink_flags
 	possible_transfer_amounts = list(1, 2, 3, 4, 5, 10, 15, 25, 30)
 
+// Drinks sit outside /snacks, so they do not inherit its persistence override.
+// They also derive their fill sprite from reagents (get_filling_state()), which
+// already persist, so only genuine state needs saving here.
+/obj/item/reagent_containers/food/drinks/persistent_objects_get_content()
+	. = ..()
+	// A shaken carbonated drink sprays whoever opens it -- losing this on
+	// restore quietly defuses a trap someone deliberately set.
+	if(shaken)
+		.["drink_shaken"] = shaken
+
+/obj/item/reagent_containers/food/drinks/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["drink_shaken"]))
+		shaken = text2num("[content["drink_shaken"]]") || 0
+
 /obj/item/reagent_containers/food/drinks/feedback_hints(mob/user, distance, is_adjacent)
 	. += ..()
 	if (distance > 1)
@@ -330,6 +347,29 @@ If you add a drink with an empty icon sprite, ensure it is in the same folder, e
 	 */
 	var/list/details = list("Customer" = null, "Order" = null)
 
+// The Customer/Order text is written by a player, so it is the one thing on
+// this cup that cannot be regenerated from anything else. Stored as JSON, the
+// same way reagents are handled in serializePersistentItem().
+/obj/item/reagent_containers/food/drinks/takeaway_cup_idris/persistent_objects_get_content()
+	. = ..()
+	if(details && (details["Customer"] || details["Order"]))
+		.["cup_details"] = json_encode(details)
+
+/obj/item/reagent_containers/food/drinks/takeaway_cup_idris/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!content["cup_details"])
+		return
+	var/list/restored = json_decode(content["cup_details"])
+	if(!islist(restored))
+		return
+	// Assign through the existing keys rather than replacing the list, so a cup
+	// saved before a key was added still comes back with the full shape.
+	for(var/key in details)
+		if(restored[key])
+			details[key] = restored[key]
+
 /obj/item/reagent_containers/food/drinks/takeaway_cup_idris/feedback_hints(mob/user, distance, is_adjacent)
 	. += ..()
 	. += "Order: [details["Order"]]"
@@ -384,6 +424,33 @@ If you add a drink with an empty icon sprite, ensure it is in the same folder, e
 	var/drink_quality = null
 	var/drink_moodlet_value = null
 	var/moodlet_value_per_bartending_rank = 5
+
+// drink_quality and drink_moodlet_value are earned from the mixer's bartending
+// skill at the moment the drink was made, so they cannot be recomputed later --
+// losing them silently downgrades a well-made drink to an ordinary one.
+//
+// top and cap are live object refs and are not saved here; restoring those
+// needs the contents recursion the custom sandwich has in
+// serializePersistentItem(), which is a separate piece of work.
+/obj/item/reagent_containers/food/drinks/shaker/persistent_objects_get_content()
+	. = ..()
+	if(twisted)
+		.["shaker_twisted"] = TRUE
+	if(!isnull(drink_quality))
+		.["shaker_drink_quality"] = drink_quality
+	if(!isnull(drink_moodlet_value))
+		.["shaker_drink_moodlet"] = drink_moodlet_value
+
+/obj/item/reagent_containers/food/drinks/shaker/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(content["shaker_twisted"])
+		twisted = TRUE
+	if(!isnull(content["shaker_drink_quality"]))
+		drink_quality = content["shaker_drink_quality"]
+	if(!isnull(content["shaker_drink_moodlet"]))
+		drink_moodlet_value = text2num("[content["shaker_drink_moodlet"]]")
 
 /obj/item/reagent_containers/food/drinks/shaker/mechanics_hints(mob/user, distance, is_adjacent)
 	. += ..()

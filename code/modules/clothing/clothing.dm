@@ -1002,7 +1002,7 @@
 
 
 /obj/item/clothing/shoes/attackby(obj/item/attacking_item, mob/user)
-	if(can_hold_knife && is_type_in_list(attacking_item, list(/obj/item/material/shard, /obj/item/material/kitchen/utensil, /obj/item/material/knife)))
+	if(can_hold_knife && is_type_in_list(attacking_item, list(/obj/item/material/shard, /obj/item/material/kitchen/utensil, /obj/item/material/knife, /obj/item/melee/energy/sword/knife)))
 		if(holding)
 			to_chat(user, SPAN_WARNING("\The [src] is already holding \a [holding]."))
 			return

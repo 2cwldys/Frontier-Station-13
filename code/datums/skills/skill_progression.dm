@@ -37,18 +37,14 @@
 		return SKILL_LEVEL_UNFAMILIAR
 	return skill_comp.skill_level
 
-/// The ceiling for `skill` on `user`, honouring their education where one can
-/// be resolved. Falls back to the skill's own maximum_level rather than
-/// runtiming, since get_maximum_level() crash_with()s on a non-instance and a
-/// mob without a client (a fresh clone body, notably) has no prefs to read.
+/// The ceiling for `skill` on `user` -- always the skill's own maximum_level.
+/// Chargen education is NOT consulted here: it only shapes the initial
+/// default fill (load_character_special(), preference_setup/skills/skills.dm),
+/// never a live ceiling. Anyone can train, be taught, or read a manual up to
+/// Professional in anything, regardless of what they picked at chargen.
 /proc/get_skill_progression_cap(mob/user, singleton/skill/skill)
 	if(!istype(skill))
 		return SKILL_LEVEL_UNFAMILIAR
-	var/singleton/education/user_education
-	if(user?.client?.prefs?.education && ispath(text2path(user.client.prefs.education), /singleton/education))
-		user_education = GET_SINGLETON(text2path(user.client.prefs.education))
-	if(istype(user_education))
-		return skill.get_maximum_level(user_education)
 	return skill.maximum_level
 
 /// Sets `skill` on `user` to `new_level`, clamped to [UNFAMILIAR, cap]. Loads
@@ -137,15 +133,14 @@
 	return TRUE
 
 /**
- * Snapshots the decay clock (decay_progress -- accumulated in-game/world.time
- * deciseconds of disuse, see its own doc comment on skill_component.dm) and
- * banked train-by-use progress (training_progress) of every skill component
- * `user` currently has, as skill typepath ->
- * {"decay_progress": N, "progress": N}. Companion to get_skill_snapshot() for
- * persistence_skills.dm's own DB round-trip -- deliberately NOT folded into
- * get_skill_snapshot()/apply_skill_snapshot() themselves, since those are
- * also used by the neural lace and widening their shape would ripple into
- * that working, unrelated path.
+ * Snapshots the banked progress (training_progress -- positive toward the
+ * next tier, negative as rust toward losing the current one, see its own
+ * doc comment on skill_component.dm) of every skill component `user`
+ * currently has, as skill typepath -> {"progress": N}. Companion to
+ * get_skill_snapshot() for persistence_skills.dm's own DB round-trip --
+ * deliberately NOT folded into get_skill_snapshot()/apply_skill_snapshot()
+ * themselves, since those are also used by the neural lace and widening
+ * their shape would ripple into that working, unrelated path.
  */
 /proc/get_skill_activity_snapshot(mob/user)
 	var/list/snapshot = list()
@@ -157,19 +152,18 @@
 		var/datum/component/skill/comp = user.GetComponent(sk.component_type)
 		if(!comp)
 			continue
-		snapshot["[sk.type]"] = list("decay_progress" = comp.decay_progress, "progress" = comp.training_progress)
+		snapshot["[sk.type]"] = list("progress" = comp.training_progress)
 	return snapshot
 
 /// Applies an activity snapshot from get_skill_activity_snapshot() onto
 /// `user` -- run this AFTER apply_skill_snapshot() so the components it
 /// writes to already exist. Skills with no component (still at the default,
-/// never raised) are silently skipped -- nothing to track yet. Rows saved
-/// before decay_progress existed (a bare number, or a {"last_used",
-/// "progress"} list from the old REALTIMEOFDAY-based clock -- not
-/// meaningfully convertible to an in-game-time duration) simply have no
-/// "decay_progress" key here, so they fall back to each component's own
-/// fresh-creation default of 0 -- not decay-eligible yet, same as any other
-/// legacy row, rather than attempting a conversion that can't be correct.
+/// never raised) are silently skipped -- nothing to track yet. A row saved
+/// under the old two-field {"decay_progress", "progress"} shape (or the
+/// even older bare-number/REALTIMEOFDAY-based shape) still has a "progress"
+/// key read correctly here -- any decay_progress key present is simply
+/// ignored, since the old separate decay clock has no equivalent in the
+/// unified model.
 /proc/apply_skill_activity_snapshot(mob/user, list/snapshot)
 	if(!user || !islist(snapshot) || !length(snapshot))
 		return FALSE
@@ -185,8 +179,7 @@
 			continue
 		var/entry = snapshot[skill_key]
 		if(islist(entry))
-			comp.decay_progress = entry["decay_progress"] || 0
-			comp.training_progress = entry["progress"] || 0
+			comp.training_progress = isnull(entry["progress"]) ? 0 : entry["progress"]
 	return TRUE
 
 /**

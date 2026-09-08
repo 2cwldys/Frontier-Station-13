@@ -98,6 +98,17 @@
 
 /datum/component/morale/proc/add_morale_points(input)
 	morale_points += input
+	update_morale_state()
+
+/datum/component/morale/proc/set_beta_value(input)
+	beta_value = input
+	update_morale_state()
+
+/// Recomputes morale_ratio from the current morale_points/beta_value and
+/// refreshes the UI icon to match -- the shared bit every mutator of
+/// morale_points needs, so none of them can drift out of sync with each
+/// other the way add_morale_points()/process() once did.
+/datum/component/morale/proc/update_morale_state()
 	morale_ratio = ftanh(beta_value * morale_points)
 
 	// I get to do this freakishly compact state setting because I can
@@ -105,10 +116,6 @@
 	// And that because a hyperbolic tangent will only ever return a value between -1 and 1,
 	// the range of this equation becomes the set of integers between 1 and 9 inclusive.
 	morale_ui.icon_state = ((morale_ratio > -0.0001 && morale_ratio < 0.0001) ? "morale_hidden" : "morale" + "[round(morale_ratio * 4) + 5]")
-
-/datum/component/morale/proc/set_beta_value(input)
-	beta_value = input
-	morale_ratio = ftanh(beta_value * morale_points)
 
 /**
  * Your one-stop-shop for making moodlets. This proc returns the pre-existing moodlet of a given type.
@@ -190,7 +197,7 @@
 	if (!list_trimmed)
 		return
 
-	morale_ratio = ftanh(morale_points)
+	update_morale_state()
 
 /*
 						AND NOW THE GIANT WALL OF SIGNAL HANDLERS

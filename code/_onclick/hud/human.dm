@@ -44,6 +44,10 @@
 		// actually in progress (telepad_drydock_boarding.dm).
 		target.eye_view_cancel_button = new /atom/movable/screen/exit_eye_view()
 
+		// ── Store Character button (same slot, shown only inside a cryopod) ────
+		target.cryo_store_button = new /atom/movable/screen/store_character_button(null, target)
+		hud_elements |= target.cryo_store_button
+
 	// ── Gear slots ────────────────────────────────────────────────────────────
 	var/has_hidden_gear
 	for(var/gear_slot in hud_data.gear)

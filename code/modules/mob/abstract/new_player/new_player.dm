@@ -779,6 +779,14 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 				to_chat(src, SPAN_WARNING("Your neural lace could not be located. Contact an administrator."))
 				reopen_menu_after_failed_spawn()
 				return
+			// Deliberately no dna clone here, unlike the death path (removed(),
+			// neural_lace.dm) which clones it straight off the still-present
+			// body: nothing downstream needs one. The replacement body is built
+			// by build_cloned_body_for_character() (resleever_cloning.dm) from
+			// the character's own saved chargen row, resolved by the lace's
+			// registered ckey/name -- its own comment spells out that the lace
+			// only ever carries an identity, not a genome. A second DNA source
+			// here would just be one that can disagree with the chargen row.
 			var/mob/living/carbon/lace_mob/new_lm = new /mob/living/carbon/lace_mob(get_turf(found_lace))
 			new_lm.name              = selected_char
 			new_lm.real_name         = selected_char

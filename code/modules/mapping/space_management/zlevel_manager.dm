@@ -7,6 +7,13 @@
 	if (world.maxz < new_z)
 		world.incrementMaxZ()
 		CHECK_TICK
+	// new_z is guaranteed to be a Z number that has never existed before this exact call this
+	// boot (z_list.len only grows) -- but the same raw number gets reused across DIFFERENT boots
+	// for DIFFERENT content, and GLOB.zone_security_by_z is keyed by that raw number. Anything
+	// already sitting under this key can only be leftover from an unrelated past occupant of the
+	// same number (e.g. a stale ss13_zone_security row loaded at boot), never something
+	// legitimately meant for this Z -- reset it rather than silently inheriting it.
+	GLOB.zone_security_by_z -= "[new_z]"
 	// TODO: sleep here if the Z level needs to be cleared
 	var/datum/space_level/S = new z_type(new_z, name, traits)
 	manage_z_level(S, filled_with_space = TRUE, contain_turfs = contain_turfs)

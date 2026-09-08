@@ -344,12 +344,19 @@
 	if(clock_faction)
 		factionSetClockedIn(H.ckey, clock_faction, FALSE)
 
-	// If the mob is inside a cryopod, clear its occupant reference so the pod resets properly
+	// If the mob is inside a cryopod, clear its occupant reference so the pod resets properly.
+	// A prison cell never uses `occupant` (always null by design, cryopod_prison.dm's own
+	// header comment) -- it tracks who's inside via prison_occupants instead, so it needs its
+	// own branch here or a self-store from inside one leaves a stale entry in that list.
 	if(istype(H.loc, /obj/structure/machinery/cryopod))
 		var/obj/structure/machinery/cryopod/cryo_pod = H.loc
 		if(cryo_pod.occupant == H)
 			cryo_pod.occupant = null
 			cryo_pod.update_icon()
+		else if(istype(cryo_pod, /obj/structure/machinery/cryopod/prison))
+			var/obj/structure/machinery/cryopod/prison/prison_pod = cryo_pod
+			prison_pod.prison_occupants -= H
+			prison_pod.update_icon()
 
 	// The character save above already fully completed and covers both
 	// outcomes below (a telepad found or not) -- release now rather than

@@ -512,6 +512,10 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	/// since it last returned to their hands -- see _drydockFlagIfStolen()
 	/// and drydockClearStolenFlag() below.
 	var/reported_stolen = FALSE
+	/// world.time of this ship's last EVA Recall broadcast (_drydock_eva_recall(),
+	/// below) -- in-memory only, never persisted, so it resets on a server
+	/// restart. Gates DRYDOCK_EVA_RECALL_COOLDOWN in drydock.dm's ui_act().
+	var/last_recall_at = 0
 
 /// Finds a live, valid /obj/item/ship_schematic (ship_schematic.dm) bound to
 /// this ship anywhere in user's inventory -- held, worn, in a backpack, in a
@@ -578,6 +582,13 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	if(title_faction_uid)
 		return can_configure_faction_shackle(user, title_faction_uid, 1)
 	return is_title_holder(user)
+
+/// Same rule as signing over the title (can_transfer_title()) -- title
+/// holder for a personal ship, officer+ for a faction ship -- kept as its
+/// own named proc since EVA recall is a distinct action, not a proxy for
+/// "can this person give the ship away".
+/datum/drydock_ship/proc/can_trigger_eva_recall(mob/user)
+	return can_transfer_title(user)
 
 /// Shown everywhere a ship's own name appears (overmap marker, admin logs,
 /// chat messages, the Drydock program's own list, the schematic item's own
@@ -696,6 +707,47 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	if(!T)
 		return marker
 	return GLOB.map_sectors["[T.z]"]
+
+/// Pages every crew member of DS to return aboard -- bypasses
+/// ntnet_conversation/chat_client/can_receive_notification() (ntnrc_client.dm)
+/// entirely, so it reaches someone regardless of whether their PDA is
+/// powered on, same idea as zone_security_roll_call()
+/// (persistence_zone_security.dm). Only reaches crew currently at or
+/// adjacent to the ship's own sector (DRYDOCK_SHIP_PLACEMENT_RADIUS, the
+/// same radius _drydock_disembark_core() uses for walking off the ship to a
+/// neighboring sector). "Crew" is the same three-way union
+/// _drydock_full_access_check() uses for boarding access: current owner
+/// (holds the schematic), current faction member, or an explicit
+/// crew_ckeys entry -- inlined here against the already-resolved DS rather
+/// than re-deriving it from a z-level. Returns the number of people
+/// reached, for the caller's own confirmation message.
+/proc/_drydock_eva_recall(datum/drydock_ship/DS, mob/triggering_user)
+	if(!DS || DS.stashed)
+		return 0
+	var/obj/effect/overmap/visitable/ship_sector = _drydock_ship_sector(DS)
+	if(!istype(ship_sector))
+		return 0
+	var/ship_name = DS.display_name()
+	var/caller_name = triggering_user ? triggering_user.real_name : "Ship Command"
+	var/reached = 0
+	for(var/mob/living/M in GLOB.living_mob_list)
+		if(!M.client)
+			continue
+		var/obj/effect/overmap/visitable/mob_sector = GLOB.map_sectors["[GET_Z(M)]"]
+		if(!istype(mob_sector))
+			continue
+		if(get_dist(mob_sector, ship_sector) > DRYDOCK_SHIP_PLACEMENT_RADIUS)
+			continue
+		var/obj/item/card/id/ID = M.GetIdCard()
+		var/mob_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+		var/is_crew = DS.owned_by(M) || (DS.faction_uid && DS.faction_uid == mob_faction) || ("[M.ckey]|[M.real_name]" in DS.crew_ckeys)
+		if(!is_crew)
+			continue
+		to_chat(M, SPAN_ALERT(FONT_LARGE("EVA RECALL -- [ship_name]: [caller_name] has concluded business here. [ship_name] is preparing for travel -- return to the ship immediately. EVA recall is in effect.")))
+		if(!M.ear_deaf)
+			playsound(get_turf(M), 'sound/machines/twobeep.ogg', 40, 1)
+		reached++
+	return reached
 
 /// Verbose debug logging for the drydock/shuttle system -- writes to the
 /// dedicated persistence subsystem log file (gated behind the

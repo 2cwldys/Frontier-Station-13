@@ -50,6 +50,13 @@ GLOBAL_DATUM_INIT(iconCache, /savefile, new("tmp/iconCache.sav")) //Cache of ico
 	owner << browse_rsc(file('icons/misc/chatbg.png'), "chatbg.png")
 	owner << browse_rsc(file('code/modules/goonchat/browserassets/html/tchatshadow.png'), "tchatshadow.png")
 	owner << browse_rsc(file('code/modules/goonchat/browserassets/css/cursor.cur'), "cursor.cur")
+#if GOONCHAT_CUSTOM_FONT == GOONCHAT_FONT_INDUSTRIA_SOLID
+	owner << browse_rsc(file('code/modules/goonchat/browserassets/fonts/IndustriaSolid-Regular.otf'), "IndustriaSolid-Regular.otf")
+#elif GOONCHAT_CUSTOM_FONT == GOONCHAT_FONT_DEX_GOTHIC
+	owner << browse_rsc(file('code/modules/goonchat/browserassets/fonts/DexGothicBeckerSolid-Regular.ttf'), "DexGothicBeckerSolid-Regular.ttf")
+#elif GOONCHAT_CUSTOM_FONT == GOONCHAT_FONT_HANDEL_GOTHIC
+	owner << browse_rsc(file('code/modules/goonchat/browserassets/fonts/HandelGothic-Regular.ttf'), "HandelGothic-Regular.ttf")
+#endif
 
 	// Wait for genuine confirmation the assets above actually arrived and were
 	// cached by the client's embedded browser control before loading HTML that
@@ -88,7 +95,13 @@ GLOBAL_DATUM_INIT(iconCache, /savefile, new("tmp/iconCache.sav")) //Cache of ico
 	if(loaded)
 		log_world("goonchat: [key_name(owner)] re-asserting chat HTML after an earlier successful load (tgui_panel likely just wrote over the shared pane).")
 
-	owner << browse(file('code/modules/goonchat/browserassets/html/browserOutput.html'), "window=browseroutput")
+	// browserOutput.css itself carries no font-size on body -- injecting it
+	// here instead lets GOONCHAT_FONT_SIZE (_compile_options.dm) control it
+	// without a CSS edit. Inserted right before </head> so the cascade puts
+	// it after browserOutput.css's own <link>, letting it win.
+	var/html = file2text('code/modules/goonchat/browserassets/html/browserOutput.html')
+	html = replacetext(html, "</head>", "<style>body{font-size:[GOONCHAT_FONT_SIZE]px;}</style></head>")
+	owner << browse(html, "window=browseroutput")
 	showChat()
 
 	// A re-assert after an earlier successful load means something (tgui_panel)

@@ -228,21 +228,41 @@
 			var/mob/M = m
 			M.playsound_local(M, null, volume, vary, frequency, null, channel, pressure_affected, S)
 
-/// Pending _announce_lobby_track() timer IDs from the most recent
+/// How long the playlist is held before its first track starts. Every step of
+/// the playlist is cancellable (see below), so a further playtitlemusic() call
+/// landing inside this window cancels the pending start and replaces it --
+/// which is what collapses a burst of calls down to one playlist and one
+/// announcement, instead of one of each per call.
+#define LOBBY_ANNOUNCE_DEBOUNCE (1 SECOND)
+
+/// Pending _advance_lobby_track() timer IDs from the most recent
 /// playtitlemusic() call -- cancelled at the top of every call so a repeat
 /// invocation (cryo/store-character return, toggling the lobby music
 /// preference, etc. -- all explicitly expected, see playtitlemusic()'s own
-/// comment) can't leave an old shuffle's announcements still ticking down
-/// in the background. Without this, two calls close together each announce
-/// their own "track 1" immediately, stacking a stale announcement from the
-/// superseded shuffle on top of the new one's -- the actual audio channel
-/// was already being cleared and replaced, but nothing ever cancelled the
-/// scheduled to_chat() timers to match.
+/// comment) can't leave a superseded playlist still stepping forward in the
+/// background.
 /client/var/list/lobby_music_announce_timer_ids
+
+/// Bumped by every playtitlemusic() call so a superseded playlist's own
+/// pending step can tell it has been taken over and stop.
+/client/var/lobby_music_generation = 0
+
+/// The shuffled playlist currently being stepped through, and how far into it
+/// we are. Held on the client because the playlist is driven ONE TRACK AT A
+/// TIME from the server (see _advance_lobby_track()) rather than queued onto
+/// the sound channel all at once.
+/client/var/list/lobby_playlist
+/client/var/lobby_playlist_index = 0
 
 /client/proc/playtitlemusic()
 	set waitfor = FALSE
 	UNTIL(SSticker.login_music) //wait for SSticker init to set the login music
+
+	// Supersede any playlist still stepping. Without this a repeat call leaves
+	// the old one advancing in the background, and the two take turns
+	// replacing each other's track on the same channel.
+	lobby_music_generation++
+	var/my_generation = lobby_music_generation
 
 	if(lobby_music_announce_timer_ids)
 		for(var/timer_id in lobby_music_announce_timer_ids)
@@ -251,63 +271,73 @@
 
 	SEND_SOUND(src, sound(null, repeat = 0, wait = 0, volume = prefs.lobby_music_vol, channel = CHANNEL_LOBBYMUSIC))
 
-	if(prefs.lobby_music_vol)
-		// Shuffled per client, so which track you land on first is random.
-		// These queue back-to-back on one channel via wait = TRUE, and clicking
-		// Play stops the channel outright (new_player.dm) -- so in fixed list
-		// order every player heard SSticker.login_music's first entry and
-		// nothing else, unless they idled in the lobby through the whole track.
-		// shuffle() (__HELPERS/lists.dm) returns a shuffled COPY, so the shared
-		// SSticker.login_music list is left untouched for everyone else.
-		//
-		// Staggered, not sent in one tick -- the client has to fetch/buffer
-		// each track's resource, often for the first time this connection,
-		// and sending the whole list at once made that a single noticeable
-		// burst. Only matters once this fires well after the client has
-		// already loaded and settled (chained after the welcome announcer
-		// line finishes, login.dm's _play_welcome_line()) -- called right at
-		// login instead, the same burst is invisible, absorbed into the
-		// client's own initial load. Track 1 is still sent immediately so
-		// the audible start has no added delay; only the rest trickle in.
-		var/list/shuffled_tracks = shuffle(SSticker.login_music)
-		// No server-side "track ended, next one started" callback exists --
-		// the whole queue above is just fired off back-to-back on one client
-		// sound channel (wait = TRUE) and sequenced entirely client-side.
-		// Announce each track as it actually starts playing (not as its
-		// resource is merely dispatched, which for the whole queue happens
-		// within seconds via the buffering stagger below) by scheduling each
-		// announcement against that track's real, offline-measured duration
-		// (lobby_track_durations, _lobby_track_durations.dm) -- BYOND has no
-		// native way to query a sound file's length. Each scheduled
-		// announcement re-checks the player is still in the lobby
-		// (_announce_lobby_track()) before firing, so nothing gets sent once
-		// they've spawned in, disconnected, or muted lobby music since.
-		if(GLOB.config.githuburl)
-			var/branch = GLOB.config.github_branch || "main"
-			var/elapsed = 0
-			for(var/track_path in shuffled_tracks)
-				var/track_name = "[track_path]"
-				var/link = "<a href='[GLOB.config.githuburl]/blob/[branch]/[track_name]'>[track_name]</a>"
-				if(elapsed <= 0)
-					to_chat(src, SPAN_NOTICE("Now playing lobby music: [link]"))
-				else
-					lobby_music_announce_timer_ids += addtimer(CALLBACK(src, PROC_REF(_announce_lobby_track), link), elapsed, TIMER_STOPPABLE)
-				elapsed += GLOB.lobby_track_durations[track_path] || 5 MINUTES
-		for(var/i in 1 to length(shuffled_tracks))
-			CHECK_TICK
-			SEND_SOUND(src, sound(shuffled_tracks[i], repeat = 0, wait = TRUE, volume = prefs.lobby_music_vol, channel = CHANNEL_LOBBYMUSIC)) // MAD JAMS
-			if(i < length(shuffled_tracks))
-				sleep(3)
+	lobby_playlist = null
+	lobby_playlist_index = 0
 
-/// Fired by a timer scheduled in playtitlemusic(), roughly when a later
-/// track in the shuffled queue actually starts playing. Re-checks the
-/// player is still sitting in the lobby -- spawning in, disconnecting, or
-/// turning lobby music off since this was scheduled all mean nothing should
-/// be sent.
-/client/proc/_announce_lobby_track(link)
-	if(QDELETED(src) || !mob || !isnewplayer(mob) || !prefs.lobby_music_vol)
+	if(!prefs.lobby_music_vol)
 		return
-	to_chat(src, SPAN_NOTICE("Now playing lobby music: [link]"))
+
+	// Shuffled per client, so which track you land on first is random.
+	// shuffle() (__HELPERS/lists.dm) returns a shuffled COPY, so the shared
+	// SSticker.login_music list is left untouched for everyone else.
+	lobby_playlist = shuffle(SSticker.login_music)
+
+	// Scheduled rather than started inline, deliberately: that is what lets a
+	// burst of calls collapse to a single playlist, since the pending start is
+	// cancellable above. See LOBBY_ANNOUNCE_DEBOUNCE.
+	lobby_music_announce_timer_ids += addtimer(CALLBACK(src, PROC_REF(_advance_lobby_track), my_generation), LOBBY_ANNOUNCE_DEBOUNCE, TIMER_STOPPABLE)
+
+/**
+ * Starts the next track of this client's lobby playlist, announces it, and
+ * schedules itself again for that track's own length.
+ *
+ * The playlist is driven one track at a time from the server rather than
+ * queued onto the sound channel all at once with wait = TRUE. That queued
+ * approach is what left the "Now playing" lines out of sync with the audio:
+ * every track was dispatched within about two seconds, while the
+ * announcements were scheduled against a predicted timeline spanning the
+ * whole playlist (over an hour). Any real difference -- the client still
+ * fetching a track's resource, a gap between tracks, anything at all --
+ * accumulated with nothing to correct it, so the messages ran steadily
+ * further ahead of the music.
+ *
+ * Here the announcement and the SEND_SOUND happen in the same step, so they
+ * cannot disagree, and wait = 0 (replace, don't queue) keeps the server
+ * authoritative about what is on the channel -- the message always names the
+ * track that was just started. BYOND exposes no "track ended" callback, so
+ * this is the closest to real sync available.
+ */
+/client/proc/_advance_lobby_track(generation)
+	// Superseded by a newer playtitlemusic(), or this is no longer a
+	// lobby-sitting client with music on -- spawning in, disconnecting, or
+	// muting lobby music since this was scheduled all mean stop here.
+	if(QDELETED(src) || generation != lobby_music_generation)
+		return
+	if(!mob || !isnewplayer(mob) || !prefs.lobby_music_vol)
+		return
+	if(!islist(lobby_playlist) || !length(lobby_playlist))
+		return
+
+	lobby_playlist_index++
+	// Playlist exhausted -- stop, matching what the old all-at-once queue did
+	// when it ran out, rather than silently looping.
+	if(lobby_playlist_index > length(lobby_playlist))
+		return
+
+	var/track_path = lobby_playlist[lobby_playlist_index]
+	SEND_SOUND(src, sound(track_path, repeat = 0, wait = 0, volume = prefs.lobby_music_vol, channel = CHANNEL_LOBBYMUSIC)) // MAD JAMS
+
+	if(GLOB.config.githuburl)
+		var/branch = GLOB.config.github_branch || "main"
+		var/track_name = "[track_path]"
+		to_chat(src, SPAN_NOTICE("Now playing lobby music: <a href='[GLOB.config.githuburl]/blob/[branch]/[track_name]'>[track_name]</a>"))
+
+	// Real, offline-measured length (lobby_track_durations,
+	// _lobby_track_durations.dm) -- BYOND has no native way to query a sound
+	// file's length. Only ever one track ahead now, instead of a whole
+	// playlist's worth of prediction.
+	var/duration = GLOB.lobby_track_durations[track_path] || 5 MINUTES
+	lobby_music_announce_timer_ids += addtimer(CALLBACK(src, PROC_REF(_advance_lobby_track), generation), duration, TIMER_STOPPABLE)
 
 /proc/get_rand_frequency()
 	return rand(32000, 55000) //Frequency stuff only works with 45kbps oggs.

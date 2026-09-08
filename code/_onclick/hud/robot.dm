@@ -1,5 +1,45 @@
 GLOBAL_DATUM(robot_inventory, /atom/movable/screen)
 
+/// Cyborg counterpart to store_character_button (screen_objects.dm) -- a
+/// robot never runs human_hud() so it can't share that object, and its own
+/// layout (below) has no top-right region in use at all, so this reuses the
+/// same screen_loc slot for visual consistency across mob types.
+/atom/movable/screen/store_synthetic_button
+	name = "decommission chassis"
+	desc = "Decommission this chassis into long-term storage."
+	icon = 'icons/hud/store_character.png'
+	icon_state = ""
+	screen_loc = "EAST:-6,NORTH:-40"
+	mouse_opacity = MOUSE_OPACITY_TRANSPARENT
+	alpha = 0
+	var/mob/owner
+
+/atom/movable/screen/store_synthetic_button/Initialize(mapload, mob/holder)
+	. = ..()
+	owner = holder
+	START_PROCESSING(SSprocessing, src)
+
+/atom/movable/screen/store_synthetic_button/Destroy()
+	STOP_PROCESSING(SSprocessing, src)
+	owner = null
+	return ..()
+
+/atom/movable/screen/store_synthetic_button/process()
+	var/active = !QDELETED(owner) && istype(owner.loc, /obj/structure/machinery/recharge_station/synthetic_storage)
+	alpha = active ? 255 : 0
+	mouse_opacity = active ? MOUSE_OPACITY_ICON : MOUSE_OPACITY_TRANSPARENT
+
+/// store_synthetic() is a unit-side verb (acts on whoever is its occupant,
+/// not usr) -- same reasoning as store_character_button's Click().
+/atom/movable/screen/store_synthetic_button/Click(location, control, params)
+	if(!isrobot(usr))
+		return TRUE
+	var/mob/living/silicon/robot/R = usr
+	if(istype(R.loc, /obj/structure/machinery/recharge_station/synthetic_storage))
+		var/obj/structure/machinery/recharge_station/synthetic_storage/unit = R.loc
+		unit.store_synthetic()
+	return TRUE
+
 /mob/living/silicon/robot/instantiate_hud(datum/hud/HUD)
 	HUD.robot_hud()
 
@@ -116,6 +156,8 @@ GLOBAL_DATUM(robot_inventory, /atom/movable/screen)
 	mymob.pullin.name = "pull"
 	mymob.pullin.screen_loc = ui_borg_pull
 
+	r.synth_store_button = new /atom/movable/screen/store_synthetic_button(null, r)
+
 	mymob.zone_sel = new /atom/movable/screen/zone_sel()
 	mymob.zone_sel.icon = 'icons/hud/mob/robot.dmi'
 	mymob.zone_sel.ClearOverlays()
@@ -144,6 +186,7 @@ GLOBAL_DATUM(robot_inventory, /atom/movable/screen)
 		r.cells,
 		mymob.up_hint,
 		mymob.pullin,
+		r.synth_store_button,
 		GLOB.robot_inventory,
 		mymob.gun_setting_icon,
 		mymob.toggle_firing_mode,
