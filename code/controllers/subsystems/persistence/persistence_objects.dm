@@ -219,6 +219,16 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
 /datum/controller/subsystem/persistence/proc/objectsFinalize()
 	PRIVATE_PROC(TRUE)
 
+#ifdef AUTO_DB_CLEANUP
+	// Before writing this cycle's fresh data -- see AUTO_DB_CLEANUP's own
+	// comment (_compile_options.dm) and objectsCleanupDuplicateEntries()'s
+	// (persistence_objects_sql.dm) for what this does and doesn't touch.
+	try
+		objectsCleanupDuplicateEntries()
+	catch(var/exception/dedup_e)
+		log_subsystem_persistence_panic("Unhandled exception during duplicate persistent-object cleanup: [dedup_e]")
+#endif
+
 	// Subsystem shutdown:
 	// Create new persistent records for objects that have been created in the round
 	// Update tracked objects that have an ID (already existing from previous rounds)

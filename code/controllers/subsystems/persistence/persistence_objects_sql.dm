@@ -21,6 +21,46 @@
 	qdel(cleanup_query)
 
 /**
+ * Permanently deletes duplicate ss13_persistent_objects rows at the same
+ * (type, x, y, z, map_path) -- keeps only the highest id (the most recently
+ * created) in each such group, and only ever deletes a row that is BOTH a
+ * duplicate AND already expired. Never touches an active row, and never
+ * touches the one row being kept, so this cannot remove anything currently
+ * real in the world -- it only clears out already-inert leftovers from a
+ * spot something now-current has superseded.
+ *
+ * Gated behind AUTO_DB_CLEANUP (_compile_options.dm) -- see that define's
+ * own comment for why this exists (reviving every expired row after a
+ * stalled autosave can leave more than one active row at one spot; this
+ * keeps that from re-accumulating between now and the stall itself being
+ * fixed). scripts/db_fix_expired_objects.ps1 -Apply runs the equivalent
+ * query by hand, on demand, independent of this define.
+ */
+/datum/controller/subsystem/persistence/proc/objectsCleanupDuplicateEntries()
+	if(!databaseCheckConnection("objectsCleanupDuplicateEntries"))
+		return
+	var/datum/db_query/dedup_query = SSdbcore.NewQuery(
+		{"DELETE p FROM ss13_persistent_objects p
+		JOIN (
+			SELECT type, x, y, z, map_path, MAX(id) AS keep_id
+			FROM ss13_persistent_objects
+			GROUP BY type, x, y, z, map_path
+			HAVING COUNT(*) > 1
+		) latest
+			ON p.type = latest.type AND p.x = latest.x AND p.y = latest.y
+			AND p.z = latest.z AND p.map_path = latest.map_path
+		WHERE p.id != latest.keep_id AND p.expires_at <= NOW()"},
+		list()
+	)
+	dedup_query.SetFailCallback(CALLBACK(PROC_REF(objectsCleanupDuplicateEntries_CallbackFailure)))
+	dedup_query.SetSuccessCallback(CALLBACK(GLOBAL_PROC, GLOBAL_PROC_REF(qdel)))
+	dedup_query.ExecuteNoSleep(TRUE)
+
+/datum/controller/subsystem/persistence/proc/objectsCleanupDuplicateEntries_CallbackFailure(datum/db_query/dedup_query)
+	databaseCheckQueryResult(dedup_query, "objectsCleanupDuplicateEntries")
+	qdel(dedup_query)
+
+/**
  * Retrieve persistent data entries that haven't expired.
  * scope defaults to the current map's path; pass a ship scope key
  * ("ship:c:<id>" / "ship:d:<id>", persistence_ship_interiors.dm) to fetch a

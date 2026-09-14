@@ -190,6 +190,28 @@
 // periodic timer.
 #define LOBBY_EMPTY_AUTOSAVE
 
+// If defined, objectsFinalize() (persistence_objects.dm) permanently deletes
+// duplicate ss13_persistent_objects rows at the start of every periodic
+// autosave, before writing this cycle's fresh data -- same (type, x, y, z,
+// map_path) with more than one row, keep only the highest id (the most
+// recently created), delete the rest, and ONLY if the row being deleted is
+// already expired (expires_at <= NOW()). Never touches an active row or the
+// one row being kept, so it can't remove anything a player would actually
+// see in the world -- see objectsCleanupDuplicateEntries()
+// (persistence_objects_sql.dm) for the exact query.
+//
+// This exists because reviving every expired row after the periodic save
+// stalls (scripts/db_fix_expired_objects.ps1) can put more than one active
+// row at the same spot if one of them had actually been superseded on
+// purpose -- multiple copies of the same structure then spawn stacked on
+// top of each other. Running this every cycle keeps that from accumulating
+// again between now and whenever the underlying stall is fixed.
+//
+// Off by default -- new and not yet battle-tested against live data; the
+// standalone scripts/db_fix_expired_objects.ps1 -Apply already does the
+// same cleanup by hand, on demand, without needing this compiled in.
+#define AUTO_DB_CLEANUP
+
 // If defined, growing a clone through the resleeving pipeline
 // (order_clone_from_lace(), resleever_cloning.dm) charges CLONE_ORDER_COST --
 // to the faction when the cloning pod and resleever are both tagged to the
