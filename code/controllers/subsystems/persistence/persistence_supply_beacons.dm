@@ -117,6 +117,28 @@ GLOBAL_LIST_EMPTY(supply_beacon_trade_cooldowns)
 			return "crew:[crew_ship.shuttle_id]"
 	return null
 
+/// Faction UID a get_supply_beacon_source_key()-style string was minted
+/// under, or null if it's a personal/crew identity (those have no faction
+/// component of their own). Used by the piracy beacon "stolen goods only"
+/// check (see supply_beacon_terminal.dm's _checkout_sale()) to compare a
+/// crate's purchaser against a faction, not just an exact identity string.
+/proc/supply_beacon_source_key_faction(source_key)
+	if(!source_key || copytext(source_key, 1, 9) != "faction:")
+		return null
+	return copytext(source_key, 9)
+
+/// ckey a get_supply_beacon_source_key()-style string was minted under, or
+/// null if it's a faction/crew identity. Same purpose as
+/// supply_beacon_source_key_faction() above, for the reverse case: a crate
+/// bought under a personal identity by someone who happens to also hold
+/// membership in the faction now trying to sell it.
+/proc/supply_beacon_source_key_personal_ckey(source_key)
+	if(!source_key || copytext(source_key, 1, 10) != "personal:")
+		return null
+	var/rest = copytext(source_key, 10)
+	var/pipe_pos = findtext(rest, "|")
+	return pipe_pos ? copytext(rest, 1, pipe_pos) : rest
+
 /// Seconds remaining before source_key can trade with beacon_id again, or 0
 /// if it's currently allowed.
 /proc/supply_beacon_cooldown_remaining(source_key, beacon_id)

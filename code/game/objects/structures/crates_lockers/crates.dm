@@ -813,6 +813,15 @@
 	/// rather than looked up so it still reads correctly if the beacon is
 	/// later renamed or removed entirely.
 	var/origin_beacon_label
+	/// get_supply_beacon_source_key()-style identity string ("faction:<uid>" /
+	/// "personal:<ckey>|<name>" / "crew:<shuttle_id>") of whoever bought this
+	/// crate. A piracy beacon refuses to buy a crate back from the same
+	/// identity that purchased it -- see the Supply Beacon Terminal's sell
+	/// handler -- so this is the "stolen goods only" check. Permanent
+	/// property like origin_beacon_id, not a timer. Null/unset crates
+	/// (spawned some other way, e.g. pre-existing saves) are treated as
+	/// sellable -- there's no record they were self-purchased.
+	var/purchaser_source_key
 
 /obj/structure/closet/crate/supply_beacon/can_open()
 	return FALSE
@@ -862,6 +871,8 @@
 		return FALSE
 	if(other.origin_beacon_id != origin_beacon_id)
 		return FALSE
+	if(other.purchaser_source_key != purchaser_source_key)
+		return FALSE
 	return TRUE
 
 /// Folds any stackable sibling already on this turf into src, deleting them.
@@ -910,6 +921,7 @@
 	new_stack.commodity_key = commodity_key
 	new_stack.origin_beacon_id = origin_beacon_id
 	new_stack.origin_beacon_label = origin_beacon_label
+	new_stack.purchaser_source_key = purchaser_source_key
 	new_stack.amount = split_amount
 	new_stack.refresh_label()
 

@@ -441,6 +441,7 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
 	.["amount"] = amount
 	.["origin_beacon_id"] = origin_beacon_id
 	.["origin_beacon_label"] = origin_beacon_label
+	.["purchaser_source_key"] = purchaser_source_key
 
 /obj/structure/closet/crate/supply_beacon/persistent_objects_apply_content(list/content, x, y, z)
 	..()
@@ -452,6 +453,8 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
 		origin_beacon_id = content["origin_beacon_id"]
 	if(!isnull(content["origin_beacon_label"]))
 		origin_beacon_label = content["origin_beacon_label"]
+	if(!isnull(content["purchaser_source_key"]))
+		purchaser_source_key = content["purchaser_source_key"]
 	refresh_label()
 
 /obj/structure/closet/persistent_objects_apply_content(list/content, x, y, z)

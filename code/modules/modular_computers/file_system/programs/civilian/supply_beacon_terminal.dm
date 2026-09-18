@@ -378,6 +378,10 @@
 		// property, not a timer, so it outlives the trade cooldown entirely.
 		crate.origin_beacon_id = B.beacon_id
 		crate.origin_beacon_label = B.name
+		// Unlike the name-label below, this is NOT removable -- it's what lets
+		// a piracy beacon tell a self-purchased crate apart from actually
+		// stolen goods (see _checkout_sale()'s piracy branch).
+		crate.purchaser_source_key = source_key
 		// Ownership tag is a removable label, not a lock. Same convention as a
 		// Cargo Order crate (spawn_order_crate(), cargo.dm) and the hand
 		// labeler (handlabeler.dm): name_unlabel captures the untagged name so
@@ -427,6 +431,13 @@
  * passed through separately rather than read back off B via `.beacon_id`,
  * since a piracy beacon has no such var at all (`:beacon_id` on one would
  * be a runtime error, not a graceful null).
+ *
+ * A piracy beacon only fences stolen goods: it refuses a crate bought by the
+ * same actor now trying to sell it -- an exact identity match, a faction
+ * match across mismatched billing modes, or buyer and seller both
+ * independently belonging to the beacon's own tagged faction -- see the
+ * self_blocked check below. This stops a player/faction from buying a crate
+ * and just walking it to their own piracy beacon for a risk-free markup.
  */
 /datum/computer_file/program/civilian/supplybeaconterminal/proc/_checkout_sale(mob/user, B, beacon_id_str, source_key, list/order)
 	if(!length(order))
@@ -453,6 +464,7 @@
 		var/list/found_crates = list()
 		var/total_available = 0
 		var/origin_blocked = 0
+		var/self_blocked = 0
 		for(var/obj/structure/machinery/telepad_cargo/pad in candidate_pads)
 			var/turf/pad_turf = get_turf(pad)
 			if(!pad_turf)
@@ -470,11 +482,58 @@
 				if(!B_is_piracy && crate.origin_beacon_id && crate.origin_beacon_id == B:beacon_id)
 					origin_blocked += crate.amount
 					continue
+				// A piracy beacon only fences stolen goods -- refuse a crate
+				// that was bought by the same actor now trying to sell it, so
+				// the piracy bonus can't be farmed by just buying from a real
+				// beacon and walking the crate to your own piracy beacon.
+				// "Same actor" is resolved three ways so mismatched billing
+				// modes can't launder around it:
+				// 1) exact identity match (same personal ckey, same crew
+				//    ship, or same faction network on both ends);
+				// 2) a shared faction membership via either end's OWN network
+				//    (bought under a faction the seller belongs to, or bought
+				//    personally by a ckey who's a member of the network now
+				//    doing the selling); or
+				// 3) both buyer and seller are independently members of the
+				//    SAME piracy beacon's own tagged faction, even if neither
+				//    transaction went through that faction's console at all
+				//    -- e.g. two different personal-mode members of the same
+				//    pirate faction buying and selling at their own beacon.
+				// Only applies to piracy sales; a real beacon never cares who
+				// bought a crate, only where it came from (above).
+				var/crate_faction = supply_beacon_source_key_faction(crate.purchaser_source_key)
+				var/seller_faction = supply_beacon_source_key_faction(source_key)
+				var/purchaser_ckey = supply_beacon_source_key_personal_ckey(crate.purchaser_source_key)
+				var/beacon_faction = B_is_piracy ? B:faction_uid : null
+
+				var/same_actor = crate.purchaser_source_key && crate.purchaser_source_key == source_key
+
+				var/list/candidate_factions = list()
+				if(crate_faction)
+					candidate_factions[crate_faction] = TRUE
+				if(seller_faction)
+					candidate_factions[seller_faction] = TRUE
+				if(beacon_faction)
+					candidate_factions[beacon_faction] = TRUE
+
+				var/same_faction = FALSE
+				for(var/candidate_uid in candidate_factions)
+					var/buyer_in_faction = (crate_faction == candidate_uid) || (purchaser_ckey && get_faction_member(purchaser_ckey, candidate_uid))
+					var/seller_in_faction = (seller_faction == candidate_uid) || (get_effective_faction_rank(user, candidate_uid) >= 0)
+					if(buyer_in_faction && seller_in_faction)
+						same_faction = TRUE
+						break
+
+				if(B_is_piracy && (same_actor || same_faction))
+					self_blocked += crate.amount
+					continue
 				found_crates += crate
 				total_available += crate.amount
 		if(total_available < order[commodity_key])
 			if(origin_blocked)
 				status_message = "Only [total_available]x [commodity["name"]] sellable here -- [origin_blocked]x was bought from this beacon and must be hauled elsewhere to sell."
+			else if(self_blocked)
+				status_message = "Only [total_available]x [commodity["name"]] sellable here -- [self_blocked]x was bought by you and isn't stolen goods a piracy beacon will fence."
 			else
 				status_message = "Only [total_available]x [commodity["name"]] found on your telepad(s) -- need [order[commodity_key]]."
 			return TRUE
