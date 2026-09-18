@@ -29,6 +29,13 @@
 /// beacon) pair is locked out of trading with it again in either direction.
 #define SUPPLY_BEACON_TRADE_COOLDOWN (30 MINUTES)
 
+/// Sell-price multiplier applied when the SELLING console's own Z has an
+/// operational piracy beacon (piracy_beacon_active_on_z(), piracy_beacon.dm)
+/// -- a deliberate incentive to actually relocate trading operations into
+/// nullsec/pirate territory rather than just sitting in regulated space.
+/// Buy prices are untouched; this only ever helps a sale. 1.25 = +25%.
+#define SUPPLY_BEACON_PIRACY_SELL_BONUS 1.25
+
 /// Placeholder commodity seed data -- flavor names only, easy to rename
 /// later (see GLOB.stock_market_seed_companies for the same convention).
 /// base_price is each commodity's long-run mean-reversion anchor (tick_
@@ -41,6 +48,41 @@ GLOBAL_LIST_INIT(supply_beacon_commodities, list(
 	"coraline"  = list("name" = "Coraline",  "crate_type" = /obj/structure/closet/crate/supply_beacon/coraline,  "base_price" = 2000, "volatility" = 2.2),
 	"veridium"  = list("name" = "Veridium",  "crate_type" = /obj/structure/closet/crate/supply_beacon/veridium,  "base_price" = 4000, "volatility" = 1.0),
 	"pyrolite"  = list("name" = "Pyrolite",  "crate_type" = /obj/structure/closet/crate/supply_beacon/pyrolite,  "base_price" = 1500, "volatility" = 2.5),
+	// One more raw ore, same flavor as the original 4.
+	"umbrite" = list("name" = "Umbrite", "crate_type" = /obj/structure/closet/crate/supply_beacon/umbrite, "base_price" = 2200, "volatility" = 2.0),
+	// First diversification pass -- invented-mineral-style names, same
+	// naming convention as the ore above but covering refined/gas/organic/
+	// tech categories. Kept alongside the plain-language batch below rather
+	// than replaced, per request -- both sets stay in the roster.
+	"ferrocite" = list("name" = "Ferrocite", "crate_type" = /obj/structure/closet/crate/supply_beacon/ferrocite, "base_price" = 5000, "volatility" = 0.8),
+	"thermyl"   = list("name" = "Thermyl",   "crate_type" = /obj/structure/closet/crate/supply_beacon/thermyl,   "base_price" = 2500, "volatility" = 3.0),
+	"chitenol"  = list("name" = "Chitenol",  "crate_type" = /obj/structure/closet/crate/supply_beacon/chitenol,  "base_price" = 1800, "volatility" = 2.0),
+	"nexolite"  = list("name" = "Nexolite",  "crate_type" = /obj/structure/closet/crate/supply_beacon/nexolite,  "base_price" = 6000, "volatility" = 1.8),
+	"solvanium" = list("name" = "Solvanium", "crate_type" = /obj/structure/closet/crate/supply_beacon/solvanium, "base_price" = 4500, "volatility" = 1.0),
+	"cryolen"   = list("name" = "Cryolen",   "crate_type" = /obj/structure/closet/crate/supply_beacon/cryolen,   "base_price" = 2800, "volatility" = 2.8),
+	"sporyn"    = list("name" = "Sporyn",    "crate_type" = /obj/structure/closet/crate/supply_beacon/sporyn,    "base_price" = 1200, "volatility" = 2.3),
+	"quantite"  = list("name" = "Quantite",  "crate_type" = /obj/structure/closet/crate/supply_beacon/quantite,  "base_price" = 7000, "volatility" = 2.0),
+	"lumenite"  = list("name" = "Lumenite",  "crate_type" = /obj/structure/closet/crate/supply_beacon/lumenite,  "base_price" = 8000, "volatility" = 3.5),
+	"vitralex"  = list("name" = "Vitralex",  "crate_type" = /obj/structure/closet/crate/supply_beacon/vitralex,  "base_price" = 3200, "volatility" = 2.6),
+	"rustanium" = list("name" = "Rustanium", "crate_type" = /obj/structure/closet/crate/supply_beacon/rustanium, "base_price" = 800,  "volatility" = 1.8),
+	// Practical/industrial goods -- plain, recognizable trade cargo rather
+	// than more invented mineral-style names. Refined/manufactured goods
+	// price higher and steadier than raw ore; consumables and coolant swing
+	// more.
+	"structural_alloy"     = list("name" = "Structural Alloy",     "crate_type" = /obj/structure/closet/crate/supply_beacon/structural_alloy,     "base_price" = 5000, "volatility" = 0.8),
+	"machine_parts"        = list("name" = "Machine Parts",        "crate_type" = /obj/structure/closet/crate/supply_beacon/machine_parts,        "base_price" = 4500, "volatility" = 1.0),
+	"cryo_coolant"         = list("name" = "Cryogenic Coolant",    "crate_type" = /obj/structure/closet/crate/supply_beacon/cryo_coolant,         "base_price" = 2800, "volatility" = 2.8),
+	"weapon_components"    = list("name" = "Weapon Components",    "crate_type" = /obj/structure/closet/crate/supply_beacon/weapon_components,    "base_price" = 7000, "volatility" = 2.0),
+	"salvaged_electronics" = list("name" = "Salvaged Electronics", "crate_type" = /obj/structure/closet/crate/supply_beacon/salvaged_electronics, "base_price" = 6000, "volatility" = 1.8),
+	"scrap_metal"          = list("name" = "Scrap Metal",          "crate_type" = /obj/structure/closet/crate/supply_beacon/scrap_metal,          "base_price" = 800,  "volatility" = 1.8),
+	// Consumer/luxury goods -- civilian trade, not industrial. Luxury items
+	// (jewelry, art) carry the highest volatility of the whole roster
+	// (speculative collector markets); food/medical stay cheaper and calmer.
+	"preserved_food"    = list("name" = "Preserved Foodstuffs", "crate_type" = /obj/structure/closet/crate/supply_beacon/preserved_food,    "base_price" = 1200, "volatility" = 2.3),
+	"exotic_spices"     = list("name" = "Exotic Spices",        "crate_type" = /obj/structure/closet/crate/supply_beacon/exotic_spices,     "base_price" = 1800, "volatility" = 2.0),
+	"medical_supplies"  = list("name" = "Medical Supplies",     "crate_type" = /obj/structure/closet/crate/supply_beacon/medical_supplies,  "base_price" = 3200, "volatility" = 2.6),
+	"fine_jewelry"      = list("name" = "Fine Jewelry",         "crate_type" = /obj/structure/closet/crate/supply_beacon/fine_jewelry,      "base_price" = 8000, "volatility" = 3.5),
+	"fine_art"          = list("name" = "Fine Art",             "crate_type" = /obj/structure/closet/crate/supply_beacon/fine_art,          "base_price" = 6500, "volatility" = 3.0),
 ))
 
 /// "[x],[y]" -> /obj/effect/overmap/supply_beacon, kept in lockstep with

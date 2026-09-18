@@ -82,6 +82,28 @@
 			same_z_pads += pad
 	return same_z_pads
 
+/**
+ * Resolves a beacon_id string to the actual beacon object, real or piracy.
+ * Real supply beacons keep their existing plain-numeric-string id
+ * (SSsupply_beacons.beacons lookup); a piracy beacon's id is
+ * "piracy_[ref]", parsed back out and matched against GLOB.piracy_beacons.
+ * Returns null for an unknown/stale id either way. Untyped return on
+ * purpose -- callers get either an /obj/effect/overmap/supply_beacon or an
+ * /obj/structure/machinery/piracy_beacon, and a typed var/proc-arg holding
+ * the "wrong" type for its declared type silently becomes null in DM, so
+ * every sell-side caller below treats what this returns as untyped too.
+ */
+/datum/computer_file/program/civilian/supplybeaconterminal/proc/_resolve_beacon(beacon_id)
+	if(!beacon_id)
+		return null
+	if(copytext("[beacon_id]", 1, 8) == "piracy_")
+		var/piracy_ref = copytext("[beacon_id]", 8)
+		for(var/obj/structure/machinery/piracy_beacon/P in GLOB.piracy_beacons)
+			if("\ref[P]" == piracy_ref)
+				return P
+		return null
+	return SSsupply_beacons.beacons["[beacon_id]"]
+
 /datum/computer_file/program/civilian/supplybeaconterminal/ui_data(mob/user)
 	var/list/data = initial_data()
 	var/console_z = computer ? GET_Z(computer) : 0
@@ -119,7 +141,8 @@
 			continue
 		var/in_range = supply_beacon_ship_in_range(console_z, B)
 		var/list/entry = list(
-			"beacon_id" = B.beacon_id,
+			"beacon_id" = "[B.beacon_id]",
+			"is_piracy" = FALSE,
 			"notes" = B.notes,
 			"x" = B.x,
 			"y" = B.y,
@@ -138,13 +161,69 @@
 			entry["prices"] = prices
 		data["beacons"] += list(entry)
 
+	// Piracy beacons: sell-only, same-Z-and-operational instead of overmap
+	// range, own independent commodity_prices -- see piracy_beacon.dm and
+	// _resolve_beacon()'s own doc comment above.
+	//
+	// Unlike a real supply beacon (always listed, out-of-range or not --
+	// they're public, admin-placed infrastructure with no secrecy to
+	// protect), a piracy beacon is only listed AT ALL when the console is
+	// already physically on that exact Z. piracy_beacon.dm's own top-of-
+	// file comment is explicit that it "deliberately never bumps zone
+	// security or shows the overmap 'shield' a real faction beacon claim
+	// does -- giving away a pirate base's location... defeats the point of
+	// it." Listing every piracy beacon in the galaxy (with its x/y) from
+	// every terminal everywhere, merely marked "out of range", would do
+	// exactly that.
+	for(var/obj/structure/machinery/piracy_beacon/P in GLOB.piracy_beacons)
+		if(QDELETED(P))
+			continue
+		if(GET_Z(computer) != GET_Z(P))
+			continue
+		var/in_range = P.is_operational()
+		var/list/entry = list(
+			"beacon_id" = "piracy_\ref[P]",
+			"is_piracy" = TRUE,
+			"notes" = "Piracy Beacon",
+			"x" = P.x,
+			"y" = P.y,
+			"in_range" = in_range,
+		)
+		if(in_range)
+			var/list/prices = list()
+			for(var/key in GLOB.supply_beacon_commodities)
+				prices += list(list(
+					"key" = key,
+					"current_price" = P.commodity_prices[key],
+					"previous_price" = P.commodity_previous_prices[key],
+					"price_high" = P.commodity_price_high[key],
+					"price_low" = P.commodity_price_low[key],
+				))
+			entry["prices"] = prices
+		data["beacons"] += list(entry)
+
+	// _resolve_beacon() can hand back either beacon type (see its own doc
+	// comment) -- untyped on purpose, so every member/proc access on
+	// `selected` below uses `:` (dynamic dispatch) rather than `.`, and
+	// QDELETED() (which expands using `.gc_destroyed` internally, so it
+	// doesn't compile against an untyped var) is replaced with the
+	// equivalent manual `:gc_destroyed` check.
 	data["selected_beacon_id"] = selected_beacon_id
-	var/obj/effect/overmap/supply_beacon/selected = selected_beacon_id ? SSsupply_beacons.beacons["[selected_beacon_id]"] : null
-	var/selected_in_range = (selected && !QDELETED(selected)) ? supply_beacon_ship_in_range(console_z, selected) : FALSE
+	var/selected = _resolve_beacon(selected_beacon_id)
+	var/selected_valid = selected && !selected:gc_destroyed
+	var/selected_is_piracy = istype(selected, /obj/structure/machinery/piracy_beacon)
+	var/selected_in_range = FALSE
+	if(selected_valid)
+		selected_in_range = selected_is_piracy ? ((GET_Z(computer) == GET_Z(selected)) && selected:is_operational()) : supply_beacon_ship_in_range(console_z, selected)
 	data["selected_in_range"] = selected_in_range
 
+	// Cooldown keys off the beacon_id STRING already in hand, not a
+	// `beacon_id` var read off the object -- piracy beacons have no such
+	// var at all (they're identified by "piracy_[ref]", not a numeric id),
+	// and supply_beacon_cooldown_remaining()/supply_beacon_set_cooldown()
+	// only ever use this as an opaque string key, so either id shape works.
 	var/source_key = get_supply_beacon_source_key(computer)
-	data["cooldown_remaining"] = (selected && !QDELETED(selected) && source_key) ? supply_beacon_cooldown_remaining(source_key, selected.beacon_id) : 0
+	data["cooldown_remaining"] = (selected_valid && source_key) ? supply_beacon_cooldown_remaining(source_key, selected_beacon_id) : 0
 
 	// Delivery telepad choice -- same-Z-only (see get_candidate_pads()).
 	data["telepad_choices"] = list()
@@ -164,7 +243,7 @@
 		if(!commodity)
 			continue
 		var/line_qty = cart[commodity_key]
-		var/unit_price = (selected && !QDELETED(selected)) ? selected.commodity_prices[commodity_key] : 0
+		var/unit_price = selected_valid ? selected:commodity_prices[commodity_key] : 0
 		data["cart"] += list(list(
 			"key" = commodity_key,
 			"name" = commodity["name"],
@@ -173,6 +252,13 @@
 		))
 		data["cart_total"] += unit_price * line_qty
 
+	// Mirrors the exact multiplier _checkout_sale() actually charges with --
+	// see SUPPLY_BEACON_PIRACY_SELL_BONUS's own doc comment
+	// (persistence_supply_beacons.dm). Surfaced separately so the TGUI can
+	// show a "piracy bonus active" indicator, not just a bigger number.
+	data["piracy_sell_bonus_active"] = piracy_beacon_active_on_z(console_z)
+	var/piracy_bonus = data["piracy_sell_bonus_active"] ? SUPPLY_BEACON_PIRACY_SELL_BONUS : 1
+
 	data["sell_cart"] = list()
 	data["sell_cart_total"] = 0
 	for(var/commodity_key in sell_cart)
@@ -180,14 +266,15 @@
 		if(!commodity)
 			continue
 		var/line_qty = sell_cart[commodity_key]
-		var/unit_price = (selected && !QDELETED(selected)) ? selected.commodity_prices[commodity_key] : 0
+		var/unit_price = selected_valid ? selected:commodity_prices[commodity_key] : 0
+		var/line_total = round(unit_price * line_qty * piracy_bonus)
 		data["sell_cart"] += list(list(
 			"key" = commodity_key,
 			"name" = commodity["name"],
 			"amount" = line_qty,
-			"line_total" = unit_price * line_qty,
+			"line_total" = line_total,
 		))
-		data["sell_cart_total"] += unit_price * line_qty
+		data["sell_cart_total"] += line_total
 
 	data["status_message"] = status_message
 	return data
@@ -327,11 +414,27 @@
  * Availability for EVERY line is validated up front before anything is
  * touched -- a partially-fillable cart refuses outright rather than selling
  * what it can and silently dropping the rest.
+ *
+ * `B` is deliberately untyped -- it can be a real
+ * /obj/effect/overmap/supply_beacon or an /obj/structure/machinery/
+ * piracy_beacon (see _resolve_beacon()'s own doc comment). A typed arg
+ * holding the "wrong" type for its declared type silently becomes null in
+ * DM, which would make every piracy sale fail with no error -- and every
+ * member/proc access on it below uses `:` rather than `.` for the same
+ * reason (a plain `.` only resolves against a var/proc's STATIC declared
+ * type, which an untyped var doesn't have). `beacon_id_str` is the same
+ * string _resolve_beacon() was given to find B in the first place --
+ * passed through separately rather than read back off B via `.beacon_id`,
+ * since a piracy beacon has no such var at all (`:beacon_id` on one would
+ * be a runtime error, not a graceful null).
  */
-/datum/computer_file/program/civilian/supplybeaconterminal/proc/_checkout_sale(mob/user, obj/effect/overmap/supply_beacon/B, source_key, list/order)
+/datum/computer_file/program/civilian/supplybeaconterminal/proc/_checkout_sale(mob/user, B, beacon_id_str, source_key, list/order)
 	if(!length(order))
 		status_message = "Nothing to sell."
 		return TRUE
+
+	var/B_is_piracy = istype(B, /obj/structure/machinery/piracy_beacon)
+	var/B_label = B_is_piracy ? "Piracy Beacon" : "Supply Beacon #[B:beacon_id]"
 
 	// Same-Z-only (get_candidate_pads()) -- only ever look for crates
 	// physically sitting on THIS ship/station's own telepads, never a
@@ -360,8 +463,11 @@
 				// A crate can't be sold back to the beacon it was bought from --
 				// that would be a risk-free round trip on the buy/sell spread
 				// without ever hauling anything. Counted separately so the
-				// refusal can say why.
-				if(crate.origin_beacon_id && crate.origin_beacon_id == B.beacon_id)
+				// refusal can say why. Never true for a piracy beacon -- it has
+				// no beacon_id at all, and a crate can never have been bought
+				// FROM one (piracy beacons are sell-only), so this check simply
+				// never applies there, no special-casing needed.
+				if(!B_is_piracy && crate.origin_beacon_id && crate.origin_beacon_id == B:beacon_id)
 					origin_blocked += crate.amount
 					continue
 				found_crates += crate
@@ -373,6 +479,13 @@
 				status_message = "Only [total_available]x [commodity["name"]] found on your telepad(s) -- need [order[commodity_key]]."
 			return TRUE
 		found_crates_by_commodity[commodity_key] = found_crates
+
+	// Selling FROM a Z with an operational piracy beacon pays a flat bonus on
+	// top of the beacon's own listed price -- see SUPPLY_BEACON_PIRACY_SELL_BONUS's
+	// own doc comment (persistence_supply_beacons.dm). Resolved once up front
+	// so the same multiplier is used for every line and can't drift mid-sale
+	// if the beacon's power state somehow changes between lines.
+	var/piracy_bonus = piracy_beacon_active_on_z(GET_Z(computer)) ? SUPPLY_BEACON_PIRACY_SELL_BONUS : 1
 
 	var/total_proceeds = 0
 	var/list/touched_turfs = list()
@@ -396,8 +509,8 @@
 				crate.amount -= remaining
 				crate.refresh_label()
 				remaining = 0
-		total_proceeds += B.commodity_prices[commodity_key] * order[commodity_key]
-		B.apply_trade_impact(commodity_key, order[commodity_key], FALSE)
+		total_proceeds += round(B:commodity_prices[commodity_key] * order[commodity_key] * piracy_bonus)
+		B:apply_trade_impact(commodity_key, order[commodity_key], FALSE)
 		summary += "[order[commodity_key]]x [commodity["name"]]"
 
 	// Send-off feedback -- matches Cargo Exports' own export_now exactly, so a
@@ -428,13 +541,15 @@
 			acc.adjust_money(total_proceeds)
 			status_message = "Sold [english_list(summary)] for [total_proceeds] cr to [crew_ship.display_name()]'s account."
 	else
-		faction_credit(net, total_proceeds, "Supply Beacon sale (#[B.beacon_id])")
+		faction_credit(net, total_proceeds, "[B_label] sale")
 		status_message = "Sold [english_list(summary)] for [total_proceeds] cr to [get_faction_name(net)]."
 
-	// ONE cooldown for the whole order, however many lines it had.
-	supply_beacon_set_cooldown(source_key, B.beacon_id)
+	// ONE cooldown for the whole order, however many lines it had. Keyed off
+	// the string id passed in, not a `.beacon_id` read off B -- see this
+	// proc's own doc comment for why.
+	supply_beacon_set_cooldown(source_key, beacon_id_str)
 	sell_cart = list()
-	log_game("[key_name(user)] sold [english_list(summary)] to Supply Beacon #[B.beacon_id] for [total_proceeds] cr via Supply Beacon Terminal.")
+	log_game("[key_name(user)] sold [english_list(summary)] to [B_label] for [total_proceeds] cr via Supply Beacon Terminal.")
 	return TRUE
 
 /datum/computer_file/program/civilian/supplybeaconterminal/ui_act(action, list/params, datum/tgui/ui, datum/ui_state/state)
@@ -445,7 +560,10 @@
 
 	switch(action)
 		if("select_beacon")
-			selected_beacon_id = text2num(params["beacon_id"])
+			// Kept as the raw string -- a real beacon's plain numeric id and a
+			// piracy beacon's "piracy_[ref]" id both pass through _resolve_beacon()
+			// unchanged; text2num() here would silently mangle the latter.
+			selected_beacon_id = params["beacon_id"]
 			return TRUE
 
 		//Pick which of the console's own-scope cargo telepads a purchase should
@@ -550,11 +668,13 @@
 			return _checkout_purchase(user, B, source_key, cart.Copy())
 
 		if("sell")
-			var/obj/effect/overmap/supply_beacon/B = selected_beacon_id ? SSsupply_beacons.beacons["[selected_beacon_id]"] : null
-			if(!B || QDELETED(B))
+			var/B = _resolve_beacon(selected_beacon_id)
+			if(!B || B:gc_destroyed)
 				status_message = "Select a beacon first."
 				return TRUE
-			if(!computer || !supply_beacon_ship_in_range(GET_Z(computer), B))
+			var/B_is_piracy = istype(B, /obj/structure/machinery/piracy_beacon)
+			var/B_in_range = B_is_piracy ? ((GET_Z(computer) == GET_Z(B)) && B:is_operational()) : supply_beacon_ship_in_range(GET_Z(computer), B)
+			if(!computer || !B_in_range)
 				status_message = "Your ship must be adjacent to the beacon to trade."
 				return TRUE
 			var/commodity_key = params["commodity"]
@@ -569,14 +689,16 @@
 			if(!source_key)
 				status_message = "This terminal isn't linked to a faction, personal, or crew network."
 				return TRUE
-			var/cooldown = supply_beacon_cooldown_remaining(source_key, B.beacon_id)
+			// Keyed off the string id, not B.beacon_id -- see _checkout_sale()'s
+			// own doc comment for why (a piracy beacon has no such var at all).
+			var/cooldown = supply_beacon_cooldown_remaining(source_key, selected_beacon_id)
 			if(cooldown > 0)
 				status_message = "This beacon is on cooldown for [DisplayTimeText(cooldown SECONDS)] more."
 				return TRUE
 
 			// A single "Sell" is just a one-line cart checked out immediately --
 			// see _checkout_sale()'s own doc comment for why this matters.
-			return _checkout_sale(user, B, source_key, list("[commodity_key]" = amount))
+			return _checkout_sale(user, B, selected_beacon_id, source_key, list("[commodity_key]" = amount))
 
 		// ---- Sell cart ---------------------------------------------------
 		if("sell_cart_add")
@@ -607,19 +729,23 @@
 			if(!length(sell_cart))
 				status_message = "Sell cart is empty."
 				return TRUE
-			var/obj/effect/overmap/supply_beacon/B = selected_beacon_id ? SSsupply_beacons.beacons["[selected_beacon_id]"] : null
-			if(!B || QDELETED(B))
+			var/B = _resolve_beacon(selected_beacon_id)
+			if(!B || B:gc_destroyed)
 				status_message = "Select a beacon first."
 				return TRUE
-			if(!computer || !supply_beacon_ship_in_range(GET_Z(computer), B))
+			var/B_is_piracy = istype(B, /obj/structure/machinery/piracy_beacon)
+			var/B_in_range = B_is_piracy ? ((GET_Z(computer) == GET_Z(B)) && B:is_operational()) : supply_beacon_ship_in_range(GET_Z(computer), B)
+			if(!computer || !B_in_range)
 				status_message = "Your ship must be adjacent to the beacon to trade."
 				return TRUE
 			var/source_key = get_supply_beacon_source_key(computer)
 			if(!source_key)
 				status_message = "This terminal isn't linked to a faction, personal, or crew network."
 				return TRUE
-			var/cooldown = supply_beacon_cooldown_remaining(source_key, B.beacon_id)
+			// Keyed off the string id, not B.beacon_id -- see _checkout_sale()'s
+			// own doc comment for why (a piracy beacon has no such var at all).
+			var/cooldown = supply_beacon_cooldown_remaining(source_key, selected_beacon_id)
 			if(cooldown > 0)
 				status_message = "This beacon is on cooldown for [DisplayTimeText(cooldown SECONDS)] more."
 				return TRUE
-			return _checkout_sale(user, B, source_key, sell_cart.Copy())
+			return _checkout_sale(user, B, selected_beacon_id, source_key, sell_cart.Copy())
