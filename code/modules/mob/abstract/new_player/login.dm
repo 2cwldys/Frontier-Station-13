@@ -44,16 +44,21 @@
 			answer = tgui_alert(src, "This server has settings enabled that may not be for all audiences. Are you 18 years of age or older?", "Age Verification", list("Yes", "No"))
 			if(answer == "Yes" || answer == "No")
 				break
-		if(client && !QDELETED(client))
-			if(answer == "Yes")
-				age_verification_set(client.ckey)
-				log_and_message_admins("EVENT [client.ckey] successfully verified they are 18 years of age or older.", null)
-			else
-				var/client/C = client
-				to_chat(src, SPAN_DANGER("You have been banned for failing to confirm you are 18 years of age or older."))
-				log_and_message_admins("EVENT [C.ckey] was automatically banned for failing 18+ age verification.", null)
-				system_ban_ckey(C.ckey, C.computer_id, C.address, "Failed mandatory 18+ age verification.")
-				qdel(C)
+		if(!client || QDELETED(client))
+			return
+		if(answer == "Yes")
+			// Falls through to the rest of LateLogin() below (MOTD, character
+			// select, welcome line/lobby music) -- only a ban should short-
+			// circuit the connection here, a successful verification should
+			// not.
+			age_verification_set(client.ckey)
+			log_and_message_admins("[client.ckey] successfully verified they are 18 years of age or older.", null)
+		else
+			var/client/C = client
+			to_chat(src, SPAN_DANGER("You have been banned for failing to confirm you are 18 years of age or older."))
+			log_and_message_admins("[C.ckey] was automatically banned for failing 18+ age verification.", null)
+			system_ban_ckey(C.ckey, C.computer_id, C.address, "Failed mandatory 18+ age verification.")
+			qdel(C)
 			return
 
 	if(GLOB.motd)
