@@ -729,18 +729,20 @@ GLOBAL_LIST_EMPTY(hub_emergency_last_tracked)
  * the PDA/modular_computer channel entirely and delivers straight to the
  * mob (chat line + sound), so it reaches active Hub security regardless of
  * whether their PDA is off, silenced, or not even on them. "Active Hub
- * security" is any connected human with a genuine Hub faction membership
- * above civilian rank (get_effective_faction_rank(), persistence_factions.dm
- * -- the same bar can_access_hub_depot() uses), not just whoever happens to
- * be carrying a Hub-tagged PDA right now. Returns the number of people
- * reached, for the caller's own confirmation message.
+ * security" is anyone zone_security_exempt() (above) already recognizes as
+ * genuine, currently-equipped Hub security -- Hub faction membership AND
+ * ACCESS_SECURITY actually present on their worn ID -- not just any Hub
+ * job holder (can_access_hub_depot()'s bar, persistence_factions.dm, is
+ * deliberately broader than that -- any Hub job at all, e.g. a miner --
+ * and is the wrong one for this). Returns the number of people reached,
+ * for the caller's own confirmation message.
  */
 /proc/zone_security_roll_call(mob/user)
 	var/reached = 0
 	for(var/mob/living/carbon/human/H in GLOB.player_list)
 		if(!H.client)
 			continue
-		if(get_effective_faction_rank(H, "hub") <= FACTION_RANK_CIVILIAN)
+		if(!zone_security_exempt(H))
 			continue
 		to_chat(H, SPAN_ALERT(FONT_LARGE("ROLL CALL: [user ? user.real_name : "Hub Command"] is calling all active Hub security to report in.")))
 		playsound(get_turf(H), 'sound/machines/twobeep.ogg', 40, 1)
