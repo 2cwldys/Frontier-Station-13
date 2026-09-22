@@ -265,21 +265,35 @@
 
 	if(check_rights(R_ADMIN|R_MOD|R_DEBUG|R_DEV) || isstoryteller(src.mob))
 		if(GLOB.config.allow_admin_jump)
+			// Keyed by a disambiguated label rather than a flat value list --
+			// input() as anything in list keys its popup rows by each
+			// candidate's stringified name, so two sectors sharing an
+			// identical name (e.g. multiple "lone asteroid"/"phoron deposit"
+			// instances) would otherwise collapse to a single reachable row.
+			// Coordinates only get appended once an actual collision shows
+			// up, so every already-unique sector keeps its plain name as
+			// before.
 			var/list/sectors = list()
-			for(var/sector in SSshuttle.initialized_sectors)
-				sectors += sector
+			for(var/obj/effect/overmap/visitable/sector as anything in SSshuttle.initialized_sectors)
+				var/label = sector.name
+				if(sectors[label])
+					var/obj/effect/overmap/visitable/existing = sectors[label]
+					sectors -= label
+					sectors["[existing.name] ([existing.x],[existing.y])"] = existing
+					label = "[sector.name] ([sector.x],[sector.y])"
+				sectors[label] = sector
 			var/selection = input("Select sector to jump to.", "Admin Jumping", null, null) as null|anything in sectors
 			if(!selection)
 				to_chat(src, "No sector selected.")
 				return
-			var/obj/effect/overmap/visitable/sector/sector = selection
+			var/obj/effect/overmap/visitable/sector/sector = sectors[selection]
 			if(src && src.mob && sector && sector.map_z && sector.map_z[1])
 				var/mob/A = src.mob
 				A.on_mob_jump()
 				A.x = world.maxx/2
 				A.y = world.maxy/2
 				A.z = sector.map_z[1]
-				message_admins("[key_name_admin(usr)] jumped to sector [selection]", 1)
+				message_admins("[key_name_admin(usr)] jumped to sector [sector]", 1)
 				feedback_add_details("admin_verb","JSEC") //If you are copy-pasting this, ensure the 2nd parameter is unique to the new proc!
 		else
 			alert("Admin jumping disabled")

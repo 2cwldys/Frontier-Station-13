@@ -280,6 +280,33 @@
 // so opting in should be deliberate.
 #define AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
 
+// If defined (default), frontier.dm spawns extra guaranteed "lone asteroid"
+// away sites (bonus_away_site_counts, map.dm) on top of the normal weighted
+// budget draw -- "lone asteroid" is actually two independent templates
+// sharing that display name (cursed, abandoned_bunker), each with its own
+// tunable count below. Doesn't come out of away_site_budget, so no other
+// away-site type is affected. Independent of FRONTIER_BONUS_PHORON_DEPOSITS
+// below -- either can be toggled without the other. Comment out to rely
+// purely on the normal budget lottery for these two templates, same as any
+// other map.
+#define FRONTIER_BONUS_LONE_ASTEROIDS
+/// Extra "cursed" template instances spawned while
+/// FRONTIER_BONUS_LONE_ASTEROIDS is defined.
+#define FRONTIER_BONUS_CURSED_COUNT 1
+/// Extra "abandoned_bunker" template instances (the OTHER template sharing
+/// the "lone asteroid" display name) spawned while
+/// FRONTIER_BONUS_LONE_ASTEROIDS is defined.
+#define FRONTIER_BONUS_ABANDONED_BUNKER_COUNT 1
+
+// If defined (default), frontier.dm spawns extra guaranteed "phoron
+// deposit" away sites the same way -- independent of
+// FRONTIER_BONUS_LONE_ASTEROIDS above. Comment out to rely purely on the
+// normal budget lottery for this site type.
+#define FRONTIER_BONUS_PHORON_DEPOSITS
+/// Extra "deposit" template instances spawned while
+/// FRONTIER_BONUS_PHORON_DEPOSITS is defined.
+#define FRONTIER_BONUS_DEPOSIT_COUNT 2
+
 // If defined, faction-tagged equipment can only be WORN by people employed by
 // that faction (can_use_faction_equipment(), persistence_factions.dm) -- gated
 // in mob_can_equip() (items.dm) so every equip route is covered at once.

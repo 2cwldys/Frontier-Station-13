@@ -161,14 +161,39 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 		list("mp" = "[SSatlas.current_map.path]"))
 	zq.Execute()
 	var/loaded = 0
+	var/list/stale_zs = list()
 	if(databaseCheckQueryResult(zq, "zoneSecurityInitialize"))
 		while(zq.NextRow())
 			var/row_z = text2num(zq.item[1])
 			var/row_level = text2num(zq.item[2])
+			// Away-site Z numbers are NOT stable identities across a restart --
+			// they're just world.maxz+1 at creation time, freely reused pool
+			// addresses (away sites are rebuilt fresh, in a new order, every
+			// boot). A row saved for "whatever used to be at this z" has no
+			// relationship to whatever fresh site landed on that same number
+			// THIS boot. Only the station's own levels and a currently-pinned
+			// site's z are stable enough for a saved tier to still mean
+			// anything -- everything else is guaranteed-stale garbage from a
+			// long-gone site, kept here only long enough to be dropped so it
+			// can never leak onto this boot's unrelated occupant.
+			if(!is_station_level(row_z) && !(row_z in GLOB.persistence_pinned_site_z))
+				stale_zs += row_z
+				continue
 			GLOB.zone_security_by_z["[row_z]"] = row_level
 			log_subsystem_persistence_info("Zone security: loaded z=[row_z] -> [zone_security_name(row_level)] from ss13_zone_security.")
 			loaded++
 	qdel(zq)
+
+	if(length(stale_zs))
+		var/datum/db_query/prune = SSdbcore.NewQuery(
+			"DELETE FROM ss13_zone_security WHERE map_path = :mp AND z IN ([jointext(stale_zs, ",")])",
+			list("mp" = "[SSatlas.current_map.path]")
+		)
+		prune.Execute()
+		databaseCheckQueryResult(prune, "zoneSecurityInitialize prune stale")
+		qdel(prune)
+		log_subsystem_persistence_info("Zone security: dropped [length(stale_zs)] stale z-level row(s) with no stable identity across a restart: [english_list(stale_zs)].")
+
 	// Still paint the overmap even if the query above failed -- pinned-site
 	// zones registered before this proc ran should still show correctly.
 	zone_security_update_overmap()
