@@ -2,7 +2,7 @@
 .SYNOPSIS
     Dumps a shard's LOCAL database to a timestamped, portable SQL file --
     same shape as scripts/db_backup.ps1 for the main server, just scoped to
-    one shard's own aurora-shard-<ShardId>-db container. Keeps the 7 most
+    one shard's own aurora-shard-<ShardId>-db container. Keeps the 14 most
     recent backups per shard and deletes older ones automatically.
 
 .DESCRIPTION
@@ -95,12 +95,12 @@ Write-Output "Backup complete: $OutFile ($Size KB)"
 $Backups = Get-ChildItem -Path $BackupDir -Filter "backup_*.sql" |
            Sort-Object LastWriteTime -Descending
 
-if ($Backups.Count -gt 7) {
-    $ToDelete = $Backups | Select-Object -Skip 7
+if ($Backups.Count -gt 14) {
+    $ToDelete = $Backups | Select-Object -Skip 14
     foreach ($f in $ToDelete) {
         Remove-Item $f.FullName -Force
         Write-Output "Removed old backup: $($f.Name)"
     }
 }
 
-Write-Output "Backups retained for '$ShardId': $(($Backups | Select-Object -First 7).Count)/7"
+Write-Output "Backups retained for '$ShardId': $(($Backups | Select-Object -First 14).Count)/14"

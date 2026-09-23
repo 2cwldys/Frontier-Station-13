@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Dump the Aurora database to a timestamped SQL file in the backups/ directory.
-    Keeps the 7 most recent backups and deletes older ones automatically.
+    Keeps the 14 most recent backups and deletes older ones automatically.
 
 .NOTES
     Run before stopping the server or before applying major changes.
@@ -92,16 +92,16 @@ if ($LASTEXITCODE -ne 0) {
 $Size = [math]::Round((Get-Item $OutFile).Length / 1KB, 1)
 Write-Output "Backup complete: $OutFile ($Size KB)"
 
-# Rotate: keep only the 7 most recent backups
+# Rotate: keep only the 14 most recent backups
 $Backups = Get-ChildItem -Path $BackupDir -Filter "backup_*.sql" |
            Sort-Object LastWriteTime -Descending
 
-if ($Backups.Count -gt 7) {
-    $ToDelete = $Backups | Select-Object -Skip 7
+if ($Backups.Count -gt 14) {
+    $ToDelete = $Backups | Select-Object -Skip 14
     foreach ($f in $ToDelete) {
         Remove-Item $f.FullName -Force
         Write-Output "Removed old backup: $($f.Name)"
     }
 }
 
-Write-Output "Backups retained: $(($Backups | Select-Object -First 7).Count)/7"
+Write-Output "Backups retained: $(($Backups | Select-Object -First 14).Count)/14"

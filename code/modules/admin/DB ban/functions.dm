@@ -112,6 +112,26 @@
 	to_chat(usr, SPAN_NOTICE("Ban saved to database."))
 	message_admins("[key_name_admin(usr)] has added a [bantype_str] for [ckey] [(job)?"([job])":""] [(duration > 0)?"([duration] minutes)":""] with the reason: \"[reason]\" to the ban database.",1)
 
+/// Bans a ckey with no acting admin -- for automated server-policy
+/// enforcement (e.g. failed mandatory age verification), not admin
+/// discretion. DB_ban_record() above cannot be reused here: it hard-requires
+/// check_rights() on usr plus a valid admin holder, which nothing in an
+/// automated flow has. Mirrors DB_ban_record()'s own ss13_ban INSERT for
+/// BANTYPE_PERMA exactly, minus that gate, then writes the same
+/// legacy/central mirrors a real admin ban writes.
+/proc/system_ban_ckey(ckey, computerid, ip, reason)
+	if(!establish_db_connection(GLOB.dbcon))
+		return FALSE
+	ckey = ckey(ckey)
+	reason = sql_sanitize_text(reason)
+	var/serverip = "[world.internet_address]:[world.port]"
+	var/sql = "INSERT INTO ss13_ban (`id`,`bantime`,`serverip`,`game_id`,`bantype`,`reason`,`job`,`duration`,`rounds`,`expiration_time`,`ckey`,`computerid`,`ip`,`a_ckey`,`a_computerid`,`a_ip`,`who`,`adminwho`,`edits`,`unbanned`,`unbanned_datetime`,`unbanned_ckey`,`unbanned_computerid`,`unbanned_ip`) VALUES (null, Now(), '[serverip]', '[GLOB.round_id]', 'PERMABAN', '[reason]', '', 0, 0, Now(), '[ckey]', '[computerid]', '[ip]', 'SYSTEM', '', '[world.address]', '', '', '', null, null, null, null, null)"
+	var/DBQuery/query = GLOB.dbcon.NewQuery(sql)
+	query.Execute()
+	apply_central_ban(ckey, reason, "SYSTEM", 0)
+	AddBan(ckey, computerid, reason, "SYSTEM", FALSE, 0, ip)
+	return TRUE
+
 /proc/DB_ban_unban(var/ckey, var/bantype, var/job = "")
 
 	if(!check_rights(R_BAN))	return

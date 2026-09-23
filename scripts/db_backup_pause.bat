@@ -1,5 +1,5 @@
 @echo off
-:: Dump the Aurora database to backups\ (keeps last 7).
+:: Dump the Aurora database to backups\ (keeps last 14).
 :: No pause at the end -- this is invoked non-interactively from the game
 :: server (persistence_backups.dm's trigger_database_backup() admin verb,
 :: via world.shelleo()), which can never satisfy a "press any key" prompt --

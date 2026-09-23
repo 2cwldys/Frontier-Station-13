@@ -219,6 +219,16 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
 /datum/controller/subsystem/persistence/proc/objectsFinalize()
 	PRIVATE_PROC(TRUE)
 
+#ifdef AUTO_DB_CLEANUP
+	// Before writing this cycle's fresh data -- see AUTO_DB_CLEANUP's own
+	// comment (_compile_options.dm) and objectsCleanupDuplicateEntries()'s
+	// (persistence_objects_sql.dm) for what this does and doesn't touch.
+	try
+		objectsCleanupDuplicateEntries()
+	catch(var/exception/dedup_e)
+		log_subsystem_persistence_panic("Unhandled exception during duplicate persistent-object cleanup: [dedup_e]")
+#endif
+
 	// Subsystem shutdown:
 	// Create new persistent records for objects that have been created in the round
 	// Update tracked objects that have an ID (already existing from previous rounds)
@@ -431,6 +441,7 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
 	.["amount"] = amount
 	.["origin_beacon_id"] = origin_beacon_id
 	.["origin_beacon_label"] = origin_beacon_label
+	.["purchaser_source_key"] = purchaser_source_key
 
 /obj/structure/closet/crate/supply_beacon/persistent_objects_apply_content(list/content, x, y, z)
 	..()
@@ -442,6 +453,8 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
 		origin_beacon_id = content["origin_beacon_id"]
 	if(!isnull(content["origin_beacon_label"]))
 		origin_beacon_label = content["origin_beacon_label"]
+	if(!isnull(content["purchaser_source_key"]))
+		purchaser_source_key = content["purchaser_source_key"]
 	refresh_label()
 
 /obj/structure/closet/persistent_objects_apply_content(list/content, x, y, z)
@@ -574,6 +587,71 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
 			my_red_toolbox = I
 		else if(istype(I, /obj/item/lightreplacer))
 			my_lightreplacer = I
+
+/// Re-points the janitorial cart's own typed slot vars at whatever matching
+/// items ended up in contents after the generic item restore above, and
+/// recounts signs (the actual /obj/item/clothing/suit/caution instances are
+/// already restored as loose contents -- this just recomputes the convenience
+/// counter update_icon()/attackby() read). my_bucket is NOT handled here --
+/// it's a /obj/structure, not an /obj/item, so it never enters this loop at
+/// all; see the janitorialcart persistent_objects_*_content() overrides below.
+/obj/structure/cart/storage/janitorialcart/_rebuild_cart_slots()
+	my_bag = null
+	my_mop = null
+	my_spray = null
+	my_lightreplacer = null
+	signs = 0
+	for(var/obj/item/I in contents)
+		if(istype(I, /obj/item/storage/bag/trash))
+			my_bag = I
+		else if(istype(I, /obj/item/mop))
+			my_mop = I
+		else if(istype(I, /obj/item/reagent_containers/spray))
+			my_spray = I
+		else if(istype(I, /obj/item/lightreplacer))
+			my_lightreplacer = I
+		else if(istype(I, /obj/item/clothing/suit/caution))
+			signs++
+
+/// my_bucket is a /obj/structure/mopbucket parented into contents like any
+/// other accessory, but the base cart override above only ever sweeps
+/// /obj/item -- it's silently skipped by that loop in both directions, so it
+/// needs its own explicit save here (presence + its own reagent fill level,
+/// which is the whole point of a mop bucket).
+/obj/structure/cart/storage/janitorialcart/persistent_objects_get_content()
+	. = ..()
+	.["has_bucket"] = my_bucket ? TRUE : FALSE
+	if(my_bucket && my_bucket.reagents && my_bucket.reagents.total_volume && length(my_bucket.reagents.reagent_volumes))
+		var/list/bucket_reagents = list()
+		for(var/rtype in my_bucket.reagents.reagent_volumes)
+			bucket_reagents["[rtype]"] = my_bucket.reagents.reagent_volumes[rtype]
+		.["bucket_reagents"] = json_encode(bucket_reagents)
+
+/// The base override's blind "while(length(contents)) qdel(contents[1])" wipe
+/// (persistent_objects_apply_content() above) destroys my_bucket too -- it's
+/// sitting in contents same as any item, even though it's a /obj/structure --
+/// so it's nulled BEFORE calling ..() (otherwise the base's own update_icon()
+/// call, which runs partway through ..(), would read a dangling reference to
+/// the just-qdel'd bucket) and recreated fresh afterward from has_bucket/
+/// bucket_reagents.
+/obj/structure/cart/storage/janitorialcart/persistent_objects_apply_content(content, x, y, z)
+	my_bucket = null
+	..()
+	if(!islist(content))
+		return
+	if(content["has_bucket"])
+		my_bucket = new /obj/structure/mopbucket(src)
+		if(content["bucket_reagents"])
+			var/list/saved_reagents = json_decode(content["bucket_reagents"])
+			if(islist(saved_reagents))
+				for(var/rtype_str in saved_reagents)
+					var/rtype = text2path(rtype_str)
+					if(rtype)
+						my_bucket.reagents.add_reagent(rtype, text2num(saved_reagents[rtype_str]))
+	// Refreshes storage_contents (radial menu) and the overlay icon now that
+	// my_bucket exists again -- ..() already ran both once, but only against
+	// the momentarily-null bucket state above.
+	get_storage_contents_list()
 
 // ============================================================
 // COSMETIC COLOR -- these item types roll a random `color` in Initialize()

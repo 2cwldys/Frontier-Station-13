@@ -16,6 +16,8 @@ GLOBAL_LIST_INIT(lobby_track_durations, list(
 	'sound/music/lobby/astrogenesis.ogg' = 2492,
 	'sound/music/lobby/duneorange_nang.ogg' = 2470,
 	'sound/music/lobby/emperor_battle_for_dune.ogg' = 3551,
+	'sound/music/lobby/fable_ii_bowerlake.ogg' = 3828,
+	'sound/music/lobby/firefly_reavers_drum_extended.ogg' = 2719,
 	'sound/music/lobby/interkosmos_persistence.ogg' = 4391,
 	'sound/music/lobby/jrb_naked_reality.ogg' = 6880,
 	'sound/music/lobby/kaaistoep.ogg' = 2810,

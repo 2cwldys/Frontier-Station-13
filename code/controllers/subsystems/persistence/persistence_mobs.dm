@@ -1757,6 +1757,13 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		var/obj/item/rfd/R = I
 		data["rfd_matter"] = R.stored_matter
 
+	// Light replacer charge count (starts full/empty per subtype; initial()
+	// is each subtype's own documented starting value, used as the clamp
+	// ceiling on restore)
+	if(istype(I, /obj/item/lightreplacer))
+		var/obj/item/lightreplacer/LR = I
+		data["lightreplacer_uses"] = LR.uses
+
 	// Reagent contents (beakers, bottles, syringes, spray bottles, extinguishers, etc.)
 	if(I.reagents && I.reagents.total_volume > 0 && length(I.reagents.reagent_volumes))
 		var/list/reagents = list()
@@ -2263,6 +2270,14 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		var/obj/item/rfd/R = I
 		R.stored_matter = clamp(text2num("[data["rfd_matter"]]"), 0, initial(R.stored_matter))
 		R.update_icon()
+
+	// Light replacer charge count -- clamped to max_uses (the real ceiling),
+	// not initial(uses): the advanced variant starts EMPTY (initial 0) and
+	// gets refilled up to its own max_uses, so clamping to initial() would
+	// wipe every refill straight back to empty on restore.
+	if(!isnull(data["lightreplacer_uses"]) && istype(I, /obj/item/lightreplacer))
+		var/obj/item/lightreplacer/LR = I
+		LR.uses = clamp(text2num("[data["lightreplacer_uses"]]"), 0, LR.max_uses)
 
 	// Reagents
 	if(data["reagents"] && I.reagents)

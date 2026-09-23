@@ -265,21 +265,42 @@
 
 	if(check_rights(R_ADMIN|R_MOD|R_DEBUG|R_DEV) || isstoryteller(src.mob))
 		if(GLOB.config.allow_admin_jump)
+			// Keyed by a disambiguated label rather than a flat value list --
+			// input() as anything in list keys its popup rows by each
+			// candidate's stringified name, so two (or more) sectors sharing
+			// an identical name (e.g. multiple "lone asteroid"/"phoron
+			// deposit" instances) would otherwise collapse to a single
+			// reachable row. Two passes, not an on-the-fly collision check:
+			// grouping by name first means EVERY member of a 3+-way
+			// collision gets coordinates, not just the first two -- an
+			// on-the-fly "already taken? relabel both" check only ever
+			// catches one collision, since relabeling the earlier entry
+			// vacates the plain-name slot for a third same-named sector to
+			// silently reclaim. Sectors with a unique name are unaffected,
+			// same plain label as before.
+			var/list/by_name = list()
+			for(var/obj/effect/overmap/visitable/sector as anything in SSshuttle.initialized_sectors)
+				LAZYADD(by_name[sector.name], sector)
 			var/list/sectors = list()
-			for(var/sector in SSshuttle.initialized_sectors)
-				sectors += sector
+			for(var/sector_name in by_name)
+				var/list/group = by_name[sector_name]
+				if(length(group) > 1)
+					for(var/obj/effect/overmap/visitable/sector as anything in group)
+						sectors["[sector_name] ([sector.x],[sector.y])"] = sector
+				else
+					sectors[sector_name] = group[1]
 			var/selection = input("Select sector to jump to.", "Admin Jumping", null, null) as null|anything in sectors
 			if(!selection)
 				to_chat(src, "No sector selected.")
 				return
-			var/obj/effect/overmap/visitable/sector/sector = selection
+			var/obj/effect/overmap/visitable/sector/sector = sectors[selection]
 			if(src && src.mob && sector && sector.map_z && sector.map_z[1])
 				var/mob/A = src.mob
 				A.on_mob_jump()
 				A.x = world.maxx/2
 				A.y = world.maxy/2
 				A.z = sector.map_z[1]
-				message_admins("[key_name_admin(usr)] jumped to sector [selection]", 1)
+				message_admins("[key_name_admin(usr)] jumped to sector [sector]", 1)
 				feedback_add_details("admin_verb","JSEC") //If you are copy-pasting this, ensure the 2nd parameter is unique to the new proc!
 		else
 			alert("Admin jumping disabled")

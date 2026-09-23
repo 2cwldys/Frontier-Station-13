@@ -5,7 +5,7 @@
 
     Registers the same "AuroraDB_DailyBackup" Windows Scheduled Task
     db_setup.ps1 optionally offers during first-time setup -- runs
-    db_backup.ps1 (dump + 7-backup rotation) daily at 04:00.
+    db_backup.ps1 (dump + 14-backup rotation) daily at 04:00.
 
     Safe to re-run -- re-registering just replaces the existing task
     definition with an identical one.

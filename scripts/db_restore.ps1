@@ -5,7 +5,7 @@
     With no arguments, lists the backups\ rotation sorted by timestamp and lets
     you pick one. With -Path, restores from any .sql file you point it at --
     an archived dump, a copy pulled aside before a risky test, anything that
-    isn't part of the 7-deep rotation.
+    isn't part of the 14-deep rotation.
 
 .PARAMETER Path
     Full or relative path to a .sql dump to restore from. Skips the listing.

@@ -190,6 +190,28 @@
 // periodic timer.
 #define LOBBY_EMPTY_AUTOSAVE
 
+// If defined, objectsFinalize() (persistence_objects.dm) permanently deletes
+// duplicate ss13_persistent_objects rows at the start of every periodic
+// autosave, before writing this cycle's fresh data -- same (type, x, y, z,
+// map_path) with more than one row, keep only the highest id (the most
+// recently created), delete the rest, and ONLY if the row being deleted is
+// already expired (expires_at <= NOW()). Never touches an active row or the
+// one row being kept, so it can't remove anything a player would actually
+// see in the world -- see objectsCleanupDuplicateEntries()
+// (persistence_objects_sql.dm) for the exact query.
+//
+// This exists because reviving every expired row after the periodic save
+// stalls (scripts/db_fix_expired_objects.ps1) can put more than one active
+// row at the same spot if one of them had actually been superseded on
+// purpose -- multiple copies of the same structure then spawn stacked on
+// top of each other. Running this every cycle keeps that from accumulating
+// again between now and whenever the underlying stall is fixed.
+//
+// Off by default -- new and not yet battle-tested against live data; the
+// standalone scripts/db_fix_expired_objects.ps1 -Apply already does the
+// same cleanup by hand, on demand, without needing this compiled in.
+#define AUTO_DB_CLEANUP
+
 // If defined, growing a clone through the resleeving pipeline
 // (order_clone_from_lace(), resleever_cloning.dm) charges CLONE_ORDER_COST --
 // to the faction when the cloning pod and resleever are both tagged to the
@@ -257,6 +279,33 @@
 // Off by default -- it changes live gameplay behaviour with no admin action,
 // so opting in should be deliberate.
 #define AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
+
+// If defined (default), frontier.dm spawns extra guaranteed "lone asteroid"
+// away sites (bonus_away_site_counts, map.dm) on top of the normal weighted
+// budget draw -- "lone asteroid" is actually two independent templates
+// sharing that display name (cursed, abandoned_bunker), each with its own
+// tunable count below. Doesn't come out of away_site_budget, so no other
+// away-site type is affected. Independent of FRONTIER_BONUS_PHORON_DEPOSITS
+// below -- either can be toggled without the other. Comment out to rely
+// purely on the normal budget lottery for these two templates, same as any
+// other map.
+#define FRONTIER_BONUS_LONE_ASTEROIDS
+/// Extra "cursed" template instances spawned while
+/// FRONTIER_BONUS_LONE_ASTEROIDS is defined.
+#define FRONTIER_BONUS_CURSED_COUNT 1
+/// Extra "abandoned_bunker" template instances (the OTHER template sharing
+/// the "lone asteroid" display name) spawned while
+/// FRONTIER_BONUS_LONE_ASTEROIDS is defined.
+#define FRONTIER_BONUS_ABANDONED_BUNKER_COUNT 1
+
+// If defined (default), frontier.dm spawns extra guaranteed "phoron
+// deposit" away sites the same way -- independent of
+// FRONTIER_BONUS_LONE_ASTEROIDS above. Comment out to rely purely on the
+// normal budget lottery for this site type.
+#define FRONTIER_BONUS_PHORON_DEPOSITS
+/// Extra "deposit" template instances spawned while
+/// FRONTIER_BONUS_PHORON_DEPOSITS is defined.
+#define FRONTIER_BONUS_DEPOSIT_COUNT 2
 
 // If defined, faction-tagged equipment can only be WORN by people employed by
 // that faction (can_use_faction_equipment(), persistence_factions.dm) -- gated

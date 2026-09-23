@@ -25,6 +25,42 @@
 	set_sight(BLIND)
 	GLOB.player_list |= src
 
+	// Mandatory 18+ gate -- only exists at all when the server has the
+	// intimate-interactions feature on (age_verification.dm/DB ban/functions.dm).
+	// Placed before the MOTD/character-select UI so it's the first thing a
+	// client sees, and blocks show_persistent_menu() below from opening
+	// until answered. A "No" answer bans the ckey via system_ban_ckey() --
+	// DB_ban_record() can't be used here since it hard-requires an admin
+	// usr, which nothing in this automated flow has. Genuinely disconnecting
+	// mid-prompt is NOT treated as an implicit "No" -- the gate just asks
+	// again next connection, since banning on an ambiguous disconnect
+	// (crash, alt-F4) would be a real footgun. Merely closing the popup
+	// itself (tgui_alert() returns null for that, same as a real
+	// disconnect) is NOT an escape hatch though -- it just loops and
+	// re-shows the prompt until an actual Yes/No choice is made.
+	if(GLOB.config.intimate_interactions_allowed && client && !age_verification_check(client.ckey))
+		var/answer
+		while(client && !QDELETED(client))
+			answer = tgui_alert(src, "This server has settings enabled that may not be for all audiences. Are you 18 years of age or older?", "Age Verification", list("Yes", "No"))
+			if(answer == "Yes" || answer == "No")
+				break
+		if(!client || QDELETED(client))
+			return
+		if(answer == "Yes")
+			// Falls through to the rest of LateLogin() below (MOTD, character
+			// select, welcome line/lobby music) -- only a ban should short-
+			// circuit the connection here, a successful verification should
+			// not.
+			age_verification_set(client.ckey)
+			log_and_message_admins("[client.ckey] successfully verified they are 18 years of age or older.", null)
+		else
+			var/client/C = client
+			to_chat(src, SPAN_DANGER("You have been banned for failing to confirm you are 18 years of age or older."))
+			log_and_message_admins("[C.ckey] was automatically banned for failing 18+ age verification.", null)
+			system_ban_ckey(C.ckey, C.computer_id, C.address, "Failed mandatory 18+ age verification.")
+			qdel(C)
+			return
+
 	if(GLOB.motd)
 		to_chat(src, "<div class=\"motd\">[GLOB.motd]</div>")
 	to_chat(src, "<div class='info'>Game ID: </div><div class='danger'>[GLOB.round_id]</div>")
