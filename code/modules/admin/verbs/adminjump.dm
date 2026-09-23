@@ -267,21 +267,28 @@
 		if(GLOB.config.allow_admin_jump)
 			// Keyed by a disambiguated label rather than a flat value list --
 			// input() as anything in list keys its popup rows by each
-			// candidate's stringified name, so two sectors sharing an
-			// identical name (e.g. multiple "lone asteroid"/"phoron deposit"
-			// instances) would otherwise collapse to a single reachable row.
-			// Coordinates only get appended once an actual collision shows
-			// up, so every already-unique sector keeps its plain name as
-			// before.
-			var/list/sectors = list()
+			// candidate's stringified name, so two (or more) sectors sharing
+			// an identical name (e.g. multiple "lone asteroid"/"phoron
+			// deposit" instances) would otherwise collapse to a single
+			// reachable row. Two passes, not an on-the-fly collision check:
+			// grouping by name first means EVERY member of a 3+-way
+			// collision gets coordinates, not just the first two -- an
+			// on-the-fly "already taken? relabel both" check only ever
+			// catches one collision, since relabeling the earlier entry
+			// vacates the plain-name slot for a third same-named sector to
+			// silently reclaim. Sectors with a unique name are unaffected,
+			// same plain label as before.
+			var/list/by_name = list()
 			for(var/obj/effect/overmap/visitable/sector as anything in SSshuttle.initialized_sectors)
-				var/label = sector.name
-				if(sectors[label])
-					var/obj/effect/overmap/visitable/existing = sectors[label]
-					sectors -= label
-					sectors["[existing.name] ([existing.x],[existing.y])"] = existing
-					label = "[sector.name] ([sector.x],[sector.y])"
-				sectors[label] = sector
+				LAZYADD(by_name[sector.name], sector)
+			var/list/sectors = list()
+			for(var/sector_name in by_name)
+				var/list/group = by_name[sector_name]
+				if(length(group) > 1)
+					for(var/obj/effect/overmap/visitable/sector as anything in group)
+						sectors["[sector_name] ([sector.x],[sector.y])"] = sector
+				else
+					sectors[sector_name] = group[1]
 			var/selection = input("Select sector to jump to.", "Admin Jumping", null, null) as null|anything in sectors
 			if(!selection)
 				to_chat(src, "No sector selected.")
