@@ -45,6 +45,7 @@ GLOBAL_LIST_INIT(admin_verbs_admin, list(
 	/client/proc/jumptomob,				//allows us to jump to a specific mob,
 	/client/proc/jumptoturf,			//allows us to jump to a specific turf,
 	/client/proc/jump_to_neural_lace,	//lists every neural lace in the world and jumps to the one picked,
+	/client/proc/jump_to_cryopod,		//lists every available cryopod and jumps to the one picked (aghost only),
 	/client/proc/admin_call_shuttle,	//allows us to call the emergency shuttle,
 	/client/proc/admin_cancel_shuttle,	//allows us to cancel the emergency shuttle, sending it back to centcomm,
 	/client/proc/cmd_admin_direct_narrate,	//send text directly to a player with no padding. Useful for narratives and fluff-text,
@@ -1710,3 +1711,75 @@ GLOBAL_LIST_INIT(admin_verbs_storyteller, list(
 		log_and_message_admins("force-cleared the presence lock for [target_char_name] ([target_ckey]) -- disaster recovery override.", usr)
 	else
 		to_chat(usr, SPAN_NOTICE("No presence lock was held for [target_char_name] ([target_ckey]) -- nothing to clear."))
+
+/// Aghost-only browser for every cryopod configured via the faction tagger
+/// (persistence_faction_tagger.dm) -- Personal/Crew/Faction/Public tags, plus
+/// prison cells (indicated distinctly, since a cryogenic prison storage unit
+/// is its own cryopod subtype -- cryopod_prison.dm). Deliberately does NOT
+/// call _cryopod_ignored_for_discovery() (persistence_cryo.dm) as-is: that
+/// helper folds in persistence_cryopod_discovery_ignore, which exists solely
+/// to hide prison cells from ordinary player spawn discovery -- not relevant
+/// to an admin browsing every configured pod on purpose. The other two
+/// exclusions it bundles (tagger_disabled, persistence_cryopod_spawn_ignore
+/// -- cyborg-only pods) are reapplied directly below instead.
+/client/proc/jump_to_cryopod()
+	set category = "Persistence.Misc"
+	set name = "Jump to Cryopod"
+	set desc = "Requires Aghost. Lists every cryopod configured via the faction tagger (including prison cells, indicated as such) and teleports you to the one you pick."
+
+	if(!(check_rights(R_ADMIN|R_MOD|R_DEBUG|R_DEV) || isstoryteller(src.mob)))
+		return
+	if(!isobserver(usr))
+		to_chat(usr, SPAN_WARNING("You must be admin-ghosted (Aghost) to use this."))
+		return
+	var/mob/abstract/ghost/observer/ghost = usr
+	if(!ghost.admin_ghosted)
+		to_chat(usr, SPAN_WARNING("You must be admin-ghosted (Aghost) to use this, not just any observer."))
+		return
+	if(!GLOB.config.allow_admin_jump)
+		alert("Admin jumping disabled")
+		return
+
+	var/list/options = list()
+	for(var/obj/structure/machinery/cryopod/pod in world)
+		if(pod.tagger_disabled || is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore))
+			continue
+		if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN)))
+			continue
+		var/tier
+		if(istype(pod, /obj/structure/machinery/cryopod/prison))
+			tier = (pod.persistent_network && pod.persistent_network != "public") ? "Prison ([get_faction_name(pod.persistent_network)])" : "Prison (Unassigned)"
+		else if(pod.personal_ckey)
+			tier = "Personal ([pod.personal_ckey])"
+		else if(pod.crew_tagged)
+			tier = "Crew-Tagged"
+		else if(pod.persistent_network == "public" && pod.persistent_spawn)
+			tier = "Public"
+		else if(pod.persistent_network)
+			tier = "Faction ([get_faction_name(pod.persistent_network)])"
+		else
+			tier = "Unassigned"
+		var/area/A = get_area(pod)
+		options["[tier] -- [A ? A.name : "Unknown Area"] ([pod.x], [pod.y], [pod.z])"] = pod
+
+	if(!length(options))
+		to_chat(usr, SPAN_WARNING("No available cryopods found."))
+		return
+
+	var/chosen = tgui_input_list(usr, "Select a cryopod to jump to:", "Jump to Cryopod", options)
+	if(!chosen)
+		return
+	var/obj/structure/machinery/cryopod/target = options[chosen]
+	if(QDELETED(target))
+		to_chat(usr, SPAN_WARNING("That cryopod no longer exists."))
+		return
+	var/turf/T = get_turf(target)
+	if(!T)
+		to_chat(usr, SPAN_WARNING("Could not resolve a location for that cryopod."))
+		return
+
+	log_admin("[key_name(usr)] jumped to a cryopod at [T.x],[T.y],[T.z] in [T.loc]")
+	message_admins("[key_name_admin(usr)] jumped to a cryopod", 1)
+	usr.on_mob_jump()
+	usr.forceMove(T)
+	feedback_add_details("admin_verb","JCP")
