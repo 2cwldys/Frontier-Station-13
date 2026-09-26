@@ -10,6 +10,16 @@
 // If defined, the sunlight system is enabled. Caution: this uses a LOT of memory.
 //#define ENABLE_SUNLIGHT
 
+// ============================================================
+// FRONTIER STATION -- fork-specific compile options below.
+// Everything from here down to "END FRONTIER STATION" is unique to this
+// fork and does not exist in the upstream Aurora.3 codebase (Aurorastation/
+// Aurora.3) -- kept together in one block, separate from the
+// upstream-matching entries above and the upstream build-tooling cascade
+// below, so future merges from upstream only ever touch those two
+// untouched regions.
+// ============================================================
+
 // If defined, the Missions Board's "kill" mission type is offered/active again.
 // Disabled by default -- missions currently only offer "fetch" and "visit".
 //#define ENABLE_KILL_MISSIONS
@@ -390,6 +400,13 @@
 /// since GOONCHAT_CUSTOM_FONT's display faces read smaller/tighter than
 /// Roboto Condensed at the same pixel size.
 #define GOONCHAT_FONT_SIZE 21
+
+// ============================================================
+// END FRONTIER STATION -- everything below this line is unmodified
+// upstream Aurora.3 build tooling (PRELOAD_RSC, TESTING/UNIT_TEST/
+// CIBUILDING/CBT setup). Add new fork-specific defines above this point,
+// inside the FRONTIER STATION block -- not below it.
+// ============================================================
 
 // We want to use external resources. Kthx.
 #define PRELOAD_RSC 0
