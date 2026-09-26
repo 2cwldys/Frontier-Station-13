@@ -19,6 +19,7 @@ type FactionJob = {
   rank: number;
   pay_rate: number;
   access_descs: string[];
+  recruitable: BooleanLike;
 };
 
 type KnownFaction = {
@@ -72,6 +73,7 @@ type FactionData = {
   balance: number | null;
   last_payroll: number;
   auto_payroll: BooleanLike;
+  recruiting: BooleanLike;
   jobs: FactionJob[];
   known_factions: KnownFaction[];
   transactions: FactionTransaction[];
@@ -229,6 +231,7 @@ export const FactionManagement = (props) => {
     balance,
     last_payroll,
     auto_payroll,
+    recruiting,
     jobs,
     known_factions,
     members,
@@ -351,6 +354,20 @@ export const FactionManagement = (props) => {
                   onClick={() => act('toggle_auto_payroll')}
                 >
                   Switch to {auto_payroll ? 'Manual' : 'Automatic'}
+                </Button>
+              )}
+            </LabeledList.Item>
+            <LabeledList.Item label="Recruiting">
+              {recruiting
+                ? 'Open -- shows up in the chargen Faction tab'
+                : 'Closed'}
+              {canManage && (
+                <Button
+                  ml={1}
+                  icon="toggle-on"
+                  onClick={() => act('toggle_recruiting')}
+                >
+                  {recruiting ? 'Close Recruiting' : 'Open Recruiting'}
                 </Button>
               )}
             </LabeledList.Item>
@@ -697,6 +714,7 @@ export const FactionManagement = (props) => {
                 <Table.Cell>Rank</Table.Cell>
                 <Table.Cell>Pay/cycle</Table.Cell>
                 <Table.Cell>Access</Table.Cell>
+                <Table.Cell>Chargen</Table.Cell>
                 {canManage && <Table.Cell />}
               </Table.Row>
               {jobs.map((job) => (
@@ -712,6 +730,9 @@ export const FactionManagement = (props) => {
                       : job.access_descs.length <= 3
                         ? job.access_descs.join(', ')
                         : `${job.access_descs.slice(0, 3).join(', ')} … +${job.access_descs.length - 3} more`}
+                  </Table.Cell>
+                  <Table.Cell color={job.recruitable ? 'good' : 'label'}>
+                    {job.recruitable ? 'Recruitable' : 'Not recruitable'}
                   </Table.Cell>
                   {canManage && (
                     <Table.Cell>

@@ -694,6 +694,32 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	GLOB.persistence_identity_cache  -= key
 	GLOB.persistence_position_cache  -= key
 	GLOB.persistence_economy_cache   -= key
+
+	// Faction membership -- ss13_faction_members is unique on (ckey,
+	// faction_uid), not (ckey, char_name, faction_uid), but it DOES store
+	// real_name per row -- one ckey can hold membership in several factions
+	// at once, each row stamped with whichever character actually joined
+	// that particular faction. Filtering this lookup by real_name = char_name
+	// is what scopes the removal to just the character being deleted --
+	// without it, a ckey with e.g. Character A in Faction 1 and Character B
+	// in Faction 2 would lose BOTH memberships when only Character A gets
+	// deleted. factionRemoveMember() already handles the local row, the
+	// central-db mirror, and the in-memory cache in one call
+	// (persistence_factions.dm), so this only needs to enumerate which
+	// factions to call it for.
+	var/datum/db_query/fq = SSdbcore.NewQuery(
+		"SELECT faction_uid FROM ss13_faction_members WHERE ckey = :ckey AND real_name = :char_name",
+		list("ckey" = ckey, "char_name" = char_name)
+	)
+	fq.Execute()
+	SSpersistence.databaseCheckQueryResult(fq, "persistence_delete_character_data (faction lookup)")
+	var/list/member_of = list()
+	while(fq.NextRow())
+		member_of += fq.item[1]
+	qdel(fq)
+	for(var/faction_uid in member_of)
+		SSpersistence.factionRemoveMember(ckey, faction_uid)
+
 	log_world("Persistence: Deleted all data for character '[char_name]' ([ckey]).")
 
 /**

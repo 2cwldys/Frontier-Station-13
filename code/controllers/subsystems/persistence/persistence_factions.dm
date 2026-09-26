@@ -80,7 +80,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 
 	var/datum/db_query/fq = SScentraldb.NewQuery(
 		{"SELECT name, abbreviation, founder_ckey, is_company_tier, pirate_founded,
-		leader_ckey, leader_char_name, color, auto_payroll, allowed_cargo_category
+		leader_ckey, leader_char_name, color, auto_payroll, allowed_cargo_category, recruiting
 		FROM `ss13_factions` WHERE uid = :uid"},
 		list("uid" = uid)
 	)
@@ -98,6 +98,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	var/f_color = fq.item[8]
 	var/f_auto_payroll = text2num(fq.item[9])
 	var/f_cargo_category = fq.item[10]
+	var/f_recruiting = text2num(fq.item[11])
 	qdel(fq)
 
 	var/datum/db_query/bq = SScentraldb.NewQuery(
@@ -122,7 +123,8 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 		"leader_char_name"       = f_leader_char_name,
 		"color"                  = f_color,
 		"auto_payroll"           = f_auto_payroll,
-		"allowed_cargo_category" = f_cargo_category
+		"allowed_cargo_category" = f_cargo_category,
+		"recruiting"             = f_recruiting
 	)
 
 	// Self-heal -- write this faction into this server's own local tables
@@ -131,15 +133,15 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	if(GLOB.config.sql_enabled && SSdbcore.Connect())
 		var/datum/db_query/lf = SSdbcore.NewQuery(
 			{"INSERT INTO ss13_factions (uid, name, abbreviation, is_lore, founder_ckey, is_company_tier, pirate_founded,
-			leader_ckey, leader_char_name, color, auto_payroll, allowed_cargo_category)
-			VALUES (:uid, :name, :abbr, 0, :founder, :company, :pirate, :leader_ckey, :leader_name, :color, :auto_payroll, :cargo_cat)
+			leader_ckey, leader_char_name, color, auto_payroll, allowed_cargo_category, recruiting)
+			VALUES (:uid, :name, :abbr, 0, :founder, :company, :pirate, :leader_ckey, :leader_name, :color, :auto_payroll, :cargo_cat, :recruiting)
 			ON DUPLICATE KEY UPDATE name = VALUES(name), abbreviation = VALUES(abbreviation), leader_ckey = VALUES(leader_ckey),
 			leader_char_name = VALUES(leader_char_name), color = VALUES(color), auto_payroll = VALUES(auto_payroll),
-			allowed_cargo_category = VALUES(allowed_cargo_category)"},
+			allowed_cargo_category = VALUES(allowed_cargo_category), recruiting = VALUES(recruiting)"},
 			list(
 				"uid" = uid, "name" = f_name, "abbr" = f_abbr, "founder" = f_founder, "company" = f_company, "pirate" = f_pirate,
 				"leader_ckey" = f_leader_ckey, "leader_name" = f_leader_char_name, "color" = f_color,
-				"auto_payroll" = f_auto_payroll, "cargo_cat" = f_cargo_category
+				"auto_payroll" = f_auto_payroll, "cargo_cat" = f_cargo_category, "recruiting" = f_recruiting
 			)
 		)
 		lf.Execute()
@@ -326,7 +328,8 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 					"leader_ckey"      = null,
 					"leader_char_name" = null,
 					"is_company_tier"  = FALSE,
-					"pirate_founded"   = FALSE
+					"pirate_founded"   = FALSE,
+					"recruiting"       = FALSE
 				)
 			GLOB.persistence_faction_cache = loaded // only replace on confirmed success
 			_factionLoadExtendedColumns()
@@ -340,7 +343,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	// Load faction jobs
 	try
 		var/datum/db_query/jq = SSdbcore.NewQuery(
-			"SELECT id, faction_uid, title, access_json, pay_rate, rank FROM ss13_faction_jobs ORDER BY faction_uid, rank DESC, title ASC",
+			"SELECT id, faction_uid, title, access_json, pay_rate, rank, recruitable FROM ss13_faction_jobs ORDER BY faction_uid, rank DESC, title ASC",
 			list()
 		)
 		jq.Execute()
@@ -359,11 +362,12 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 					catch(var/exception/access_decode_e)
 						log_subsystem_persistence_error("Factions: bad access_json for job '[jq.item[3]]' in faction '[fuid]' (id [jq.item[1]]): [access_decode_e] -- treating as no access.")
 				loaded_jobs[fuid] += list(list(
-					"id"       = text2num(jq.item[1]),
-					"title"    = jq.item[3],
-					"access"   = job_access,
-					"pay_rate" = text2num(jq.item[5]) || 500,
-					"rank"     = text2num(jq.item[6]) || 0
+					"id"          = text2num(jq.item[1]),
+					"title"       = jq.item[3],
+					"access"      = job_access,
+					"pay_rate"    = text2num(jq.item[5]) || 500,
+					"rank"        = text2num(jq.item[6]) || 0,
+					"recruitable" = !!text2num(jq.item[7])
 				))
 			GLOB.persistence_faction_jobs_cache = loaded_jobs // only replace on confirmed success
 		else
@@ -418,7 +422,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	PRIVATE_PROC(TRUE)
 	try
 		var/datum/db_query/eq = SSdbcore.NewQuery(
-			"SELECT uid, allowed_cargo_category, leader_ckey, leader_char_name, is_company_tier, pirate_founded FROM ss13_factions",
+			"SELECT uid, allowed_cargo_category, leader_ckey, leader_char_name, is_company_tier, pirate_founded, recruiting FROM ss13_factions",
 			list()
 		)
 		eq.Execute()
@@ -432,6 +436,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 				GLOB.persistence_faction_cache[uid]["leader_char_name"] = eq.item[4]
 				GLOB.persistence_faction_cache[uid]["is_company_tier"] = !!text2num(eq.item[5])
 				GLOB.persistence_faction_cache[uid]["pirate_founded"] = !!text2num(eq.item[6])
+				GLOB.persistence_faction_cache[uid]["recruiting"] = !!text2num(eq.item[7])
 		else
 			message_admins("Faction extended-columns load failed -- cargo category/leader/company-tier data unavailable until the schema is updated (db_update?). Core faction data is unaffected.")
 		qdel(eq)
@@ -1544,6 +1549,31 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 		qdel(q)
 	return TRUE
 
+/// Whether this faction currently accepts new members via the chargen
+/// "Faction" tab (preference_setup/faction/faction.dm) -- an officer/command
+/// toggle set in the Faction Management program, unrelated to any other
+/// sense of "recruiting" (there is no other one in this codebase).
+/proc/get_faction_recruiting(uid)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return FALSE
+	return !!GLOB.persistence_faction_cache[uid]["recruiting"]
+
+/proc/set_faction_recruiting(uid, enabled)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return FALSE
+	GLOB.persistence_faction_cache[uid]["recruiting"] = enabled
+	_factionCentralPartialUpdate(uid, list("recruiting"), list(enabled ? 1 : 0))
+	if(GLOB.config.sql_enabled && SSdbcore.Connect())
+		var/datum/db_query/q = SSdbcore.NewQuery(
+			"UPDATE ss13_factions SET recruiting = :val WHERE uid = :uid",
+			list("uid" = uid, "val" = enabled ? 1 : 0)
+		)
+		q.Execute()
+		qdel(q)
+	return TRUE
+
 /// FACTION_CARGO_SPECIALIZATION -- the ONE cargo order category (or null,
 /// "hasn't chosen one yet") a real faction is currently allowed to order
 /// from. Callers are responsible for excluding "hub" before calling this --
@@ -1970,6 +2000,15 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 
 /proc/announce_faction_cryo_enter(mob/living/carbon/human/character)
 	announce_faction_event(character, "has entered cryogenic storage.")
+
+/// Announced once, at a character's true first-ever spawn, when they joined
+/// via the chargen "Faction" tab (preference_setup/faction/faction.dm) --
+/// called from _grant_starter_faction_id() (new_player.dm) after the new
+/// ID's employer_faction is already synced, since announce_faction_event()
+/// resolves the faction (and who else hears it) from the character's own ID
+/// card, same as every other announce_faction_* event.
+/proc/announce_faction_new_recruit(mob/living/carbon/human/character, job_title)
+	announce_faction_event(character, "has joined the faction as a new recruit[job_title ? " ([job_title])" : ""].")
 
 /**
  * Write a Z-level's persistence enabled/notes to ss13_zlevel_persistence and
@@ -3696,7 +3735,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 	if(!chosen_label) return
 	var/chosen_uid = faction_options[chosen_label]
 
-	var/list/actions = list("Add Job", "Edit Job Access", "Remove Job")
+	var/list/actions = list("Add Job", "Edit Job Access", "Toggle Recruitable", "Remove Job")
 	var/action = tgui_input_list(usr, "Action:", "Manage Faction Jobs", actions)
 	if(!action) return
 
@@ -3765,7 +3804,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 		// Reload jobs cache for this faction
 		if(!(chosen_uid in GLOB.persistence_faction_jobs_cache))
 			GLOB.persistence_faction_jobs_cache[chosen_uid] = list()
-		GLOB.persistence_faction_jobs_cache[chosen_uid] += list(list("title"=title,"access"=new_job_access,"pay_rate"=pay,"rank"=rank))
+		GLOB.persistence_faction_jobs_cache[chosen_uid] += list(list("title"=title,"access"=new_job_access,"pay_rate"=pay,"rank"=rank,"recruitable"=FALSE))
 		to_chat(usr, SPAN_GOOD("Added job '[title]' to [get_faction_name(chosen_uid)] with [length(new_job_access)] access code(s)."))
 		log_and_message_admins("added faction job '[title]' to [chosen_uid] ([length(new_job_access)] access codes)", usr)
 
@@ -3861,6 +3900,46 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 
 		to_chat(usr, SPAN_GOOD("Updated access for '[edit_title]': [length(current_access)] code(s)."))
 		log_and_message_admins("edited access for faction job '[edit_title]' in [chosen_uid] ([length(current_access)] codes)", usr)
+
+	else if(action == "Toggle Recruitable")
+		var/list/tr_jobs = get_faction_jobs(chosen_uid)
+		if(!length(tr_jobs))
+			to_chat(usr, SPAN_WARNING("No jobs defined for this faction."))
+			return
+		var/list/tr_labels = list()
+		for(var/list/tj in tr_jobs)
+			tr_labels["[tj["title"]] ([tj["recruitable"] ? "Recruitable" : "Not recruitable"])"] = tj["title"]
+		var/tr_chosen_label = tgui_input_list(usr, "Select job to toggle:", "Toggle Recruitable", tr_labels)
+		if(!tr_chosen_label) return
+		var/tr_title = tr_labels[tr_chosen_label]
+
+		var/tr_new_state
+		for(var/list/tj2 in tr_jobs)
+			if(tj2["title"] == tr_title)
+				tr_new_state = !tj2["recruitable"]
+				break
+		if(isnull(tr_new_state)) return
+
+		if(!SSpersistence.databaseCheckConnection("manage_faction_jobs toggle_recruitable"))
+			to_chat(usr, SPAN_WARNING("DB connection failed."))
+			return
+		var/datum/db_query/trq = SSdbcore.NewQuery(
+			"UPDATE ss13_faction_jobs SET recruitable = :val WHERE faction_uid = :uid AND title = :title",
+			list("val" = tr_new_state ? 1 : 0, "uid" = chosen_uid, "title" = tr_title)
+		)
+		trq.Execute()
+		SSpersistence.databaseCheckQueryResult(trq, "manage_faction_jobs toggle_recruitable")
+		qdel(trq)
+
+		var/list/tr_cached_jobs = GLOB.persistence_faction_jobs_cache[chosen_uid]
+		if(islist(tr_cached_jobs))
+			for(var/list/tcj in tr_cached_jobs)
+				if(tcj["title"] == tr_title)
+					tcj["recruitable"] = tr_new_state
+					break
+
+		to_chat(usr, SPAN_GOOD("'[tr_title]' is now [tr_new_state ? "recruitable" : "not recruitable"] at chargen."))
+		log_and_message_admins("set faction job '[tr_title]' in [chosen_uid] to [tr_new_state ? "recruitable" : "not recruitable"]", usr)
 
 	else if(action == "Remove Job")
 		var/list/jobs = get_faction_jobs(chosen_uid)

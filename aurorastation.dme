@@ -2084,6 +2084,7 @@
 #include "code\modules\client\preference_setup\preferences_sql.dm"
 #include "code\modules\client\preference_setup\antagonism\01_candidacy.dm"
 #include "code\modules\client\preference_setup\antagonism\02_setup.dm"
+#include "code\modules\client\preference_setup\faction\faction.dm"
 #include "code\modules\client\preference_setup\general\01_basic.dm"
 #include "code\modules\client\preference_setup\general\02_language.dm"
 #include "code\modules\client\preference_setup\general\03_body.dm"
