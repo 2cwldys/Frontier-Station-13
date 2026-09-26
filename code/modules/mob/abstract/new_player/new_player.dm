@@ -816,6 +816,20 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 	if(!restoring_dead_body && !SSticker.random_players)
 		var/pending_char_name = selected_char || client.prefs.real_name
 		var/pending_faction = GLOB.config.sql_enabled ? persistence_get_player_faction(ckey_lower) : null
+		// A character joining a faction for the very first time (chargen's
+		// "Faction" tab, preference_setup/faction/faction.dm) hasn't actually
+		// been granted membership yet at this point -- that only happens
+		// later, via _grant_starter_faction_id() after create_character() --
+		// so persistence_get_player_faction() above can't see it yet and the
+		// Faction tier would silently be missing on exactly the spawn it'd
+		// matter most. Fall back to the still-pending chargen pick itself,
+		// re-checking it's still actually recruiting (same guard the real
+		// grant uses) so this can't offer a faction that won't end up
+		// granted anyway.
+		if(!pending_faction && client.prefs.faction_to_join)
+			var/pending_join_uid = normalize_faction_uid(client.prefs.faction_to_join)
+			if(get_faction_recruiting(pending_join_uid))
+				pending_faction = pending_join_uid
 		pre_chosen_spawn_pod = persistence_prompt_cryopod_choice(src, ckey_lower, pending_char_name, pending_faction)
 		if(QDELETED(src))
 			return
@@ -974,7 +988,17 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 	// console/PDA program. Granted exactly once, gated on the same
 	// first-spawn-ever flag used to lock character preferences above.
 	if(is_first_ever_spawn)
-		character.equip_or_collect(new /obj/item/modular_computer/handheld/pda(character), slot_wear_id)
+		var/obj/item/modular_computer/handheld/pda/starter_pda = new(character)
+		character.equip_or_collect(starter_pda, slot_wear_id)
+		// Faction join (chargen "Faction" tab, preference_setup/faction/
+		// faction.dm) -- also one-time, same gate. Re-checks recruiting is
+		// still on at the moment of grant rather than just trusting the
+		// stored pref, in case it was turned off between chargen and this
+		// spawn.
+		if(client.prefs.faction_to_join)
+			var/join_uid = normalize_faction_uid(client.prefs.faction_to_join)
+			if(get_faction_recruiting(join_uid))
+				_grant_starter_faction_id(character, join_uid, starter_pda, client.prefs.faction_job_to_join)
 
 	// Neural lace — wire up any lace restored by health persistence, or install fresh if preference is on
 	var/obj/item/organ/internal/neural_lace/existing_lace = null
@@ -1030,6 +1054,15 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 	// pending. random_players is the one mode where identity wasn't knowable
 	// yet at that point -- resolve it here instead, same as before this fix.
 	var/spawner_faction = GLOB.config.sql_enabled ? persistence_get_player_faction(ckey_lower) : null
+	// Same first-ever-spawn gap as the early cryopod resolution above (and
+	// the same fix): a brand-new chargen "Faction" pick isn't granted until
+	// later, so persistence_get_player_faction() can't see it yet here
+	// either. `client` is null at this point (see above) -- character.client
+	// is the mob's own, still-live reference post-transfer.
+	if(!spawner_faction && character.client?.prefs?.faction_to_join)
+		var/pending_join_uid = normalize_faction_uid(character.client.prefs.faction_to_join)
+		if(get_faction_recruiting(pending_join_uid))
+			spawner_faction = pending_join_uid
 	// Declared here (not inside either branch below) so the "wake inside the
 	// pod" block further down can still see it -- stays null for the entire
 	// IPC branch, which has no equivalent holding-pod visual at all (Synthetic
@@ -1190,6 +1223,59 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		SStgui.close_user_uis(character, persistent_menu_datum)
 
 	qdel(src)
+
+/// Grants a working faction ID card at a character's true first-ever spawn,
+/// for a chargen "Faction" tab join pick (preference_setup/faction/faction.dm),
+/// called from PersistentAutoSpawn() above alongside the starter PDA grant.
+/// Mirrors the admin "Give Faction ID" verb's own working pattern
+/// (give_faction_id(), persistence_factions.dm) -- the one place in this
+/// codebase that already does every step needed to make a faction ID
+/// actually function, not just stamp a cosmetic field. Rides inside the
+/// just-granted starter PDA (card_slot.insert_id()) rather than being a
+/// separate loose item.
+///
+/// job_title, if set, must be one of faction_uid's own currently-recruitable
+/// jobs (ss13_faction_jobs.recruitable) -- re-checked here at the moment of
+/// grant, not just trusted from the stored pref, same "moment of truth"
+/// principle already applied to the faction-level recruiting flag. Null (or
+/// no longer valid) falls through to the original generic-Civilian grant.
+/proc/_grant_starter_faction_id(mob/living/carbon/human/character, faction_uid, obj/item/modular_computer/handheld/pda/pda, job_title)
+	var/list/job_data = null
+	if(job_title)
+		for(var/list/j in get_faction_jobs(faction_uid))
+			if(j["title"] == job_title && j["recruitable"])
+				job_data = j
+				break
+
+	var/obj/item/card/id/new_card = new /obj/item/card/id(pda)
+	new_card.registered_name  = character.real_name
+	new_card.assignment       = job_data ? job_data["title"] : "Member"
+	new_card.rank             = job_data ? job_data["title"] : "Member"
+	new_card.employer_faction = faction_uid
+	new_card.name             = "[character.real_name]'s ID Card ([new_card.assignment])"
+	if(job_data && islist(job_data["access"]))
+		new_card.access |= job_data["access"]
+
+	// The joined faction IS this ID's employer -- sync the mob before
+	// set_id_info() copies employer_faction onto the card, same ordering
+	// give_faction_id() uses, otherwise it stamps the character's old prefs
+	// faction straight back over faction_uid.
+	character.employer_faction = faction_uid
+	character.set_id_info(new_card)
+
+	pda.card_slot.insert_id(new_card)
+
+	// The load-bearing call -- employer_faction on the card alone is
+	// display-only. Every real faction-gated door/access check resolves
+	// membership live via a ckey-keyed lookup this populates.
+	SSpersistence.factionRegisterMember(character.ckey, character.real_name, faction_uid, job_data ? job_data["title"] : null, job_data ? (job_data["rank"] || 0) : FACTION_RANK_CIVILIAN)
+	to_chat(character, SPAN_GOOD("You have been issued a [get_faction_name(faction_uid)] ID card as [job_data ? "a [job_data["title"]]" : "a new member"]."))
+
+	// Lets other online faction members know a new recruit just joined --
+	// same mechanism/wording style as the existing cryo-enter/exit
+	// announcements (persistence_factions.dm), resolved off the ID card just
+	// synced above so it reaches everyone currently on this faction's roster.
+	announce_faction_new_recruit(character, job_data ? job_data["title"] : null)
 
 /mob/abstract/new_player/proc/ViewManifest()
 	SSrecords.open_manifest_tgui(src)

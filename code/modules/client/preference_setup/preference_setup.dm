@@ -27,26 +27,31 @@
 	name = "Origin"
 	sort_order = 2
 	category_item_type = /datum/category_item/player_setup_item/origin
+	hidden_from_tab_bar = TRUE
 
 /datum/category_group/player_setup_category/skill_preferences
 	name = "Skills"
 	sort_order = 3
 	category_item_type = /datum/category_item/player_setup_item/skills
+	hidden_from_tab_bar = TRUE
 
 /datum/category_group/player_setup_category/occupation_preferences
 	name = "Occupation"
 	sort_order = 4
 	category_item_type = /datum/category_item/player_setup_item/occupation
+	hidden_from_tab_bar = TRUE
 
 /datum/category_group/player_setup_category/appearance_preferences
 	name = "Roles"
 	sort_order = 5
 	category_item_type = /datum/category_item/player_setup_item/antagonism
+	hidden_from_tab_bar = TRUE
 
 /datum/category_group/player_setup_category/loadout_preferences
 	name = "Loadout"
 	sort_order = 6
 	category_item_type = /datum/category_item/player_setup_item/loadout
+	hidden_from_tab_bar = TRUE
 
 /datum/category_group/player_setup_category/global_preferences
 	name = "Global"
@@ -104,6 +109,14 @@
 /datum/category_collection/player_setup_collection/proc/header()
 	var/dat = ""
 	for(var/datum/category_group/player_setup_category/PS in categories)
+		// Hidden tabs (hidden_from_tab_bar = TRUE on the category_group
+		// subtype itself, see preference_setup.dm's tab list above) never get
+		// a link here, so players can't click into them -- but they stay
+		// fully registered, so their sanitize/load logic keeps running
+		// untouched. To un-hide a tab, just delete/comment its
+		// hidden_from_tab_bar line; nothing here needs to change.
+		if(PS.hidden_from_tab_bar)
+			continue
 		if(PS == selected_category)
 			dat += "[PS.name] "	// TODO: Check how to properly mark a href/button selected in a classic browser window
 		else
@@ -137,6 +150,12 @@
 	var/sort_order = 0
 	var/sql_role = SQL_CHARACTER
 	var/modified = 0
+	/// If TRUE, header() (below) skips this tab entirely -- no link, no way
+	/// to click into it. Everything else about the category (registration,
+	/// item instantiation, sanitize/load_character_special/etc.) is
+	/// untouched, so this is purely a tab-bar visibility toggle. To bring a
+	/// hidden tab back, just delete/comment this line on that subtype.
+	var/hidden_from_tab_bar = FALSE
 
 /datum/category_group/player_setup_category/dd_SortValue()
 	return sort_order

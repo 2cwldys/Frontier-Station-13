@@ -11,7 +11,28 @@
 /datum/hud/proc/new_player_hud(var/ui_style='icons/hud/mob/white.dmi', var/ui_color = "#fffffe", var/ui_alpha = 255)
 	mymob.client.screen = list()
 	var/atom/movable/screen/new_player/title/T = new(src)
+	// Never set anywhere before -- update_icon()'s own hud/isnewplayer guard
+	// (this file) was consequently always true, unconditionally, on every
+	// single call, silently no-oping the entire recurring slideshow cycle
+	// since before this session ever touched this file. Same pattern human.dm
+	// already uses for its own screen objects (e.g. inv_box.hud = src).
+	T.hud = src
 	mymob.client.screen += T
+	// Called directly here rather than relying on instantiate()'s own call to
+	// this same proc (hud.dm) -- that path demonstrably isn't landing the
+	// border in client.screen for the lobby mob in practice, and this is the
+	// one place guaranteed to run every time the lobby screen itself is
+	// (re)built, so the border can't end up missing or stale relative to it.
+	mymob.apply_gameui_border()
+	// apply_gameui_border() scales its transform off getviewsize(client.view)
+	// -- unreliable this early in a fresh connection, before the client's own
+	// game window has actually finished settling (its own doc comment already
+	// expects to need a second pass later, from OnResize()). A bad read here
+	// doesn't fail to add the border, it just scales it down to something
+	// effectively invisible. Re-running it once, shortly after, catches that
+	// without needing the player to ever actually resize their window.
+	if(mymob.client)
+		addtimer(CALLBACK(mymob, TYPE_PROC_REF(/mob, apply_gameui_border)), 2 SECONDS)
 
 ABSTRACT_TYPE(/atom/movable/screen/new_player)
 	icon = 'icons/misc/hudmenu/hudmenu.dmi'
@@ -35,11 +56,17 @@ ABSTRACT_TYPE(/atom/movable/screen/new_player)
 	name = "Title"
 	screen_loc = "WEST,SOUTH"
 	layer = UNDER_HUD_LAYER
+	// /atom/movable/screen defaults every screen object to plane = HUD_PLANE
+	// (1000). gameui_border's fully-relayed content lands one plane below
+	// that, at RENDER_PLANE_MASTER (999), by design -- so a playing
+	// character's own inventory/action-button HUD (also HUD_PLANE) stays
+	// above the border. In the lobby the only thing left on HUD_PLANE is
+	// this background image, so that same ordering put it above the border
+	// instead of behind it. Pin it one plane below RENDER_PLANE_MASTER so it
+	// sits under the border without touching HUD_PLANE itself.
+	plane = RENDER_PLANE_MASTER - 1
 	icon = 'icons/misc/titlescreens/title.dmi'
 	icon_state = "loading"
-
-	///An index used to rotate along the lobby icons
-	var/lobby_screen_index = 1
 
 /atom/movable/screen/new_player/title/Initialize()
 	. = ..()
@@ -50,7 +77,10 @@ ABSTRACT_TYPE(/atom/movable/screen/new_player)
 	return
 
 /**
- * Sets up the icon for the title screen, wait until SSAtlas made them for us then setup the update cycle after picking one
+ * Sets up the icon for the title screen, wait until SSAtlas made them for us
+ * then pick one lobby-art icon_state to show for the rest of this lobby
+ * session -- no recurring transition, no fade. Picked once and never touched
+ * again by this proc or anything else.
  */
 /atom/movable/screen/new_player/title/proc/setup_icon()
 	set waitfor = FALSE
@@ -71,46 +101,7 @@ ABSTRACT_TYPE(/atom/movable/screen/new_player)
 	if(!LAZYLEN(SSatlas.current_map.lobby_screens))
 		CRASH("No lobby screens found!")
 
-	if(SSatlas.current_map.lobby_transitions && isnum(SSatlas.current_map.lobby_transitions))
-		icon_state = SSatlas.current_map.lobby_screens[lobby_screen_index]
-		if(!MC_RUNNING())
-			spawn(SSatlas.current_map.lobby_transitions)
-				update_icon()
-		else
-			addtimer(CALLBACK(src, PROC_REF(update_icon)), SSatlas.current_map.lobby_transitions, TIMER_UNIQUE | TIMER_OVERRIDE)
-	else
-		icon_state = pick(SSatlas.current_map.lobby_screens)
-
-/atom/movable/screen/new_player/title/update_icon()
-	..()
-
-	if(QDELETED(src))
-		return
-
-	if(!istype(hud) || !isnewplayer(hud.mymob))
-		return
-
-	if(!SSatlas.current_map.lobby_transitions)
-		if(!icon_state)
-			icon_state = pick(SSatlas.current_map.lobby_screens)
-		return
-
-	var/num_lobby_screens = length(SSatlas.current_map.lobby_screens)
-
-	if(num_lobby_screens >= 2)
-		//Advance to the next icon
-		lobby_screen_index = (lobby_screen_index % num_lobby_screens) + 1
-
-		animate(src, alpha = 0, time = 1 SECOND)
-
-		animate(alpha = 255, icon_state = SSatlas.current_map.lobby_screens[lobby_screen_index], time = 1 SECOND)
-
-	if(!MC_RUNNING())
-		spawn(SSatlas.current_map.lobby_transitions)
-			update_icon()
-	else
-		addtimer(CALLBACK(src, PROC_REF(update_icon)), SSatlas.current_map.lobby_transitions, TIMER_UNIQUE | TIMER_OVERRIDE)
-
+	icon_state = pick(SSatlas.current_map.lobby_screens)
 
 /**
  * # Selection screen

@@ -103,6 +103,19 @@ GLOBAL_LIST_EMPTY_TYPED(preferences_datums, /datum/preferences)
 	var/citizenship = "None"
 	/// Antag faction/general associated faction.
 	var/faction = "None"
+	/// A currently-recruiting faction uid picked on the chargen "Faction" tab
+	/// (preference_setup/faction/faction.dm) -- null means "don't join one".
+	/// Deliberately separate from `faction` above (which is display/
+	/// employer_faction plumbing General's species-switch handler also
+	/// resets as a side effect) -- consumed exactly once, at this
+	/// character's true first-ever spawn (new_player.dm), never again.
+	var/faction_to_join = null
+	/// The specific recruitable job (ss13_faction_jobs.title) picked on the
+	/// chargen "Faction" tab alongside faction_to_join above -- null means
+	/// "join as a generic Civilian", the confirmed fallback when no job is
+	/// picked or none are currently open. Meaningless without a
+	/// faction_to_join set alongside it; consumed the same one-time way.
+	var/faction_job_to_join = null
 	/// Religious association.
 	var/religion = "None"
 	/// Character accent.
@@ -685,6 +698,18 @@ GLOBAL_LIST_EMPTY_TYPED(preferences_datums, /datum/preferences)
 
 	current_character = 0
 	can_edit_name = 1
+
+	// A faction pick is per-character (see faction.dm's own header comment),
+	// but new_setup() reuses this SAME /datum/preferences object rather than
+	// creating a fresh one -- so without this, a faction/job picked while
+	// editing one character slot stayed set in memory and silently carried
+	// over as already-selected on the next brand-new slot. Switching to a
+	// different EXISTING (already-saved) character doesn't have this problem
+	// -- handle_sql_loading() (preferences_sql.dm) correctly overwrites both
+	// from that character's own real row, null included if it never picked
+	// one -- the gap was only ever the "brand new, no row yet" case here.
+	faction_to_join = null
+	faction_job_to_join = null
 
 	gear = list()
 	gear_list = list() //Dont copy the loadout

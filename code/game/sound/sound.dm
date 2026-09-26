@@ -254,6 +254,13 @@
 /client/var/list/lobby_playlist
 /client/var/lobby_playlist_index = 0
 
+#ifdef LOBBY_MUSIC_DIAGNOSTICS
+/// world.time the currently-playing track was actually started, so the next
+/// switch can log how much real time it played for against its own known
+/// length. See LOBBY_MUSIC_DIAGNOSTICS (_compile_options.dm).
+/client/var/lobby_music_last_switch_time = 0
+#endif
+
 /client/proc/playtitlemusic()
 	set waitfor = FALSE
 	UNTIL(SSticker.login_music) //wait for SSticker init to set the login music
@@ -273,6 +280,9 @@
 
 	lobby_playlist = null
 	lobby_playlist_index = 0
+#ifdef LOBBY_MUSIC_DIAGNOSTICS
+	lobby_music_last_switch_time = 0
+#endif
 
 	if(!prefs.lobby_music_vol)
 		return
@@ -318,6 +328,23 @@
 	if(!islist(lobby_playlist) || !length(lobby_playlist))
 		return
 
+#ifdef LOBBY_MUSIC_DIAGNOSTICS
+	// Report on the OUTGOING track before touching the index -- this is the one
+	// about to be cut off by the SEND_SOUND below, so this is the one whose real
+	// playtime is actually in question. Logs real elapsed seconds since it
+	// started against its own known length; a report of a track "cutting off
+	// early" should show up here as elapsed < expected, with the gap being
+	// whatever the server itself is responsible for. If elapsed always matches
+	// expected exactly, the server-side schedule is proven correct and the
+	// cutoff is happening somewhere BYOND's own client audio playback is doing
+	// on its own, not in this switch.
+	if(lobby_music_last_switch_time && lobby_playlist_index >= 1 && lobby_playlist_index <= length(lobby_playlist))
+		var/outgoing_track = lobby_playlist[lobby_playlist_index]
+		var/elapsed_seconds = (world.time - lobby_music_last_switch_time) / 10
+		var/expected_seconds = (GLOB.lobby_track_durations[outgoing_track] || 5 MINUTES) / 10
+		log_game("LobbyMusicDiag: [key_name(src)] -- [outgoing_track] played [elapsed_seconds]s of its [expected_seconds]s expected length before switching.")
+#endif
+
 	lobby_playlist_index++
 	// Playlist exhausted -- stop, matching what the old all-at-once queue did
 	// when it ran out, rather than silently looping.
@@ -326,6 +353,10 @@
 
 	var/track_path = lobby_playlist[lobby_playlist_index]
 	SEND_SOUND(src, sound(track_path, repeat = 0, wait = 0, volume = prefs.lobby_music_vol, channel = CHANNEL_LOBBYMUSIC)) // MAD JAMS
+
+#ifdef LOBBY_MUSIC_DIAGNOSTICS
+	lobby_music_last_switch_time = world.time
+#endif
 
 	if(GLOB.config.githuburl)
 		var/branch = GLOB.config.github_branch || "main"

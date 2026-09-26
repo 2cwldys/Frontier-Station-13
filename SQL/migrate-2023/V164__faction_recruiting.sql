@@ -1,0 +1,1 @@
+ALTER TABLE `ss13_factions` ADD COLUMN `recruiting` TINYINT(1) NOT NULL DEFAULT 0;

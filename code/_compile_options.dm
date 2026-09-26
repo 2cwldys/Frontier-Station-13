@@ -10,6 +10,16 @@
 // If defined, the sunlight system is enabled. Caution: this uses a LOT of memory.
 //#define ENABLE_SUNLIGHT
 
+// ============================================================
+// FRONTIER STATION -- fork-specific compile options below.
+// Everything from here down to "END FRONTIER STATION" is unique to this
+// fork and does not exist in the upstream Aurora.3 codebase (Aurorastation/
+// Aurora.3) -- kept together in one block, separate from the
+// upstream-matching entries above and the upstream build-tooling cascade
+// below, so future merges from upstream only ever touch those two
+// untouched regions.
+// ============================================================
+
 // If defined, the Missions Board's "kill" mission type is offered/active again.
 // Disabled by default -- missions currently only offer "fetch" and "visit".
 //#define ENABLE_KILL_MISSIONS
@@ -56,6 +66,14 @@
 // chased.
 #define WALL_RESTORE_DIAGNOSTICS
 
+// If defined, /datum/hud/instantiate() (hud.dm) logs whether
+// apply_gameui_border() actually landed the decorative window border in
+// mymob.screens/client.screen, and its resolved transform/view size, right
+// after calling it -- for chasing a report that the border never shows for
+// the new_player/lobby mob despite being designed to (allstate = 1,
+// fullscreen.dm). Comment out once resolved.
+#define GAMEUI_BORDER_DIAGNOSTICS
+
 // If defined, wall-mounted machine save/restore logs each machine's
 // type/position/dir/pixel offset at save time and at worldstate restore
 // time -- so a mismatch can be diagnosed by comparing what was saved
@@ -87,6 +105,14 @@
 // whether its extra state blob was built, and which restore branch ran on
 // the next boot. Purely diagnostic -- comment out to strip it entirely.
 //#define PERSISTENCE_FLOOR_ITEM_DEBUG
+
+// If defined, every lobby music track switch (_advance_lobby_track(),
+// sound.dm) logs the track name, the real elapsed time since the previous
+// switch, and that track's own known length from lobby_track_durations
+// (_lobby_track_durations.dm) -- so a report of a track cutting off early can
+// be checked against a real timestamped record instead of going on ear alone.
+// Defined by default while this is actively being chased.
+#define LOBBY_MUSIC_DIAGNOSTICS
 
 // If defined, real (non-Hub) factions are limited to ONE cargo order
 // category, chosen at founding and changeable later (command rank, 1-month
@@ -372,6 +398,13 @@
 /// since GOONCHAT_CUSTOM_FONT's display faces read smaller/tighter than
 /// Roboto Condensed at the same pixel size.
 #define GOONCHAT_FONT_SIZE 21
+
+// ============================================================
+// END FRONTIER STATION -- everything below this line is unmodified
+// upstream Aurora.3 build tooling (PRELOAD_RSC, TESTING/UNIT_TEST/
+// CIBUILDING/CBT setup). Add new fork-specific defines above this point,
+// inside the FRONTIER STATION block -- not below it.
+// ============================================================
 
 // We want to use external resources. Kthx.
 #define PRELOAD_RSC 0

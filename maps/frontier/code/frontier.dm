@@ -14,9 +14,16 @@
 		ZTRAITS_CENTCOM
 	)
 
-	lobby_icons = list('icons/misc/titlescreens/frontier/frontier.dmi', 'icons/misc/titlescreens/aurora/synthetics.dmi', 'icons/misc/titlescreens/aurora/tajara.dmi', 'icons/misc/titlescreens/aurora/vaurca.dmi')
+	lobby_icons = list('icons/misc/titlescreens/frontier/frontier.dmi', 'icons/misc/titlescreens/frontier/frontier_dark.dmi')
+	// Restricts the slideshow to just these two states -- leaving this unset
+	// would auto-scan every icon_state in whichever lobby_icons file gets
+	// picked (map.dm's own default), which is what pulled in the older
+	// placeholder frames (blueprint/bluespace/biesel/lanze/jump on
+	// frontier.dmi, lemurian_sea on frontier_dark.dmi) alongside the real
+	// frontier art.
+	lobby_screens = list("frontierlobby", "frontierlobby2")
 
-	lobby_transitions = 10 SECONDS
+	lobby_transitions = 1 MINUTE
 
 	admin_levels = list(4)
 	contact_levels = list(1, 2, 3)
