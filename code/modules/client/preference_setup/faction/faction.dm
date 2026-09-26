@@ -107,14 +107,12 @@
 	var/leader = fc ? fc["leader_char_name"] : null
 	return leader ? "Faction leader: [leader]" : "No faction leader on record."
 
-/// Every faction currently open for chargen recruitment, "hub" excluded --
-/// same "list every real faction" shape ui_data()'s known_factions and
-/// give_faction_id()'s faction picker already use (persistence_factions.dm).
+/// Every faction currently open for chargen recruitment -- any faction with
+/// its recruiting flag on, "hub" included, since it's just as real a faction
+/// as any player-founded one once someone's toggled it recruitable.
 /datum/category_item/player_setup_item/faction_recruitment/proc/_recruiting_factions()
 	var/list/uids = list()
 	for(var/uid in GLOB.persistence_faction_cache)
-		if(uid == "hub")
-			continue
 		if(!get_faction_recruiting(uid))
 			continue
 		uids += uid
