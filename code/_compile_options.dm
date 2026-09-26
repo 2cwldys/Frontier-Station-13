@@ -66,15 +66,13 @@
 // chased.
 #define WALL_RESTORE_DIAGNOSTICS
 
-// If defined, the lobby title screen's slideshow logs every decision point
-// in setup_icon()/update_icon() (menu.dm) -- resolved lobby_icon/
-// lobby_screens, which reschedule branch (MC_RUNNING) is taken and with
-// what wait, every update_icon() invocation, and exactly which guard (if
-// any) makes it bail before reaching the animate()/reschedule steps. For
-// chasing a report that the slideshow shows one random image on connect but
-// then never transitions again, no matter how long you wait -- comment out
-// once resolved, this isn't meant to stay on permanently.
-#define LOBBY_ART_CYCLE_DIAGNOSTICS
+// If defined, /datum/hud/instantiate() (hud.dm) logs whether
+// apply_gameui_border() actually landed the decorative window border in
+// mymob.screens/client.screen, and its resolved transform/view size, right
+// after calling it -- for chasing a report that the border never shows for
+// the new_player/lobby mob despite being designed to (allstate = 1,
+// fullscreen.dm). Comment out once resolved.
+#define GAMEUI_BORDER_DIAGNOSTICS
 
 // If defined, wall-mounted machine save/restore logs each machine's
 // type/position/dir/pixel offset at save time and at worldstate restore

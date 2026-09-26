@@ -353,8 +353,24 @@ GLOBAL_LIST(global_huds)
 
 	mymob.instantiate_hud(src, ui_style, ui_color, ui_alpha)
 
+#ifdef GAMEUI_BORDER_DIAGNOSTICS
+	log_world("GameuiBorderDiag [mymob] ([mymob.type]): instantiate_hud() returned, about to call plane_masters_update().")
+#endif
+
 	plane_masters_update()
+
+#ifdef GAMEUI_BORDER_DIAGNOSTICS
+	log_world("GameuiBorderDiag [mymob] ([mymob.type]): plane_masters_update() returned, about to call apply_gameui_border().")
+#endif
+
 	mymob.apply_gameui_border()
+
+#ifdef GAMEUI_BORDER_DIAGNOSTICS
+	var/atom/movable/screen/fullscreen/gameui_border/border = mymob.screens["gameui_border"]
+	var/in_screen = (istype(border) && mymob.client && (border in mymob.client.screen))
+	var/list/vs = mymob.client ? getviewsize(mymob.client.view) : null
+	log_world("GameuiBorderDiag [mymob] ([mymob.type]): apply_gameui_border() returned. client=[mymob.client] border=[border] border_in_client_screen=[in_screen] border_alpha=[istype(border) ? border.alpha : "n/a"] border_icon_state=[istype(border) ? "[border.icon_state]" : "n/a"] border_transform=[istype(border) ? "[border.transform]" : "n/a"] client_view=[mymob.client ? mymob.client.view : "n/a"] viewsize=[vs ? "[vs[1]]x[vs[2]]" : "n/a"]")
+#endif
 
 /datum/hud/proc/plane_masters_update()
 	// Plane masters are always shown to OUR mob, never to observers
@@ -362,6 +378,18 @@ GLOBAL_LIST(global_huds)
 		var/atom/movable/screen/plane_master/PM = plane_masters[thing]
 		PM.backdrop(mymob)
 		mymob.client.add_to_screen(PM)
+
+#ifdef GAMEUI_BORDER_DIAGNOSTICS
+	if(isnewplayer(mymob))
+		var/atom/movable/screen/plane_master/fs_pm = plane_masters["[FULLSCREEN_PLANE]"]
+		var/atom/movable/screen/plane_master/hud_pm = plane_masters["[HUD_PLANE]"]
+		log_world("GameuiBorderDiag [mymob]: fullscreen PM=[fs_pm] plane=[fs_pm?.plane] relay=[fs_pm?.relay] relay_plane=[fs_pm?.relay?.plane] relay_layer=[fs_pm?.relay?.layer] relay_in_screen=[(fs_pm?.relay in mymob.client.screen)]")
+		log_world("GameuiBorderDiag [mymob]: hud PM=[hud_pm] plane=[hud_pm?.plane] relay=[hud_pm?.relay] relay_plane=[hud_pm?.relay?.plane] relay_layer=[hud_pm?.relay?.layer] relay_in_screen=[(hud_pm?.relay in mymob.client.screen)]")
+		var/atom/movable/screen/new_player/title/T = locate() in mymob.client.screen
+		log_world("GameuiBorderDiag [mymob]: title=[T] plane=[T?.plane] layer=[T?.layer] in_screen=[(T in mymob.client.screen)]")
+		var/atom/movable/screen/fullscreen/gameui_border/b = mymob.screens["gameui_border"]
+		log_world("GameuiBorderDiag [mymob]: border plane=[b?.plane] layer=[b?.layer] blend_mode=[b?.blend_mode]")
+#endif
 
 /mob/proc/instantiate_hud(datum/hud/HUD, ui_style, ui_color, ui_alpha)
 	SHOULD_NOT_SLEEP(TRUE)
