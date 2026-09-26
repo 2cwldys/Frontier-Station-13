@@ -727,6 +727,17 @@ GLOBAL_LIST_EMPTY(hub_emergency_last_tracked)
  * PDA-message-style alert: chat line with the device icon plus an audible
  * twobeep (get_notification handles the silent toggle). alert_text defaults
  * to the standard HIGHSEC OFFENSE wording; distress calls pass their own.
+ *
+ * Deliberately reaches a powered-off/dead-battery PDA too -- get_notification()
+ * only plays a world sound and posts a chat line (output_message() ->
+ * audible_message()/to_chat()), neither of which reads or depends on
+ * enabled/screen_on/computer_use_power() in any way, so there's no actual
+ * technical reason to gate on them. A highsec offense is exactly the kind of
+ * time-critical alert zone_security_roll_call() below already bypasses the
+ * PDA channel entirely for -- this brings the ordinary offense/distress/
+ * emergency alert in line with that same "reaches Hub security regardless of
+ * PDA power state" intent, without needing roll call's separate straight-to-
+ * mob delivery.
  */
 /proc/zone_security_alert_responders(mob/attacker, mob/anchor, alert_text)
 	var/area/offense_area = get_area(anchor)
@@ -738,11 +749,6 @@ GLOBAL_LIST_EMPTY(hub_emergency_last_tracked)
 		if(!get_turf(MC))
 			continue
 		if(normalize_faction_uid(MC.persistent_network) != "hub")
-			continue
-		// A dead-battery/powered-off PDA can't display the alert -- computer_use_power()
-		// with its default zero-usage argument is a read-only power check, it doesn't
-		// additionally drain the computer just to test this.
-		if(!MC.enabled || !MC.screen_on || !MC.computer_use_power())
 			continue
 		if(!MC.hard_drive || !MC.hard_drive.find_file_by_name("firstresponder"))
 			continue
