@@ -11,6 +11,12 @@
 /datum/hud/proc/new_player_hud(var/ui_style='icons/hud/mob/white.dmi', var/ui_color = "#fffffe", var/ui_alpha = 255)
 	mymob.client.screen = list()
 	var/atom/movable/screen/new_player/title/T = new(src)
+	// Never set anywhere before -- update_icon()'s own hud/isnewplayer guard
+	// (this file) was consequently always true, unconditionally, on every
+	// single call, silently no-oping the entire recurring slideshow cycle
+	// since before this session ever touched this file. Same pattern human.dm
+	// already uses for its own screen objects (e.g. inv_box.hud = src).
+	T.hud = src
 	mymob.client.screen += T
 
 ABSTRACT_TYPE(/atom/movable/screen/new_player)
@@ -38,8 +44,14 @@ ABSTRACT_TYPE(/atom/movable/screen/new_player)
 	icon = 'icons/misc/titlescreens/title.dmi'
 	icon_state = "loading"
 
-	///An index used to rotate along the lobby icons
-	var/lobby_screen_index = 1
+	/// Last lobby-art icon_state shown, so the next pick can exclude it --
+	/// same shuffle-no-immediate-repeat shape as the ambient playlist's own
+	/// ambient_playlist_last_track (ambient_playlist.dm). Replaces a plain
+	/// sequential index: cycling 1,2,3... in the exact same fixed order
+	/// every single connection meant any state late in the list (e.g. the
+	/// last one declared in a lobby .dmi) was only ever reached after
+	/// sitting through every earlier one first, every time.
+	var/lobby_screen_last
 
 /atom/movable/screen/new_player/title/Initialize()
 	. = ..()
@@ -48,6 +60,16 @@ ABSTRACT_TYPE(/atom/movable/screen/new_player)
 
 /atom/movable/screen/new_player/title/set_sector_things()
 	return
+
+/// Picks a lobby-art icon_state that isn't the same as the one that just
+/// showed (when there's more than one to choose from) -- same shape as the
+/// ambient playlist's pick_next_ambient_track() (ambient_playlist.dm).
+/atom/movable/screen/new_player/title/proc/pick_next_lobby_screen()
+	var/list/choices = SSatlas.current_map.lobby_screens.Copy()
+	if(lobby_screen_last && length(choices) > 1)
+		choices -= lobby_screen_last
+	lobby_screen_last = pick(choices)
+	return lobby_screen_last
 
 /**
  * Sets up the icon for the title screen, wait until SSAtlas made them for us then setup the update cycle after picking one
@@ -71,12 +93,22 @@ ABSTRACT_TYPE(/atom/movable/screen/new_player)
 	if(!LAZYLEN(SSatlas.current_map.lobby_screens))
 		CRASH("No lobby screens found!")
 
+#ifdef LOBBY_ART_CYCLE_DIAGNOSTICS
+	log_world("LobbyArtDiag [src]: setup_icon() lobby_icon=[SSatlas.current_map.lobby_icon] lobby_screens=[english_list(SSatlas.current_map.lobby_screens)] lobby_transitions=[SSatlas.current_map.lobby_transitions]")
+#endif
+
 	if(SSatlas.current_map.lobby_transitions && isnum(SSatlas.current_map.lobby_transitions))
-		icon_state = SSatlas.current_map.lobby_screens[lobby_screen_index]
+		icon_state = pick_next_lobby_screen()
 		if(!MC_RUNNING())
+#ifdef LOBBY_ART_CYCLE_DIAGNOSTICS
+			log_world("LobbyArtDiag [src]: setup_icon() scheduling via spawn([SSatlas.current_map.lobby_transitions]) -- MC_RUNNING() was FALSE")
+#endif
 			spawn(SSatlas.current_map.lobby_transitions)
 				update_icon()
 		else
+#ifdef LOBBY_ART_CYCLE_DIAGNOSTICS
+			log_world("LobbyArtDiag [src]: setup_icon() scheduling via addtimer([SSatlas.current_map.lobby_transitions]) -- MC_RUNNING() was TRUE")
+#endif
 			addtimer(CALLBACK(src, PROC_REF(update_icon)), SSatlas.current_map.lobby_transitions, TIMER_UNIQUE | TIMER_OVERRIDE)
 	else
 		icon_state = pick(SSatlas.current_map.lobby_screens)
@@ -84,31 +116,59 @@ ABSTRACT_TYPE(/atom/movable/screen/new_player)
 /atom/movable/screen/new_player/title/update_icon()
 	..()
 
+#ifdef LOBBY_ART_CYCLE_DIAGNOSTICS
+	log_world("LobbyArtDiag [src]: update_icon() called. QDELETED=[QDELETED(src)] hud=[hud] hud_type=[hud ? hud.type : "null"] mymob=[istype(hud) ? "[hud.mymob]" : "n/a"] mymob_type=[(istype(hud) && hud.mymob) ? "[hud.mymob.type]" : "n/a"] isnewplayer=[(istype(hud) && hud.mymob) ? isnewplayer(hud.mymob) : "n/a"]")
+#endif
+
 	if(QDELETED(src))
 		return
 
 	if(!istype(hud) || !isnewplayer(hud.mymob))
+#ifdef LOBBY_ART_CYCLE_DIAGNOSTICS
+		log_world("LobbyArtDiag [src]: update_icon() bailed at hud/isnewplayer check.")
+#endif
 		return
 
 	if(!SSatlas.current_map.lobby_transitions)
 		if(!icon_state)
 			icon_state = pick(SSatlas.current_map.lobby_screens)
+#ifdef LOBBY_ART_CYCLE_DIAGNOSTICS
+		log_world("LobbyArtDiag [src]: update_icon() bailed -- lobby_transitions is falsy.")
+#endif
 		return
 
-	var/num_lobby_screens = length(SSatlas.current_map.lobby_screens)
+	// Wrapped so a thrown exception can never skip the reschedule at the
+	// bottom -- without this, any hiccup here would silently kill the whole
+	// slideshow forever, since nothing else ever calls this proc again.
+	// Same fix shape as the ambient playlist's own self-rescheduling chain,
+	// play_next_ambient_track() (see its doc comment, ambient_playlist.dm),
+	// which hit and fixed this exact failure mode.
+	try
+		var/num_lobby_screens = length(SSatlas.current_map.lobby_screens)
 
-	if(num_lobby_screens >= 2)
-		//Advance to the next icon
-		lobby_screen_index = (lobby_screen_index % num_lobby_screens) + 1
+		if(num_lobby_screens >= 2)
+			animate(src, alpha = 0, time = 1 SECOND)
 
-		animate(src, alpha = 0, time = 1 SECOND)
-
-		animate(alpha = 255, icon_state = SSatlas.current_map.lobby_screens[lobby_screen_index], time = 1 SECOND)
+			var/next_screen = pick_next_lobby_screen()
+			animate(alpha = 255, icon_state = next_screen, time = 1 SECOND)
+#ifdef LOBBY_ART_CYCLE_DIAGNOSTICS
+			log_world("LobbyArtDiag [src]: update_icon() animating to icon_state=[next_screen] (num_lobby_screens=[num_lobby_screens])")
+		else
+			log_world("LobbyArtDiag [src]: update_icon() skipped animate -- num_lobby_screens=[num_lobby_screens] (need >= 2)")
+#endif
+	catch(var/exception/lobby_e)
+		log_world("LobbyArtDiag [src]: update_icon() threw, reschedule continuing anyway: [lobby_e]")
 
 	if(!MC_RUNNING())
+#ifdef LOBBY_ART_CYCLE_DIAGNOSTICS
+		log_world("LobbyArtDiag [src]: update_icon() rescheduling via spawn([SSatlas.current_map.lobby_transitions]) -- MC_RUNNING() was FALSE")
+#endif
 		spawn(SSatlas.current_map.lobby_transitions)
 			update_icon()
 	else
+#ifdef LOBBY_ART_CYCLE_DIAGNOSTICS
+		log_world("LobbyArtDiag [src]: update_icon() rescheduling via addtimer([SSatlas.current_map.lobby_transitions]) -- MC_RUNNING() was TRUE")
+#endif
 		addtimer(CALLBACK(src, PROC_REF(update_icon)), SSatlas.current_map.lobby_transitions, TIMER_UNIQUE | TIMER_OVERRIDE)
 
 
