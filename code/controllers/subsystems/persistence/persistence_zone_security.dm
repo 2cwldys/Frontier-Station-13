@@ -738,6 +738,18 @@ GLOBAL_LIST_EMPTY(hub_emergency_last_tracked)
  * emergency alert in line with that same "reaches Hub security regardless of
  * PDA power state" intent, without needing roll call's separate straight-to-
  * mob delivery.
+ *
+ * Deliberately does NOT alert every Hub-network PDA that merely has the
+ * program downloaded -- First Responder is intentionally open to download/run
+ * for anyone (required_access_run/download = null, so a civilian can still
+ * send a distress call), so a hub-shackled PDA in a miner's or bartender's
+ * pocket would otherwise get pinged on every highsec offense same as
+ * security's own. Gated on zone_security_exempt() of whoever is actually
+ * carrying the PDA right now -- the same "genuine, currently-equipped Hub
+ * security" test zone_security_roll_call() already uses below, deliberately
+ * narrower than any-Hub-job-holder (see that proc's own doc comment). A PDA
+ * with no mob currently holding/wearing it (dropped, boxed, etc.) has no one
+ * to check and is simply skipped.
  */
 /proc/zone_security_alert_responders(mob/attacker, mob/anchor, alert_text)
 	var/area/offense_area = get_area(anchor)
@@ -751,6 +763,13 @@ GLOBAL_LIST_EMPTY(hub_emergency_last_tracked)
 		if(normalize_faction_uid(MC.persistent_network) != "hub")
 			continue
 		if(!MC.hard_drive || !MC.hard_drive.find_file_by_name("firstresponder"))
+			continue
+		// Climbs .loc past any bag/pocket nesting to whoever physically has
+		// this PDA on them right now (mob.dm's own recursive_loc_turf_check()
+		// call uses the same recursion_limit for the equivalent "who's really
+		// holding this" question).
+		var/atom/holder = recursive_loc_turf_check(MC, 5)
+		if(!ismob(holder) || !zone_security_exempt(holder))
 			continue
 		MC.get_notification(alert_text, 1, "First Responder")
 		CHECK_TICK
