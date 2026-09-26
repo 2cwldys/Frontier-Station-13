@@ -1712,20 +1712,24 @@ GLOBAL_LIST_INIT(admin_verbs_storyteller, list(
 	else
 		to_chat(usr, SPAN_NOTICE("No presence lock was held for [target_char_name] ([target_ckey]) -- nothing to clear."))
 
-/// Aghost-only browser for every cryopod configured via the faction tagger
-/// (persistence_faction_tagger.dm) -- Personal/Crew/Faction/Public tags, plus
-/// prison cells (indicated distinctly, since a cryogenic prison storage unit
-/// is its own cryopod subtype -- cryopod_prison.dm). Deliberately does NOT
-/// call _cryopod_ignored_for_discovery() (persistence_cryo.dm) as-is: that
-/// helper folds in persistence_cryopod_discovery_ignore, which exists solely
-/// to hide prison cells from ordinary player spawn discovery -- not relevant
-/// to an admin browsing every configured pod on purpose. The other two
-/// exclusions it bundles (tagger_disabled, persistence_cryopod_spawn_ignore
-/// -- cyborg-only pods) are reapplied directly below instead.
+/// Aghost-only browser for every cryopod AND synthetic storage unit
+/// configured via the faction tagger (persistence_faction_tagger.dm) --
+/// Personal/Crew/Faction/Public tags, plus cryopod prison cells (indicated
+/// distinctly, since a cryogenic prison storage unit is its own cryopod
+/// subtype -- cryopod_prison.dm). Synthetic storage
+/// (synthetic_storage.dm, the IPC/cyborg counterpart to a cryopod) has no
+/// prison-cell equivalent, so it only ever gets the five ordinary tiers.
+/// Deliberately does NOT call _cryopod_ignored_for_discovery()
+/// (persistence_cryo.dm) as-is: that helper folds in
+/// persistence_cryopod_discovery_ignore, which exists solely to hide prison
+/// cells from ordinary player spawn discovery -- not relevant to an admin
+/// browsing every configured pod on purpose. The other two exclusions it
+/// bundles (tagger_disabled, persistence_cryopod_spawn_ignore -- cyborg-only
+/// pods) are reapplied directly below instead.
 /client/proc/jump_to_cryopod()
 	set category = "Persistence.Misc"
 	set name = "Jump to Cryopod"
-	set desc = "Requires Aghost. Lists every cryopod configured via the faction tagger (including prison cells, indicated as such) and teleports you to the one you pick."
+	set desc = "Requires Aghost. Lists every cryopod (including prison cells, indicated as such) and synthetic storage unit configured via the faction tagger, and teleports you to the one you pick."
 
 	if(!(check_rights(R_ADMIN|R_MOD|R_DEBUG|R_DEV) || isstoryteller(src.mob)))
 		return
@@ -1762,24 +1766,43 @@ GLOBAL_LIST_INIT(admin_verbs_storyteller, list(
 		var/area/A = get_area(pod)
 		options["[tier] -- [A ? A.name : "Unknown Area"] ([pod.x], [pod.y], [pod.z])"] = pod
 
+	for(var/obj/structure/machinery/recharge_station/synthetic_storage/unit in world)
+		if(unit.tagger_disabled)
+			continue
+		if(!unit.z || unit.occupant || (unit.stat & (NOPOWER|BROKEN)))
+			continue
+		var/tier
+		if(unit.personal_ckey)
+			tier = "Personal ([unit.personal_ckey])"
+		else if(unit.crew_tagged)
+			tier = "Crew-Tagged"
+		else if(unit.persistent_network == "public" && unit.persistent_spawn)
+			tier = "Public"
+		else if(unit.persistent_network)
+			tier = "Faction ([get_faction_name(unit.persistent_network)])"
+		else
+			tier = "Unassigned"
+		var/area/A = get_area(unit)
+		options["Synthetic Storage -- [tier] -- [A ? A.name : "Unknown Area"] ([unit.x], [unit.y], [unit.z])"] = unit
+
 	if(!length(options))
-		to_chat(usr, SPAN_WARNING("No available cryopods found."))
+		to_chat(usr, SPAN_WARNING("No available cryopods or synthetic storage units found."))
 		return
 
-	var/chosen = tgui_input_list(usr, "Select a cryopod to jump to:", "Jump to Cryopod", options)
+	var/chosen = tgui_input_list(usr, "Select a cryopod or synthetic storage unit to jump to:", "Jump to Cryopod", options)
 	if(!chosen)
 		return
-	var/obj/structure/machinery/cryopod/target = options[chosen]
+	var/obj/structure/machinery/target = options[chosen]
 	if(QDELETED(target))
-		to_chat(usr, SPAN_WARNING("That cryopod no longer exists."))
+		to_chat(usr, SPAN_WARNING("That cryopod or synthetic storage unit no longer exists."))
 		return
 	var/turf/T = get_turf(target)
 	if(!T)
-		to_chat(usr, SPAN_WARNING("Could not resolve a location for that cryopod."))
+		to_chat(usr, SPAN_WARNING("Could not resolve a location for that cryopod or synthetic storage unit."))
 		return
 
-	log_admin("[key_name(usr)] jumped to a cryopod at [T.x],[T.y],[T.z] in [T.loc]")
-	message_admins("[key_name_admin(usr)] jumped to a cryopod", 1)
+	log_admin("[key_name(usr)] jumped to a [istype(target, /obj/structure/machinery/recharge_station/synthetic_storage) ? "synthetic storage unit" : "cryopod"] at [T.x],[T.y],[T.z] in [T.loc]")
+	message_admins("[key_name_admin(usr)] jumped to a [istype(target, /obj/structure/machinery/recharge_station/synthetic_storage) ? "synthetic storage unit" : "cryopod"]", 1)
 	usr.on_mob_jump()
 	usr.forceMove(T)
 	feedback_add_details("admin_verb","JCP")
