@@ -98,6 +98,14 @@
 // the next boot. Purely diagnostic -- comment out to strip it entirely.
 //#define PERSISTENCE_FLOOR_ITEM_DEBUG
 
+// If defined, every lobby music track switch (_advance_lobby_track(),
+// sound.dm) logs the track name, the real elapsed time since the previous
+// switch, and that track's own known length from lobby_track_durations
+// (_lobby_track_durations.dm) -- so a report of a track cutting off early can
+// be checked against a real timestamped record instead of going on ear alone.
+// Defined by default while this is actively being chased.
+#define LOBBY_MUSIC_DIAGNOSTICS
+
 // If defined, real (non-Hub) factions are limited to ONE cargo order
 // category, chosen at founding and changeable later (command rank, 1-month
 // real-world cooldown, or admin override anytime). Off -- every
