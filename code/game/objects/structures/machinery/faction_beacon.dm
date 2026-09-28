@@ -68,6 +68,13 @@
 	/// TGUI ("toggle_public_territory"), same can_configure_faction_shackle()
 	/// gate as every other faction-side control here.
 	var/public_territory = FALSE
+	/// Who may stash, retrieve or commission a ship at any drydock this beacon's
+	/// claim reaches -- one of DRYDOCK_POLICY_* (code/__DEFINES/persistence.dm).
+	/// Authoritative over any drydock control console within reach, see
+	/// drydock_policy_for_z() (persistence_shuttles.dm). Set from the TGUI
+	/// ("set_drydock_policy"), same can_configure_faction_shackle() gate as every
+	/// other faction-side control here.
+	var/drydock_stash_policy = DRYDOCK_POLICY_ALL
 	/// How many overmap sectors out (in addition to this beacon's own Z) get
 	/// their security bumped to at least medsec when the network applies.
 	/// Admin-adjustable via the TGUI. 0 = only this beacon's own Z, matching
@@ -283,7 +290,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 /obj/structure/machinery/faction_beacon/worldstate_get_content()
 	if(!faction_uid)
 		return list()
-	var/list/content = list("faction_uid" = faction_uid, "powered" = powered, "locked" = locked, "security_radius" = security_radius, "fuel_credits" = fuel_credits, "public_territory" = public_territory)
+	var/list/content = list("faction_uid" = faction_uid, "powered" = powered, "locked" = locked, "security_radius" = security_radius, "fuel_credits" = fuel_credits, "public_territory" = public_territory, "drydock_stash_policy" = drydock_stash_policy)
 	if(istype(src, /obj/structure/machinery/faction_beacon/hub))
 		var/obj/structure/machinery/faction_beacon/hub/H = src
 		content["restrict_to_hub_personnel"] = H.restrict_to_hub_personnel
@@ -296,6 +303,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	security_radius = isnull(content["security_radius"]) ? 1 : text2num(content["security_radius"])
 	fuel_credits = isnull(content["fuel_credits"]) ? 0 : between(0, text2num(content["fuel_credits"]), max_fuel_credits)
 	public_territory = isnull(content["public_territory"]) ? FALSE : !!content["public_territory"]
+	drydock_stash_policy = content["drydock_stash_policy"] || DRYDOCK_POLICY_ALL
 	if(istype(src, /obj/structure/machinery/faction_beacon/hub))
 		var/obj/structure/machinery/faction_beacon/hub/H = src
 		H.restrict_to_hub_personnel = isnull(content["restrict_to_hub_personnel"]) ? TRUE : !!content["restrict_to_hub_personnel"]
@@ -322,6 +330,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	content["security_radius"] = security_radius
 	content["fuel_credits"] = fuel_credits
 	content["public_territory"] = public_territory
+	content["drydock_stash_policy"] = drydock_stash_policy
 	if(istype(src, /obj/structure/machinery/faction_beacon/hub))
 		var/obj/structure/machinery/faction_beacon/hub/H = src
 		content["restrict_to_hub_personnel"] = H.restrict_to_hub_personnel
@@ -337,6 +346,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	if(!isnull(content["security_radius"])) security_radius = text2num(content["security_radius"])
 	if(!isnull(content["fuel_credits"]))    fuel_credits    = between(0, text2num(content["fuel_credits"]), max_fuel_credits)
 	if(!isnull(content["public_territory"])) public_territory = !!content["public_territory"]
+	if(!isnull(content["drydock_stash_policy"])) drydock_stash_policy = content["drydock_stash_policy"] || DRYDOCK_POLICY_ALL
 	if(istype(src, /obj/structure/machinery/faction_beacon/hub) && !isnull(content["restrict_to_hub_personnel"]))
 		var/obj/structure/machinery/faction_beacon/hub/H = src
 		H.restrict_to_hub_personnel = !!content["restrict_to_hub_personnel"]
@@ -1144,6 +1154,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	data["max_fuel_credits"] = max_fuel_credits
 	data["requires_fuel"] = requires_fuel
 	data["public_territory"] = public_territory
+	data["drydock_stash_policy"] = drydock_stash_policy
 	data["is_hub"] = istype(src, /obj/structure/machinery/faction_beacon/hub)
 	if(data["is_hub"])
 		var/obj/structure/machinery/faction_beacon/hub/H = src
@@ -1231,6 +1242,17 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 			public_territory = !public_territory
 			to_chat(user, SPAN_GOOD("Territory set to [public_territory ? "PUBLIC" : "PRIVATE"] -- [public_territory ? "non-members may enter regardless of the faction raiding toggle." : "subject to the faction raiding toggle like any other claimed territory."]"))
 			log_game("[key_name(user)] set faction beacon at ([x],[y],[z]) territory to [public_territory ? "PUBLIC" : "PRIVATE"].")
+			. = TRUE
+		if("set_drydock_policy")
+			if(!can_configure_faction_shackle(user, faction_uid, 1))
+				to_chat(user, SPAN_WARNING("You need command access in [faction_uid ? get_faction_name(faction_uid) : "this beacon's faction"] to change this."))
+				return
+			var/new_policy = params["policy"]
+			if(!(new_policy in list(DRYDOCK_POLICY_ALL, DRYDOCK_POLICY_FACTION, DRYDOCK_POLICY_ALLIED, DRYDOCK_POLICY_NONE)))
+				return
+			drydock_stash_policy = new_policy
+			to_chat(user, SPAN_GOOD("Drydock access within this claim set to [drydock_stash_policy]."))
+			log_game("[key_name(user)] set faction beacon at ([x],[y],[z]) drydock access to [drydock_stash_policy].")
 			. = TRUE
 		if("toggle_hub_personnel_restriction")
 			if(!istype(src, /obj/structure/machinery/faction_beacon/hub))

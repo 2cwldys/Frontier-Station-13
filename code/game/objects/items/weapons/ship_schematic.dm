@@ -170,6 +170,41 @@
 		if(istype(home_shuttle) && !_drydock_ship_is_home(DS, home_shuttle))
 			data["away_from_home"] = TRUE
 
+	// Every drydock location and access refusal _drydockStashRun() and
+	// _drydockRetrieveRun() can produce, mirrored here for the same reason
+	// away_from_home above is: a button that offers something the server then
+	// refuses is worse than a button that explains why it is disabled. Only the
+	// side that applies right now is computed -- a stashed ship can only be
+	// retrieved, a deployed one only stashed.
+	data["stash_refusal"] = null
+	data["retrieve_refusal"] = null
+	data["tractored"] = FALSE
+	// While the legacy-stashing debug bypass is on, none of these apply and the
+	// fields stay null so the buttons match the beacon rule the server falls back
+	// to (which has no mirrored field of its own, same as before drydocks existed).
+	if(!GLOB.drydock_legacy_stashing)
+		if(DS.stashed)
+			var/turf/user_turf = get_turf(user)
+			var/obj/effect/overmap/visitable/from_sector = user_turf ? GLOB.map_sectors["[user_turf.z]"] : null
+			var/retrieve_z = _drydock_site_nearby(from_sector)
+			var/berth_z = drydock_impound_berth_for(DS)
+			if(berth_z && retrieve_z != berth_z)
+				var/obj/effect/overmap/visitable/berth = GLOB.map_sectors["[berth_z]"]
+				data["retrieve_refusal"] = "Impounded at [berth ? berth.name : "z=[berth_z]"] -- it can only be released from there."
+			else if(!retrieve_z)
+				data["retrieve_refusal"] = "You must be within 1 tile of a drydock to retrieve a ship."
+			else
+				data["retrieve_refusal"] = drydock_policy_refusal(drydock_policy_for_z(retrieve_z), DS.faction_uid, user)
+		else
+			var/stash_z = _drydock_site_nearby(_drydock_ship_sector(DS))
+			if(!stash_z)
+				data["stash_refusal"] = "This ship must be within 1 tile of a drydock to be stashed."
+			else
+				data["stash_refusal"] = drydock_policy_refusal(drydock_policy_for_z(stash_z), DS.faction_uid, user)
+			var/obj/effect/overmap/visitable/ship/landable/tow_marker = DS.z ? GLOB.map_sectors["[DS.z]"] : null
+			if(istype(tow_marker) && tow_marker.tractored_by)
+				data["tractored"] = TRUE
+
 	var/datum/map_template/drydock_ship/template = SSmapping.drydock_ship_templates[DS.template_id]
 	data["sub_shuttle_tags"] = (template && length(template.sub_shuttle_tags)) ? template.sub_shuttle_tags : list()
 

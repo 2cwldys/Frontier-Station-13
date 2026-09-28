@@ -16,6 +16,9 @@ type ShipSchematicData = {
   can_give_title?: BooleanLike;
   needs_rename?: BooleanLike;
   away_from_home?: BooleanLike;
+  stash_refusal?: string | null;
+  retrieve_refusal?: string | null;
+  tractored?: BooleanLike;
   shuttle_id?: number;
   save_in_progress?: BooleanLike;
   busy?: BooleanLike;
@@ -40,6 +43,9 @@ export const ShipSchematic = (props) => {
     can_give_title,
     needs_rename,
     away_from_home,
+    stash_refusal,
+    retrieve_refusal,
+    tractored,
     save_in_progress,
     busy,
     sub_shuttle_tags = [],
@@ -91,7 +97,13 @@ export const ShipSchematic = (props) => {
                 fluid
                 mt={1}
                 icon="street-view"
-                disabled={!stashed || !!busy || !!save_in_progress || !!needs_rename}
+                disabled={
+                  !stashed ||
+                  !!busy ||
+                  !!save_in_progress ||
+                  !!needs_rename ||
+                  !!retrieve_refusal
+                }
                 tooltip={
                   busy
                     ? 'Retrieve/stash in progress -- please wait.'
@@ -99,7 +111,9 @@ export const ShipSchematic = (props) => {
                       ? 'World save in progress -- please wait.'
                       : needs_rename
                         ? 'Rename this ship before it can be retrieved.'
-                        : undefined
+                        : retrieve_refusal
+                          ? retrieve_refusal
+                          : undefined
                 }
                 onClick={() => act('retrieve')}
               >
@@ -114,7 +128,9 @@ export const ShipSchematic = (props) => {
                   !!busy ||
                   !!save_in_progress ||
                   !!away_from_home ||
-                  !ready
+                  !ready ||
+                  !!tractored ||
+                  !!stash_refusal
                 }
                 tooltip={
                   busy
@@ -125,7 +141,11 @@ export const ShipSchematic = (props) => {
                         ? 'This ship is still being retrieved -- wait until it is ready to board.'
                         : away_from_home
                           ? 'This ship is currently docked -- undock before stashing.'
-                          : undefined
+                          : tractored
+                            ? 'This ship is held in a tractor beam -- break the lock before stashing.'
+                            : stash_refusal
+                              ? stash_refusal
+                              : undefined
                 }
                 onClick={() => act('stash')}
               >
