@@ -212,15 +212,40 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 		var/obj/effect/overmap/visitable/marker = GLOB.map_sectors[key]
 		if(!istype(marker) || marker.has_called_distress_beacon)
 			continue
+		// Zone security describes a PLACE, so it has no business tinting a mobile
+		// vessel: a ship carries its outline around with it and reads as a claim on
+		// wherever it happens to be sitting. Cleared rather than skipped, so a ship
+		// that was painted before this ran doesn't keep a stale outline forever.
+		// The /stationary subtypes (sensor relays, waypoints, People's Station) are
+		// fixed installations despite the type path, so they still get painted.
+		if(istype(marker, /obj/effect/overmap/visitable/ship) && !istype(marker, /obj/effect/overmap/visitable/ship/stationary))
+			marker.filters = null
+			continue
 		var/marker_z = length(marker.map_z) ? marker.map_z[1] : 0
-		switch(zone_security_get(marker_z))
-			if(ZONE_HIGHSEC)
-				marker.filters = filter(type = "outline", size = 2, color = "#3dff5c")
-			if(ZONE_MEDSEC)
-				marker.filters = filter(type = "outline", size = 2, color = "#ffcc33")
-			else
-				marker.filters = filter(type = "outline", size = 2, color = "#ff3333")
+		marker.filters = _zone_security_outline_filter(zone_security_get(marker_z))
+
+	// Supply beacons sit directly on the overmap with no z of their own, so they
+	// are absent from GLOB.map_sectors entirely and the loop above can never reach
+	// them. They are stationary fixtures like any site, so they read the tier of
+	// the tile they occupy -- zone_security_overmap_tier() answers for a position
+	// rather than a z, which is the only thing that works for something with no z.
+	for(var/pos_key in GLOB.supply_beacon_positions)
+		var/obj/effect/overmap/beacon = GLOB.supply_beacon_positions[pos_key]
+		if(!istype(beacon))
+			continue
+		beacon.filters = _zone_security_outline_filter(zone_security_overmap_tier(get_turf(beacon)))
+
 	zone_security_update_overmap_borders()
+
+/// The tier outline every overmap fixture is painted with, in one place so the
+/// sector markers and the supply beacons can't drift apart on colour or size.
+/proc/_zone_security_outline_filter(tier)
+	switch(tier)
+		if(ZONE_HIGHSEC)
+			return filter(type = "outline", size = 2, color = "#3dff5c")
+		if(ZONE_MEDSEC)
+			return filter(type = "outline", size = 2, color = "#ffcc33")
+	return filter(type = "outline", size = 2, color = "#ff3333")
 
 /**
  * Full clear-and-repaint of the overmap's zone-security turf decals: for
