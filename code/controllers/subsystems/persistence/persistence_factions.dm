@@ -2201,7 +2201,14 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
  * exoplanet, or not loaded from a ruin/away_site template -- e.g. the main
  * station or a player ship).
  */
-/proc/persistence_pin_site_at_z(z, notes)
+/proc/persistence_pin_site_at_z(z, notes, site_kind)
+	// Callers (faction/hub beacons, mostly) don't know or care what the site is
+	// for, so the kind comes from whatever founded it -- the colony radio records
+	// that in GLOB.persistence_site_kind_by_z (persistence.dm) at founding time,
+	// which is typically well before anything pins the site. An unrecorded site
+	// was generated without a declared purpose.
+	if(isnull(site_kind))
+		site_kind = GLOB.persistence_site_kind_by_z["[z]"] || AWAY_SITE_KIND_SIMULATED
 	var/obj/effect/overmap/visitable/here_marker = GLOB.map_sectors["[z]"]
 	// Ships/shuttles (player-flown or the main station itself) are never
 	// pinnable -- explicit guard even though the template check below would
@@ -2251,13 +2258,13 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			base_z = min(base_z, mz)
 
 	var/datum/db_query/iq = SSdbcore.NewQuery(
-		{"INSERT INTO ss13_persistent_away_sites (template_name, map_path, overmap_x, overmap_y, last_z, enabled, notes)
-		VALUES (:tn, :mp, :ox, :oy, :z, 1, :notes)
-		ON DUPLICATE KEY UPDATE enabled = 1, notes = VALUES(notes)"},
+		{"INSERT INTO ss13_persistent_away_sites (template_name, map_path, overmap_x, overmap_y, last_z, enabled, notes, site_kind)
+		VALUES (:tn, :mp, :ox, :oy, :z, 1, :notes, :kind)
+		ON DUPLICATE KEY UPDATE enabled = 1, notes = VALUES(notes), site_kind = VALUES(site_kind)"},
 		list(
 			"tn" = here_template.id, "mp" = "[SSatlas.current_map.path]",
 			"ox" = (here_marker ? here_marker.start_x : 0), "oy" = (here_marker ? here_marker.start_y : 0),
-			"z"  = base_z, "notes" = notes
+			"z"  = base_z, "notes" = notes, "kind" = site_kind
 		)
 	)
 	iq.Execute()
@@ -2267,7 +2274,8 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	for(var/nz in live_zs)
 		GLOB.persistence_pinned_site_z |= nz
 		GLOB.persistence_zlevel_allow |= nz
-	log_game("Site '[here_template.id]' at z=[base_z] auto-pinned: [notes]")
+		GLOB.persistence_site_kind_by_z["[nz]"] = site_kind
+	log_game("Site '[here_template.id]' at z=[base_z] auto-pinned as [site_kind]: [notes]")
 	return TRUE
 
 /**
@@ -2312,7 +2320,43 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	for(var/nz in live_zs)
 		GLOB.persistence_pinned_site_z -= nz
 		GLOB.persistence_zlevel_allow -= nz
+	// GLOB.persistence_site_kind_by_z is deliberately left alone: unpinning drops
+	// the reboot-survival registration, not the site, which is still standing and
+	// still whatever it was founded as for the rest of this round.
 	log_game("Site '[here_template.id]' at z=[row_last_z] auto-unpinned: [expected_notes] released.")
+	return TRUE
+
+/**
+ * Changes what the away site occupying z is FOR, recording it in both places that
+ * matter: the live kind map every check reads, and the pinned row that carries it
+ * across reboots. A site that has not been pinned yet has no row, so only the map
+ * is written -- persistence_pin_site_at_z() picks the kind up from there when a
+ * beacon eventually claims the site.
+ *
+ * Every deck of the site is set together, since the kind describes the site rather
+ * than any single z.
+ */
+/proc/persistence_set_site_kind(z, site_kind)
+	var/obj/effect/overmap/visitable/here_marker = GLOB.map_sectors["[z]"]
+	var/list/live_zs = (here_marker && length(here_marker.map_z)) ? here_marker.map_z.Copy() : list(z)
+	var/base_z = z
+	for(var/nz in live_zs)
+		base_z = min(base_z, nz)
+		GLOB.persistence_site_kind_by_z["[nz]"] = site_kind
+
+	if(site_kind == AWAY_SITE_KIND_DRYDOCK)
+		apply_drydock_marker_appearance(here_marker)
+
+	if(SSpersistence.databaseCheckConnection("persistence_set_site_kind"))
+		var/datum/db_query/uq = SSdbcore.NewQuery(
+			"UPDATE ss13_persistent_away_sites SET site_kind = :kind WHERE map_path = :mp AND last_z = :z",
+			list("kind" = site_kind, "mp" = "[SSatlas.current_map.path]", "z" = base_z)
+		)
+		uq.Execute()
+		SSpersistence.databaseCheckQueryResult(uq, "persistence_set_site_kind")
+		qdel(uq)
+
+	log_game("Site at z=[base_z] set to kind '[site_kind]'.")
 	return TRUE
 
 /**

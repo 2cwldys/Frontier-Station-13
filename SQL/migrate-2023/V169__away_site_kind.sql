@@ -1,0 +1,16 @@
+-- What a pinned away site is for: 'simulated', 'colony' or 'drydock'.
+--
+-- 'simulated' is the neutral default, so every existing row keeps its current
+-- meaning: a site that was generated or pinned without anybody declaring a
+-- purpose for it. That covers RNG-generated sites, "Pin Site I'm At", and the
+-- site a faction beacon pins underneath itself.
+--
+-- 'colony' and 'drydock' are only ever set deliberately, by the colony radio's
+-- founding request (code/game/objects/items/devices/colony_radio.dm). Only
+-- 'drydock' carries mechanics: ships may be stashed, retrieved and commissioned
+-- within one overmap tile of one.
+--
+-- Written by persistence_pin_site_at_z() (persistence_factions.dm) and the colony
+-- radio; read into GLOB.persistence_drydock_site_z by build_pinned_away_sites()
+-- (maps/_common/mapsystem/map.dm).
+ALTER TABLE `ss13_persistent_away_sites` ADD COLUMN `site_kind` VARCHAR(16) NOT NULL DEFAULT 'simulated';
