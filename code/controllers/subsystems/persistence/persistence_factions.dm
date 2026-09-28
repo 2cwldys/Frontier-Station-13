@@ -2346,6 +2346,13 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 
 	if(site_kind == AWAY_SITE_KIND_DRYDOCK)
 		apply_drydock_marker_appearance(here_marker)
+	else if(here_marker && here_marker.icon_state == "battlestation")
+		// Demoted out of being a yard, so drop the drydock skin rather than leave
+		// the marker advertising one. Conditioned on the skin actually being ours,
+		// so an admin's "Change Icon" choice on an ordinary site is never stomped.
+		here_marker.icon = initial(here_marker.icon)
+		here_marker.icon_state = initial(here_marker.icon_state)
+		here_marker.update_icon()
 
 	if(SSpersistence.databaseCheckConnection("persistence_set_site_kind"))
 		var/datum/db_query/uq = SSdbcore.NewQuery(
