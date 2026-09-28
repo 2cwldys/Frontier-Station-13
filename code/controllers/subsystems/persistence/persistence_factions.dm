@@ -2466,7 +2466,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			msg += "  #[row["id"]] [row["template"]][row["notes"] ? " ([row["notes"]])" : ""] -- [row["enabled"] ? "ENABLED" : "disabled"], overmap ([row["om_x"]],[row["om_y"]])[appearance_info], [live]\n"
 		to_chat(usr, SPAN_NOTICE(msg))
 
-		var/action = tgui_input_list(usr, "Select action:", "Persistent Overmap Sites", list("Pin Site I'm At", "Pin From Template List", "Rename Site", "Change Icon", "Move Site", "Toggle Enabled", "Unpin Site", "Close"))
+		var/action = tgui_input_list(usr, "Select action:", "Persistent Overmap Sites", list("Pin Site I'm At", "Pin From Template List", "Rename Site", "Change Icon", "Set Site Kind", "Move Site", "Toggle Enabled", "Unpin Site", "Close"))
 		if(!action || action == "Close")
 			return
 
@@ -2602,6 +2602,41 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 					persistence_set_zlevel_label(rename_row["last_z"], rename_marker.name)
 			to_chat(usr, SPAN_GOOD("'[rename_row["template"]]' [new_site_name != "" ? "renamed to '[new_site_name]'" : "name restored to template default"] -- persists across reboots."))
 			log_and_message_admins("[new_site_name != "" ? "renamed pinned overmap site '[rename_row["template"]]' to '[new_site_name]'" : "cleared custom name on pinned overmap site '[rename_row["template"]]'"]", usr)
+
+		// Deliberately enumerated from LIVE away sites rather than from the pinned
+		// rows above, because a site's kind is meaningful before it is ever pinned
+		// -- that is exactly the window a colony-radio founding sits in, waiting
+		// for a faction beacon to claim it. persistence_set_site_kind() writes the
+		// pinned row when there is one and the live map either way.
+		else if(action == "Set Site Kind")
+			var/list/kind_choices = list()
+			for(var/kz = 1 to world.maxz)
+				var/datum/map_template/kz_template = GLOB.map_templates["[kz]"]
+				if(!istype(kz_template, /datum/map_template/ruin/away_site))
+					continue
+				var/obj/effect/overmap/visitable/kz_marker = GLOB.map_sectors["[kz]"]
+				// One entry per SITE, not per deck -- a multi-deck site is offered
+				// only at its base z, and persistence_set_site_kind() applies the
+				// change to every deck of it.
+				if(kz_marker && length(kz_marker.map_z) && kz_marker.map_z[1] != kz)
+					continue
+				var/kz_kind = GLOB.persistence_site_kind_by_z["[kz]"] || AWAY_SITE_KIND_SIMULATED
+				var/kz_pinned = (kz in GLOB.persistence_pinned_site_z) ? "pinned" : "not pinned"
+				kind_choices["z=[kz] -- [kz_marker ? kz_marker.name : kz_template.id] ([kz_kind], [kz_pinned])"] = kz
+			if(!length(kind_choices))
+				to_chat(usr, SPAN_WARNING("No away sites are loaded."))
+				continue
+			var/kind_site_pick = tgui_input_list(usr, "Change which site's kind?", "Set Site Kind", kind_choices)
+			if(!kind_site_pick)
+				continue
+			var/kind_z = kind_choices[kind_site_pick]
+			var/new_kind = tgui_input_list(usr, "What is z=[kind_z] for? Only 'drydock' carries mechanics -- ships may be stashed, retrieved and built within one overmap tile of one.", "Set Site Kind", \
+				list(AWAY_SITE_KIND_SIMULATED, AWAY_SITE_KIND_COLONY, AWAY_SITE_KIND_DRYDOCK))
+			if(!new_kind)
+				continue
+			persistence_set_site_kind(kind_z, new_kind)
+			to_chat(usr, SPAN_GOOD("z=[kind_z] is now a [new_kind][(kind_z in GLOB.persistence_pinned_site_z) ? " -- written to its pinned row, so it survives reboots" : " -- this site is NOT pinned, so the change lasts only until reboot"]."))
+			log_and_message_admins("set away site at z=[kind_z] to kind '[new_kind]'", usr)
 
 		else if(action == "Change Icon")
 			if(!length(rows))
