@@ -57,7 +57,7 @@
 	var/datum/colony_radio_request/request = new(user, pick_x, pick_y, claim_kind)
 	GLOB.colony_radio_requests += request
 
-	to_chat(user, SPAN_NOTICE("You transmit a [claim_kind] claim request for overmap ([pick_x],[pick_y]) to Central Command. Awaiting review."))
+	to_chat(user, SPAN_NOTICE("You transmit a [claim_kind] claim request for overmap ([pick_x],[pick_y]) to the Hub. Awaiting review."))
 	log_game("[key_name(user)] submitted a Colony Radio request for a [claim_kind] at overmap ([pick_x],[pick_y]).")
 
 	var/turf/user_turf = get_turf(user)
@@ -146,7 +146,7 @@ GLOBAL_LIST_EMPTY(colony_radio_requests)
 
 	var/mob/requester_mob = _find_requester_mob()
 	if(requester_mob)
-		to_chat(requester_mob, SPAN_GOOD("Central Command has approved your claim -- your [site_kind] has been founded at overmap ([pick_x],[pick_y])."))
+		to_chat(requester_mob, SPAN_GOOD("The Hub has approved your claim -- your [site_kind] has been founded at overmap ([pick_x],[pick_y])."))
 		to_chat(requester_mob, SPAN_NOTICE("It will not survive a reboot until a faction or hub beacon is established on it."))
 
 	log_and_message_admins("approved [site_kind] station request from [requester_name] ([requester_ckey]) at overmap ([pick_x],[pick_y]), z=[site_z]", admin)
@@ -157,7 +157,7 @@ GLOBAL_LIST_EMPTY(colony_radio_requests)
 		return
 	resolved = TRUE
 	GLOB.colony_radio_requests -= src
-	_refund_and_notify("Central Command has denied your colonial claim request.")
+	_refund_and_notify("The Hub has denied your colonial claim request.")
 	log_and_message_admins("denied colony station request from [requester_name] ([requester_ckey]) at overmap ([pick_x],[pick_y])", admin)
 
 /// Shared refund path for both an explicit deny and an approve that failed
