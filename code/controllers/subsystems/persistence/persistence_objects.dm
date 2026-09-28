@@ -220,9 +220,10 @@ GLOBAL_VAR_INIT(persistence_restoring_tracked_objects, FALSE)
 	PRIVATE_PROC(TRUE)
 
 #ifdef AUTO_DB_CLEANUP
-	// Before writing this cycle's fresh data -- see AUTO_DB_CLEANUP's own
-	// comment (_compile_options.dm) and objectsCleanupDuplicateEntries()'s
-	// (persistence_objects_sql.dm) for what this does and doesn't touch.
+	// A row only carries a deadline here once something has tombstoned it or it
+	// is a short-lived decal, so a lapsed expires_at means a row the world no
+	// longer occupies -- see objectsCleanupDuplicateEntries()
+	// (persistence_objects_sql.dm) for what it does and doesn't touch.
 	try
 		objectsCleanupDuplicateEntries()
 	catch(var/exception/dedup_e)

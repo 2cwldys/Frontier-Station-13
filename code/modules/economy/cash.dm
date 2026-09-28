@@ -328,7 +328,6 @@
 	name = "faction charge card"
 	desc = "A corporate charge card loaded with funds withdrawn from a faction's bank account."
 	icon_state = "efundcard_special"
-	persistant_objects_expiration_time_days = 360
 	var/faction_uid = ""
 	/// The faction's charge-card epoch at the moment this card was printed --
 	/// see invalidate_faction_charge_cards()/is_faction_charge_card_valid()
@@ -388,7 +387,6 @@
 	desc = "A specialized charge card that holds a certain amount of money. This type of charge card is in use for special purposes and not generally available."
 	icon_state = "efundcard_special"
 	var/initial_worth = 0 // Used for calculating how much cash was spend, needs to be set using VV after spawning it.
-	persistant_objects_expiration_time_days = 360
 
 /obj/item/spacecash/ewallet/persistent_charge_card/Initialize()
 	. = ..()

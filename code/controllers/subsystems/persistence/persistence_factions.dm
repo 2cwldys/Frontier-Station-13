@@ -1814,15 +1814,15 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 		cq.Execute()
 		qdel(cq)
 
-/// Prunes faction chat history older than the standard persistence
-/// expiration window. Called from SSpersistence.Shutdown().
+/// Prunes faction chat history older than FACTION_CHAT_RETENTION_DAYS.
+/// Called from SSpersistence.Shutdown().
 /datum/controller/subsystem/persistence/proc/factionChatPrune()
 	PRIVATE_PROC(TRUE)
 	if(!databaseCheckConnection("factionChatPrune"))
 		return
 	var/datum/db_query/q = SSdbcore.NewQuery(
 		"DELETE FROM ss13_faction_chat WHERE sent_at < DATE_SUB(NOW(), INTERVAL :days DAY)",
-		list("days" = PERSISTENT_DEFAULT_EXPIRATION_DAYS)
+		list("days" = FACTION_CHAT_RETENTION_DAYS)
 	)
 	q.Execute()
 	databaseCheckQueryResult(q, "factionChatPrune")

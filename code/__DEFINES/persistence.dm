@@ -2,8 +2,9 @@
 	Constants for the persistence subsystem
 #############################################*/
 
-#define PERSISTENT_DEFAULT_EXPIRATION_DAYS 30 // Default expire timespan for newly created persistent objects
 #define PERSISTENT_EXPIRATION_CLEANUP_DELAY_DAYS 30 // Grace period for expired database entries before they get cleaned up.
+/// How long faction chat history is kept by factionChatPrune() (persistence_factions.dm).
+#define FACTION_CHAT_RETENTION_DAYS 30
 
 // Faction-tagger-configurable turret targeting restriction -- see
 // code/game/objects/structures/machinery/portable_turret.dm (assess_living())
