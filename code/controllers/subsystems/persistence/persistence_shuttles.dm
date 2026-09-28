@@ -764,16 +764,30 @@ GLOBAL_LIST_EMPTY(drydock_console_by_z)
 /// its CentCom allowance: a ship needs a real founded drydock now, and the
 /// Frontier Beacon Depot only qualifies if one has actually been established
 /// there (the "View Drydocks" verb can do that).
+/// Picks the CLOSEST drydock in range rather than the first one found, so two yards
+/// sitting next to each other behave predictably: standing at one always uses that
+/// one. Ties (two yards the same distance away) still resolve by registry order,
+/// which only happens when the choice is genuinely equivalent for placement.
 /proc/_drydock_site_nearby(obj/effect/overmap/visitable/sector)
 	if(!istype(sector))
 		return null
+	var/best_z = null
+	var/best_dist = null
 	for(var/dz in GLOB.persistence_site_kind_by_z)
 		if(GLOB.persistence_site_kind_by_z[dz] != AWAY_SITE_KIND_DRYDOCK)
 			continue
 		var/obj/effect/overmap/visitable/site_sector = GLOB.map_sectors[dz]
-		if(istype(site_sector) && get_dist(sector, site_sector) <= 1)
-			return text2num(dz)
-	return null
+		if(!istype(site_sector))
+			continue
+		var/dist = get_dist(sector, site_sector)
+		if(dist > 1)
+			continue
+		if(isnull(best_dist) || dist < best_dist)
+			best_dist = dist
+			best_z = text2num(dz)
+			if(!best_dist)
+				break // standing on it -- nothing can beat distance 0
+	return best_z
 
 /// Which policy governs drydock use at z, and whose it is, as
 /// list("policy" = DRYDOCK_POLICY_*, "faction_uid" = uid or null).
