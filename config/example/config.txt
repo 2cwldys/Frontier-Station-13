@@ -532,7 +532,7 @@ RESLEEVE_SKILL_LOSS_FLOOR 2
 ## This value is only read at startup. To change the minimum on a LIVE server with no
 ## restart and no recompile, use the "Set Minimum Client Build" admin verb -- the value
 ## it stores in the database overrides this one, and 0 there clears the override.
-#MIN_CLIENT_BUILD 1687
+#MIN_CLIENT_BUILD 1688
 #MIN_CLIENT_BUILD_MESSAGE This server requires a newer BYOND build. Please update via the BYOND pager, or from http://www.byond.com/download/
 
 ## Which staff presence keeps faction raiding available, while the server is compiled

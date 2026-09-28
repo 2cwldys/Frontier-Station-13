@@ -21,7 +21,7 @@
 FROM ubuntu:24.04
 
 ARG BYOND_MAJOR=516
-ARG BYOND_MINOR=1687
+ARG BYOND_MINOR=1688
 ARG RUST_G_VERSION=v3.1.0+a1
 
 # mariadb-client (mysqldump/mysqladmin) -- NOT the Docker CLI, deliberately
