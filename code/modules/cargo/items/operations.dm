@@ -42,6 +42,20 @@
 	groupable = FALSE
 	spawn_amount = 1
 
+/singleton/cargo_item/drydockconsole
+	category = "operations"
+	name = "drydock control console"
+	supplier = "Hub"
+	description = "Registers a drydock's berthing rights with the local traffic authority. Only functions on a site founded as a drydock, and is overridden by any faction beacon covering it."
+	price = 25000
+	items = list(
+		/obj/structure/machinery/computer/drydock_control
+	)
+	access = 0
+	container_type = "crate"
+	groupable = FALSE
+	spawn_amount = 1
+
 /singleton/cargo_item/shipcloakingdevice
 	category = "operations"
 	name = "cloaking device"
