@@ -97,6 +97,22 @@ GLOBAL_LIST_EMPTY(persistence_template_loaded_z)
 /// a pinned site saves/loads like a station deck.
 GLOBAL_LIST_EMPTY(persistence_pinned_site_z)
 
+/// "[z]" -> AWAY_SITE_KIND_* for every away-site z whose purpose is known.
+///
+/// Source of truth for whether a z is a drydock, and deliberately NOT tied to
+/// being pinned: the colony radio founds a site and records its kind here
+/// immediately, while pinning only happens later, when a faction or hub beacon
+/// claims the site. persistence_pin_site_at_z() then reads this to decide what to
+/// write to ss13_persistent_away_sites.site_kind, so the kind survives that
+/// handover without the beacon having to know anything about it.
+/// Refilled from the DB at boot by build_pinned_away_sites().
+///
+/// Every deck of a site is listed, so a console anywhere on one can tell what it
+/// is standing on, while proximity tests resolve a single shared overmap sector
+/// through GLOB.map_sectors. Read by drydock_z_is_drydock() and
+/// _drydock_site_nearby() (persistence_shuttles.dm).
+GLOBAL_LIST_EMPTY(persistence_site_kind_by_z)
+
 /// TRUE when MANUAL_AREA_SAVE is on and this z was not explicitly enabled via
 /// the Toggle Z-Level Persistence verb -- flips persistence from opt-out to
 /// opt-in per z-level, using the same DB-backed list the verb manages.

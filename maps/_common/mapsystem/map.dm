@@ -465,7 +465,7 @@
 		return
 
 	var/datum/db_query/pq = SSdbcore.NewQuery(
-		"SELECT id, template_name, overmap_x, overmap_y, last_z, custom_name, custom_icon_state, sec_zone FROM ss13_persistent_away_sites WHERE map_path = :mp AND enabled = 1 ORDER BY id ASC",
+		"SELECT id, template_name, overmap_x, overmap_y, last_z, custom_name, custom_icon_state, sec_zone, site_kind FROM ss13_persistent_away_sites WHERE map_path = :mp AND enabled = 1 ORDER BY id ASC",
 		list("mp" = "[path]")
 	)
 	pq.Execute()
@@ -479,7 +479,8 @@
 			"last_z"      = text2num(pq.item[5]),
 			"custom_name" = pq.item[6],
 			"custom_icon" = pq.item[7],
-			"sec_zone"    = text2num(pq.item[8])
+			"sec_zone"    = text2num(pq.item[8]),
+			"site_kind"   = pq.item[9]
 		))
 	qdel(pq)
 	if(!length(rows))
@@ -526,6 +527,11 @@
 			// Security zone follows the pinned site across boots
 			if(row["sec_zone"])
 				GLOB.zone_security_by_z["[nz]"] = row["sec_zone"]
+			// Every deck of the site is recorded, so a console on any of them can
+			// tell what it is standing on -- see GLOB.persistence_site_kind_by_z
+			// (persistence.dm).
+			if(row["site_kind"])
+				GLOB.persistence_site_kind_by_z["[nz]"] = row["site_kind"]
 
 		// Lock the overmap marker to the pinned position; first boot (0,0)
 		// records wherever the marker placed itself.
@@ -536,6 +542,11 @@
 			var/turf/dest = locate(row["om_x"], row["om_y"], SSatlas.current_map.overmap_z)
 			if(dest && marker.loc)
 				marker.forceMove(dest)
+
+		// Before the admin-set appearance below, so an explicit "Change Icon"
+		// still wins over the drydock default.
+		if(marker && row["site_kind"] == AWAY_SITE_KIND_DRYDOCK)
+			apply_drydock_marker_appearance(marker)
 
 		// Apply admin-set appearance (Rename Site / Change Icon) -- the
 		// marker's Initialize/update_name already ran, so plain assignment

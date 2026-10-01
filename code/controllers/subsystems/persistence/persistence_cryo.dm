@@ -566,8 +566,6 @@
 	/// a disabled pod keeps whatever tag it already had, it just can't be
 	/// entered.
 	var/tagger_disabled = FALSE
-	/// Never expire spawned cryopods
-	persistant_objects_expiration_time_days = 36500
 
 /// Cryopod subtypes never offered as a human spawn/wake target (e.g. cyborg-only pods).
 /// Checked by persistence_find_saved_cryopod(), persistence_find_available_cryopod(),

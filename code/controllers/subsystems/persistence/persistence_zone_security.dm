@@ -212,15 +212,40 @@ GLOBAL_LIST_EMPTY(highsec_offense_last_tracked)
 		var/obj/effect/overmap/visitable/marker = GLOB.map_sectors[key]
 		if(!istype(marker) || marker.has_called_distress_beacon)
 			continue
+		// Zone security describes a PLACE, so it has no business tinting a mobile
+		// vessel: a ship carries its outline around with it and reads as a claim on
+		// wherever it happens to be sitting. Cleared rather than skipped, so a ship
+		// that was painted before this ran doesn't keep a stale outline forever.
+		// The /stationary subtypes (sensor relays, waypoints, People's Station) are
+		// fixed installations despite the type path, so they still get painted.
+		if(istype(marker, /obj/effect/overmap/visitable/ship) && !istype(marker, /obj/effect/overmap/visitable/ship/stationary))
+			marker.filters = null
+			continue
 		var/marker_z = length(marker.map_z) ? marker.map_z[1] : 0
-		switch(zone_security_get(marker_z))
-			if(ZONE_HIGHSEC)
-				marker.filters = filter(type = "outline", size = 2, color = "#3dff5c")
-			if(ZONE_MEDSEC)
-				marker.filters = filter(type = "outline", size = 2, color = "#ffcc33")
-			else
-				marker.filters = filter(type = "outline", size = 2, color = "#ff3333")
+		marker.filters = _zone_security_outline_filter(zone_security_get(marker_z))
+
+	// Supply beacons sit directly on the overmap with no z of their own, so they
+	// are absent from GLOB.map_sectors entirely and the loop above can never reach
+	// them. They are stationary fixtures like any site, so they read the tier of
+	// the tile they occupy -- zone_security_overmap_tier() answers for a position
+	// rather than a z, which is the only thing that works for something with no z.
+	for(var/pos_key in GLOB.supply_beacon_positions)
+		var/obj/effect/overmap/beacon = GLOB.supply_beacon_positions[pos_key]
+		if(!istype(beacon))
+			continue
+		beacon.filters = _zone_security_outline_filter(zone_security_overmap_tier(get_turf(beacon)))
+
 	zone_security_update_overmap_borders()
+
+/// The tier outline every overmap fixture is painted with, in one place so the
+/// sector markers and the supply beacons can't drift apart on colour or size.
+/proc/_zone_security_outline_filter(tier)
+	switch(tier)
+		if(ZONE_HIGHSEC)
+			return filter(type = "outline", size = 2, color = "#3dff5c")
+		if(ZONE_MEDSEC)
+			return filter(type = "outline", size = 2, color = "#ffcc33")
+	return filter(type = "outline", size = 2, color = "#ff3333")
 
 /**
  * Full clear-and-repaint of the overmap's zone-security turf decals: for
@@ -727,6 +752,29 @@ GLOBAL_LIST_EMPTY(hub_emergency_last_tracked)
  * PDA-message-style alert: chat line with the device icon plus an audible
  * twobeep (get_notification handles the silent toggle). alert_text defaults
  * to the standard HIGHSEC OFFENSE wording; distress calls pass their own.
+ *
+ * Deliberately reaches a powered-off/dead-battery PDA too -- get_notification()
+ * only plays a world sound and posts a chat line (output_message() ->
+ * audible_message()/to_chat()), neither of which reads or depends on
+ * enabled/screen_on/computer_use_power() in any way, so there's no actual
+ * technical reason to gate on them. A highsec offense is exactly the kind of
+ * time-critical alert zone_security_roll_call() below already bypasses the
+ * PDA channel entirely for -- this brings the ordinary offense/distress/
+ * emergency alert in line with that same "reaches Hub security regardless of
+ * PDA power state" intent, without needing roll call's separate straight-to-
+ * mob delivery.
+ *
+ * Deliberately does NOT alert every Hub-network PDA that merely has the
+ * program downloaded -- First Responder is intentionally open to download/run
+ * for anyone (required_access_run/download = null, so a civilian can still
+ * send a distress call), so a hub-shackled PDA in a miner's or bartender's
+ * pocket would otherwise get pinged on every highsec offense same as
+ * security's own. Gated on zone_security_exempt() of whoever is actually
+ * carrying the PDA right now -- the same "genuine, currently-equipped Hub
+ * security" test zone_security_roll_call() already uses below, deliberately
+ * narrower than any-Hub-job-holder (see that proc's own doc comment). A PDA
+ * with no mob currently holding/wearing it (dropped, boxed, etc.) has no one
+ * to check and is simply skipped.
  */
 /proc/zone_security_alert_responders(mob/attacker, mob/anchor, alert_text)
 	var/area/offense_area = get_area(anchor)
@@ -739,12 +787,14 @@ GLOBAL_LIST_EMPTY(hub_emergency_last_tracked)
 			continue
 		if(normalize_faction_uid(MC.persistent_network) != "hub")
 			continue
-		// A dead-battery/powered-off PDA can't display the alert -- computer_use_power()
-		// with its default zero-usage argument is a read-only power check, it doesn't
-		// additionally drain the computer just to test this.
-		if(!MC.enabled || !MC.screen_on || !MC.computer_use_power())
-			continue
 		if(!MC.hard_drive || !MC.hard_drive.find_file_by_name("firstresponder"))
+			continue
+		// Climbs .loc past any bag/pocket nesting to whoever physically has
+		// this PDA on them right now (mob.dm's own recursive_loc_turf_check()
+		// call uses the same recursion_limit for the equivalent "who's really
+		// holding this" question).
+		var/atom/holder = recursive_loc_turf_check(MC, 5)
+		if(!ismob(holder) || !zone_security_exempt(holder))
 			continue
 		MC.get_notification(alert_text, 1, "First Responder")
 		CHECK_TICK

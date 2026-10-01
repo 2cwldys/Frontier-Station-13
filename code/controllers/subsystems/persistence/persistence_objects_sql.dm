@@ -8,7 +8,7 @@
 		return
 
 	var/datum/db_query/cleanup_query = SSdbcore.NewQuery(
-		"DELETE FROM ss13_persistent_objects WHERE DATE_ADD(expires_at, INTERVAL :grace_period_days DAY) <= NOW()",
+		"DELETE FROM ss13_persistent_objects WHERE expires_at IS NOT NULL AND DATE_ADD(expires_at, INTERVAL :grace_period_days DAY) <= NOW()",
 		list("grace_period_days" = PERSISTENT_EXPIRATION_CLEANUP_DELAY_DAYS)
 	)
 
@@ -21,13 +21,17 @@
 	qdel(cleanup_query)
 
 /**
- * Permanently deletes duplicate ss13_persistent_objects rows at the same
- * (type, x, y, z, map_path) -- keeps only the highest id (the most recently
- * created) in each such group, and only ever deletes a row that is BOTH a
- * duplicate AND already expired. Never touches an active row, and never
- * touches the one row being kept, so this cannot remove anything currently
- * real in the world -- it only clears out already-inert leftovers from a
- * spot something now-current has superseded.
+ * Permanently deletes leftover ss13_persistent_objects rows at a
+ * (type, x, y, z, map_path) that holds more than one, keeping the highest id
+ * in each such group.
+ *
+ * A row is only deleted when it is all three of: not the row being kept, past a
+ * deadline it actually carries (expires_at IS NOT NULL AND <= NOW(), so a
+ * permanent row is never eligible), and not referenced by anything in
+ * GLOB.persistence_object_track_register. That last guard is the load-bearing
+ * one -- the highest id in a group is not necessarily the row the world is
+ * actually using, since a row keeps its id across updates while a later copy of
+ * the same thing gets a higher one.
  *
  * Gated behind AUTO_DB_CLEANUP (_compile_options.dm) -- see that define's
  * own comment for why this exists (reviving every expired row after a
@@ -39,6 +43,17 @@
 /datum/controller/subsystem/persistence/proc/objectsCleanupDuplicateEntries()
 	if(!databaseCheckConnection("objectsCleanupDuplicateEntries"))
 		return
+
+	// Rows the world is currently occupying, excluded outright below.
+	var/list/live_ids = list()
+	for(var/obj/track as anything in GLOB.persistence_object_track_register)
+		CHECK_TICK
+		var/track_id = text2num("[track.persistent_objects_track_id]")
+		if(track_id)
+			live_ids += track_id
+
+	var/live_clause = length(live_ids) ? " AND p.id NOT IN ([live_ids.Join(",")])" : ""
+
 	var/datum/db_query/dedup_query = SSdbcore.NewQuery(
 		{"DELETE p FROM ss13_persistent_objects p
 		JOIN (
@@ -49,7 +64,7 @@
 		) latest
 			ON p.type = latest.type AND p.x = latest.x AND p.y = latest.y
 			AND p.z = latest.z AND p.map_path = latest.map_path
-		WHERE p.id != latest.keep_id AND p.expires_at <= NOW()"},
+		WHERE p.id != latest.keep_id AND p.expires_at IS NOT NULL AND p.expires_at <= NOW()[live_clause]"},
 		list()
 	)
 	dedup_query.SetFailCallback(CALLBACK(PROC_REF(objectsCleanupDuplicateEntries_CallbackFailure)))
@@ -59,6 +74,24 @@
 /datum/controller/subsystem/persistence/proc/objectsCleanupDuplicateEntries_CallbackFailure(datum/db_query/dedup_query)
 	databaseCheckQueryResult(dedup_query, "objectsCleanupDuplicateEntries")
 	qdel(dedup_query)
+
+/**
+ * SQL expression for a track's expires_at, used by the writes below.
+ *
+ * NULL when the track sets no lease at all, which is the default and means the
+ * row has no deadline: nothing but an explicit objectsDatabaseExpireEntry()
+ * tombstone can retire it. An hour lease wins over a day lease when both are
+ * set. Both numbers are coerced before interpolation, so neither can carry SQL
+ * through.
+ */
+/datum/controller/subsystem/persistence/proc/objectsLeaseExpiry(obj/track)
+	var/hours = text2num("[track.persistant_objects_expiration_time_hours]")
+	if(hours > 0)
+		return "DATE_ADD(NOW(), INTERVAL [hours] HOUR)"
+	var/days = text2num("[track.persistant_objects_expiration_time_days]")
+	if(days > 0)
+		return "DATE_ADD(NOW(), INTERVAL [days] DAY)"
+	return "NULL"
 
 /**
  * Retrieve persistent data entries that haven't expired.
@@ -73,7 +106,7 @@
 		return
 
 	var/datum/db_query/get_query = SSdbcore.NewQuery(
-		"SELECT id, author_ckey, type, content, x, y, z FROM ss13_persistent_objects WHERE NOW() < expires_at AND map_path = :map_path",
+		"SELECT id, author_ckey, type, content, x, y, z FROM ss13_persistent_objects WHERE (expires_at IS NULL OR NOW() < expires_at) AND map_path = :map_path",
 		list("map_path" = scope ? scope : "[SSatlas.current_map.path]")
 	)
 	get_query.Execute()
@@ -163,11 +196,10 @@
 
 	var/datum/db_query/insert_query = SSdbcore.NewQuery(
 		"INSERT INTO ss13_persistent_objects (author_ckey, type, created_at, expires_at, content, x, y, z, map_path) \
-		VALUES (:author_ckey, :type, NOW(), DATE_ADD(NOW(), INTERVAL :expire_in_days DAY), :content, :x, :y, :z, :map_path)",
+		VALUES (:author_ckey, :type, NOW(), [objectsLeaseExpiry(track)], :content, :x, :y, :z, :map_path)",
 		list(
 			"author_ckey" = track.persistent_objects_author_ckey,
 			"type" = "[track.type]",
-			"expire_in_days" = track.persistant_objects_expiration_time_days,
 			"content" = objectsGetTrackContent(track),
 			"x" = T.x,
 			"y" = T.y,
@@ -203,10 +235,9 @@
 		// map_path follows the object's current turf so a tracked object
 		// carried onto or off a deployed ship migrates between the map scope
 		// and the ship scope on its next save (persistence_ship_interiors.dm).
-		"UPDATE ss13_persistent_objects SET author_ckey=:author_ckey, expires_at=DATE_ADD(NOW(), INTERVAL :expire_in_days DAY), content=:content, x=:x, y=:y, z=:z, map_path=:map_path WHERE id = :id",
+		"UPDATE ss13_persistent_objects SET author_ckey=:author_ckey, expires_at=[objectsLeaseExpiry(track)], content=:content, x=:x, y=:y, z=:z, map_path=:map_path WHERE id = :id",
 		list(
 			"author_ckey" = track.persistent_objects_author_ckey,
-			"expire_in_days" = track.persistant_objects_expiration_time_days,
 			"content" = objectsGetTrackContent(track),
 			"x" = T.x,
 			"y" = T.y,

@@ -2,8 +2,9 @@
 	Constants for the persistence subsystem
 #############################################*/
 
-#define PERSISTENT_DEFAULT_EXPIRATION_DAYS 30 // Default expire timespan for newly created persistent objects
 #define PERSISTENT_EXPIRATION_CLEANUP_DELAY_DAYS 30 // Grace period for expired database entries before they get cleaned up.
+/// How long faction chat history is kept by factionChatPrune() (persistence_factions.dm).
+#define FACTION_CHAT_RETENTION_DAYS 30
 
 // Faction-tagger-configurable turret targeting restriction -- see
 // code/game/objects/structures/machinery/portable_turret.dm (assess_living())
@@ -12,6 +13,32 @@
 #define TURRET_FACTION_MODE_NONFACTION "nonfaction"
 #define TURRET_FACTION_MODE_WILDLIFE "wildlife"
 #define TURRET_FACTION_MODE_BOTH "both"
+
+// What a pinned away site is FOR (ss13_persistent_away_sites.site_kind).
+//
+// SIMULATED is the neutral baseline and the column's default: an away site that
+// was generated or pinned without anybody declaring a purpose for it, which is
+// every RNG-generated site, every "Pin Site I'm At", and the site a faction
+// beacon pins underneath itself. COLONY and DRYDOCK are only ever set
+// deliberately, by the colony radio's founding request
+// (code/game/objects/items/devices/colony_radio.dm).
+//
+// Only DRYDOCK carries mechanics: ships may be stashed, retrieved and
+// commissioned within one overmap tile of one. See _drydock_site_nearby()
+// (persistence_shuttles.dm). The other two are descriptive.
+#define AWAY_SITE_KIND_SIMULATED "simulated"
+#define AWAY_SITE_KIND_COLONY    "colony"
+#define AWAY_SITE_KIND_DRYDOCK   "drydock"
+
+// Who may stash/retrieve/commission a ship at a drydock. Set on a faction or
+// hub beacon (faction_beacon.dm), or on a drydock control console where no
+// beacon reaches -- see drydock_policy_for_z() (persistence_shuttles.dm) for
+// which of the two wins. Anything unset resolves to ..._ALL at read time
+// rather than being migrated, so an unconfigured drydock is a public yard.
+#define DRYDOCK_POLICY_ALL     "all"
+#define DRYDOCK_POLICY_FACTION "faction"
+#define DRYDOCK_POLICY_ALLIED  "allied"
+#define DRYDOCK_POLICY_NONE    "none"
 
 /* Faction member ranks (ss13_faction_members.rank).
  *

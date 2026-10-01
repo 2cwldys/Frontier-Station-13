@@ -8,11 +8,11 @@
  * The existing objectsInitialize() / objectsFinalize() handles DB load/save automatically.
  */
 
-/// Days before a decal record is cleaned from the database
-#define DECAL_PERSISTENCE_EXPIRY_DAYS 30
+/// Hours before a decal record is cleaned from the database
+#define DECAL_PERSISTENCE_EXPIRY_HOURS 1
 
 /obj/effect/decal/cleanable
-	persistant_objects_expiration_time_days = DECAL_PERSISTENCE_EXPIRY_DAYS
+	persistant_objects_expiration_time_hours = DECAL_PERSISTENCE_EXPIRY_HOURS
 
 /obj/effect/decal/cleanable/Initialize(mapload)
 	. = ..()
