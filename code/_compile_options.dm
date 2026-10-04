@@ -238,6 +238,20 @@
 // same cleanup by hand, on demand, without needing this compiled in.
 #define AUTO_DB_CLEANUP
 
+// If defined, a faction beacon powering off for ANY reason (_power_down(),
+// faction_beacon.dm -- manual TGUI toggle, ran out of fuel credits, or
+// faction bankruptcy) also immediately purges its station's saved
+// persistence rows (SSpersistence.purgeZRows(), persistence_zlevel_reset.dm)
+// -- the same cleanup an admin can already do by hand via "Unpin Site"/
+// "Remove Away Site" -> Purge. Without this, the Z just stops saving/loading
+// (setZLevelPersistence()'s own doc comment: "doesn't wipe anything") and
+// its old rows sit in the DB as dead duplicates forever. Purging only
+// touches on-disk DB rows, never the live round, so powering the same (or a
+// different) beacon back on afterward works normally -- the next save just
+// writes fresh rows, same as any newly-claimed site's first save. Off by
+// default.
+#define FACTION_BEACON_AUTO_PRUNE_ON_POWER_DOWN
+
 // If defined, growing a clone through the resleeving pipeline
 // (order_clone_from_lace(), resleever_cloning.dm) charges CLONE_ORDER_COST --
 // to the faction when the cloning pod and resleever are both tagged to the

@@ -1311,6 +1311,16 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	powered = FALSE
 	_release_security_grants()
 	_release_persistence_save()
+#ifdef FACTION_BEACON_AUTO_PRUNE_ON_POWER_DOWN
+	// Any power-down -- manual, fuel exhaustion, or bankruptcy -- purges
+	// immediately. Safe to do unconditionally: this only touches on-disk DB
+	// rows, never the live round, so powering back on (this beacon or a
+	// different one) just re-claims and saves fresh next cycle, same as any
+	// newly-claimed site's first save. See _compile_options.dm.
+	for(var/z in _station_zs())
+		SSpersistence.purgeZRows(z)
+	log_game("Faction beacon at ([x],[y],[z]): auto-pruned persistence rows for z-level(s) [english_list(_station_zs())] on power-down[reason ? " ([reason])" : ""].")
+#endif
 	_release_site_pin()
 	_release_swept_objects()
 	active = FALSE
