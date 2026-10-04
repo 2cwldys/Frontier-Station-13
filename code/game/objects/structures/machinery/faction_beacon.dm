@@ -249,11 +249,16 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		_sweep_unassigned_objects_for_faction(_station_zs(), faction_uid)
 		_evict_hazards_in_range()
 		_evict_ship_hazards_in_range()
-	if(requires_fuel && world.time >= next_fuel_drain_time)
-		next_fuel_drain_time = world.time + BEACON_FUEL_DRAIN_INTERVAL
-		fuel_credits = max(0, fuel_credits - BEACON_FUEL_DRAIN_AMOUNT)
-		if(fuel_credits <= 0)
-			_power_down(null, "ran out of fuel credits")
+	if(requires_fuel)
+		// Pausing pushes the schedule forward, so the first drain after players
+		// return is a full interval later rather than an immediate catch-up.
+		if(!GLOB.round_has_active_players)
+			next_fuel_drain_time = world.time + BEACON_FUEL_DRAIN_INTERVAL
+		else if(world.time >= next_fuel_drain_time)
+			next_fuel_drain_time = world.time + BEACON_FUEL_DRAIN_INTERVAL
+			fuel_credits = max(0, fuel_credits - BEACON_FUEL_DRAIN_AMOUNT)
+			if(fuel_credits <= 0)
+				_power_down(null, "ran out of fuel credits")
 
 /// Wrench to (un)anchor -- moving the beacon requires unwrenching it first.
 /// Must be powered off before it can be unwrenched (that already guarantees

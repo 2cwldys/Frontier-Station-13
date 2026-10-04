@@ -287,6 +287,14 @@
 /obj/structure/machinery/power/smes/process()
 	if(!can_function())
 		return
+	// Frozen while nobody is playing: no charging, no discharging. Zeroing the
+	// per-tick fields keeps restore() (which only acts while outputting) from
+	// handing back power that was never drawn this tick.
+	if(!GLOB.round_has_active_players)
+		input_taken = 0
+		output_used = 0
+		outputting = 0
+		return
 	if(failure_timer)	// Disabled by gridcheck.
 		failure_timer--
 		return

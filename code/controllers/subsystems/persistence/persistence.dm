@@ -87,6 +87,13 @@ GLOBAL_LIST_EMPTY(persistence_zlevel_skip)
 /// opt-in and ONLY these z-levels save/load.
 GLOBAL_LIST_EMPTY(persistence_zlevel_allow)
 
+/// TRUE while at least one active player character is in the round. Refreshed
+/// once a minute by _autosave_empty_reconcile(). Defaults to TRUE so nothing
+/// pauses at boot until the first check actually confirms the server is empty.
+/// Read by powered machines (portable generators, SMES, faction beacon fuel
+/// drain) to pause while nobody is playing.
+GLOBAL_VAR_INIT(round_has_active_players, TRUE)
+
 /// Z levels that received a map template at runtime (away sites via load_new_z,
 /// ruins/landmark loads via template.load on non-station levels). Never persisted.
 GLOBAL_LIST_EMPTY(persistence_template_loaded_z)
@@ -453,9 +460,10 @@ SUBSYSTEM_DEF(persistence)
 /// without ever touching or overriding a pause the admin verb itself set
 /// (see autosave_auto_paused's doc comment).
 /proc/_autosave_empty_reconcile()
+	var/playing = _any_active_player_character()
+	GLOB.round_has_active_players = playing
 	if(SSpersistence.prevent_saving || !GLOB.config.sql_enabled)
 		return
-	var/playing = _any_active_player_character()
 	if(!playing && !SSpersistence.autosave_paused)
 		SSpersistence.autosave_pause_remaining = max(0, SSpersistence.next_fire - world.time)
 		SSpersistence.next_fire = world.time + (999 MINUTES)
