@@ -88,6 +88,10 @@ MILESTONES = (10, 20, 30, 40, 50, 100, 150, 200)
 
 PLACEHOLDER_TOKEN = "REPLACE_WITH_BOT_TOKEN"
 
+# Re-push the current presence this often even when it hasn't changed. Covers a
+# gateway re-IDENTIFY dropping presence back to Discord's default green.
+PRESENCE_REASSERT_SECONDS = 300
+
 # BYOND's topic wire format. A request is:
 #
 #   \x00\x83  <len:2, big-endian>  \x00\x00\x00\x00\x00  <payload>  \x00
@@ -584,8 +588,9 @@ def main():
     }
 
     # Last applied presence. Discord rate-limits presence updates, and a quiet
-    # server produces an identical line every interval, so only push on change.
-    last = {"text": None, "state": None}
+    # server produces an identical line every interval, so only push on change
+    # (or once per PRESENCE_REASSERT_SECONDS, see apply()).
+    last = {"text": None, "state": None, "at": 0.0}
     # Consecutive failed polls, for the grace window below.
     misses = {"count": 0}
     # Has this bot EVER reached the server? Until it has, "unreachable" means
@@ -815,14 +820,22 @@ def main():
             print(f"[milestone] could not post {milestone}: {e}", flush=True)
 
     async def apply(text, state):
-        if last["text"] == text and last["state"] == state:
+        now = time.monotonic()
+        if (last["text"] == text and last["state"] == state
+                and now - last["at"] < PRESENCE_REASSERT_SECONDS):
             return
-        await client.change_presence(
-            status=status_for[state],
-            activity=discord.Activity(type=discord.ActivityType.watching, name=text),
-        )
-        last["text"], last["state"] = text, state
-        print(f"[presence] {state}: {text}", flush=True)
+        status = status_for[state]
+        activity = discord.Activity(type=discord.ActivityType.watching, name=text)
+        # change_presence() only sends a live update for this session. The
+        # client.status/client.activity setters are what discord.py replays on
+        # a re-IDENTIFY, so without them a reconnect comes back as green.
+        client.status = status
+        client.activity = activity
+        await client.change_presence(status=status, activity=activity)
+        changed = (last["text"], last["state"]) != (text, state)
+        last["text"], last["state"], last["at"] = text, state, now
+        if changed:
+            print(f"[presence] {state}: {text}", flush=True)
 
     @tasks.loop(seconds=cfg["poll"])
     async def poll():
