@@ -16,7 +16,7 @@
 
 	spawn_weight = 1
 	spawn_cost = 0
-	template_flags = TEMPLATE_FLAG_NO_RUINS | TEMPLATE_FLAG_RUIN_STARTS_DISALLOWED
+	template_flags = TEMPLATE_FLAG_ALLOW_DUPLICATES | TEMPLATE_FLAG_NO_RUINS | TEMPLATE_FLAG_RUIN_STARTS_DISALLOWED
 
 /obj/effect/overmap/visitable/sector/station
 	name = "construction platform"
