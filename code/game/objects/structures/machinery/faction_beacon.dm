@@ -244,6 +244,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		next_security_sweep_time = world.time + FACTION_BEACON_SECURITY_SWEEP_INTERVAL
 		_apply_security_radius_grant()
 		zone_security_update_overmap()
+		_evict_raid_intruders()
 	if(world.time >= next_sweep_time)
 		next_sweep_time = world.time + FACTION_BEACON_SWEEP_INTERVAL
 		_sweep_unassigned_objects_for_faction(_station_zs(), faction_uid)
@@ -718,6 +719,60 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 			E.kill()
 			LAZYREMOVE(overmap_event_handler.ship_events[ship], E)
 
+/// Hardens the rule "Toggle Faction Raiding" already advertises --
+/// "disabling blocks non-members from entering any claimed faction's
+/// territory" -- from a one-time entry-point check into continuous
+/// enforcement: while raiding is disabled, anyone already standing on this
+/// beacon's claimed Zs who doesn't belong here gets moved to the Hub travel
+/// pad, the same destination Personal Travel's own "Return to Hub" action
+/// uses (personal_travel.dm). No-ops the moment raiding is re-enabled -- this
+/// never changes what raiding-enabled means, it only closes the gap where
+/// nothing enforced "disabled" against someone already inside.
+/// Membership is checked via get_effective_faction_rank() (true faction
+/// roster, persistence_factions.dm) rather than whatever ID the mob happens
+/// to be holding -- a real member with no ID (or someone else's) must never
+/// be swept, same roster the Faction Management program's member list reads.
+/// is_faction_access_whitelisted() additionally exempts specific (ckey,
+/// character_name) pairs granted individual access via this beacon's own
+/// TGUI, for a non-member/non-ally let in on purpose.
+/obj/structure/machinery/faction_beacon/proc/_evict_raid_intruders()
+	if(GLOB.faction_raiding_enabled || public_territory || istype(src, /obj/structure/machinery/faction_beacon/hub))
+		return
+	var/list/station_zs = _station_zs()
+	var/list/hub_turf_cache = list() // resolved lazily, at most once per sweep
+	for(var/mob/living/M in GLOB.mob_list)
+		if(!M.ckey || !(GET_Z(M) in station_zs))
+			continue
+		// Any staff rank is immune, not just R_ADMIN -- same "any staff"
+		// bitmask jump_to_cryopod()/adminjump.dm already use elsewhere.
+		if(check_rights(R_ADMIN|R_MOD|R_DEBUG|R_DEV, 0, M))
+			continue
+		if(get_effective_faction_rank(M, faction_uid) >= 0)
+			continue
+		if(is_faction_access_whitelisted(M, faction_uid))
+			continue
+#ifdef FACTION_ALLIANCES
+		var/allied = FALSE
+		if(islist(GLOB.persistence_faction_alliances[faction_uid]))
+			for(var/allied_uid in GLOB.persistence_faction_alliances[faction_uid])
+				if(get_effective_faction_rank(M, allied_uid) >= 0)
+					allied = TRUE
+					break
+		if(allied)
+			continue
+#endif //FACTION_ALLIANCES
+		if(!length(hub_turf_cache))
+			for(var/obj/structure/machinery/telepad_cargo/travel/hub/H in world)
+				if(QDELETED(H))
+					continue
+				hub_turf_cache += get_turf(H)
+				break
+			if(!length(hub_turf_cache))
+				break // no Hub pad exists anywhere -- nothing to evict to, stop trying this sweep
+		to_chat(M, SPAN_WARNING("Faction raiding is currently disabled -- automated defenses detect you don't belong here and recall you to the Hub."))
+		log_game("Faction beacon at ([x],[y],[z]): evicted [key_name(M)] (not a member of [faction_uid]) to the Hub -- raiding disabled.")
+		M.forceMove(hub_turf_cache[1])
+
 /// Claims every UNASSIGNED (persistent_network/req_access_faction/etc.
 /// still empty) compatible object across the given Zs for the given
 /// faction -- called once by a beacon's _apply_network() when it powers on,
@@ -1171,6 +1226,10 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	// blocks non-members.
 	data["faction_raiding_enabled"] = GLOB.faction_raiding_enabled
 	data["hazard_eviction_active"] = _hazard_eviction_active()
+	// Specific (ckey, character_name) grants exempt from the raiding gate
+	// (entry block + eviction) regardless of membership/alliance -- see
+	// is_faction_access_whitelisted(), persistence_factions.dm.
+	data["access_whitelist"] = islist(GLOB.persistence_faction_access_whitelist_cache[faction_uid]) ? GLOB.persistence_faction_access_whitelist_cache[faction_uid] : list()
 	var/obj/effect/overmap/visitable/here = GLOB.map_sectors["[GET_Z(src)]"]
 	data["site_name"] = istype(here) ? here.name : null
 	return data
@@ -1284,6 +1343,46 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 				return
 			to_chat(user, SPAN_GOOD("[new_site_name != "" ? "Site renamed to '[new_site_name]'" : "Site name restored to its default"] -- persists across reboots."))
 			log_game("[key_name(user)] [new_site_name != "" ? "renamed pinned site to '[new_site_name]'" : "cleared pinned site custom name"] via faction beacon at ([x],[y],[z]).")
+			. = TRUE
+		if("add_access_whitelist")
+			if(!can_configure_faction_shackle(user, faction_uid, 1))
+				to_chat(user, SPAN_WARNING("You need command access in [faction_uid ? get_faction_name(faction_uid) : "this beacon's faction"] to manage its access whitelist."))
+				return
+			if(!faction_uid)
+				return
+			var/add_ckey = tgui_input_text(user, "Ckey to whitelist (not a display name -- their login/account name):", "Access Whitelist", max_length = 32)
+			if(isnull(add_ckey) || add_ckey == "")
+				return
+			add_ckey = ckey(add_ckey)
+			var/add_name = tgui_input_text(user, "Exact character name for '[add_ckey]' (locks the grant to this one character, not every alt they play):", "Access Whitelist", max_length = 64)
+			if(isnull(add_name) || add_name == "")
+				return
+			if(!SSpersistence.factionAddAccessWhitelist(faction_uid, add_ckey, add_name, user.ckey))
+				to_chat(user, SPAN_WARNING("Database connection failed -- whitelist entry not saved."))
+				return
+			to_chat(user, SPAN_GOOD("'[add_name]' ([add_ckey]) may now access [get_faction_name(faction_uid)]'s territory regardless of the faction raiding toggle."))
+			log_and_message_admins("whitelisted '[add_name]' ([add_ckey]) for [get_faction_name(faction_uid)]'s territory access via a faction beacon at ([x],[y],[z]).", user)
+			. = TRUE
+		if("remove_access_whitelist")
+			if(!can_configure_faction_shackle(user, faction_uid, 1))
+				to_chat(user, SPAN_WARNING("You need command access in [faction_uid ? get_faction_name(faction_uid) : "this beacon's faction"] to manage its access whitelist."))
+				return
+			var/list/entries = islist(GLOB.persistence_faction_access_whitelist_cache[faction_uid]) ? GLOB.persistence_faction_access_whitelist_cache[faction_uid] : list()
+			if(!length(entries))
+				to_chat(user, SPAN_WARNING("The access whitelist is empty."))
+				return
+			var/list/choices = list()
+			for(var/list/entry in entries)
+				choices["[entry["character_name"]] ([entry["ckey"]])"] = entry
+			var/pick = tgui_input_list(user, "Remove which access whitelist entry?", "Access Whitelist", choices)
+			if(!pick)
+				return
+			var/list/chosen = choices[pick]
+			if(!SSpersistence.factionRemoveAccessWhitelist(faction_uid, chosen["ckey"], chosen["character_name"]))
+				to_chat(user, SPAN_WARNING("Database connection failed -- whitelist entry not removed."))
+				return
+			to_chat(user, SPAN_GOOD("Removed '[chosen["character_name"]]' ([chosen["ckey"]]) from the access whitelist."))
+			log_and_message_admins("removed '[chosen["character_name"]]' ([chosen["ckey"]]) from [get_faction_name(faction_uid)]'s territory access whitelist via a faction beacon at ([x],[y],[z]).", user)
 			. = TRUE
 
 /// Shared power-toggle body -- used by the TGUI's "toggle_power" action.

@@ -110,6 +110,7 @@ GLOBAL_LIST_INIT(admin_verbs_admin, list(
 	/client/proc/reset_openturf,
 	/client/proc/view_removed_structures,
 	/datum/admins/proc/manage_faction_prisoners,
+	/datum/admins/proc/modify_beacon_whitelists,
 	/datum/admins/proc/manage_hostile_npc_presets,
 	/datum/admins/proc/modify_outfit_templates,
 	/datum/admins/proc/spawn_hostile_npc,
@@ -1667,6 +1668,86 @@ GLOBAL_LIST_INIT(admin_verbs_storyteller, list(
 	persistence_set_imprisoned(chosen["ckey"], chosen["char_name"], FALSE)
 	to_chat(usr, SPAN_GOOD("Released [chosen["char_name"]] ([chosen["ckey"]]) from imprisonment."))
 	log_and_message_admins("released [chosen["char_name"]] ([chosen["ckey"]]) from cryogenic prison storage via Manage Faction Prisoners[is_remote ? " (central-only record)" : ""].", usr)
+
+/// Same "regardless of faction" shape as manage_faction_prisoners() above --
+/// picks ANY faction or hub beacon anywhere in the world directly (not
+/// gated by can_configure_faction_shackle()/command rank the way the
+/// beacon's own TGUI is, and not scoped to one faction the way walking up
+/// to a physical beacon necessarily is), then adds/removes entries on its
+/// access whitelist (is_faction_access_whitelisted(),
+/// persistence_factions.dm) via the exact same
+/// factionAddAccessWhitelist()/factionRemoveAccessWhitelist() procs the
+/// beacon's own "add_access_whitelist"/"remove_access_whitelist" TGUI
+/// actions call (faction_beacon.dm) -- one shared data layer, two
+/// different front ends.
+/datum/admins/proc/modify_beacon_whitelists()
+	set name = "Modify Beacon Whitelists"
+	set category = "Persistence.Factions"
+	set desc = "View and modify the access whitelist of any faction or hub beacon anywhere in the world, regardless of faction."
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	var/list/beacon_choices = list()
+	for(var/obj/structure/machinery/faction_beacon/B in world)
+		if(QDELETED(B))
+			continue
+		var/area/A = get_area(B)
+		var/label = "[B.faction_uid ? get_faction_name(B.faction_uid) : "(unconfigured)"] -- [A ? A.name : "Unknown Area"] ([B.x], [B.y], [B.z])"
+		beacon_choices[label] = B
+	if(!length(beacon_choices))
+		to_chat(usr, SPAN_WARNING("No faction beacons exist in the world."))
+		return
+
+	var/beacon_pick = tgui_input_list(usr, "Modify which beacon's access whitelist?", "Modify Beacon Whitelists", beacon_choices)
+	if(!beacon_pick)
+		return
+	var/obj/structure/machinery/faction_beacon/B = beacon_choices[beacon_pick]
+	if(QDELETED(B))
+		to_chat(usr, SPAN_WARNING("That beacon no longer exists."))
+		return
+	if(!B.faction_uid)
+		to_chat(usr, SPAN_WARNING("That beacon has no faction assigned -- nothing to whitelist against."))
+		return
+	var/faction_uid = B.faction_uid
+
+	while(TRUE)
+		var/list/entries = islist(GLOB.persistence_faction_access_whitelist_cache[faction_uid]) ? GLOB.persistence_faction_access_whitelist_cache[faction_uid] : list()
+		var/summary = length(entries) ? "[length(entries)] entr[length(entries) == 1 ? "y" : "ies"]" : "empty"
+		var/menu_pick = tgui_input_list(usr, "[get_faction_name(faction_uid)]'s access whitelist ([summary]):", "Modify Beacon Whitelists", list("Add Entry", "Remove Entry", "Done"))
+		if(!menu_pick || menu_pick == "Done")
+			return
+
+		if(menu_pick == "Add Entry")
+			var/add_ckey = tgui_input_text(usr, "Ckey to whitelist (not a display name -- their login/account name):", "Modify Beacon Whitelists", max_length = 32)
+			if(isnull(add_ckey) || add_ckey == "")
+				continue
+			add_ckey = ckey(add_ckey)
+			var/add_name = tgui_input_text(usr, "Exact character name for '[add_ckey]' (locks the grant to this one character, not every alt they play):", "Modify Beacon Whitelists", max_length = 64)
+			if(isnull(add_name) || add_name == "")
+				continue
+			if(!SSpersistence.factionAddAccessWhitelist(faction_uid, add_ckey, add_name, usr.ckey))
+				to_chat(usr, SPAN_WARNING("Database connection failed -- whitelist entry not saved."))
+				continue
+			to_chat(usr, SPAN_GOOD("'[add_name]' ([add_ckey]) may now access [get_faction_name(faction_uid)]'s territory regardless of the faction raiding toggle."))
+			log_and_message_admins("whitelisted '[add_name]' ([add_ckey]) for [get_faction_name(faction_uid)]'s territory access via Modify Beacon Whitelists.", usr)
+
+		else if(menu_pick == "Remove Entry")
+			if(!length(entries))
+				to_chat(usr, SPAN_WARNING("The access whitelist is empty."))
+				continue
+			var/list/remove_choices = list()
+			for(var/list/entry in entries)
+				remove_choices["[entry["character_name"]] ([entry["ckey"]])"] = entry
+			var/remove_pick = tgui_input_list(usr, "Remove which access whitelist entry?", "Modify Beacon Whitelists", remove_choices)
+			if(!remove_pick)
+				continue
+			var/list/chosen = remove_choices[remove_pick]
+			if(!SSpersistence.factionRemoveAccessWhitelist(faction_uid, chosen["ckey"], chosen["character_name"]))
+				to_chat(usr, SPAN_WARNING("Database connection failed -- whitelist entry not removed."))
+				continue
+			to_chat(usr, SPAN_GOOD("Removed '[chosen["character_name"]]' ([chosen["ckey"]]) from the access whitelist."))
+			log_and_message_admins("removed '[chosen["character_name"]]' ([chosen["ckey"]]) from [get_faction_name(faction_uid)]'s territory access whitelist via Modify Beacon Whitelists.", usr)
 
 /// DISASTER RECOVERY ONLY -- see presenceLockForceRelease()'s own doc
 /// comment (persistence_cryo.dm). A character's presence lock is normally

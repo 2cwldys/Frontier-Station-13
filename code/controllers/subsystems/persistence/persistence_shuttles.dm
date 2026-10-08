@@ -845,6 +845,12 @@ GLOBAL_LIST_EMPTY(drydock_console_by_z)
 	if(policy == DRYDOCK_POLICY_ALLIED && factions_are_allied(claim_uid, gov_uid))
 		return TRUE
 #endif //FACTION_ALLIANCES
+	// A whitelisted (ckey, character_name) grant is treated exactly like an
+	// ally here too -- passes an ALLIED policy (not just the claim faction's
+	// own members) the same way an actual alliance would, independent of
+	// whatever ID user is holding.
+	if(policy == DRYDOCK_POLICY_ALLIED && user && is_faction_access_whitelisted(user, gov_uid))
+		return TRUE
 	return FALSE
 
 /// Human-readable reason a drydock refused, for the chat message and the matching
