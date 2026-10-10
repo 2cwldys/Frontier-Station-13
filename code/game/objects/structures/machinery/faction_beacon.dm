@@ -741,6 +741,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	var/list/station_zs = _station_zs()
 	var/list/hub_turf_cache = list() // resolved lazily, at most once per sweep
 	for(var/mob/living/M in GLOB.mob_list)
+		CHECK_TICK
 		if(!M.ckey || !(GET_Z(M) in station_zs))
 			continue
 		// Any staff rank is immune, not just R_ADMIN -- same "any staff"
