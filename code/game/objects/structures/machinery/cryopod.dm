@@ -317,6 +317,19 @@
 		if(istype(M, type))
 			return FALSE
 
+	// IPC (any chassis brand) uses Synthetic Storage instead of cryopods --
+	// species_organically_cloneable() (mob_helpers.dm) is the exact right
+	// check here, NOT isipc() -- that one also catches Android (shares the
+	// same IS_MECHANICAL flag), which must keep using normal cryopods since
+	// it's organically cloneable, unlike every IPC chassis brand. Prison
+	// cells are exempt, same as every other normal-cryopod-only rule this
+	// file already carves them out of (go_in()'s own faction check above) --
+	// imprisonment holds an IPC the same way it holds anyone else.
+	if(ishuman(M) && !istype(src, /obj/structure/machinery/cryopod/prison))
+		var/mob/living/carbon/human/H = M
+		if(H.species && !species_organically_cloneable(H.species))
+			return FALSE
+
 	return TRUE
 
 /// Store an occupant as if they had used Store Character: eject to the

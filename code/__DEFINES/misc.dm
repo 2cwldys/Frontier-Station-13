@@ -275,6 +275,10 @@
 /// disembark option specifically -- own constant since the plain instant
 /// disembark-to-dock path stays undelayed.
 #define DRYDOCK_DISEMBARK_SPOOLUP 15 SECONDS
+/// Minimum time between EVA Recall broadcasts for the same ship
+/// (datum/drydock_ship.last_recall_at, persistence_shuttles.dm) -- stops a
+/// ship's recall from being spammed at its crew.
+#define DRYDOCK_EVA_RECALL_COOLDOWN 5 MINUTES
 /// Extra overmap zoom-out applied on top of world.view for the Sector View
 /// toggle -- matches the Sensors console's own extra_view (sensors.dm).
 #define PERSONAL_TRAVEL_EXTRA_VIEW 4

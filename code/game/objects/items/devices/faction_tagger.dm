@@ -98,12 +98,12 @@
 		personal_char_name = parts[2]
 	data["personal_owner_name"] = personal_char_name
 	data["is_own_personal_tag"] = personal_owner && (personal_owner == "[user.ckey]|[user.real_name]")
-	data["can_personal_tag"] = current_target.faction_tagger_compatible() && (istype(current_target, /obj/item/modular_computer) || istype(current_target, /obj/structure/machinery/cryopod) || istype(current_target, /obj/structure/machinery/autodoc) || istype(current_target, /obj/structure/machinery/telepad_cargo) || istype(current_target, /obj/structure/machinery/resleever) || istype(current_target, /obj/structure/machinery/clonepod))
+	data["can_personal_tag"] = current_target.faction_tagger_compatible() && (istype(current_target, /obj/item/modular_computer) || istype(current_target, /obj/structure/machinery/cryopod) || istype(current_target, /obj/structure/machinery/autodoc) || istype(current_target, /obj/structure/machinery/telepad_cargo) || istype(current_target, /obj/structure/machinery/resleever) || istype(current_target, /obj/structure/machinery/clonepod) || istype(current_target, /obj/structure/machinery/recharge_station/synthetic_storage))
 
 	// Crew tag state -- boolean only, "crew" is resolved dynamically per-ship
 	// rather than a stored identity (see crew_tagger_is_set()).
 	data["is_crew_tagged"] = current_target.crew_tagger_is_set()
-	data["can_crew_tag"] = current_target.faction_tagger_compatible() && (istype(current_target, /obj/item/modular_computer) || istype(current_target, /obj/structure/machinery/cryopod) || istype(current_target, /obj/structure/machinery/autodoc) || istype(current_target, /obj/structure/machinery/telepad_cargo) || istype(current_target, /obj/structure/machinery/door/airlock))
+	data["can_crew_tag"] = current_target.faction_tagger_compatible() && (istype(current_target, /obj/item/modular_computer) || istype(current_target, /obj/structure/machinery/cryopod) || istype(current_target, /obj/structure/machinery/autodoc) || istype(current_target, /obj/structure/machinery/telepad_cargo) || istype(current_target, /obj/structure/machinery/door/airlock) || istype(current_target, /obj/structure/machinery/recharge_station/synthetic_storage))
 	var/turf/tag_turf = get_turf(current_target)
 	var/datum/drydock_ship/tag_ship = tag_turf ? _drydock_ship_at(tag_turf.z) : null
 	data["can_manage_crew"] = tag_ship && (is_admin || tag_ship.owned_by(user) || (tag_ship.faction_uid && can_configure_faction_shackle(user, tag_ship.faction_uid, 1)))
@@ -144,6 +144,12 @@
 	if(is_admin && istype(current_target, /obj/structure/machinery/autodoc))
 		data["is_autodoc"] = TRUE
 		data["is_public_autodoc"] = (current_uid == "public")
+
+	if(is_admin && istype(current_target, /obj/structure/machinery/recharge_station/synthetic_storage))
+		var/obj/structure/machinery/recharge_station/synthetic_storage/unit = current_target
+		data["is_synthetic_storage"] = TRUE
+		data["synthetic_storage_disabled"] = unit.tagger_disabled
+		data["synthetic_storage_public_spawn"] = unit.persistent_spawn && (unit.persistent_network == "public")
 
 	if(is_admin && istype(current_target, /obj/structure/machinery/lace_storage))
 		data["is_lace_storage"] = TRUE
@@ -380,6 +386,33 @@
 				log_admin("[key_name(user)] re-enabled \the [pod] at [get_turf(pod)] via faction tagger.")
 			if(!pod.persistence_map_placed && GLOB.config.sql_enabled && GLOB.persistence_ready)
 				SSpersistence.objectsRegisterTrack(pod)
+			. = TRUE
+		if("toggle_synthetic_storage_public_spawn")
+			if(!check_rights(R_ADMIN, 0, user) || !istype(current_target, /obj/structure/machinery/recharge_station/synthetic_storage))
+				return
+			var/obj/structure/machinery/recharge_station/synthetic_storage/spawn_unit = current_target
+			if(spawn_unit.persistent_network == "public")
+				spawn_unit.persistent_network = ""
+				spawn_unit.persistent_spawn   = FALSE
+				to_chat(user, SPAN_GOOD("Synthetic storage unit cleared -- no longer a public spawn point."))
+				log_admin("[key_name(user)] cleared the public spawn designation on a synthetic storage unit at [get_turf(spawn_unit)] via faction tagger.")
+			else
+				spawn_unit.persistent_network = "public"
+				spawn_unit.persistent_spawn   = TRUE
+				to_chat(user, SPAN_GOOD("Synthetic storage unit marked as a public spawn point."))
+				log_admin("[key_name(user)] marked a synthetic storage unit at [get_turf(spawn_unit)] as a public spawn point via faction tagger.")
+			. = TRUE
+		if("toggle_synthetic_storage_disabled")
+			if(!check_rights(R_ADMIN, 0, user) || !istype(current_target, /obj/structure/machinery/recharge_station/synthetic_storage))
+				return
+			var/obj/structure/machinery/recharge_station/synthetic_storage/unit = current_target
+			unit.tagger_disabled = !unit.tagger_disabled
+			if(unit.tagger_disabled)
+				to_chat(user, SPAN_GOOD("\The [unit] disabled -- it will refuse all chassis."))
+				log_admin("[key_name(user)] disabled \the [unit] at [get_turf(unit)] via faction tagger.")
+			else
+				to_chat(user, SPAN_GOOD("\The [unit] re-enabled."))
+				log_admin("[key_name(user)] re-enabled \the [unit] at [get_turf(unit)] via faction tagger.")
 			. = TRUE
 		if("toggle_public_comms")
 			if(!check_rights(R_ADMIN, 0, user) || !istype(current_target, /obj/structure/machinery/telecomms))

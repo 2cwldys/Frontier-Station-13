@@ -308,6 +308,7 @@
 
 			// Finally, apply damage to target
 			apply_damage(real_damage, hit_dam_type, hit_zone, damage_flags = damage_flags, armor_pen = attack.armor_penetration)
+			H.GetComponent(UNARMED_COMBAT_SKILL_COMPONENT)?.register_use(H)
 
 
 			if(M.resting && src.help_up_offer)
@@ -473,6 +474,7 @@
 					if(unEquip(I))
 						visible_message(SPAN_DANGER("\The [M] has disarmed \the [src]!"))
 						playsound(loc, 'sound/weapons/thudswoosh.ogg', 50, 1, -1)
+						M.GetComponent(UNARMED_COMBAT_SKILL_COMPONENT)?.register_use(M)
 						return
 					else
 						to_chat(M, SPAN_WARNING("You cannot disarm \the [I] from \the [src], as it's attached to them!"))
@@ -554,6 +556,7 @@
 
 		if(stat != DEAD && prob(10 * rand(0.5, 1)))
 			resuscitate()
+			H.GetComponent(MEDICINE_SKILL_COMPONENT)?.register_use(H)
 
 /mob/living/carbon/human/proc/cpr_ventilation(mob/living/carbon/human/H, medicine_skill)
 	if(!H.check_has_mouth())
@@ -587,6 +590,7 @@
 			if(!L.is_bruised() || (L.is_bruised() && L.rescued))
 				losebreath = 0
 				to_chat(src, SPAN_NOTICE("You feel a breath of fresh air enter your lungs. It feels good."))
+				H.GetComponent(MEDICINE_SKILL_COMPONENT)?.register_use(H)
 
 /mob/living/carbon/human/proc/afterattack(atom/target as mob|obj|turf|area, mob/living/user as mob|obj, inrange, params)
 	return

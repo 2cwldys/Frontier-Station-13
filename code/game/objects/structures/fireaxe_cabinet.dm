@@ -76,6 +76,12 @@
 	pixel_x = ((src.dir & (NORTH|SOUTH)) ? 0 : (src.dir == EAST ? 19 : -(19)))
 	pixel_y = ((src.dir & (NORTH|SOUTH)) ? (src.dir == NORTH ? 24 : -(20)) : 0)
 
+/obj/structure/fireaxecabinet/persistence_reapply_wall_offset()
+	set_pixel_offsets()
+
+/obj/structure/fireaxecabinet/persistence_self_heal_wall_offset()
+	set_pixel_offsets()
+
 /obj/structure/fireaxecabinet/attack_ai(var/mob/user)
 	if(!ai_can_interact(user))
 		return

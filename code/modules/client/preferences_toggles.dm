@@ -188,13 +188,14 @@
 	set name = "Toggle Intimate Interactions"
 	set desc = "Toggles whether other players can open the intimate interaction menu on your mob by dragging themselves onto you. Both participants must have this enabled."
 	set category = "Preferences.Game"
+	set hidden = TRUE
 
 	prefs.toggles_secondary ^= INTIMATE_INTERACTIONS_ENABLED
 	prefs.save_preferences()
 	var/enabled = prefs.toggles_secondary & INTIMATE_INTERACTIONS_ENABLED
 	to_chat(src, SPAN_NOTICE("Intimate interactions are now [enabled ? "enabled" : "disabled"]."))
 	if(ishuman(mob))
-		if(enabled)
+		if(GLOB.config.intimate_interactions_allowed && enabled)
 			add_verb(mob, /mob/living/carbon/human/verb/masturbate)
 		else
 			remove_verb(mob, /mob/living/carbon/human/verb/masturbate)

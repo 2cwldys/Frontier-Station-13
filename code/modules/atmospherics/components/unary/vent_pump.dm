@@ -27,6 +27,14 @@
 	level = 1
 	var/area_uid
 	var/id_tag = null
+	/// TRUE when this vent's power was last set via the air alarm's
+	/// per-device control (not the room-wide mode) -- see receive_signal()'s
+	/// "power" handling and atmosAlarmsReset() (persistence.dm), which
+	/// otherwise unconditionally re-syncs every device in the area to the
+	/// room's mode on every restart, silently reverting an individual
+	/// override. Cleared by any non-individual power signal (room-wide mode
+	/// changes still win normally, live).
+	var/power_individually_set = FALSE
 
 	var/hibernate = 0 //Do we even process?
 	var/pump_direction = 1 //0 = siphoning, 1 = releasing
@@ -51,6 +59,17 @@
 
 	var/radio_filter_out
 	var/radio_filter_in
+
+	/// Dedicated, always-on listener connection for the air alarm channel
+	/// (1439) -- separate from radio_connection above, which gets retuned to
+	/// whatever frequency a linked console/cycler uses. Without this, linking
+	/// a vent as a console's output (general_air_control's _link_atmos_device(),
+	/// atmo_control.dm) retunes radio_connection away from 1439 entirely,
+	/// silently severing every path the room's air alarm has to reach it --
+	/// not a receive_signal() logic bug, the signal is simply never delivered
+	/// to a device no longer listening on that frequency. Set by
+	/// ensure_alarm_reachable(), only when actually needed (frequency != 1439).
+	var/datum/radio_frequency/alarm_radio_connection
 
 	var/broadcast_status_next_process = FALSE
 
@@ -129,6 +148,24 @@
 		id_tag = num2text(uid)
 	setup_radio()
 
+/// A vent defaults to POWER_USE_OFF (above), which makes the base
+/// post_machine_initialize() (power_usage.dm) return BEFORE it reaches
+/// setup_area_power_relationship() -- the only thing in the codebase that
+/// subscribes a machine to COMSIG_AREA_POWER_CHANGE. At init the area's APC
+/// hasn't restored its power channels yet (areas.dm), so power_change() sets
+/// stat |= NOPOWER, and with no subscription that bit can never be cleared
+/// again. receive_signal() below hard-returns on it, so the vent silently
+/// ignored every air alarm and tank-console command for the rest of its life.
+///
+/// POWER_USE_OFF here means "idle right now", not "never draws power" -- these
+/// switch themselves to POWER_USE_IDLE/ACTIVE at runtime -- so the area
+/// relationship has to exist regardless of the starting mode. The /on subtypes
+/// only ever worked because they start POWER_USE_IDLE and thus never hit that
+/// early return.
+/obj/structure/machinery/atmospherics/unary/vent_pump/post_machine_initialize()
+	..()
+	setup_area_power_relationship()
+
 /obj/structure/machinery/atmospherics/unary/vent_pump/proc/setup_radio()
 	//some vents work his own special way
 	radio_filter_in = frequency == 1439 ? (RADIO_FROM_AIRALARM) : null
@@ -143,6 +180,9 @@
 
 /obj/structure/machinery/atmospherics/unary/vent_pump/Destroy()
 	unregister_radio(src, frequency)
+	if(alarm_radio_connection)
+		unregister_radio(src, 1439)
+		alarm_radio_connection = null
 
 	if(initial_loc)
 		initial_loc.air_vent_info -= id_tag
@@ -335,6 +375,11 @@
 	A.air_vent_info[id_tag] = signal.data
 
 	radio_connection.post_signal(src, signal, radio_filter_out)
+	// Keep the air alarm's own live display fresh too, when this vent is
+	// linked to a console and its primary connection is on that console's
+	// frequency instead -- see alarm_radio_connection's own doc comment.
+	if(alarm_radio_connection)
+		alarm_radio_connection.post_signal(src, signal, RADIO_TO_AIRALARM)
 
 	return 1
 
@@ -358,6 +403,7 @@
 
 	if(signal.data["power"] != null)
 		update_use_power(text2num(signal.data["power"]))
+		power_individually_set = !!signal.data["individual_override"]
 
 	if(signal.data["power_toggle"] != null)
 		update_use_power(!use_power)
@@ -416,6 +462,19 @@
 		SSradio.remove_object(src, frequency)
 	frequency = new_frequency
 	setup_radio()
+
+/// Makes sure this vent stays reachable by the room's air alarm (1439) even
+/// after being retuned to a linked console's own frequency -- see
+/// alarm_radio_connection's own doc comment for why this is needed at all.
+/// No-ops if already on 1439 (the primary connection already covers it --
+/// registering a second listener on the SAME frequency+filter would risk
+/// receive_signal() firing twice per command) or if already ensured.
+/obj/structure/machinery/atmospherics/unary/vent_pump/proc/ensure_alarm_reachable()
+	if(frequency == 1439)
+		return
+	if(alarm_radio_connection)
+		return
+	alarm_radio_connection = register_radio(src, 0, 1439, RADIO_FROM_AIRALARM)
 
 /// Auto-assigns a unique id_tag the first time this pump is linked to a
 /// cycler controller -- mirrors /obj/structure/machinery/door/airlock's

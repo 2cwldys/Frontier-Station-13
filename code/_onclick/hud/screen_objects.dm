@@ -191,6 +191,59 @@
 		anchor.cancel(usr)
 	return TRUE
 
+/// "Store Character" -- same slot as exit_eye_view (the two never show at
+/// once: that one's only up during a drydock landing-spot pick, this one
+/// only while the owner is actually sitting in a cryopod). Placeholder art
+/// (icons/hud/store_character.png) until real icons exist.
+///
+/// Stays in client.screen permanently, like zone_security_indicator right
+/// above it -- process() below just recomputes alpha/mouse_opacity from
+/// current occupancy every tick instead of anyone manually adding/removing
+/// it, so a missed transition self-heals on the next tick rather than
+/// leaving a stale (or worse, invisible-but-still-clickable) button behind.
+/atom/movable/screen/store_character_button
+	name = "store character"
+	desc = "Store your character and go offline."
+	icon = 'icons/hud/store_character.png'
+	icon_state = ""
+	screen_loc = "EAST:-6,NORTH:-40"
+	mouse_opacity = MOUSE_OPACITY_TRANSPARENT
+	alpha = 0
+	var/mob/owner
+
+/atom/movable/screen/store_character_button/Initialize(mapload, mob/holder)
+	. = ..()
+	owner = holder
+	START_PROCESSING(SSprocessing, src)
+
+/atom/movable/screen/store_character_button/Destroy()
+	STOP_PROCESSING(SSprocessing, src)
+	owner = null
+	return ..()
+
+/atom/movable/screen/store_character_button/process()
+	var/atom/L = QDELETED(owner) ? null : owner.loc
+	var/active = istype(L, /obj/structure/machinery/cryopod) || istype(L, /obj/structure/machinery/recharge_station/synthetic_storage)
+	alpha = active ? 255 : 0
+	mouse_opacity = active ? MOUSE_OPACITY_ICON : MOUSE_OPACITY_TRANSPARENT
+
+/// IPCs (uncloneable-species humans) sit in Synthetic Storage instead of a
+/// cryopod -- check_occupant_allowed() (cryopod.dm) refuses them the normal
+/// pod outright, so the two branches below are mutually exclusive per mob.
+/// Synthetic Storage's decommission action is a unit-side verb, not a mob
+/// verb (store_synthetic() acts on whoever is its occupant, not usr), so it
+/// has to be called on the unit rather than on H the way store_character() is.
+/atom/movable/screen/store_character_button/Click(location, control, params)
+	if(!istype(usr, /mob/living/carbon/human))
+		return TRUE
+	var/mob/living/carbon/human/H = usr
+	if(istype(H.loc, /obj/structure/machinery/recharge_station/synthetic_storage))
+		var/obj/structure/machinery/recharge_station/synthetic_storage/unit = H.loc
+		unit.store_synthetic()
+	else
+		H.store_character()
+	return TRUE
+
 /client/verb/toggle_zone_shield()
 	set name = "Toggle Security Level Shield"
 	set category = "Preferences"

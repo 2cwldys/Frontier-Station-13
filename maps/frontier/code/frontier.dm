@@ -14,9 +14,16 @@
 		ZTRAITS_CENTCOM
 	)
 
-	lobby_icons = list('icons/misc/titlescreens/frontier/frontier.dmi', 'icons/misc/titlescreens/aurora/synthetics.dmi', 'icons/misc/titlescreens/aurora/tajara.dmi', 'icons/misc/titlescreens/aurora/vaurca.dmi')
+	lobby_icons = list('icons/misc/titlescreens/frontier/frontier.dmi', 'icons/misc/titlescreens/frontier/frontier_dark.dmi')
+	// Restricts the slideshow to just these two states -- leaving this unset
+	// would auto-scan every icon_state in whichever lobby_icons file gets
+	// picked (map.dm's own default), which is what pulled in the older
+	// placeholder frames (blueprint/bluespace/biesel/lanze/jump on
+	// frontier.dmi, lemurian_sea on frontier_dark.dmi) alongside the real
+	// frontier art.
+	lobby_screens = list("frontierlobby", "frontierlobby2")
 
-	lobby_transitions = 10 SECONDS
+	lobby_transitions = 1 MINUTE
 
 	admin_levels = list(4)
 	contact_levels = list(1, 2, 3)
@@ -165,6 +172,21 @@
 		"SCCV Quark" = list("color" = "purple", "icon" = "microscope"),
 	)
 	shuttle_missions = list("Exploration", "Research", "Prospecting", "Salvaging", "Transport", "Combat", "Rescue", "Training", "Humanitarian", "Expedition", "Recreation", "Other")
+
+/// Guaranteed away-site extras on top of the normal weighted budget draw --
+/// see bonus_away_site_counts' own doc comment (map.dm). Each site type is
+/// independently gated behind its own _compile_options.dm flag (and its own
+/// tunable count define), rather than one combined flag/list, so any one of
+/// them can be turned off or retuned without touching the others.
+/datum/map/frontier/New()
+	. = ..()
+#ifdef FRONTIER_BONUS_LONE_ASTEROIDS
+	bonus_away_site_counts["cursed"] = FRONTIER_BONUS_CURSED_COUNT
+	bonus_away_site_counts["abandoned_bunker"] = FRONTIER_BONUS_ABANDONED_BUNKER_COUNT
+#endif
+#ifdef FRONTIER_BONUS_PHORON_DEPOSITS
+	bonus_away_site_counts["deposit"] = FRONTIER_BONUS_DEPOSIT_COUNT
+#endif
 
 /datum/map/frontier/send_welcome()
 	var/obj/effect/overmap/visitable/ship/horizon = SSshuttle.ship_by_type(overmap_visitable_type)

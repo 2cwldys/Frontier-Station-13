@@ -90,9 +90,11 @@ GLOBAL_LIST_INIT(adminhelp_ignored_words, list("unknown","the","a","an","of","mo
 	msg = generate_ahelp_key_words(mob, msg)
 
 	// handle ticket
+	var/new_ticket = FALSE
 	var/datum/ticket/ticket = get_open_ticket_by_ckey(ckey)
 	if(!ticket)
 		ticket = new /datum/ticket(ckey)
+		new_ticket = TRUE
 	else if(ticket.status == TICKET_ASSIGNED)
 		// manually check that the target client exists here as to not spam the usr for each logged out admin on the ticket
 		var/admin_found = 0
@@ -129,6 +131,34 @@ GLOBAL_LIST_INIT(adminhelp_ignored_words, list("unknown","the","a","an","of","mo
 
 	//show it to the person adminhelping too
 	to_chat(src, SPAN_NOTICE("PM to-<b>Staff </b>: [original_msg]"))
+
+	// What staff can actually do for you depends on where you are, and until
+	// now nothing said so. Only highsec escalates harmful acts to admins on its
+	// own (see persistence_zone_security.dm's header); nullsec is lawless by
+	// design and medsec is enforced by factions, not staff. Say that once, at
+	// the moment someone is about to rely on it.
+	//
+	// Only on a genuinely new ticket: an already-assigned ticket returns above
+	// as a PM, and repeat messages on a still-unclaimed ticket would otherwise
+	// repeat this at the player every time they followed up.
+	//
+	// get_turf() rather than mob.z, for the reason the zone HUD gives itself
+	// (screen_objects.dm): it pierces containers, so someone standing inside a
+	// cryopod or a closet still resolves to the zone they are actually in. No
+	// turf at all means the zone is genuinely unknown -- a lobby mob, nullspace,
+	// mid-transit -- so say nothing rather than defaulting, which would tell a
+	// player in a broken state that staff cannot help them.
+	if(new_ticket)
+		var/turf/help_turf = get_turf(mob)
+		if(help_turf)
+			var/zone_level = zone_security_get(help_turf.z)
+			var/zone_label = uppertext(zone_security_name(zone_level))
+			var/zone_line
+			if(zone_level == ZONE_HIGHSEC)
+				zone_line = "You are in a [zone_label] area -- Hub law applies, so in-character incidents reported here will normally be acted on."
+			else
+				zone_line = "You are in a [zone_label] area -- staff won't intervene in what happens here in-character, though technical problems are always worth reporting."
+			to_chat(src, SPAN_COLOR(zone_security_color(zone_level), zone_line))
 
 	var/admin_number_active = admin_number_present - admin_number_afk
 	log_admin("HELP: [key_name(src)]: [original_msg] - heard by [admin_number_present] non-AFK admins. (Ticket #[ticket.id])")

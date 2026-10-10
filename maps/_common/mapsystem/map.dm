@@ -160,6 +160,12 @@
 	var/away_ship_budget = 0
 	///How much higher the budgets can randomly go
 	var/away_variance = 0
+	/// Extra away-site instances to force-spawn OUTSIDE the normal weighted
+	/// budget draw -- "[template id]" -> count. Each spawns unconditionally
+	/// (no point cost, doesn't touch away_site_budget/away_ship_budget), on
+	/// top of whatever the normal draw in build_away_sites() already picked.
+	/// Empty by default -- opt-in per map.
+	var/list/bonus_away_site_counts = list()
 
 	///This controls if borgs can leave the station or ship without exploding
 	var/allow_borgs_to_leave = FALSE
@@ -298,6 +304,42 @@
 /datum/map/proc/load_holodeck_programs()
 	return
 
+/// Loads one away-site template's new Z and wires up the same follow-on
+/// bookkeeping every spawn path needs (auto-despawn registration, pirate
+/// population) -- shared by both the normal budget-selected loop and the
+/// bonus_away_site_counts loop below, so that sequence lives in one place.
+/// `bonus` only affects the log wording, so admins can tell a map-specific
+/// guaranteed extra apart from a normal budget pick in the log.
+/datum/map/proc/_load_and_register_away_site(datum/map_template/template, bonus = FALSE)
+	var/z_before = world.maxz
+	var/bounds = template.load_new_z()
+	if(!bounds)
+		log_admin("Failed loading [bonus ? "bonus " : ""]away site [template]!")
+		return FALSE
+	log_admin("Loaded [bonus ? "bonus " : ""]away site [template]!")
+	if(istype(template, /datum/map_template/ruin/away_site))
+		var/datum/map_template/ruin/away_site/site = template
+		if(site.auto_despawn_when_depleted)
+			_register_auto_despawn_asteroid(z_before + 1, site.id)
+	maybe_populate_away_site_with_pirates(z_before + 1, template.id)
+	// The new Z's own overmap marker already queued itself into
+	// SSshuttle.sectors_to_initialize (sectors.dm's Initialize()), but that
+	// queue's drain (SSshuttle.clear_init_queue() -> initialize_sectors())
+	// can be deferred well past this one template's own load -- block_queue
+	// is set around a whole batch map load, not per-site. Until it's
+	// actually drained, the marker never reaches
+	// SSshuttle.initialized_sectors, the list the "Jump to Sector" admin
+	// verb (and waypoint/docking setup) reads. persistence_shuttles.dm and
+	// persistence_ship_interiors.dm already work around the exact same gap
+	// for their own runtime-created sectors -- do the same here rather than
+	// hope some other drain eventually covers it. Safe to call even if it
+	// already ran (populate_sector_objects() just re-attempts holopad/
+	// telecomms hookup, and both other steps are additive).
+	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[z_before + 1]"]
+	if(istype(marker))
+		SSshuttle.initialize_sector(marker)
+	return TRUE
+
 /datum/map/proc/build_away_sites()
 #ifdef UNIT_TEST
 	log_admin("Unit testing, so not loading away sites")
@@ -381,17 +423,18 @@
 	log_admin("Finished selecting away sites ([english_list(selected)]) for [totalbudget - (points + shippoints)] cost of [totalbudget] budget.")
 
 	for(var/datum/map_template/template in selected)
-		var/z_before = world.maxz
-		var/bounds = template.load_new_z()
-		if(bounds)
-			log_admin("Loaded away site [template]!")
-			if(istype(template, /datum/map_template/ruin/away_site))
-				var/datum/map_template/ruin/away_site/site = template
-				if(site.auto_despawn_when_depleted)
-					_register_auto_despawn_asteroid(z_before + 1, site.id)
-			maybe_populate_away_site_with_pirates(z_before + 1, template.id)
-		else
-			log_admin("Failed loading away site [template]!")
+		_load_and_register_away_site(template)
+
+	// Map-specific guaranteed extras, entirely outside the point budget above
+	// -- see bonus_away_site_counts' own doc comment. Runs after the normal
+	// draw, not instead of it, and only ever touches templates this map
+	// explicitly opted into.
+	for(var/site_id in bonus_away_site_counts)
+		var/datum/map_template/ruin/away_site/site = SSmapping.away_sites_templates[site_id]
+		if(!site || !site.spawns_in_current_sector())
+			continue
+		for(var/i in 1 to bonus_away_site_counts[site_id])
+			_load_and_register_away_site(site, bonus = TRUE)
 
 	// zoneSecurityInitialize()'s one-time boot repaint (SSpersistence.Initialize(),
 	// init_order -10) runs BEFORE away sites are loaded here (SSmapping.Initialize(),
@@ -422,7 +465,7 @@
 		return
 
 	var/datum/db_query/pq = SSdbcore.NewQuery(
-		"SELECT id, template_name, overmap_x, overmap_y, last_z, custom_name, custom_icon_state, sec_zone FROM ss13_persistent_away_sites WHERE map_path = :mp AND enabled = 1 ORDER BY id ASC",
+		"SELECT id, template_name, overmap_x, overmap_y, last_z, custom_name, custom_icon_state, sec_zone, site_kind FROM ss13_persistent_away_sites WHERE map_path = :mp AND enabled = 1 ORDER BY id ASC",
 		list("mp" = "[path]")
 	)
 	pq.Execute()
@@ -436,7 +479,8 @@
 			"last_z"      = text2num(pq.item[5]),
 			"custom_name" = pq.item[6],
 			"custom_icon" = pq.item[7],
-			"sec_zone"    = text2num(pq.item[8])
+			"sec_zone"    = text2num(pq.item[8]),
+			"site_kind"   = pq.item[9]
 		))
 	qdel(pq)
 	if(!length(rows))
@@ -483,6 +527,11 @@
 			// Security zone follows the pinned site across boots
 			if(row["sec_zone"])
 				GLOB.zone_security_by_z["[nz]"] = row["sec_zone"]
+			// Every deck of the site is recorded, so a console on any of them can
+			// tell what it is standing on -- see GLOB.persistence_site_kind_by_z
+			// (persistence.dm).
+			if(row["site_kind"])
+				GLOB.persistence_site_kind_by_z["[nz]"] = row["site_kind"]
 
 		// Lock the overmap marker to the pinned position; first boot (0,0)
 		// records wherever the marker placed itself.
@@ -493,6 +542,11 @@
 			var/turf/dest = locate(row["om_x"], row["om_y"], SSatlas.current_map.overmap_z)
 			if(dest && marker.loc)
 				marker.forceMove(dest)
+
+		// Before the admin-set appearance below, so an explicit "Change Icon"
+		// still wins over the drydock default.
+		if(marker && row["site_kind"] == AWAY_SITE_KIND_DRYDOCK)
+			apply_drydock_marker_appearance(marker)
 
 		// Apply admin-set appearance (Rename Site / Change Icon) -- the
 		// marker's Initialize/update_name already ran, so plain assignment

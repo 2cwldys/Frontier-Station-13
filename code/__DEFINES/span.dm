@@ -52,11 +52,18 @@
 #####################
 */
 
-#define FONT_SIZE_SMALL "10px"
-#define FONT_SIZE_NORMAL "13px"
-#define FONT_SIZE_LARGE "16px"
-#define FONT_SIZE_HUGE "18px"
-#define FONT_SIZE_GIANT "24px"
+// Scaled against GOONCHAT_FONT_SIZE (_compile_options.dm, currently 21px --
+// bumped from the original 13px to compensate for the custom chat font
+// reading smaller/tighter than the old default at the same pixel size).
+// These are inline font-size spans (SPAN_SIZE()), which always win CSS
+// specificity over the page's body-level rule, so they don't track that
+// base automatically -- keep them proportional to it by hand if it changes
+// again. Ratios preserved from the original 13px-base tuning.
+#define FONT_SIZE_SMALL "16px"
+#define FONT_SIZE_NORMAL "21px"
+#define FONT_SIZE_LARGE "26px"
+#define FONT_SIZE_HUGE "29px"
+#define FONT_SIZE_GIANT "39px"
 
 #define FONT_SMALL(str) SPAN_SIZE(FONT_SIZE_SMALL, str)
 #define FONT_NORMAL(str) SPAN_SIZE(FONT_SIZE_NORMAL, str)

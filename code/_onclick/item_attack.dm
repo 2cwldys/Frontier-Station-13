@@ -223,7 +223,10 @@ This calls [atom/proc/tool_act], among others.
 			if(X.check_weapon_affinity(src))
 				perform_technique(target, X, hit_zone)
 
-	return target.hit_with_weapon(src, user, power, hit_zone)
+	. = target.hit_with_weapon(src, user, power, hit_zone)
+	if(. && ishuman(user))
+		var/mob/living/carbon/human/attacker = user
+		attacker.GetComponent(ARMED_COMBAT_SKILL_COMPONENT)?.register_use(attacker)
 
 /obj/item/proc/perform_technique(var/mob/living/carbon/human/target, var/mob/living/carbon/human/user, var/target_zone)	//used when weapons have special interactions with martial arts
 	return

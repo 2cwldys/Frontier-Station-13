@@ -157,6 +157,17 @@
 	QDEL_NULL(cell)
 	return ..()
 
+/// Legacy-row restores re-derive the offset rather than using a saved one
+/// (persistence_objects.dm), and Initialize() computed it against the default
+/// dir before the real one was restored -- so without this a light saved
+/// before offsets were persisted comes back off its wall. Modern rows persist
+/// pixel_x/pixel_y authoritatively and never reach this.
+/obj/structure/machinery/light/persistence_reapply_wall_offset()
+	set_pixel_offsets()
+
+/obj/structure/machinery/light/persistence_self_heal_wall_offset()
+	set_pixel_offsets()
+
 /obj/structure/machinery/light/set_pixel_offsets()
 	pixel_x = dir & (NORTH|SOUTH) ? 0 : (dir == EAST ? 12 : -12)
 	pixel_y = dir & (NORTH|SOUTH) ? (dir == NORTH ? DEFAULT_WALL_OFFSET : -2) : 0

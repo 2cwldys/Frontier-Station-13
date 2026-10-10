@@ -12,6 +12,12 @@ GLOBAL_LIST_EMPTY(persistence_faction_cache)
 /// In-memory faction jobs keyed by faction_uid: list of lists("id"=N,"title"=...,"access"=list(),"pay_rate"=N,"rank"=N)
 GLOBAL_LIST_EMPTY(persistence_faction_jobs_cache)
 
+/// In-memory access whitelist keyed by faction_uid: list of lists("ckey"=...,"character_name"=...)
+/// -- specific non-member/non-ally identities exempted from the raiding gate
+/// (entry block + eviction sweep) for that faction's territory. See
+/// V171__faction_access_whitelist.sql and is_faction_access_whitelisted().
+GLOBAL_LIST_EMPTY(persistence_faction_access_whitelist_cache)
+
 /// In-memory faction members keyed by "ckey|faction_uid": list("real_name"=...,"job_title"=...,"rank"=N)
 GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 
@@ -80,7 +86,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 
 	var/datum/db_query/fq = SScentraldb.NewQuery(
 		{"SELECT name, abbreviation, founder_ckey, is_company_tier, pirate_founded,
-		leader_ckey, leader_char_name, color, auto_payroll, allowed_cargo_category
+		leader_ckey, leader_char_name, color, auto_payroll, allowed_cargo_category, recruiting
 		FROM `ss13_factions` WHERE uid = :uid"},
 		list("uid" = uid)
 	)
@@ -98,6 +104,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	var/f_color = fq.item[8]
 	var/f_auto_payroll = text2num(fq.item[9])
 	var/f_cargo_category = fq.item[10]
+	var/f_recruiting = text2num(fq.item[11])
 	qdel(fq)
 
 	var/datum/db_query/bq = SScentraldb.NewQuery(
@@ -122,7 +129,8 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 		"leader_char_name"       = f_leader_char_name,
 		"color"                  = f_color,
 		"auto_payroll"           = f_auto_payroll,
-		"allowed_cargo_category" = f_cargo_category
+		"allowed_cargo_category" = f_cargo_category,
+		"recruiting"             = f_recruiting
 	)
 
 	// Self-heal -- write this faction into this server's own local tables
@@ -131,15 +139,15 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	if(GLOB.config.sql_enabled && SSdbcore.Connect())
 		var/datum/db_query/lf = SSdbcore.NewQuery(
 			{"INSERT INTO ss13_factions (uid, name, abbreviation, is_lore, founder_ckey, is_company_tier, pirate_founded,
-			leader_ckey, leader_char_name, color, auto_payroll, allowed_cargo_category)
-			VALUES (:uid, :name, :abbr, 0, :founder, :company, :pirate, :leader_ckey, :leader_name, :color, :auto_payroll, :cargo_cat)
+			leader_ckey, leader_char_name, color, auto_payroll, allowed_cargo_category, recruiting)
+			VALUES (:uid, :name, :abbr, 0, :founder, :company, :pirate, :leader_ckey, :leader_name, :color, :auto_payroll, :cargo_cat, :recruiting)
 			ON DUPLICATE KEY UPDATE name = VALUES(name), abbreviation = VALUES(abbreviation), leader_ckey = VALUES(leader_ckey),
 			leader_char_name = VALUES(leader_char_name), color = VALUES(color), auto_payroll = VALUES(auto_payroll),
-			allowed_cargo_category = VALUES(allowed_cargo_category)"},
+			allowed_cargo_category = VALUES(allowed_cargo_category), recruiting = VALUES(recruiting)"},
 			list(
 				"uid" = uid, "name" = f_name, "abbr" = f_abbr, "founder" = f_founder, "company" = f_company, "pirate" = f_pirate,
 				"leader_ckey" = f_leader_ckey, "leader_name" = f_leader_char_name, "color" = f_color,
-				"auto_payroll" = f_auto_payroll, "cargo_cat" = f_cargo_category
+				"auto_payroll" = f_auto_payroll, "cargo_cat" = f_cargo_category, "recruiting" = f_recruiting
 			)
 		)
 		lf.Execute()
@@ -326,7 +334,8 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 					"leader_ckey"      = null,
 					"leader_char_name" = null,
 					"is_company_tier"  = FALSE,
-					"pirate_founded"   = FALSE
+					"pirate_founded"   = FALSE,
+					"recruiting"       = FALSE
 				)
 			GLOB.persistence_faction_cache = loaded // only replace on confirmed success
 			_factionLoadExtendedColumns()
@@ -340,7 +349,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	// Load faction jobs
 	try
 		var/datum/db_query/jq = SSdbcore.NewQuery(
-			"SELECT id, faction_uid, title, access_json, pay_rate, rank FROM ss13_faction_jobs ORDER BY faction_uid, rank DESC, title ASC",
+			"SELECT id, faction_uid, title, access_json, pay_rate, rank, recruitable FROM ss13_faction_jobs ORDER BY faction_uid, rank DESC, title ASC",
 			list()
 		)
 		jq.Execute()
@@ -359,11 +368,12 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 					catch(var/exception/access_decode_e)
 						log_subsystem_persistence_error("Factions: bad access_json for job '[jq.item[3]]' in faction '[fuid]' (id [jq.item[1]]): [access_decode_e] -- treating as no access.")
 				loaded_jobs[fuid] += list(list(
-					"id"       = text2num(jq.item[1]),
-					"title"    = jq.item[3],
-					"access"   = job_access,
-					"pay_rate" = text2num(jq.item[5]) || 500,
-					"rank"     = text2num(jq.item[6]) || 0
+					"id"          = text2num(jq.item[1]),
+					"title"       = jq.item[3],
+					"access"      = job_access,
+					"pay_rate"    = text2num(jq.item[5]) || 500,
+					"rank"        = text2num(jq.item[6]) || 0,
+					"recruitable" = !!text2num(jq.item[7])
 				))
 			GLOB.persistence_faction_jobs_cache = loaded_jobs // only replace on confirmed success
 		else
@@ -372,6 +382,30 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	catch(var/exception/faction_jobs_e)
 		message_admins("Faction jobs load threw an exception: [faction_jobs_e] -- faction jobs may be running on stale/empty data.")
 		log_subsystem_persistence_error("Factions: failed to load faction jobs: [faction_jobs_e]")
+
+	// Load faction access whitelist -- a newer, migration-dependent table
+	// (V171), so a schema that hasn't caught up yet just leaves this cache
+	// empty (nobody whitelisted) instead of failing the whole faction load.
+	try
+		var/datum/db_query/wq = SSdbcore.NewQuery(
+			"SELECT faction_uid, ckey, character_name FROM ss13_faction_access_whitelist",
+			list()
+		)
+		wq.Execute()
+		if(databaseCheckQueryResult(wq, "factionInitialize access whitelist"))
+			var/list/loaded_whitelist = list()
+			while(wq.NextRow())
+				var/fuid = normalize_faction_uid(wq.item[1])
+				if(!(fuid in loaded_whitelist))
+					loaded_whitelist[fuid] = list()
+				loaded_whitelist[fuid] += list(list(
+					"ckey"           = wq.item[2],
+					"character_name" = wq.item[3]
+				))
+			GLOB.persistence_faction_access_whitelist_cache = loaded_whitelist // only replace on confirmed success
+		qdel(wq)
+	catch(var/exception/faction_whitelist_e)
+		log_subsystem_persistence_error("Factions: failed to load access whitelist (db_update? not fatal, cache stays empty): [faction_whitelist_e]")
 
 	// Load faction members -- CORE columns only (account_number is a newer,
 	// migration-dependent column, split out below via _factionLoadAccountNumbers()
@@ -418,7 +452,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	PRIVATE_PROC(TRUE)
 	try
 		var/datum/db_query/eq = SSdbcore.NewQuery(
-			"SELECT uid, allowed_cargo_category, leader_ckey, leader_char_name, is_company_tier, pirate_founded FROM ss13_factions",
+			"SELECT uid, allowed_cargo_category, leader_ckey, leader_char_name, is_company_tier, pirate_founded, recruiting FROM ss13_factions",
 			list()
 		)
 		eq.Execute()
@@ -432,6 +466,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 				GLOB.persistence_faction_cache[uid]["leader_char_name"] = eq.item[4]
 				GLOB.persistence_faction_cache[uid]["is_company_tier"] = !!text2num(eq.item[5])
 				GLOB.persistence_faction_cache[uid]["pirate_founded"] = !!text2num(eq.item[6])
+				GLOB.persistence_faction_cache[uid]["recruiting"] = !!text2num(eq.item[7])
 		else
 			message_admins("Faction extended-columns load failed -- cargo category/leader/company-tier data unavailable until the schema is updated (db_update?). Core faction data is unaffected.")
 		qdel(eq)
@@ -1544,6 +1579,31 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 		qdel(q)
 	return TRUE
 
+/// Whether this faction currently accepts new members via the chargen
+/// "Faction" tab (preference_setup/faction/faction.dm) -- an officer/command
+/// toggle set in the Faction Management program, unrelated to any other
+/// sense of "recruiting" (there is no other one in this codebase).
+/proc/get_faction_recruiting(uid)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return FALSE
+	return !!GLOB.persistence_faction_cache[uid]["recruiting"]
+
+/proc/set_faction_recruiting(uid, enabled)
+	uid = normalize_faction_uid(uid)
+	if(!islist(GLOB.persistence_faction_cache) || !(uid in GLOB.persistence_faction_cache))
+		return FALSE
+	GLOB.persistence_faction_cache[uid]["recruiting"] = enabled
+	_factionCentralPartialUpdate(uid, list("recruiting"), list(enabled ? 1 : 0))
+	if(GLOB.config.sql_enabled && SSdbcore.Connect())
+		var/datum/db_query/q = SSdbcore.NewQuery(
+			"UPDATE ss13_factions SET recruiting = :val WHERE uid = :uid",
+			list("uid" = uid, "val" = enabled ? 1 : 0)
+		)
+		q.Execute()
+		qdel(q)
+	return TRUE
+
 /// FACTION_CARGO_SPECIALIZATION -- the ONE cargo order category (or null,
 /// "hasn't chosen one yet") a real faction is currently allowed to order
 /// from. Callers are responsible for excluding "hub" before calling this --
@@ -1784,15 +1844,15 @@ GLOBAL_LIST_EMPTY(persistence_faction_alliance_requests)
 		cq.Execute()
 		qdel(cq)
 
-/// Prunes faction chat history older than the standard persistence
-/// expiration window. Called from SSpersistence.Shutdown().
+/// Prunes faction chat history older than FACTION_CHAT_RETENTION_DAYS.
+/// Called from SSpersistence.Shutdown().
 /datum/controller/subsystem/persistence/proc/factionChatPrune()
 	PRIVATE_PROC(TRUE)
 	if(!databaseCheckConnection("factionChatPrune"))
 		return
 	var/datum/db_query/q = SSdbcore.NewQuery(
 		"DELETE FROM ss13_faction_chat WHERE sent_at < DATE_SUB(NOW(), INTERVAL :days DAY)",
-		list("days" = PERSISTENT_DEFAULT_EXPIRATION_DAYS)
+		list("days" = FACTION_CHAT_RETENTION_DAYS)
 	)
 	q.Execute()
 	databaseCheckQueryResult(q, "factionChatPrune")
@@ -1970,6 +2030,15 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 
 /proc/announce_faction_cryo_enter(mob/living/carbon/human/character)
 	announce_faction_event(character, "has entered cryogenic storage.")
+
+/// Announced once, at a character's true first-ever spawn, when they joined
+/// via the chargen "Faction" tab (preference_setup/faction/faction.dm) --
+/// called from _grant_starter_faction_id() (new_player.dm) after the new
+/// ID's employer_faction is already synced, since announce_faction_event()
+/// resolves the faction (and who else hears it) from the character's own ID
+/// card, same as every other announce_faction_* event.
+/proc/announce_faction_new_recruit(mob/living/carbon/human/character, job_title)
+	announce_faction_event(character, "has joined the faction as a new recruit[job_title ? " ([job_title])" : ""].")
 
 /**
  * Write a Z-level's persistence enabled/notes to ss13_zlevel_persistence and
@@ -2162,7 +2231,14 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
  * exoplanet, or not loaded from a ruin/away_site template -- e.g. the main
  * station or a player ship).
  */
-/proc/persistence_pin_site_at_z(z, notes)
+/proc/persistence_pin_site_at_z(z, notes, site_kind)
+	// Callers (faction/hub beacons, mostly) don't know or care what the site is
+	// for, so the kind comes from whatever founded it -- the colony radio records
+	// that in GLOB.persistence_site_kind_by_z (persistence.dm) at founding time,
+	// which is typically well before anything pins the site. An unrecorded site
+	// was generated without a declared purpose.
+	if(isnull(site_kind))
+		site_kind = GLOB.persistence_site_kind_by_z["[z]"] || AWAY_SITE_KIND_SIMULATED
 	var/obj/effect/overmap/visitable/here_marker = GLOB.map_sectors["[z]"]
 	// Ships/shuttles (player-flown or the main station itself) are never
 	// pinnable -- explicit guard even though the template check below would
@@ -2212,13 +2288,13 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			base_z = min(base_z, mz)
 
 	var/datum/db_query/iq = SSdbcore.NewQuery(
-		{"INSERT INTO ss13_persistent_away_sites (template_name, map_path, overmap_x, overmap_y, last_z, enabled, notes)
-		VALUES (:tn, :mp, :ox, :oy, :z, 1, :notes)
-		ON DUPLICATE KEY UPDATE enabled = 1, notes = VALUES(notes)"},
+		{"INSERT INTO ss13_persistent_away_sites (template_name, map_path, overmap_x, overmap_y, last_z, enabled, notes, site_kind)
+		VALUES (:tn, :mp, :ox, :oy, :z, 1, :notes, :kind)
+		ON DUPLICATE KEY UPDATE enabled = 1, notes = VALUES(notes), site_kind = VALUES(site_kind)"},
 		list(
 			"tn" = here_template.id, "mp" = "[SSatlas.current_map.path]",
 			"ox" = (here_marker ? here_marker.start_x : 0), "oy" = (here_marker ? here_marker.start_y : 0),
-			"z"  = base_z, "notes" = notes
+			"z"  = base_z, "notes" = notes, "kind" = site_kind
 		)
 	)
 	iq.Execute()
@@ -2228,7 +2304,8 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	for(var/nz in live_zs)
 		GLOB.persistence_pinned_site_z |= nz
 		GLOB.persistence_zlevel_allow |= nz
-	log_game("Site '[here_template.id]' at z=[base_z] auto-pinned: [notes]")
+		GLOB.persistence_site_kind_by_z["[nz]"] = site_kind
+	log_game("Site '[here_template.id]' at z=[base_z] auto-pinned as [site_kind]: [notes]")
 	return TRUE
 
 /**
@@ -2273,7 +2350,50 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	for(var/nz in live_zs)
 		GLOB.persistence_pinned_site_z -= nz
 		GLOB.persistence_zlevel_allow -= nz
+	// GLOB.persistence_site_kind_by_z is deliberately left alone: unpinning drops
+	// the reboot-survival registration, not the site, which is still standing and
+	// still whatever it was founded as for the rest of this round.
 	log_game("Site '[here_template.id]' at z=[row_last_z] auto-unpinned: [expected_notes] released.")
+	return TRUE
+
+/**
+ * Changes what the away site occupying z is FOR, recording it in both places that
+ * matter: the live kind map every check reads, and the pinned row that carries it
+ * across reboots. A site that has not been pinned yet has no row, so only the map
+ * is written -- persistence_pin_site_at_z() picks the kind up from there when a
+ * beacon eventually claims the site.
+ *
+ * Every deck of the site is set together, since the kind describes the site rather
+ * than any single z.
+ */
+/proc/persistence_set_site_kind(z, site_kind)
+	var/obj/effect/overmap/visitable/here_marker = GLOB.map_sectors["[z]"]
+	var/list/live_zs = (here_marker && length(here_marker.map_z)) ? here_marker.map_z.Copy() : list(z)
+	var/base_z = z
+	for(var/nz in live_zs)
+		base_z = min(base_z, nz)
+		GLOB.persistence_site_kind_by_z["[nz]"] = site_kind
+
+	if(site_kind == AWAY_SITE_KIND_DRYDOCK)
+		apply_drydock_marker_appearance(here_marker)
+	else if(here_marker && here_marker.icon_state == "battlestation")
+		// Demoted out of being a yard, so drop the drydock skin rather than leave
+		// the marker advertising one. Conditioned on the skin actually being ours,
+		// so an admin's "Change Icon" choice on an ordinary site is never stomped.
+		here_marker.icon = initial(here_marker.icon)
+		here_marker.icon_state = initial(here_marker.icon_state)
+		here_marker.update_icon()
+
+	if(SSpersistence.databaseCheckConnection("persistence_set_site_kind"))
+		var/datum/db_query/uq = SSdbcore.NewQuery(
+			"UPDATE ss13_persistent_away_sites SET site_kind = :kind WHERE map_path = :mp AND last_z = :z",
+			list("kind" = site_kind, "mp" = "[SSatlas.current_map.path]", "z" = base_z)
+		)
+		uq.Execute()
+		SSpersistence.databaseCheckQueryResult(uq, "persistence_set_site_kind")
+		qdel(uq)
+
+	log_game("Site at z=[base_z] set to kind '[site_kind]'.")
 	return TRUE
 
 /**
@@ -2376,7 +2496,7 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 			msg += "  #[row["id"]] [row["template"]][row["notes"] ? " ([row["notes"]])" : ""] -- [row["enabled"] ? "ENABLED" : "disabled"], overmap ([row["om_x"]],[row["om_y"]])[appearance_info], [live]\n"
 		to_chat(usr, SPAN_NOTICE(msg))
 
-		var/action = tgui_input_list(usr, "Select action:", "Persistent Overmap Sites", list("Pin Site I'm At", "Pin From Template List", "Rename Site", "Change Icon", "Move Site", "Toggle Enabled", "Unpin Site", "Close"))
+		var/action = tgui_input_list(usr, "Select action:", "Persistent Overmap Sites", list("Pin Site I'm At", "Pin From Template List", "Rename Site", "Change Icon", "Set Site Kind", "Move Site", "Toggle Enabled", "Unpin Site", "Close"))
 		if(!action || action == "Close")
 			return
 
@@ -2512,6 +2632,41 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 					persistence_set_zlevel_label(rename_row["last_z"], rename_marker.name)
 			to_chat(usr, SPAN_GOOD("'[rename_row["template"]]' [new_site_name != "" ? "renamed to '[new_site_name]'" : "name restored to template default"] -- persists across reboots."))
 			log_and_message_admins("[new_site_name != "" ? "renamed pinned overmap site '[rename_row["template"]]' to '[new_site_name]'" : "cleared custom name on pinned overmap site '[rename_row["template"]]'"]", usr)
+
+		// Deliberately enumerated from LIVE away sites rather than from the pinned
+		// rows above, because a site's kind is meaningful before it is ever pinned
+		// -- that is exactly the window a colony-radio founding sits in, waiting
+		// for a faction beacon to claim it. persistence_set_site_kind() writes the
+		// pinned row when there is one and the live map either way.
+		else if(action == "Set Site Kind")
+			var/list/kind_choices = list()
+			for(var/kz = 1 to world.maxz)
+				var/datum/map_template/kz_template = GLOB.map_templates["[kz]"]
+				if(!istype(kz_template, /datum/map_template/ruin/away_site))
+					continue
+				var/obj/effect/overmap/visitable/kz_marker = GLOB.map_sectors["[kz]"]
+				// One entry per SITE, not per deck -- a multi-deck site is offered
+				// only at its base z, and persistence_set_site_kind() applies the
+				// change to every deck of it.
+				if(kz_marker && length(kz_marker.map_z) && kz_marker.map_z[1] != kz)
+					continue
+				var/kz_kind = GLOB.persistence_site_kind_by_z["[kz]"] || AWAY_SITE_KIND_SIMULATED
+				var/kz_pinned = (kz in GLOB.persistence_pinned_site_z) ? "pinned" : "not pinned"
+				kind_choices["z=[kz] -- [kz_marker ? kz_marker.name : kz_template.id] ([kz_kind], [kz_pinned])"] = kz
+			if(!length(kind_choices))
+				to_chat(usr, SPAN_WARNING("No away sites are loaded."))
+				continue
+			var/kind_site_pick = tgui_input_list(usr, "Change which site's kind?", "Set Site Kind", kind_choices)
+			if(!kind_site_pick)
+				continue
+			var/kind_z = kind_choices[kind_site_pick]
+			var/new_kind = tgui_input_list(usr, "What is z=[kind_z] for? Only 'drydock' carries mechanics -- ships may be stashed, retrieved and built within one overmap tile of one.", "Set Site Kind", \
+				list(AWAY_SITE_KIND_SIMULATED, AWAY_SITE_KIND_COLONY, AWAY_SITE_KIND_DRYDOCK))
+			if(!new_kind)
+				continue
+			persistence_set_site_kind(kind_z, new_kind)
+			to_chat(usr, SPAN_GOOD("z=[kind_z] is now a [new_kind][(kind_z in GLOB.persistence_pinned_site_z) ? " -- written to its pinned row, so it survives reboots" : " -- this site is NOT pinned, so the change lasts only until reboot"]."))
+			log_and_message_admins("set away site at z=[kind_z] to kind '[new_kind]'", usr)
 
 		else if(action == "Change Icon")
 			if(!length(rows))
@@ -3696,7 +3851,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 	if(!chosen_label) return
 	var/chosen_uid = faction_options[chosen_label]
 
-	var/list/actions = list("Add Job", "Edit Job Access", "Remove Job")
+	var/list/actions = list("Add Job", "Edit Job Access", "Toggle Recruitable", "Remove Job")
 	var/action = tgui_input_list(usr, "Action:", "Manage Faction Jobs", actions)
 	if(!action) return
 
@@ -3765,7 +3920,7 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 		// Reload jobs cache for this faction
 		if(!(chosen_uid in GLOB.persistence_faction_jobs_cache))
 			GLOB.persistence_faction_jobs_cache[chosen_uid] = list()
-		GLOB.persistence_faction_jobs_cache[chosen_uid] += list(list("title"=title,"access"=new_job_access,"pay_rate"=pay,"rank"=rank))
+		GLOB.persistence_faction_jobs_cache[chosen_uid] += list(list("title"=title,"access"=new_job_access,"pay_rate"=pay,"rank"=rank,"recruitable"=FALSE))
 		to_chat(usr, SPAN_GOOD("Added job '[title]' to [get_faction_name(chosen_uid)] with [length(new_job_access)] access code(s)."))
 		log_and_message_admins("added faction job '[title]' to [chosen_uid] ([length(new_job_access)] access codes)", usr)
 
@@ -3861,6 +4016,46 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 
 		to_chat(usr, SPAN_GOOD("Updated access for '[edit_title]': [length(current_access)] code(s)."))
 		log_and_message_admins("edited access for faction job '[edit_title]' in [chosen_uid] ([length(current_access)] codes)", usr)
+
+	else if(action == "Toggle Recruitable")
+		var/list/tr_jobs = get_faction_jobs(chosen_uid)
+		if(!length(tr_jobs))
+			to_chat(usr, SPAN_WARNING("No jobs defined for this faction."))
+			return
+		var/list/tr_labels = list()
+		for(var/list/tj in tr_jobs)
+			tr_labels["[tj["title"]] ([tj["recruitable"] ? "Recruitable" : "Not recruitable"])"] = tj["title"]
+		var/tr_chosen_label = tgui_input_list(usr, "Select job to toggle:", "Toggle Recruitable", tr_labels)
+		if(!tr_chosen_label) return
+		var/tr_title = tr_labels[tr_chosen_label]
+
+		var/tr_new_state
+		for(var/list/tj2 in tr_jobs)
+			if(tj2["title"] == tr_title)
+				tr_new_state = !tj2["recruitable"]
+				break
+		if(isnull(tr_new_state)) return
+
+		if(!SSpersistence.databaseCheckConnection("manage_faction_jobs toggle_recruitable"))
+			to_chat(usr, SPAN_WARNING("DB connection failed."))
+			return
+		var/datum/db_query/trq = SSdbcore.NewQuery(
+			"UPDATE ss13_faction_jobs SET recruitable = :val WHERE faction_uid = :uid AND title = :title",
+			list("val" = tr_new_state ? 1 : 0, "uid" = chosen_uid, "title" = tr_title)
+		)
+		trq.Execute()
+		SSpersistence.databaseCheckQueryResult(trq, "manage_faction_jobs toggle_recruitable")
+		qdel(trq)
+
+		var/list/tr_cached_jobs = GLOB.persistence_faction_jobs_cache[chosen_uid]
+		if(islist(tr_cached_jobs))
+			for(var/list/tcj in tr_cached_jobs)
+				if(tcj["title"] == tr_title)
+					tcj["recruitable"] = tr_new_state
+					break
+
+		to_chat(usr, SPAN_GOOD("'[tr_title]' is now [tr_new_state ? "recruitable" : "not recruitable"] at chargen."))
+		log_and_message_admins("set faction job '[tr_title]' in [chosen_uid] to [tr_new_state ? "recruitable" : "not recruitable"]", usr)
 
 	else if(action == "Remove Job")
 		var/list/jobs = get_faction_jobs(chosen_uid)
@@ -3979,6 +4174,98 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 			cq.Execute()
 			qdel(cq)
 	return ok
+
+/// Grants (ckey, character_name) access-whitelist entry to faction_uid --
+/// see V171__faction_access_whitelist.sql's own doc comment for why this is
+/// character-locked rather than ckey-wide. No central-DB mirror, unlike
+/// factionRegisterMember() -- territory access is single-shard.
+/datum/controller/subsystem/persistence/proc/factionAddAccessWhitelist(faction_uid, ckey, character_name, added_by_ckey)
+	faction_uid = normalize_faction_uid(faction_uid)
+	if(!databaseCheckConnection("factionAddAccessWhitelist"))
+		return FALSE
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		{"INSERT INTO ss13_faction_access_whitelist (faction_uid, ckey, character_name, added_by_ckey)
+		VALUES (:uid, :ckey, :name, :by)
+		ON DUPLICATE KEY UPDATE added_by_ckey = VALUES(added_by_ckey)"},
+		list("uid" = faction_uid, "ckey" = ckey, "name" = character_name, "by" = added_by_ckey)
+	)
+	q.Execute()
+	var/ok = databaseCheckQueryResult(q, "factionAddAccessWhitelist")
+	qdel(q)
+	if(ok)
+		if(!islist(GLOB.persistence_faction_access_whitelist_cache[faction_uid]))
+			GLOB.persistence_faction_access_whitelist_cache[faction_uid] = list()
+		var/list/entries = GLOB.persistence_faction_access_whitelist_cache[faction_uid]
+		var/already_cached = FALSE
+		for(var/list/existing in entries)
+			if(existing["ckey"] == ckey && existing["character_name"] == character_name)
+				already_cached = TRUE
+				break
+		if(!already_cached)
+			entries += list(list("ckey" = ckey, "character_name" = character_name))
+		// Mirrors factionRegisterMember()'s own central write-through exactly --
+		// a no-op whenever CENTRAL_SQL_ENABLED/CENTRAL_SYNC_FACTIONS are off (the
+		// ordinary standalone-server case), same gate, same shape.
+		if(_factionCentralSyncActive())
+			var/datum/db_query/cq = SScentraldb.NewQuery(
+				{"INSERT INTO ss13_faction_access_whitelist (faction_uid, ckey, character_name, added_by_ckey)
+				VALUES (:uid, :ckey, :name, :by)
+				ON DUPLICATE KEY UPDATE added_by_ckey = VALUES(added_by_ckey)"},
+				list("uid" = faction_uid, "ckey" = ckey, "name" = character_name, "by" = added_by_ckey)
+			)
+			cq.Execute()
+			qdel(cq)
+	return ok
+
+/// Inverse of factionAddAccessWhitelist() -- including the central mirror:
+/// removing a whitelist entry locally also removes it from the shared
+/// central table when sync is active, same as factionRemoveMember().
+/datum/controller/subsystem/persistence/proc/factionRemoveAccessWhitelist(faction_uid, ckey, character_name)
+	faction_uid = normalize_faction_uid(faction_uid)
+	if(!databaseCheckConnection("factionRemoveAccessWhitelist"))
+		return FALSE
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"DELETE FROM ss13_faction_access_whitelist WHERE faction_uid = :uid AND ckey = :ckey AND character_name = :name",
+		list("uid" = faction_uid, "ckey" = ckey, "name" = character_name)
+	)
+	q.Execute()
+	var/ok = databaseCheckQueryResult(q, "factionRemoveAccessWhitelist")
+	qdel(q)
+	if(ok)
+		if(islist(GLOB.persistence_faction_access_whitelist_cache[faction_uid]))
+			var/list/entries = GLOB.persistence_faction_access_whitelist_cache[faction_uid]
+			for(var/list/existing in entries)
+				if(existing["ckey"] == ckey && existing["character_name"] == character_name)
+					entries -= existing
+					break
+		if(_factionCentralSyncActive())
+			var/datum/db_query/cq = SScentraldb.NewQuery(
+				"DELETE FROM ss13_faction_access_whitelist WHERE faction_uid = :uid AND ckey = :ckey AND character_name = :name",
+				list("uid" = faction_uid, "ckey" = ckey, "name" = character_name)
+			)
+			cq.Execute()
+			qdel(cq)
+	return ok
+
+/// TRUE if M's ckey + CURRENT character name is specifically whitelisted for
+/// faction_uid's territory (the access whitelist, V171__faction_access_whitelist.sql)
+/// -- checked independently of membership/alliance/rank, and independently of
+/// whatever ID M currently holds or doesn't. Deliberately real_name-locked:
+/// whitelisting one named character never silently covers a ckey's other
+/// characters. Consumed by _evict_raid_intruders() (faction_beacon.dm) and
+/// _drydock_raid_blocked() (telepad_drydock_boarding.dm) so a whitelisted
+/// identity is exempt from both the eviction sweep and the entry gate.
+/proc/is_faction_access_whitelisted(mob/M, faction_uid)
+	if(!M || !M.ckey || !faction_uid)
+		return FALSE
+	faction_uid = normalize_faction_uid(faction_uid)
+	var/list/entries = GLOB.persistence_faction_access_whitelist_cache[faction_uid]
+	if(!islist(entries))
+		return FALSE
+	for(var/list/entry in entries)
+		if(entry["ckey"] == M.ckey && entry["character_name"] == M.real_name)
+			return TRUE
+	return FALSE
 
 /// Sets a member's on-shift state -- gates factionPayroll() on top of the
 /// existing online/actively-played-character requirement. Cleared

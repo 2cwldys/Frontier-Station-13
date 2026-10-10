@@ -58,6 +58,16 @@
 			chars_out += list(entry)
 		qdel(cq)
 	data["characters"] = chars_out
+
+	// A stored cyborg is a completely separate slot from the human roster
+	// above -- not chargen data, keyed by ckey alone (persistence_cyborg.dm),
+	// so it's surfaced as its own field rather than folded into "characters"
+	// (which would incorrectly count it against slot_limit/can_create).
+	data["cyborg_character"] = null
+	if(ckey && GLOB.config.sql_enabled)
+		var/list/cyborg_snapshot = SSpersistence.charCyborgResolve(ckey)
+		if(cyborg_snapshot)
+			data["cyborg_character"] = list("name" = cyborg_snapshot["real_name"] || "Cyborg")
 	// Blocks the empty-slot "Create Character" button while any of this
 	// ckey's characters is imprisoned -- otherwise a fresh alt in another
 	// slot is a trivial way to sidestep an active sentence entirely, same
@@ -124,6 +134,17 @@
 				to_chat(NP, SPAN_WARNING("The round is not ready yet."))
 				return TRUE
 			var/char_name = params["name"]
+
+			// A stored cyborg has no chargen row, no imprisonment concept, and
+			// a different spawn cascade entirely -- routed separately before
+			// any of the human-character checks below apply.
+			if(params["is_cyborg"])
+				spawning = TRUE
+				NP.PersistentAutoSpawnCyborg()
+				if(ui)
+					ui.close()
+				return TRUE
+
 			// Defense-in-depth, same reasoning as the checks above -- the
 			// frontend already greys Play out per-character for this, but
 			// never trust client-side disabling alone.
@@ -166,6 +187,15 @@
 			var/new_name = tgui_input_text(NP, "Enter your character's name:", "Character Name", "", max_length = MAX_NAME_LEN)
 			if(!new_name) return TRUE
 			NP.client.prefs.new_setup(1)
+			// new_setup(1) leaves hair/facial/skin/eye colors zeroed and
+			// h_style/f_style/tail_style/s_tone untouched -- every brand-new
+			// slot started out looking identical (same hair style, same
+			// black hair/eyes, etc.) until a player manually found the small
+			// "(R)" randomize link buried in the Body tab. Randomize it here
+			// instead, same proc that link already calls
+			// (preferences_setup.dm) -- still fully editable afterward, this
+			// only picks the starting point.
+			NP.client.prefs.randomize_appearance_for()
 			NP.client.prefs.can_edit_character = TRUE
 			NP.client.prefs.can_edit_name      = TRUE
 			NP.client.prefs.can_edit_ipc_tag   = TRUE

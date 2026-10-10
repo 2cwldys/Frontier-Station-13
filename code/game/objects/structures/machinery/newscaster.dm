@@ -137,6 +137,12 @@ GLOBAL_LIST_INIT_TYPED(allCasters, /obj/structure/machinery/newscaster, list())
 	pixel_x = DIR2PIXEL_X(dir)
 	pixel_y = DIR2PIXEL_Y(dir)
 
+/obj/structure/machinery/newscaster/persistence_reapply_wall_offset()
+	set_pixel_offsets()
+
+/obj/structure/machinery/newscaster/persistence_self_heal_wall_offset()
+	set_pixel_offsets()
+
 /obj/structure/machinery/newscaster/update_icon()
 	if(!ispowered || isbroken)
 		icon_state = initial(icon_state)

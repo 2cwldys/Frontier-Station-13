@@ -5,6 +5,29 @@
 	activable = TRUE
 	var/obj/item/augment_type
 	var/aug_slot = slot_r_hand
+	// Overrides the base augment class' list (augment.dm) to add Android --
+	// otherwise identical. Android is a /datum/species/machine subtype like
+	// every IPC chassis brand and has the same normal humanoid hand slots,
+	// but the base list predates Android's addition to the codebase and
+	// never got it added.
+	species_restricted = list(
+		SPECIES_HUMAN_OFFWORLD,
+		SPECIES_HUMAN,
+		SPECIES_IPC_BISHOP,
+		SPECIES_IPC_G1,
+		SPECIES_IPC_G2,
+		SPECIES_IPC_SHELL,
+		SPECIES_IPC_XION,
+		SPECIES_IPC_ZENGHU,
+		SPECIES_IPC,
+		SPECIES_ANDROID,
+		SPECIES_SKRELL_AXIORI,
+		SPECIES_SKRELL,
+		SPECIES_TAJARA_MSAI,
+		SPECIES_TAJARA_ZHAN,
+		SPECIES_TAJARA,
+		SPECIES_UNATHI,
+	)
 
 /obj/item/organ/internal/augment/tool/attack_self(var/mob/user)
 	. = ..()

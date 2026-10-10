@@ -201,11 +201,15 @@
 				SPAN_NOTICE("You begin repairing \the [src]."),
 				"You hear a welding torch on metal."
 			)
+			user.GetComponent(FIREARMS_SKILL_COMPONENT)?.register_use(user)
+			user.GetComponent(RESEARCH_SKILL_COMPONENT)?.register_use(user)
 		else
 			to_chat(user, SPAN_WARNING("You fail to repair \the [src]."))
 
 	else if(do_after(user, rand(2 SECONDS, (10 - skill_level) SECONDS), src, DO_UNIQUE) && repair_module(attacking_item, skill_level, user)) //Used if the repair item is not a tool.
 		to_chat(user, SPAN_NOTICE("You repair \the [src]."))
+		user.GetComponent(FIREARMS_SKILL_COMPONENT)?.register_use(user)
+		user.GetComponent(RESEARCH_SKILL_COMPONENT)?.register_use(user)
 	else
 		to_chat(user, SPAN_WARNING("You fail to repair \the [src]."))
 

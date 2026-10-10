@@ -139,6 +139,7 @@
 			visible_message("<b>[user]</b> cooks up some [flavour] cones.")
 		else
 			visible_message("<b>[user]</b> whips up some [flavour] icecream.")
+		user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 	else
 		to_chat(user, SPAN_WARNING("You don't have the ingredients to make this."))
 

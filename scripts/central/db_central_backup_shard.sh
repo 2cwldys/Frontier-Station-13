@@ -1,7 +1,7 @@
 #!/bin/sh
 # Dumps a shard's LOCAL database to a timestamped, portable SQL file --
 # same shape as scripts/db_backup.sh for the main server, just scoped to
-# one shard's own aurora-shard-<ShardId>-db container. Keeps the 7 most
+# one shard's own aurora-shard-<ShardId>-db container. Keeps the 14 most
 # recent backups per shard and deletes older ones automatically.
 #
 # The resulting .sql file is a plain mysqldump -- nothing shard-specific
@@ -96,15 +96,15 @@ fi
 SIZE_KB=$(du -k "$OUT_FILE" | cut -f1)
 echo "Backup complete: $OUT_FILE (${SIZE_KB} KB)"
 
-# Rotate: keep only the 7 most recent backups for this shard.
+# Rotate: keep only the 14 most recent backups for this shard.
 COUNT=0
 ls -1t "$BACKUP_DIR"/backup_*.sql 2>/dev/null | while read -r f; do
 	COUNT=$((COUNT + 1))
-	if [ $COUNT -gt 7 ]; then
+	if [ $COUNT -gt 14 ]; then
 		rm -f "$f"
 		echo "Removed old backup: $(basename "$f")"
 	fi
 done
 
 REMAINING=$(ls -1 "$BACKUP_DIR"/backup_*.sql 2>/dev/null | wc -l | tr -d ' ')
-echo "Backups retained for '$SHARD_ID': $REMAINING/7"
+echo "Backups retained for '$SHARD_ID': $REMAINING/14"

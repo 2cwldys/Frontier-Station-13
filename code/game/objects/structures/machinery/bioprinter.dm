@@ -65,6 +65,44 @@
 		/obj/item/stock_parts/manipulator
 	)
 
+	/// Faction UID this fabricator is tagged to, or "" for unrestricted.
+	/// Same tagger interface the clone pod/resleever use (resleever_cloning.dm)
+	/// -- only relevant to the "IPC Body" print job below, which is the only
+	/// product that costs credits rather than just stored matter.
+	var/persistent_network = ""
+	/// ckey this fabricator is personally tagged to, or null. Mutually
+	/// exclusive with persistent_network.
+	var/personal_ckey = null
+	var/personal_char_name = null
+	/// Set for the print-delay window between starting an IPC Body print and
+	/// it finishing -- holds who to refund if the job is canceled, since
+	/// credits (unlike stored_matter) aren't tracked in the generic
+	/// products/print_job vars. Null whenever no IPC Body print is in
+	/// progress.
+	var/list/ipc_body_billing = null
+	worldstate_vars = list("persistent_network", "personal_ckey", "personal_char_name")
+
+/obj/structure/machinery/bioprinter/prosthetics/faction_tagger_compatible()
+	return TRUE
+
+/obj/structure/machinery/bioprinter/prosthetics/faction_tagger_get_uid()
+	return persistent_network
+
+/obj/structure/machinery/bioprinter/prosthetics/faction_tagger_set(new_uid, mob/user)
+	persistent_network = new_uid
+	personal_ckey = null
+	personal_char_name = null
+	return TRUE
+
+/obj/structure/machinery/bioprinter/prosthetics/personal_tagger_get_owner()
+	return personal_ckey ? "[personal_ckey]|[personal_char_name]" : null
+
+/obj/structure/machinery/bioprinter/prosthetics/personal_tagger_set(mob/user)
+	personal_ckey = user.ckey
+	personal_char_name = user.real_name
+	persistent_network = ""
+	return TRUE
+
 /obj/structure/machinery/bioprinter/Initialize(mapload)
 	. = ..()
 	products = get_possible_products()
@@ -128,12 +166,19 @@
 		/obj/item/organ/external/hand,
 		/obj/item/organ/external/hand/right,
 		/obj/item/organ/external/foot,
-		/obj/item/organ/external/foot/right
+		/obj/item/organ/external/foot/right,
+		/obj/item/organ/internal/neural_lace
 	)
 	for(var/organtype in organs)
 		var/obj/item/organ/O = organtype
 		var/cost = initial(O.print_cost) || round(0.75 * initial(O.max_damage))
 		.[initial(O.name)] = list(O, cost)
+	// Not an organ at all -- a blank IPC chassis to resleeve into, the
+	// synthetic counterpart to the clone pod's organic growth. entry[1] is
+	// null and specially handled by _finish_print() below rather than
+	// instantiated as an organ type. entry[3] is the credit cost on top of
+	// the matter cost -- 0/absent for every organ above.
+	.["IPC Body"] = list(null, IPC_BODY_MATTER_COST, IPC_BODY_CREDIT_COST)
 	return .
 
 /obj/structure/machinery/bioprinter/proc/_load_blood_sample(list/blood_data, mob/user)
@@ -180,6 +225,93 @@
 	if(user)
 		to_chat(user, SPAN_NOTICE("You cancel the print job."))
 
+/obj/structure/machinery/bioprinter/prosthetics/proc/resolve_ipc_body_billing(mob/living/user)
+	var/tag_uid = normalize_faction_uid(persistent_network)
+	if(tag_uid && get_effective_faction_rank(user, tag_uid) >= 0)
+		return list("faction" = tag_uid)
+	return list("personal" = TRUE)
+
+/// Charges IPC_BODY_CREDIT_COST via faction_debit() or the user's own
+/// account -- same shape as the clone pod's _charge_clone_fee()
+/// (resleever_cloning.dm), but always charged regardless of
+/// CLONING_COSTS_CREDITS (see that define's own doc comment).
+/obj/structure/machinery/bioprinter/prosthetics/proc/_charge_ipc_body_fee(faction_uid, mob/living/user)
+	PRIVATE_PROC(TRUE)
+	var/reason = "IPC chassis print"
+	if(faction_uid)
+		if(!faction_debit(faction_uid, IPC_BODY_CREDIT_COST, reason))
+			to_chat(user, SPAN_WARNING("[get_faction_name(faction_uid)] cannot cover the [IPC_BODY_CREDIT_COST] credit chassis fee."))
+			return FALSE
+		return TRUE
+	var/obj/item/card/id/ID = user.GetIdCard()
+	if(!ID || !ID.associated_account_number)
+		to_chat(user, SPAN_WARNING("No bank account found on your ID."))
+		return FALSE
+	var/datum/money_account/account = SSeconomy.get_account(ID.associated_account_number)
+	if(!account || account.suspended)
+		to_chat(user, SPAN_WARNING("Your account is unavailable."))
+		return FALSE
+	if(account.money < IPC_BODY_CREDIT_COST)
+		to_chat(user, SPAN_WARNING("You cannot afford the [IPC_BODY_CREDIT_COST] credit chassis fee."))
+		return FALSE
+	SSeconomy.charge_to_account(ID.associated_account_number, "[src]", reason, "[src]", -IPC_BODY_CREDIT_COST)
+	return TRUE
+
+/// Reverses _charge_ipc_body_fee() -- fires when an in-progress IPC Body
+/// print is canceled (_cancel_print() override below). Refunds to whoever
+/// originally paid (ipc_body_billing), not necessarily whoever cancels.
+/obj/structure/machinery/bioprinter/prosthetics/proc/_refund_ipc_body_fee(faction_uid, mob/living/user)
+	PRIVATE_PROC(TRUE)
+	var/reason = "IPC chassis print refund"
+	if(faction_uid)
+		faction_credit(faction_uid, IPC_BODY_CREDIT_COST, reason)
+		return
+	var/obj/item/card/id/ID = user?.GetIdCard()
+	if(ID && ID.associated_account_number)
+		SSeconomy.charge_to_account(ID.associated_account_number, "[src]", reason, "[src]", IPC_BODY_CREDIT_COST)
+
+/// IPC Body is the one product that costs credits on top of stored matter --
+/// resolve billing, confirm, and charge BEFORE handing off to the shared
+/// matter-deduct/timer-start logic (..()), so a declined/unaffordable charge
+/// never reserves matter in the first place. Every other product falls
+/// straight through to the base proc unchanged.
+/obj/structure/machinery/bioprinter/prosthetics/_start_print(choice, mob/living/user)
+	if(choice != "IPC Body")
+		return ..()
+	if(print_job)
+		to_chat(user, SPAN_WARNING("\The [src] is already printing something."))
+		return
+	var/list/entry = products[choice]
+	if(!entry || stored_matter < entry[2])
+		to_chat(user, SPAN_WARNING("There is not enough matter in \the [src]."))
+		return
+
+	var/list/billing = resolve_ipc_body_billing(user)
+	var/faction_uid = billing["faction"]
+	var/payer_desc = faction_uid ? get_faction_name(faction_uid) : "your personal account"
+	if(tgui_alert(user, "Print a blank IPC chassis for [IPC_BODY_CREDIT_COST] credits and [entry[2]] matter, billed to [payer_desc]?", "Print IPC Body", list("Print", "Cancel")) != "Print")
+		return
+
+	// Re-check after the prompt -- state can change while it sits open.
+	if(print_job || stored_matter < entry[2])
+		to_chat(user, SPAN_WARNING("\The [src]'s state changed while you were deciding. Aborting."))
+		return
+	if(!_charge_ipc_body_fee(faction_uid, user))
+		return
+
+	ipc_body_billing = list("faction" = faction_uid, "user" = user)
+	..()
+
+/// Refunds the credit charge too when the canceled job was an IPC Body --
+/// the shared logic below only ever refunds stored_matter.
+/obj/structure/machinery/bioprinter/prosthetics/_cancel_print(mob/user)
+	var/was_ipc_body = (print_job == "IPC Body")
+	var/list/billing = ipc_body_billing
+	. = ..()
+	if(was_ipc_body && billing)
+		_refund_ipc_body_fee(billing["faction"], billing["user"])
+	ipc_body_billing = null
+
 /obj/structure/machinery/bioprinter/proc/_finish_print()
 	var/list/entry = products[print_job]
 	print_job = null
@@ -193,6 +325,26 @@
 		O.robotize() // Overwrites status wholesale -- must run before ORGAN_CUT_AWAY is set below.
 	O.status |= ORGAN_CUT_AWAY
 	visible_message(SPAN_NOTICE("\The [src] spits out a new organ."))
+
+/// IPC Body finishes as a blank, unconscious synthetic body instead of an
+/// organ item -- the synthetic counterpart to
+/// build_cloned_body_for_character() (resleever_cloning.dm), minus any
+/// chargen/character lookup: the body carries no identity until a neural
+/// lace is manually resleeved into it. Can't fall through to ..() at all --
+/// entry[1] is null for this product, not an organ type to instantiate.
+/obj/structure/machinery/bioprinter/prosthetics/_finish_print()
+	if(print_job != "IPC Body")
+		return ..()
+	print_job = null
+	time_print_end = 0
+	ipc_body_billing = null
+	update_icon()
+	var/mob/living/carbon/human/shell = new(get_turf(src))
+	shell.set_species(SPECIES_IPC)
+	shell.real_name = "unclaimed synthetic chassis"
+	shell.name = shell.real_name
+	shell.set_stat(UNCONSCIOUS)
+	visible_message(SPAN_NOTICE("\The [src] extrudes a blank synthetic chassis."))
 
 /obj/structure/machinery/bioprinter/process()
 	if(!print_job)
@@ -226,7 +378,7 @@
 	var/list/product_list = list()
 	for(var/pname in products)
 		var/list/entry = products[pname]
-		product_list += list(list("name" = pname, "cost" = entry[2]))
+		product_list += list(list("name" = pname, "cost" = entry[2], "credit_cost" = length(entry) >= 3 ? entry[3] : 0))
 	data["products"] = product_list
 	return data
 
@@ -285,3 +437,6 @@
 		return TRUE
 
 	return ..()
+
+#undef IPC_BODY_CREDIT_COST
+#undef IPC_BODY_MATTER_COST

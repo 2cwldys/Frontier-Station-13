@@ -377,6 +377,7 @@
 		for(var/i = 1 to 3)
 			var/obj/item/reagent_containers/food/snacks/sashimi/sashimi = new(get_turf(src), "squid")
 			reagents.trans_to(sashimi, transfer_amt)
+		user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 		qdel(src)
 
 /obj/item/reagent_containers/food/snacks/donerkebab

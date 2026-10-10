@@ -27,7 +27,8 @@ type CommodityPrice = {
 };
 
 type BeaconEntry = {
-  beacon_id: number;
+  beacon_id: string;
+  is_piracy: BooleanLike;
   notes: string;
   x: number;
   y: number;
@@ -59,7 +60,7 @@ type SupplyBeaconTerminalData = {
   crew_balance: number | null;
   commodities: Commodity[];
   beacons: BeaconEntry[];
-  selected_beacon_id: number | null;
+  selected_beacon_id: string | null;
   selected_in_range: BooleanLike;
   cooldown_remaining: number;
   telepad_choices: TelepadChoice[];
@@ -204,6 +205,7 @@ export const SupplyBeaconTerminal = (props) => {
           <Table>
             <Table.Row header>
               <Table.Cell>Beacon</Table.Cell>
+              <Table.Cell>Type</Table.Cell>
               <Table.Cell>Position</Table.Cell>
               <Table.Cell>Range</Table.Cell>
               <Table.Cell />
@@ -213,6 +215,9 @@ export const SupplyBeaconTerminal = (props) => {
                 <Table.Row key={b.beacon_id}>
                   <Table.Cell bold>
                     {b.notes || `Supply Beacon #${b.beacon_id}`}
+                  </Table.Cell>
+                  <Table.Cell color={b.is_piracy ? 'bad' : 'label'}>
+                    {b.is_piracy ? 'PIRACY (sell only)' : 'Supply'}
                   </Table.Cell>
                   <Table.Cell>
                     ({b.x}, {b.y})
@@ -234,7 +239,7 @@ export const SupplyBeaconTerminal = (props) => {
               ))
             ) : (
               <Table.Row>
-                <Table.Cell colSpan={4}>
+                <Table.Cell colSpan={5}>
                   No Supply Beacons have been placed yet.
                 </Table.Cell>
               </Table.Row>
@@ -356,6 +361,7 @@ export const SupplyBeaconTerminal = (props) => {
                   <CommodityRow
                     key={p.key}
                     beaconId={selectedBeacon.beacon_id}
+                    isPiracy={!!selectedBeacon.is_piracy}
                     name={commodityName(p.key)}
                     price={p}
                     disabled={cooldown_remaining > 0}
@@ -371,13 +377,14 @@ export const SupplyBeaconTerminal = (props) => {
 };
 
 const CommodityRow = (props: {
-  beaconId: number;
+  beaconId: string;
+  isPiracy: boolean;
   name: string;
   price: CommodityPrice;
   disabled: boolean;
 }) => {
   const { act } = useBackend<SupplyBeaconTerminalData>();
-  const { beaconId, name, price, disabled } = props;
+  const { beaconId, isPiracy, name, price, disabled } = props;
   const [amount, setAmount] = useState(1);
 
   const rangeLow = price.price_low;
@@ -426,16 +433,18 @@ const CommodityRow = (props: {
           step={1}
           onChange={(value) => setAmount(value)}
         />
-        <Button
-          ml={1}
-          color="good"
-          disabled={disabled}
-          onClick={() =>
-            act('buy', { commodity: price.key, amount, beacon_id: beaconId })
-          }
-        >
-          Buy
-        </Button>
+        {!isPiracy && (
+          <Button
+            ml={1}
+            color="good"
+            disabled={disabled}
+            onClick={() =>
+              act('buy', { commodity: price.key, amount, beacon_id: beaconId })
+            }
+          >
+            Buy
+          </Button>
+        )}
         <Button
           ml={1}
           color="bad"
@@ -446,14 +455,16 @@ const CommodityRow = (props: {
         >
           Sell
         </Button>
-        <Button
-          ml={1}
-          icon="cart-plus"
-          tooltip="Add to buy cart -- stage without charging yet"
-          onClick={() =>
-            act('cart_add', { commodity: price.key, amount, beacon_id: beaconId })
-          }
-        />
+        {!isPiracy && (
+          <Button
+            ml={1}
+            icon="cart-plus"
+            tooltip="Add to buy cart -- stage without charging yet"
+            onClick={() =>
+              act('cart_add', { commodity: price.key, amount, beacon_id: beaconId })
+            }
+          />
+        )}
         <Button
           ml={1}
           icon="cart-arrow-down"

@@ -14,6 +14,10 @@
 
 	var/area/initial_loc
 	var/id_tag = null
+	/// TRUE when this scrubber's power was last set via the air alarm's
+	/// per-device control (not the room-wide mode) -- see vent_pump.dm's
+	/// identical var for the full reasoning.
+	var/power_individually_set = FALSE
 	var/frequency = 1439
 	var/datum/radio_frequency/radio_connection
 
@@ -75,6 +79,16 @@
 
 	if (!scrubbing_gas)
 		reset_scrubbing()
+
+/// See the matching override on vent_pump (vent_pump.dm) for the full
+/// explanation: a POWER_USE_OFF machine takes an early return in the base
+/// post_machine_initialize() (power_usage.dm) before it ever subscribes to
+/// COMSIG_AREA_POWER_CHANGE, so the NOPOWER bit set at init -- while the
+/// area's APC still hadn't restored power -- could never be cleared, and
+/// receive_signal() below drops every command on it.
+/obj/structure/machinery/atmospherics/unary/vent_scrubber/post_machine_initialize()
+	..()
+	setup_area_power_relationship()
 
 /obj/structure/machinery/atmospherics/unary/vent_scrubber/proc/reset_scrubbing()
 	if (initial(scrubbing_gas))
@@ -184,15 +198,23 @@
 /obj/structure/machinery/atmospherics/unary/vent_scrubber/process()
 	..()
 
+	// Flushed BEFORE the hibernate return, matching vent_pump's own process().
+	// Sitting after it, this was simply unreachable: ~99% of scrubbers are
+	// hibernating at any moment (see the hibernate assignment below), so a
+	// scrubber would apply a received command internally, set the flag, and
+	// then never report the new state back. The air alarm's UI reads only the
+	// area-level air_scrub_info cache that this call writes (alarm.dm), so the
+	// panel kept showing the pre-command state -- the "resets when the tab is
+	// exited and re-entered" symptom.
+	if (broadcast_status_next_process)
+		broadcast_status()
+		broadcast_status_next_process = FALSE
+
 	if (hibernate > world.time)
 		return 1
 
 	if (!node)
 		update_use_power(POWER_USE_OFF)
-
-	if (broadcast_status_next_process)
-		broadcast_status()
-		broadcast_status_next_process = FALSE
 
 	if(!use_power || (stat & (NOPOWER|BROKEN)) || !loc)
 		return 0
@@ -233,11 +255,19 @@
 /obj/structure/machinery/atmospherics/unary/vent_scrubber/receive_signal(datum/signal/signal)
 	if(stat & (NOPOWER|BROKEN))
 		return
+
+	// Wake up, same as vent_pump's receive_signal() already did. Without this
+	// a hibernating scrubber accepted the command but stayed asleep, so the
+	// broadcast_status() flush in process() above wouldn't run for another
+	// 10-20 seconds and the alarm panel would show stale state until then.
+	hibernate = 0
+
 	if(!signal.data["tag"] || (signal.data["tag"] != id_tag) || (signal.data["sigtype"]!="command"))
 		return 0
 
 	if(signal.data["power"] != null)
 		update_use_power(text2num(signal.data["power"]))
+		power_individually_set = !!signal.data["individual_override"]
 	if(signal.data["power_toggle"] != null)
 		update_use_power(!use_power)
 

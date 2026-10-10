@@ -311,6 +311,15 @@
 		if(B.faction_uid && own_faction && B.faction_uid == own_faction)
 			return DRYDOCK_PICK_MODE_OPEN
 #endif //FACTION_ALLIANCES
+		// A whitelisted (ckey, character_name) grant is treated exactly like an
+		// ally for drydock purposes too -- full interior access, same as the
+		// own-faction/alliance case above, and this also means a whitelisted
+		// person is never caught by the BLOCKED check below (this proc is the
+		// authoritative, re-evaluated-every-click gate -- _drydock_raid_blocked()'s
+		// own whitelist check only covers the earlier immediate-refusal
+		// pre-check, not this one).
+		if(B.faction_uid && is_faction_access_whitelisted(L, B.faction_uid))
+			return DRYDOCK_PICK_MODE_OPEN
 		// Admin-toggled raiding kill-switch (GLOB.faction_raiding_enabled,
 		// persistence_factions.dm) -- the Hub's own beacon subtype is always
 		// exempt (istype check below), and a faction can opt its own
@@ -363,7 +372,17 @@
 /proc/_drydock_raid_blocked(mob/living/L, target_z)
 	var/obj/item/card/id/ID = L.GetIdCard()
 	var/own_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
-	return _faction_raid_blocked_for(target_z, own_faction)
+	if(!_faction_raid_blocked_for(target_z, own_faction))
+		return FALSE
+	// The blanket block above only knows L's CURRENT faction (from whatever
+	// ID they're holding, if any) -- re-check against the specific access
+	// whitelist (is_faction_access_whitelisted(), persistence_factions.dm)
+	// before honoring it, since that's a per-identity grant independent of
+	// any card, and the generic check above has no way to see it.
+	var/obj/structure/machinery/faction_beacon/B = GLOB.faction_beacon_by_z["[target_z]"]
+	if(istype(B) && B.faction_uid && is_faction_access_whitelisted(L, B.faction_uid))
+		return FALSE
+	return TRUE
 
 /// Shared core of the raiding gate: TRUE if acting_faction_uid should be
 /// refused entry to target_z because faction raiding is currently disabled,

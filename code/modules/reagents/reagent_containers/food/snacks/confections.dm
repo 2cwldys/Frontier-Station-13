@@ -222,6 +222,7 @@
 			new /obj/item/reagent_containers/food/snacks/creme_brulee(src)
 			to_chat(user, "You apply the flame to the sugary custard, caramelizing it.")
 			playsound(get_turf(src), 'sound/items/flare.ogg', 100, 1)
+			user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 			qdel(src)
 
 /obj/item/reagent_containers/food/snacks/creme_brulee

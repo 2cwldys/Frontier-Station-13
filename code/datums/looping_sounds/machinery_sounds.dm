@@ -124,6 +124,17 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+/// Played during a dermal regenerator's longer Restore Husk cycle
+/// (dermal_regenerator.dm) -- same source sound as the autodoc, at a
+/// quieter volume befitting a hand-held device rather than a full machine.
+/datum/looping_sound/dermal_regenerator
+	mid_sounds = list('sound/machines/autodoc.ogg' = 1)
+	mid_length = 2.25 SECONDS
+	volume = 35
+	extra_range = SHORT_RANGE_SOUND_EXTRARANGE
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 /datum/looping_sound/faction_beacon
 	mid_sounds = list('sound/machines/electrical_hum1.ogg' = 1, 'sound/machines/electrical_hum2.ogg' = 1)
 	mid_length = 8 SECONDS

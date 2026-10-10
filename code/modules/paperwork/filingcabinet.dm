@@ -19,6 +19,12 @@
 	maxhealth = OBJECT_HEALTH_VERY_LOW
 	armor = list(MELEE = ARMOR_MELEE_SMALL, BULLET = ARMOR_BALLISTIC_MINOR)
 
+	/// Where this cabinet was mapload-placed -- set once at map spawn, used by
+	/// Moved() to detect relocation and promote to dynamic persistence
+	/// tracking (mirrors /obj/structure/closet's own identical mechanism,
+	/// closets.dm -- see that type's own doc comment on this same var).
+	var/turf/persistence_mapload_origin
+
 	var/static/list/accepted_items = list(
 		/obj/item/paper,
 		/obj/item/folder,
@@ -49,11 +55,57 @@
 /obj/structure/filingcabinet/filingcabinet	//not changing the path to avoid unecessary map issues, but please don't name stuff like this in the future -Pete
 	icon_state = "tallcabinet"
 
-/obj/structure/filingcabinet/Initialize()
+/obj/structure/filingcabinet/Initialize(mapload)
 	. = ..()
+	if(mapload)
+		persistence_mapload_origin = get_turf(src)
 	for(var/obj/item/I in loc)
 		if(is_type_in_list(I, accepted_items))
 			I.forceMove(src)
+
+/// Contents persistence -- only actually saved/restored once this cabinet
+/// has been relocated from its original mapload position and promoted to
+/// dynamic tracking (see Moved() below); mirrors /obj/structure/closet's
+/// own identical content-persistence shape (persistence_objects.dm).
+/obj/structure/filingcabinet/persistent_objects_get_content()
+	var/list/content = list()
+	var/list/items = list()
+	for(var/obj/item/I in src.contents)
+		items += list(serializePersistentItem(I))
+	content["items"] = items
+	return content
+
+/obj/structure/filingcabinet/persistent_objects_apply_content(list/content, x, y, z)
+	..() // base: forceMove to saved position
+	if(!content)
+		return
+	// Remove whatever Initialize()'s same-tile sweep-up above already picked
+	// up -- restore from saved state instead, same reasoning as the closet's
+	// own fill()-defaults clear.
+	while(length(contents))
+		qdel(contents[1])
+	if(islist(content["items"]))
+		for(var/list/item_data in content["items"])
+			if(islist(item_data))
+				deserializePersistentItem(item_data, src)
+
+/// Promotes this cabinet to dynamic persistence tracking once it's actually
+/// been moved away from its mapload position -- an exact mirror of
+/// /obj/structure/closet/Moved() (closets.dm), see that proc's own doc
+/// comment for the full reasoning (duplicate-prevention via a removal
+/// tombstone at the original tile, only promoted once that write lands).
+/obj/structure/filingcabinet/Moved(atom/old_loc, movement_dir, forced, list/old_locs)
+	. = ..()
+	if(!persistence_mapload_origin || persistent_objects_track_active)
+		return
+	if(get_turf(src) == persistence_mapload_origin)
+		return
+	if(!GLOB.config.sql_enabled)
+		return
+	if(!SSpersistence.saveStructureRemovalAt(type, persistence_mapload_origin))
+		return
+	SSpersistence.objectsRegisterTrack(src)
+	persistence_mapload_origin = null
 
 /obj/structure/filingcabinet/attackby(obj/item/attacking_item, mob/user)
 	if(is_type_in_list(attacking_item, accepted_items))

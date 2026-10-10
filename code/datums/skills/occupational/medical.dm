@@ -66,6 +66,9 @@
 	category =  /singleton/skill_category/occupational
 	subcategory = SKILL_SUBCATEGORY_MEDICAL
 	component_type = PHARMACOLOGY_SKILL_COMPONENT
+	// No gameplay consumer implemented at all yet -- see no_decay's own doc
+	// comment (_skills.dm).
+	no_decay = TRUE
 
 /singleton/skill/anatomy
 	name = "Anatomy"
@@ -110,3 +113,6 @@
 	category =  /singleton/skill_category/occupational
 	subcategory = SKILL_SUBCATEGORY_MEDICAL
 	component_type = FORENSICS_SKILL_COMPONENT
+	// No gameplay consumer implemented at all yet -- see no_decay's own doc
+	// comment (_skills.dm).
+	no_decay = TRUE

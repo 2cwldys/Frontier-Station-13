@@ -16,12 +16,19 @@
 
 	spawn_weight = 1
 	spawn_cost = 0
-	template_flags = TEMPLATE_FLAG_NO_RUINS | TEMPLATE_FLAG_RUIN_STARTS_DISALLOWED
+	template_flags = TEMPLATE_FLAG_ALLOW_DUPLICATES | TEMPLATE_FLAG_NO_RUINS | TEMPLATE_FLAG_RUIN_STARTS_DISALLOWED
 
 /obj/effect/overmap/visitable/sector/station
 	name = "construction platform"
 	desc = "Sensors detect a bare construction platform anchored in open space."
-	icon_state = "object"
+	// Both states live on the stationary sheet rather than the base
+	// overmap_effects.dmi, so the icon has to come with them -- same as
+	// sector/centcom and sector/miners_guild_station. A site founded as a drydock
+	// is re-skinned to "battlestation" at runtime by
+	// apply_drydock_marker_appearance() (persistence_shuttles.dm), since colonies
+	// and drydocks both load this one template.
+	icon = 'icons/obj/overmap/overmap_stationary.dmi'
+	icon_state = "depot"
 
 	initial_generic_waypoints = list(
 		"nav_station_1",

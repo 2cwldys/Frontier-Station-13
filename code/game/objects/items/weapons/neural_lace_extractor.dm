@@ -36,6 +36,9 @@
 	var/extracting = FALSE
 
 /obj/item/neural_lace_extractor/attack(mob/living/target_mob, mob/living/user, target_zone)
+	if(istype(target_mob, /mob/living/silicon/robot))
+		return _extract_from_robot(target_mob, user)
+
 	var/mob/living/carbon/human/H = target_mob
 	if(!istype(H))
 		return ..()
@@ -75,5 +78,54 @@
 		user.visible_message(SPAN_NOTICE("\The [user] cleanly extracts [H]'s neural lace."), SPAN_NOTICE("You cleanly extract the neural lace."))
 
 	lace.removed(H, user)
+	user.put_in_hands(lace)
+	return TRUE
+
+/**
+ * Field-extracts whatever consciousness is occupying a cyborg's MMI directly
+ * -- no need to crowbar the MMI out of the chassis first. Shares the same
+ * timing/botch-risk shape as the human path above, but there's no existing
+ * lace to damage on a botch (there's nothing to extract FROM yet), so a
+ * fresh one is created first and the botch damage lands on that instead.
+ */
+/obj/item/neural_lace_extractor/proc/_extract_from_robot(mob/living/silicon/robot/R, mob/living/user)
+	if(extracting)
+		to_chat(user, SPAN_WARNING("\The [src] is already mid-extraction."))
+		return TRUE
+
+	if(!R.mmi || !R.mmi.brainmob || !R.mmi.brainmob.mind)
+		to_chat(user, SPAN_WARNING("[R] has no neural lace consciousness to extract."))
+		return TRUE
+
+	user.visible_message(SPAN_WARNING("\The [user] begins extracting a consciousness from [R]'s MMI with \the [src]."), SPAN_WARNING("You begin extracting the consciousness from [R]'s MMI..."))
+	playsound(get_turf(R), 'sound/items/surgery/surgicaldrill.ogg', 50, 1)
+
+	extracting = TRUE
+	var/success = do_after(user, 15 SECONDS, R, DO_DEFAULT | DO_USER_UNIQUE_ACT)
+	extracting = FALSE
+
+	if(!success)
+		to_chat(user, SPAN_WARNING("Extraction interrupted."))
+		return TRUE
+
+	// Re-validate -- state can change during the do_after (MMI pulled, robot
+	// destroyed, occupant already left some other way).
+	if(!R.mmi || !R.mmi.brainmob || !R.mmi.brainmob.mind)
+		to_chat(user, SPAN_WARNING("There's no longer a consciousness there to extract."))
+		return TRUE
+
+	var/obj/item/organ/internal/neural_lace/lace = new(get_turf(R))
+	if(!R.mmi.extract_consciousness_to_lace(lace, user))
+		qdel(lace)
+		return TRUE
+
+	if(prob(botch_chance))
+		lace.take_field_extraction_damage(rand(botch_damage_min, botch_damage_max))
+		playsound(get_turf(R), 'sound/machines/defib_failed.ogg', 50, 0)
+		user.visible_message(SPAN_WARNING("\The [user]'s extraction is rough -- the consciousness sparks as it settles into the lace!"), SPAN_WARNING("Your extraction is rough -- the consciousness sparks as it settles into the lace!"))
+	else
+		playsound(get_turf(R), 'sound/machines/defib_success.ogg', 50, 0)
+		user.visible_message(SPAN_NOTICE("\The [user] cleanly extracts the consciousness from [R]'s MMI."), SPAN_NOTICE("You cleanly extract the consciousness."))
+
 	user.put_in_hands(lace)
 	return TRUE

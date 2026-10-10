@@ -130,6 +130,7 @@
 			if (meter.target == src)
 				new /obj/item/pipe_meter(T)
 				qdel(meter)
+		user.GetComponent(ATMOSPHERICS_SYSTEMS_SKILL_COMPONENT)?.register_use(user)
 		qdel(src)
 		return TRUE
 

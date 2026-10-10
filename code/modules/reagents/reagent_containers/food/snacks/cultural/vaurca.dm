@@ -12,11 +12,13 @@
 	if(istype(attacking_item, /obj/item/stack/rods))
 		new /obj/item/reagent_containers/food/snacks/koiskebab1(src)
 		to_chat(user, "You skewer the fried k'ois.")
+		user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 		qdel(src)
 		qdel(attacking_item)
 	if(istype(attacking_item, /obj/item/material/kitchen/rollingpin))
 		new /obj/item/reagent_containers/food/snacks/soup/kois(src)
 		to_chat(user, "You crush the fried K'ois into a paste, and pour it into a bowl.")
+		user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 		qdel(src)
 
 /obj/item/reagent_containers/food/snacks/koiskebab1
@@ -33,6 +35,7 @@
 	if(istype(attacking_item, /obj/item/reagent_containers/food/snacks/friedkois))
 		new /obj/item/reagent_containers/food/snacks/koiskebab2(src)
 		to_chat(user, "You add fried K'ois to the kebab.")
+		user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 		qdel(src)
 		qdel(attacking_item)
 
@@ -50,6 +53,7 @@
 	if(istype(attacking_item,/obj/item/reagent_containers/food/snacks/friedkois))
 		new /obj/item/reagent_containers/food/snacks/koiskebab3(src)
 		to_chat(user, "You add fried K'ois to the kebab.")
+		user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 		qdel(src)
 		qdel(attacking_item)
 

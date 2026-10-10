@@ -9,6 +9,12 @@
  * than a commodity.
  */
 
+/// Abstract, or the singleton repo instantiates this parent too and registers
+/// it under its own inherited name ("generic cargo item", cargo_items.dm) with
+/// an empty items list -- SScargo keys the catalogue by name (cargo.dm), so a
+/// bogus entry like that both appears for sale and silently collides with
+/// anything else sharing that name.
+ABSTRACT_TYPE(/singleton/cargo_item/language_primer)
 /singleton/cargo_item/language_primer
 	category = "science"
 	supplier = "Hub"

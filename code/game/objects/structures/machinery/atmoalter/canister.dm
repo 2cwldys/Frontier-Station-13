@@ -517,6 +517,7 @@ update_flag
 					release_log += "Valve was <b>opened</b> by [usr] ([usr.ckey]), starting the transfer into the <span class='warning'><b>air</b></span><br>"
 					log_open()
 			valve_open = !valve_open
+			usr.GetComponent(ATMOSPHERICS_SYSTEMS_SKILL_COMPONENT)?.register_use(usr)
 			. = TRUE
 
 		if("remove_tank")

@@ -705,6 +705,12 @@ default behaviour is:
 		var/obj/structure/closet/C = loc
 		spawn() C.mob_breakout(src)
 
+	// Getting out of the resleever -- same self-eject path relaymove() (movement)
+	// already uses (resleever.dm), just reached from Resist instead of walking.
+	if(istype(src.loc, /obj/structure/machinery/resleever))
+		var/obj/structure/machinery/resleever/R = loc
+		R._eject_occupant(src)
+
 /mob/living/proc/escape_inventory(obj/item/holder/H)
 	if(H != src.loc)
 		return

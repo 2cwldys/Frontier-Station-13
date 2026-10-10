@@ -125,6 +125,7 @@
 	if(istype(attacking_item, /obj/item/material/kitchen/rollingpin))
 		new /obj/item/reagent_containers/food/snacks/sliceable/flatdough(src)
 		to_chat(user, "You flatten the dough.")
+		user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 		qdel(src)
 
 // slicable into 3xdoughslices
@@ -158,6 +159,7 @@
 	if(istype(attacking_item, /obj/item/material/kitchen/utensil/knife))
 		new /obj/item/reagent_containers/food/snacks/rawsticks(src)
 		to_chat(user, "You cut the potato.")
+		user.GetComponent(COOKING_SKILL_COMPONENT)?.register_use(user)
 		qdel(src)
 	else
 		..()

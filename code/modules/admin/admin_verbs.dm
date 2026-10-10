@@ -36,6 +36,7 @@ GLOBAL_LIST_INIT(admin_verbs_admin, list(
 	/client/proc/jumptoshuttle,
 	/client/proc/jumptoship,
 	/client/proc/jumptosector,
+	/client/proc/jumptolobby,
 	/client/proc/Getmob,				/*teleports a mob to our location*/
 	/client/proc/Getkey,				/*teleports a mob with a certain ckey to our location*/
 //	/client/proc/sendmob,				/*sends a mob somewhere*/ -Removed due to it needing two sorting procs to work, which were executed every time an admin right-clicked. ~Errorage */
@@ -44,6 +45,7 @@ GLOBAL_LIST_INIT(admin_verbs_admin, list(
 	/client/proc/jumptomob,				//allows us to jump to a specific mob,
 	/client/proc/jumptoturf,			//allows us to jump to a specific turf,
 	/client/proc/jump_to_neural_lace,	//lists every neural lace in the world and jumps to the one picked,
+	/client/proc/jump_to_cryopod,		//lists every available cryopod and jumps to the one picked (aghost only),
 	/client/proc/admin_call_shuttle,	//allows us to call the emergency shuttle,
 	/client/proc/admin_cancel_shuttle,	//allows us to cancel the emergency shuttle, sending it back to centcomm,
 	/client/proc/cmd_admin_direct_narrate,	//send text directly to a player with no padding. Useful for narratives and fluff-text,
@@ -108,6 +110,7 @@ GLOBAL_LIST_INIT(admin_verbs_admin, list(
 	/client/proc/reset_openturf,
 	/client/proc/view_removed_structures,
 	/datum/admins/proc/manage_faction_prisoners,
+	/datum/admins/proc/modify_beacon_whitelists,
 	/datum/admins/proc/manage_hostile_npc_presets,
 	/datum/admins/proc/modify_outfit_templates,
 	/datum/admins/proc/spawn_hostile_npc,
@@ -208,6 +211,7 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/set_player_character_slots,
 	/datum/admins/proc/rename_persistent_character,
 	/datum/admins/proc/remove_persistent_character,
+	/datum/admins/proc/modify_character_skills,
 	/datum/admins/proc/toggle_server_joining,
 	/datum/admins/proc/manage_faction_account,
 	/datum/admins/proc/manage_faction_jobs,
@@ -230,6 +234,7 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/restore_ship_backup,
 	/datum/admins/proc/set_drydock_ship_cap,
 	/datum/admins/proc/free_drydock_ship_name,
+	/datum/admins/proc/view_drydocks,
 	/datum/admins/proc/generate_away_site,
 	/datum/admins/proc/remove_away_site,
 	/datum/admins/proc/manage_away_site_mob_presets,
@@ -259,6 +264,7 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 	/datum/admins/proc/install_neural_lace,
 	/datum/admins/proc/check_vitals,
 	/datum/admins/proc/force_vault_all_laces,
+	/datum/admins/proc/modify_neural_lace,
 	/datum/admins/proc/whitelist_players
 	))
 
@@ -296,6 +302,7 @@ GLOBAL_LIST_INIT(admin_verbs_debug, list(
 	/client/proc/jumptoshuttle,
 	/client/proc/jumptoship,
 	/client/proc/jumptosector,
+	/client/proc/jumptolobby,
 	/client/proc/dsay,
 	/client/proc/toggle_recursive_explosions,
 	/client/proc/restart_sql,
@@ -402,6 +409,7 @@ GLOBAL_LIST_INIT(admin_verbs_hideable, list(
 	/client/proc/jumptoshuttle,
 	/client/proc/jumptoship,
 	/client/proc/jumptosector,
+	/client/proc/jumptolobby,
 	/client/proc/colorooc,
 	/client/proc/add_client_color,
 	/datum/admins/proc/force_mode_latespawn,
@@ -562,6 +570,7 @@ GLOBAL_LIST_INIT(admin_verbs_dev, list( //will need to be altered - Ryan784
 	/client/proc/jumptoshuttle,
 	/client/proc/jumptoship,
 	/client/proc/jumptosector,
+	/client/proc/jumptolobby,
 	/client/proc/cmd_dev_say,
 	/client/proc/admin_ghost,
 	/client/proc/air_report,
@@ -613,6 +622,7 @@ GLOBAL_LIST_INIT(admin_verbs_storyteller, list(
 	/client/proc/jumptoshuttle,
 	/client/proc/jumptoship,
 	/client/proc/jumptosector,
+	/client/proc/jumptolobby,
 	/client/proc/Getmob,				/*teleports a mob to our location*/
 	/client/proc/Jump,
 	/client/proc/jumptomob,				//allows us to jump to a specific mob,
@@ -1659,6 +1669,86 @@ GLOBAL_LIST_INIT(admin_verbs_storyteller, list(
 	to_chat(usr, SPAN_GOOD("Released [chosen["char_name"]] ([chosen["ckey"]]) from imprisonment."))
 	log_and_message_admins("released [chosen["char_name"]] ([chosen["ckey"]]) from cryogenic prison storage via Manage Faction Prisoners[is_remote ? " (central-only record)" : ""].", usr)
 
+/// Same "regardless of faction" shape as manage_faction_prisoners() above --
+/// picks ANY faction or hub beacon anywhere in the world directly (not
+/// gated by can_configure_faction_shackle()/command rank the way the
+/// beacon's own TGUI is, and not scoped to one faction the way walking up
+/// to a physical beacon necessarily is), then adds/removes entries on its
+/// access whitelist (is_faction_access_whitelisted(),
+/// persistence_factions.dm) via the exact same
+/// factionAddAccessWhitelist()/factionRemoveAccessWhitelist() procs the
+/// beacon's own "add_access_whitelist"/"remove_access_whitelist" TGUI
+/// actions call (faction_beacon.dm) -- one shared data layer, two
+/// different front ends.
+/datum/admins/proc/modify_beacon_whitelists()
+	set name = "Modify Beacon Whitelists"
+	set category = "Persistence.Factions"
+	set desc = "View and modify the access whitelist of any faction or hub beacon anywhere in the world, regardless of faction."
+
+	if(!check_rights(R_ADMIN))
+		return
+
+	var/list/beacon_choices = list()
+	for(var/obj/structure/machinery/faction_beacon/B in world)
+		if(QDELETED(B))
+			continue
+		var/area/A = get_area(B)
+		var/label = "[B.faction_uid ? get_faction_name(B.faction_uid) : "(unconfigured)"] -- [A ? A.name : "Unknown Area"] ([B.x], [B.y], [B.z])"
+		beacon_choices[label] = B
+	if(!length(beacon_choices))
+		to_chat(usr, SPAN_WARNING("No faction beacons exist in the world."))
+		return
+
+	var/beacon_pick = tgui_input_list(usr, "Modify which beacon's access whitelist?", "Modify Beacon Whitelists", beacon_choices)
+	if(!beacon_pick)
+		return
+	var/obj/structure/machinery/faction_beacon/B = beacon_choices[beacon_pick]
+	if(QDELETED(B))
+		to_chat(usr, SPAN_WARNING("That beacon no longer exists."))
+		return
+	if(!B.faction_uid)
+		to_chat(usr, SPAN_WARNING("That beacon has no faction assigned -- nothing to whitelist against."))
+		return
+	var/faction_uid = B.faction_uid
+
+	while(TRUE)
+		var/list/entries = islist(GLOB.persistence_faction_access_whitelist_cache[faction_uid]) ? GLOB.persistence_faction_access_whitelist_cache[faction_uid] : list()
+		var/summary = length(entries) ? "[length(entries)] entr[length(entries) == 1 ? "y" : "ies"]" : "empty"
+		var/menu_pick = tgui_input_list(usr, "[get_faction_name(faction_uid)]'s access whitelist ([summary]):", "Modify Beacon Whitelists", list("Add Entry", "Remove Entry", "Done"))
+		if(!menu_pick || menu_pick == "Done")
+			return
+
+		if(menu_pick == "Add Entry")
+			var/add_ckey = tgui_input_text(usr, "Ckey to whitelist (not a display name -- their login/account name):", "Modify Beacon Whitelists", max_length = 32)
+			if(isnull(add_ckey) || add_ckey == "")
+				continue
+			add_ckey = ckey(add_ckey)
+			var/add_name = tgui_input_text(usr, "Exact character name for '[add_ckey]' (locks the grant to this one character, not every alt they play):", "Modify Beacon Whitelists", max_length = 64)
+			if(isnull(add_name) || add_name == "")
+				continue
+			if(!SSpersistence.factionAddAccessWhitelist(faction_uid, add_ckey, add_name, usr.ckey))
+				to_chat(usr, SPAN_WARNING("Database connection failed -- whitelist entry not saved."))
+				continue
+			to_chat(usr, SPAN_GOOD("'[add_name]' ([add_ckey]) may now access [get_faction_name(faction_uid)]'s territory regardless of the faction raiding toggle."))
+			log_and_message_admins("whitelisted '[add_name]' ([add_ckey]) for [get_faction_name(faction_uid)]'s territory access via Modify Beacon Whitelists.", usr)
+
+		else if(menu_pick == "Remove Entry")
+			if(!length(entries))
+				to_chat(usr, SPAN_WARNING("The access whitelist is empty."))
+				continue
+			var/list/remove_choices = list()
+			for(var/list/entry in entries)
+				remove_choices["[entry["character_name"]] ([entry["ckey"]])"] = entry
+			var/remove_pick = tgui_input_list(usr, "Remove which access whitelist entry?", "Modify Beacon Whitelists", remove_choices)
+			if(!remove_pick)
+				continue
+			var/list/chosen = remove_choices[remove_pick]
+			if(!SSpersistence.factionRemoveAccessWhitelist(faction_uid, chosen["ckey"], chosen["character_name"]))
+				to_chat(usr, SPAN_WARNING("Database connection failed -- whitelist entry not removed."))
+				continue
+			to_chat(usr, SPAN_GOOD("Removed '[chosen["character_name"]]' ([chosen["ckey"]]) from the access whitelist."))
+			log_and_message_admins("removed '[chosen["character_name"]]' ([chosen["ckey"]]) from [get_faction_name(faction_uid)]'s territory access whitelist via Modify Beacon Whitelists.", usr)
+
 /// DISASTER RECOVERY ONLY -- see presenceLockForceRelease()'s own doc
 /// comment (persistence_cryo.dm). A character's presence lock is normally
 /// only ever released by the SAME server that holds it, by design; this
@@ -1703,3 +1793,98 @@ GLOBAL_LIST_INIT(admin_verbs_storyteller, list(
 		log_and_message_admins("force-cleared the presence lock for [target_char_name] ([target_ckey]) -- disaster recovery override.", usr)
 	else
 		to_chat(usr, SPAN_NOTICE("No presence lock was held for [target_char_name] ([target_ckey]) -- nothing to clear."))
+
+/// Aghost-only browser for every cryopod AND synthetic storage unit
+/// configured via the faction tagger (persistence_faction_tagger.dm) --
+/// Personal/Crew/Faction/Public tags, plus cryopod prison cells (indicated
+/// distinctly, since a cryogenic prison storage unit is its own cryopod
+/// subtype -- cryopod_prison.dm). Synthetic storage
+/// (synthetic_storage.dm, the IPC/cyborg counterpart to a cryopod) has no
+/// prison-cell equivalent, so it only ever gets the five ordinary tiers.
+/// Deliberately does NOT call _cryopod_ignored_for_discovery()
+/// (persistence_cryo.dm) as-is: that helper folds in
+/// persistence_cryopod_discovery_ignore, which exists solely to hide prison
+/// cells from ordinary player spawn discovery -- not relevant to an admin
+/// browsing every configured pod on purpose. The other two exclusions it
+/// bundles (tagger_disabled, persistence_cryopod_spawn_ignore -- cyborg-only
+/// pods) are reapplied directly below instead.
+/client/proc/jump_to_cryopod()
+	set category = "Persistence.Misc"
+	set name = "Jump to Cryopod"
+	set desc = "Requires Aghost. Lists every cryopod (including prison cells, indicated as such) and synthetic storage unit configured via the faction tagger, and teleports you to the one you pick."
+
+	if(!(check_rights(R_ADMIN|R_MOD|R_DEBUG|R_DEV) || isstoryteller(src.mob)))
+		return
+	if(!isobserver(usr))
+		to_chat(usr, SPAN_WARNING("You must be admin-ghosted (Aghost) to use this."))
+		return
+	var/mob/abstract/ghost/observer/ghost = usr
+	if(!ghost.admin_ghosted)
+		to_chat(usr, SPAN_WARNING("You must be admin-ghosted (Aghost) to use this, not just any observer."))
+		return
+	if(!GLOB.config.allow_admin_jump)
+		alert("Admin jumping disabled")
+		return
+
+	var/list/options = list()
+	for(var/obj/structure/machinery/cryopod/pod in world)
+		if(pod.tagger_disabled || is_type_in_list(pod, GLOB.persistence_cryopod_spawn_ignore))
+			continue
+		if(!pod.z || pod.occupant || (pod.stat & (NOPOWER|BROKEN)))
+			continue
+		var/tier
+		if(istype(pod, /obj/structure/machinery/cryopod/prison))
+			tier = (pod.persistent_network && pod.persistent_network != "public") ? "Prison ([get_faction_name(pod.persistent_network)])" : "Prison (Unassigned)"
+		else if(pod.personal_ckey)
+			tier = "Personal ([pod.personal_ckey])"
+		else if(pod.crew_tagged)
+			tier = "Crew-Tagged"
+		else if(pod.persistent_network == "public" && pod.persistent_spawn)
+			tier = "Public"
+		else if(pod.persistent_network)
+			tier = "Faction ([get_faction_name(pod.persistent_network)])"
+		else
+			tier = "Unassigned"
+		var/area/A = get_area(pod)
+		options["[tier] -- [A ? A.name : "Unknown Area"] ([pod.x], [pod.y], [pod.z])"] = pod
+
+	for(var/obj/structure/machinery/recharge_station/synthetic_storage/unit in world)
+		if(unit.tagger_disabled)
+			continue
+		if(!unit.z || unit.occupant || (unit.stat & (NOPOWER|BROKEN)))
+			continue
+		var/tier
+		if(unit.personal_ckey)
+			tier = "Personal ([unit.personal_ckey])"
+		else if(unit.crew_tagged)
+			tier = "Crew-Tagged"
+		else if(unit.persistent_network == "public" && unit.persistent_spawn)
+			tier = "Public"
+		else if(unit.persistent_network)
+			tier = "Faction ([get_faction_name(unit.persistent_network)])"
+		else
+			tier = "Unassigned"
+		var/area/A = get_area(unit)
+		options["Synthetic Storage -- [tier] -- [A ? A.name : "Unknown Area"] ([unit.x], [unit.y], [unit.z])"] = unit
+
+	if(!length(options))
+		to_chat(usr, SPAN_WARNING("No available cryopods or synthetic storage units found."))
+		return
+
+	var/chosen = tgui_input_list(usr, "Select a cryopod or synthetic storage unit to jump to:", "Jump to Cryopod", options)
+	if(!chosen)
+		return
+	var/obj/structure/machinery/target = options[chosen]
+	if(QDELETED(target))
+		to_chat(usr, SPAN_WARNING("That cryopod or synthetic storage unit no longer exists."))
+		return
+	var/turf/T = get_turf(target)
+	if(!T)
+		to_chat(usr, SPAN_WARNING("Could not resolve a location for that cryopod or synthetic storage unit."))
+		return
+
+	log_admin("[key_name(usr)] jumped to a [istype(target, /obj/structure/machinery/recharge_station/synthetic_storage) ? "synthetic storage unit" : "cryopod"] at [T.x],[T.y],[T.z] in [T.loc]")
+	message_admins("[key_name_admin(usr)] jumped to a [istype(target, /obj/structure/machinery/recharge_station/synthetic_storage) ? "synthetic storage unit" : "cryopod"]", 1)
+	usr.on_mob_jump()
+	usr.forceMove(T)
+	feedback_add_details("admin_verb","JCP")

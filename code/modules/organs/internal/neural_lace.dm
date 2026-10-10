@@ -52,9 +52,92 @@
 	var/registered_name = ""
 	/// Faction UID of the owner (for routing to faction storage)
 	var/owner_faction = ""
+	/// Snapshot of the owner's skills, as skill typepath -> level, taken at the
+	/// moment their consciousness is captured (get_skill_snapshot(),
+	/// skill_progression.dm).
+	///
+	/// The lace carries the person, so it has to carry what the person knew.
+	/// A clone body is built by copy_to() from the saved chargen slot, which
+	/// only holds the Trained default fill -- so without this, resleeving would
+	/// reset every skill earned in-round from a manual or a teacher, instead of
+	/// costing the intended tier or two.
+	var/list/stored_skills
+
+/**
+ * Captures this lace's current /datum/dna + organ species singleton as a
+ * flat, JSON-safe list -- everything replaced() (organ.dm/_internal.dm) syncs
+ * onto the lace whenever it's surgically installed (including the
+ * resleever's own _do_resleeve(), resleever.dm).
+ *
+ * Without persisting this, that sync only lives as long as the physical lace
+ * object does -- persistence_mobs.dm rebuilds a restored lace fresh via
+ * new(), only ever reapplying lace_damage/registered_name/registered_ckey/
+ * owner_faction, so dna/species reset to blank on every save/restore
+ * regardless of the last body it was actually synced to.
+ */
+/obj/item/organ/internal/neural_lace/proc/get_lace_dna_snapshot()
+	if(!dna)
+		return null
+	var/list/snapshot = list(
+		"uni_identity"   = dna.uni_identity,
+		"struc_enzymes"  = dna.struc_enzymes,
+		"unique_enzymes" = dna.unique_enzymes,
+		"b_type"         = dna.b_type,
+		"real_name"      = dna.real_name,
+		"dna_species"    = dna.species,
+		"SE"             = dna.SE.Copy(),
+		"UI"             = dna.UI.Copy(),
+		"body_markings"  = dna.body_markings ? dna.body_markings.Copy() : list(),
+	)
+	if(species)
+		snapshot["organ_species"] = "[species.type]"
+	return snapshot
+
+/// Rebuilds this lace's /datum/dna + organ species singleton from a snapshot
+/// taken by get_lace_dna_snapshot(). Silently no-ops on a null/malformed
+/// snapshot -- a lace that's never been synced to a body yet has nothing to
+/// restore, same as any other legacy/never-saved row elsewhere in this
+/// codebase's persistence.
+/obj/item/organ/internal/neural_lace/proc/apply_lace_dna_snapshot(list/snapshot)
+	if(!islist(snapshot))
+		return
+	var/datum/dna/new_dna = new
+	new_dna.uni_identity   = snapshot["uni_identity"] || ""
+	new_dna.struc_enzymes  = snapshot["struc_enzymes"] || ""
+	new_dna.unique_enzymes = snapshot["unique_enzymes"] || ""
+	new_dna.b_type         = snapshot["b_type"] || "A+"
+	new_dna.real_name      = snapshot["real_name"]
+	new_dna.species        = snapshot["dna_species"] || SPECIES_HUMAN
+	if(islist(snapshot["SE"]))
+		new_dna.SE = snapshot["SE"].Copy()
+	if(islist(snapshot["UI"]))
+		new_dna.UI = snapshot["UI"].Copy()
+	if(islist(snapshot["body_markings"]))
+		new_dna.body_markings = snapshot["body_markings"].Copy()
+	dna = new_dna
+	if(snapshot["organ_species"])
+		var/species_path = text2path(snapshot["organ_species"])
+		if(species_path)
+			species = GET_SINGLETON(species_path)
 
 /obj/item/organ/internal/neural_lace/Initialize(mapload, internal)
 	. = ..()
+	// robotize() is what /obj/item/organ/internal/augment's own Initialize()
+	// calls for anything declaring robotic = ROBOTIC_MECHANICAL (augment.dm)
+	// -- neural lace never subclassed augment, so it was missing this
+	// entirely despite declaring the same robotic value. Without it,
+	// BP_IS_ROBOTIC(src) (status & ORGAN_ROBOT) was FALSE for every lace
+	// except the rare bioprinter-printed one (bioprinter.dm's _finish_print()
+	// calls O.robotize() itself for prosthetics products). That silently
+	// broke two things: replace_organ's surgery step (organs_internal.dm)
+	// refuses to install a non-robotic-flagged organ into an already-robotic
+	// body ("cannot install a naked organ into a robotic body"), blocking
+	// real surgical lace installs into IPC/Android; and organ.dm's own
+	// replaced() only calls set_dna(owner.dna) when BP_IS_ROBOTIC(src) is
+	// true, so a lace resleeved a second time into a different body kept
+	// whichever dna/species it was last synced to instead of adopting its
+	// new host's, same for _internal.dm's species emulation.
+	robotize()
 	// _bind_to_owner is NOT called here — Initialize fires on every construction including
 	// persistence restores (applyPersistentHealthData creates augments via new aug_path(mob)).
 	// Install sites call _bind_to_owner explicitly: new_player.dm, replaced(), admin verb.
@@ -85,6 +168,12 @@
 		. += SPAN_NOTICE("The lace is in good condition.")
 	if(lace_occupied)
 		. += SPAN_ITALIC("A faint presence can be felt within.")
+
+/// A neural lace is a synthetic device, not tissue -- it has no business being
+/// blood-type-matched against whatever body it's installed in the way a real
+/// organ transplant is (handle_rejection(), organ.dm). Never rejected, period.
+/obj/item/organ/internal/neural_lace/handle_rejection()
+	return
 
 // ── Damage system (only when extracted — installed lace is protected by skull) ──
 
@@ -247,9 +336,75 @@
 		to_chat(H, SPAN_NOTICE("You feel a faint tingle at the base of your skull as the neural lace comes online."))
 	add_verb(H, /mob/living/carbon/human/proc/check_neural_lace_status)
 
-/// Called when surgically installed via the normal organ replacement path
-/obj/item/organ/internal/neural_lace/replaced(mob/living/carbon/human/target, obj/item/organ/external/affected)
+/**
+ * Wakes a mindless synthetic body with this lace's stored consciousness --
+ * the robotic counterpart to resleever.dm's _do_resleeve(), reached through
+ * ordinary robotics surgery instead of the dedicated machine. Renames off
+ * lace_mob.real_name (the captured person's own name), not registered_name --
+ * unlike a custom-grown clone body, a generic IPC/Android chassis has no
+ * reason to already carry the incoming person's name before this runs.
+ * Calls _bind_to_owner() itself, last, once target's real_name already
+ * reflects the incoming person rather than the chassis's own prior name.
+ */
+/obj/item/organ/internal/neural_lace/proc/_transfer_consciousness_into(mob/living/carbon/human/target)
+	var/mob/living/carbon/lace_mob/LM = lace_mob
+	var/incoming_name = LM.real_name
+
+	LM.forceMove(get_turf(target))
+	LM.mind.transfer_to(target)
+
+	target.set_stat(CONSCIOUS)
+	target.real_name = incoming_name
+	target.name = incoming_name
+	target.set_id_info(target)
+
+	persistence_set_char_state(registered_ckey, incoming_name, "alive")
+
+	lace_occupied = FALSE
+	lace_mob = null
+	qdel(LM)
+
+	to_chat(target, SPAN_GOOD("You power on. Welcome back."))
+
+	if(islist(stored_skills) && length(stored_skills))
+		apply_skill_snapshot(target, stored_skills)
+
+	var/list/lost_skills = apply_resleeve_skill_loss(target)
+	if(length(lost_skills))
+		to_chat(target, SPAN_WARNING(FONT_LARGE("Some of what you knew didn't survive the transfer:")))
+		for(var/entry in lost_skills)
+			to_chat(target, SPAN_WARNING("&nbsp;&nbsp;[entry]"))
+		to_chat(target, SPAN_NOTICE("Skills can be relearned from someone who still holds them, or from a professional manual."))
+
+	log_game("[incoming_name] resleeved into a synthetic chassis via robotic surgery.")
+
 	_bind_to_owner(target)
+
+	// Sync their permanent chargen species to the synthetic body they were
+	// just transferred into -- unconditional, same reasoning as
+	// resleever.dm's own _do_resleeve() call to this proc: without it,
+	// PersistentAutoSpawn() (new_player.dm) reloads species fresh from
+	// ss13_characters on every spawn and silently rebuilds them as their old
+	// (organic) species the next time they Store Character and hit Play.
+	persistence_sync_character_species(registered_ckey, incoming_name, target.species)
+
+/// Called when surgically installed via the normal organ replacement path.
+/// If this lace is occupied, undamaged, and the target is a mindless
+/// synthetic body (IPC or Android -- isSynthetic(), not
+/// species_organically_cloneable(), since this is about whether robotic
+/// surgery can physically move a mind into a body, not which respawn
+/// infrastructure a species uses), transfer the stored consciousness in
+/// instead of just registering the lace to whoever it landed in. An
+/// organic target, an already-minded target, or a damaged lace all fall
+/// through to the normal inert-augment registration -- a damaged lace's
+/// consciousness stays trapped until it's extracted and repaired, since
+/// every repair path on this organ requires !owner.
+/obj/item/organ/internal/neural_lace/replaced(mob/living/carbon/human/target, obj/item/organ/external/affected)
+	var/do_transfer = lace_occupied && lace_mob && !target.mind?.key && target.isSynthetic() && lace_damage <= 0
+	if(do_transfer)
+		_transfer_consciousness_into(target)
+	else
+		_bind_to_owner(target)
 	. = ..()
 
 /// Called when surgically removed from a mob
@@ -264,6 +419,11 @@
 		if(target.wear_id && istype(target.wear_id, /obj/item/card/id))
 			var/obj/item/card/id/card = target.wear_id
 			if(card.employer_faction) owner_faction = normalize_faction_uid(card.employer_faction)
+
+		// Taken from the body BEFORE the mind leaves it -- this is the only
+		// moment the dying character's actual, earned skill levels are still
+		// readable. See stored_skills' own doc comment.
+		stored_skills = get_skill_snapshot(target)
 
 		lace_mob = new /mob/living/carbon/lace_mob(get_turf(target))
 		lace_mob.name      = target.real_name
@@ -290,6 +450,15 @@
 	if(auto_transfer_timer)
 		deltimer(auto_transfer_timer)
 	auto_transfer_timer = null
+	// Nothing to protect if there's no captured consciousness -- covers both
+	// callers: vaultAllLaces() already skips an unoccupied lace itself, but
+	// this proc is ALSO the direct target of the per-lace 4-hour timer
+	// (armed the moment a consciousness is captured, removed(), below), which
+	// has no equivalent loop to skip it in. If a resleeve empties the lace
+	// before that timer fires, this is what stops the now-stale timer from
+	// vaulting an empty lace anyway.
+	if(!lace_occupied)
+		return
 	// If still inside a body, surgically eject first
 	if(owner && istype(owner, /mob/living/carbon/human))
 		removed(owner, null, TRUE, TRUE)
@@ -511,6 +680,24 @@
 
 	to_chat(usr, SPAN_GOOD("Neural lace installed in [H.real_name]."))
 	log_and_message_admins("assigned a neural lace into [H.real_name]'s body via Assign Body", usr)
+
+/// Admin: opens the same Modify Neural Lace panel as the
+/// Persistence.Characters admin verb (persistence_lace_dna.dm), but
+/// pre-targeted at this exact lace's registered identity -- no ckey/
+/// character picker needed, since right-clicking the lace already answers
+/// that question.
+/obj/item/organ/internal/neural_lace/verb/modify_neural_lace_here()
+	set name = "Modify Neural Lace"
+	set src in view(1)
+
+	if(!check_rights(R_ADMIN))
+		return
+	if(!length(registered_ckey) || !length(registered_name))
+		to_chat(usr, SPAN_WARNING("This lace isn't registered to anyone yet."))
+		return
+
+	var/datum/tgui_module/admin/lace_editor/panel = new(registered_ckey, registered_name)
+	panel.ui_interact(usr)
 
 #undef LACE_DAMAGE_NONE
 #undef LACE_DAMAGE_MINOR

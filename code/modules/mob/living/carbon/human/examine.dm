@@ -59,7 +59,12 @@
 	msg += "<EM>[src.name]</EM>"
 
 	if(!species.hide_name)
-		msg += ", a <b><font color='[species.examine_color || species.flesh_color]'>[species.name]</font></b>"
+		// \a immediately before the interpolation (not split across the HTML
+		// tags) so BYOND's article macro reads the actual species name for
+		// a/an, matching the "\a [A]" pattern already used elsewhere
+		// (__HELPERS/lists.dm) -- styling wraps the whole "a/an Species"
+		// phrase rather than sitting between the macro and its reference.
+		msg += ", <b><font color='[species.examine_color || species.flesh_color]'>\a [species.name]</font></b>"
 	msg += "!\n"
 
 	//uniform
@@ -502,7 +507,7 @@
 				height_descriptor = "gargantuan"
 		height_string += "[get_pronoun("He")] look[get_pronoun("end")] [height_descriptor]"
 		if(!species.hide_name)
-			height_string += " for a [species.name]"
+			height_string += " for \a [species.name]"
 		height_string += "." // Punctuation.
 
 	if(examiner.height == HEIGHT_NOT_USED)

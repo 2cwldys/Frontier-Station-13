@@ -6,6 +6,7 @@ import { Window } from '../layouts';
 type Product = {
   name: string;
   cost: number;
+  credit_cost: number;
 };
 
 type Data = {
@@ -123,7 +124,9 @@ export const Bioprinter = (_props) => {
               disabled={!!printing || data.stored_matter < product.cost}
               onClick={() => act('print', { choice: product.name })}
             >
-              {product.name} ({product.cost} matter)
+              {product.name} (
+              {product.credit_cost > 0 && `${product.credit_cost}cr + `}
+              {product.cost} matter)
             </Button>
           ))}
         </Section>

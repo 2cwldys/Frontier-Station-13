@@ -218,6 +218,12 @@ GLOBAL_LIST_INIT_TYPED(allConsoles, /obj/structure/machinery/requests_console, l
 	pixel_x = DIR2PIXEL_X(dir)
 	pixel_y = DIR2PIXEL_Y(dir)
 
+/obj/structure/machinery/requests_console/persistence_reapply_wall_offset()
+	set_pixel_offsets()
+
+/obj/structure/machinery/requests_console/persistence_self_heal_wall_offset()
+	set_pixel_offsets()
+
 /obj/structure/machinery/requests_console/Destroy()
 	GLOB.allConsoles -= src
 	var/lastDeptRC = 1

@@ -20,6 +20,26 @@
 	if(fertile)
 		fertilize()
 
+/obj/item/reagent_containers/food/snacks/egg/persistent_objects_get_content()
+	. = ..()
+	if(fertile)
+		.["egg_fertile"] = TRUE
+	if(amount_grown)
+		.["egg_amount_grown"] = amount_grown
+
+/obj/item/reagent_containers/food/snacks/egg/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(!isnull(content["egg_amount_grown"]))
+		amount_grown = text2num("[content["egg_amount_grown"]]") || 0
+	// fertilize() rather than setting the flag, because it is what calls
+	// START_PROCESSING -- Initialize() only reaches it for eggs that are fertile
+	// by default, which a restored one is not until this hook runs. Setting the
+	// flag alone would leave the egg frozen at its saved progress forever.
+	if(content["egg_fertile"] && !fertile)
+		fertilize()
+
 /obj/item/reagent_containers/food/snacks/egg/afterattack(obj/O as obj, mob/user as mob, proximity)
 	if(!(proximity && O.is_open_container()))
 		return ..()

@@ -1655,6 +1655,7 @@
 		"[user] fastens the [src].", \
 		SPAN_NOTICE("You have fastened the [src]."), \
 		"You hear ratchet.")
+	user.GetComponent(ATMOSPHERICS_SYSTEMS_SKILL_COMPONENT)?.register_use(user)
 	qdel(src)	// remove the pipe item
 
 	return TRUE

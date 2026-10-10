@@ -388,25 +388,31 @@
 /proc/strip_html_properly(input)
 	if(!input)
 		return
-	var/opentag = 1 //These store the position of < and > respectively.
-	var/closetag = 1
-	while(1)
-		opentag = findtext(input, "<")
-		closetag = findtext(input, ">")
-		if(closetag && opentag)
-			if(closetag < opentag)
-				input = copytext(input, (closetag + 1))
-			else
-				input = copytext(input, 1, opentag) + copytext(input, (closetag + 1))
-		else if(closetag || opentag)
-			if(opentag)
-				input = copytext(input, 1, opentag)
-			else
-				input = copytext(input, (closetag + 1))
-		else
+	// Pairs each < with the NEXT > occurring after it, rather than the first
+	// < and first > found anywhere in the string independently -- the old
+	// version treated any bare > appearing before a real tag (e.g. a literal
+	// "->" arrow in log text) as if it closed a phantom tag from the start of
+	// the string, silently discarding everything before it. See
+	// log_and_message_admins()'s Discord relay (__HELPERS/logging/admin.dm),
+	// which runs admin log text through this before posting -- a message
+	// containing "->" ahead of its (<a href=...>JMP</a>) link was getting
+	// truncated down to just the tail end.
+	var/list/result = list()
+	var/search_from = 1
+	while(TRUE)
+		var/opentag = findtext(input, "<", search_from)
+		if(!opentag)
+			result += copytext(input, search_from)
 			break
+		var/closetag = findtext(input, ">", opentag + 1)
+		if(!closetag)
+			// Unclosed tag -- keep everything before it, drop the rest.
+			result += copytext(input, search_from, opentag)
+			break
+		result += copytext(input, search_from, opentag)
+		search_from = closetag + 1
 
-	return input
+	return jointext(result, "")
 
 //This proc fills in all spaces with the "replace" var (* by default) with whatever
 //is in the other string at the same spot (assuming it is not a replace char).

@@ -521,17 +521,67 @@
 		if(DS && !DS.stashed && DS.owned_by(target))
 			. += DS
 
+/**
+ * Which of the Hub's drydocks an impounded vessel is berthed at.
+ *
+ * Returns the chosen z, 0 when the Hub has no drydock of its own (the seizure still
+ * goes ahead -- enforcement is not blocked on infrastructure, the operator is just
+ * told there is no berth), or null when the operator cancelled the picker.
+ *
+ * "The Hub's" means a drydock the hub faction actually governs, which is the same
+ * question drydock_policy_for_z() answers for access -- so a yard the Hub has not
+ * claimed with a beacon or console is not one of theirs to impound into.
+ */
+/datum/computer_file/program/security/first_responder/proc/_pick_hub_drydock(mob/user)
+	var/list/berth_choices = list()
+	for(var/dz in GLOB.persistence_site_kind_by_z)
+		if(GLOB.persistence_site_kind_by_z[dz] != AWAY_SITE_KIND_DRYDOCK)
+			continue
+		var/site_z = text2num(dz)
+		var/list/governing = drydock_policy_for_z(site_z)
+		if(normalize_faction_uid(governing["faction_uid"]) != "hub")
+			continue
+		var/obj/effect/overmap/visitable/marker = GLOB.map_sectors[dz]
+		berth_choices["[marker ? marker.name : "Drydock"] (z=[site_z])"] = site_z
+
+	if(!length(berth_choices))
+		to_chat(user, SPAN_WARNING("The Hub has no drydock of its own -- impounding anyway, with no berth on record."))
+		return 0
+	if(length(berth_choices) == 1)
+		return berth_choices[berth_choices[1]]
+
+	var/pick = tgui_input_list(user, "Berth the impounded vessel at which Hub drydock?", "Ship Seizure", berth_choices)
+	// A dismissed prompt must never cost the collar, so a cancel falls back to the
+	// first berth rather than aborting the seizure.
+	if(!pick)
+		return berth_choices[berth_choices[1]]
+	return berth_choices[pick]
+
 /// Shared force-stash + repossess + notify tail, used by both the single-
 /// vessel and the picker paths of handle_ship_seizure_tap() below, plus
 /// handle_ship_seizure_tap_item()'s direct-schematic-tap path. target is
 /// null when the schematic that was tapped wasn't sitting in anyone's
 /// inventory (dropped on the ground, stored in a container, etc).
 /datum/computer_file/program/security/first_responder/proc/_seize_deployed_vessel(datum/drydock_ship/DS, mob/target, mob/user)
+	// An impounded vessel is taken to one of the Hub's own drydocks, so the
+	// operator picks the berth when there is more than one. The stash itself stays
+	// force = TRUE: enforcement must not be refused because the vessel happens to
+	// be sitting nowhere near a yard, which is the whole point of a seizure.
+	var/berth_z = _pick_hub_drydock(user)
+
 	if(!SSpersistence.drydockStash(DS.shuttle_id, user, force = TRUE))
 		to_chat(user, SPAN_WARNING("Failed to stash [DS.display_name()]."))
 		return
 	SSpersistence.drydockRepossess(DS.shuttle_id, user)
-	to_chat(user, SPAN_GOOD("[DS.display_name()] stashed and repossessed by the Hub."))
+	if(berth_z)
+		// Binds the release point: the vessel can then only be retrieved from this
+		// yard, and comes back there. Self-clears if the yard stops being a drydock
+		// (drydock_impound_berth_for(), persistence_shuttles.dm).
+		drydock_set_impound_berth(DS, berth_z)
+		var/obj/effect/overmap/visitable/berth = GLOB.map_sectors["[berth_z]"]
+		to_chat(user, SPAN_GOOD("[DS.display_name()] impounded by the Hub and berthed at [berth ? berth.name : "z=[berth_z]"] -- it can only be released from there."))
+	else
+		to_chat(user, SPAN_GOOD("[DS.display_name()] stashed and repossessed by the Hub."))
 	if(target)
 		_log_first_responder_action("[key_name(user)] repossessed [target]'s ship [DS.display_name()] via First Responder", user)
 	else

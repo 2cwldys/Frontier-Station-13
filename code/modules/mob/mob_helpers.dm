@@ -139,6 +139,20 @@
 		var/mob/living/carbon/human/H = A
 		. = H.species && (H.species.flags & IS_MECHANICAL)
 
+/// TRUE if S can be grown as an organic clone (resleever/clone pod
+/// pipeline, resleever_cloning.dm). Every /datum/species/machine subtype
+/// (every IPC chassis brand -- baseline, shell, industrial/hephaestus/xion,
+/// zeng-hu, bishop, unbranded, hunter-killer; ipc_subspecies.dm) is
+/// manufactured, not grown, and can't be. Android
+/// (/datum/species/machine/android) is ALSO a /datum/species/machine
+/// subtype but -- unlike every other one -- is organically cloneable, so
+/// it's carved back out explicitly rather than excluded by a blanket
+/// synthetic/IS_MECHANICAL flag check.
+/proc/species_organically_cloneable(datum/species/S)
+	if(!istype(S))
+		return FALSE
+	return !istype(S, /datum/species/machine) || istype(S, /datum/species/machine/android)
+
 /mob/proc/is_diona()
 	return FALSE
 

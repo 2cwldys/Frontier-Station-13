@@ -221,6 +221,12 @@
 	pixel_x = DIR2PIXEL_X(dir)
 	pixel_y = DIR2PIXEL_Y(dir)
 
+/obj/item/electronic_assembly/wallmount/persistence_reapply_wall_offset()
+	set_pixel_offsets()
+
+/obj/item/electronic_assembly/wallmount/persistence_self_heal_wall_offset()
+	set_pixel_offsets()
+
 /obj/item/electronic_assembly/wallmount/heavy
 	name = "heavy wall-mounted electronic assembly"
 	icon_state = "setup_wallmount_large"

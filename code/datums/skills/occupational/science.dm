@@ -16,6 +16,9 @@
 	category =  /singleton/skill_category/occupational
 	subcategory = SKILL_SUBCATEGORY_SCIENCE
 	component_type = XENOBOTANY_SKILL_COMPONENT
+	// No gameplay consumer implemented at all yet -- see no_decay's own doc
+	// comment (_skills.dm).
+	no_decay = TRUE
 
 /singleton/skill/archaeology
 	name = "Xenoarchaeology"
@@ -25,6 +28,9 @@
 	category =  /singleton/skill_category/occupational
 	subcategory = SKILL_SUBCATEGORY_SCIENCE
 	component_type = ARCHAOLOGY_SKILL_COMPONENT
+	// No gameplay consumer implemented at all yet -- see no_decay's own doc
+	// comment (_skills.dm).
+	no_decay = TRUE
 
 /singleton/skill/xenobiology
 	name = "Xenobiology"
@@ -35,5 +41,5 @@
 	uneducated_skill_cap = SKILL_LEVEL_TRAINED
 	category =  /singleton/skill_category/occupational
 	subcategory = SKILL_SUBCATEGORY_SCIENCE
-	component_type = XENOBOTANY_SKILL_COMPONENT
+	component_type = XENOBIOLOGY_SKILL_COMPONENT
 	required = TRUE

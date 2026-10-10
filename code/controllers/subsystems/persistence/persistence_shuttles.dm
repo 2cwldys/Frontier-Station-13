@@ -361,6 +361,32 @@ GLOBAL_VAR_INIT(drydock_loading_suffix, null)
 /// displace it.
 GLOBAL_LIST_EMPTY(drydock_loading_areas)
 
+/// Stable per-ship seed for pick_wall_icon_variant() (wall_icon.dm), read in
+/// place of the literal z coordinate whenever it's non-null.
+///
+/// A reinforced wall's "weathered" look is a deterministic hash of x/y/z --
+/// same wall, same z, forever the same variant, which is the whole point (it
+/// stops walls flickering between look-alike sprites, and keeps two unrelated
+/// rooms on two different Z-levels that happen to share x/y from always
+/// looking identically weathered). That assumption breaks for a drydock ship:
+/// its x/y are fixed but its z is NOT -- template.load_new_z()/
+/// acquireReusableZ() hand it a different z on every commission and every
+/// retrieve, by design (z-reuse pooling). Left alone, every reinforced wall on
+/// the hull would re-roll a different-but-equally-valid variant each time,
+/// which is exactly what a player would see as "the walls look different now"
+/// with nothing actually damaged or lost.
+///
+/// Set to a stable hash of the ship's own shuttle_id (constant for the ship's
+/// entire life, unlike its z) immediately before template.load_new_z() /
+/// load_into_z() and kept set through the shipInteriorApply() call that
+/// follows -- persistence_turfs.dm's own wall-restore re-pick
+/// (turfsApplyContent()) needs the same stable seed, not just the template's
+/// own Initialize() pass. Cleared back to null once both complete, same
+/// window discipline as drydock_loading_suffix above (both calls are
+/// synchronous, no yield in between). Null everywhere else, so every
+/// non-ship wall (station, away sites) is completely unaffected.
+GLOBAL_VAR_INIT(drydock_loading_wall_hash_seed, null)
+
 /// Appends GLOB.drydock_loading_suffix to a name when a drydock load is in
 /// flight, skipping names that already carry it (a retrieve of an already
 /// suffixed hull, or the post-load rename running over the top).
@@ -486,6 +512,17 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	/// since it last returned to their hands -- see _drydockFlagIfStolen()
 	/// and drydockClearStolenFlag() below.
 	var/reported_stolen = FALSE
+	/// The Hub drydock z this vessel was impounded to, if it was seized via First
+	/// Responder. While set and still a real drydock, the ship may only be
+	/// retrieved at that yard and materialises there -- released from the berth
+	/// holding it rather than wherever the retriever stands. Cleared on a
+	/// successful retrieve, and ignored (and cleared) if the berth stops being a
+	/// drydock, so a retired or destroyed yard can never strand a ship.
+	var/impound_berth_z
+	/// world.time of this ship's last EVA Recall broadcast (_drydock_eva_recall(),
+	/// below) -- in-memory only, never persisted, so it resets on a server
+	/// restart. Gates DRYDOCK_EVA_RECALL_COOLDOWN in drydock.dm's ui_act().
+	var/last_recall_at = 0
 
 /// Finds a live, valid /obj/item/ship_schematic (ship_schematic.dm) bound to
 /// this ship anywhere in user's inventory -- held, worn, in a backpack, in a
@@ -552,6 +589,13 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	if(title_faction_uid)
 		return can_configure_faction_shackle(user, title_faction_uid, 1)
 	return is_title_holder(user)
+
+/// Same rule as signing over the title (can_transfer_title()) -- title
+/// holder for a personal ship, officer+ for a faction ship -- kept as its
+/// own named proc since EVA recall is a distinct action, not a proxy for
+/// "can this person give the ship away".
+/datum/drydock_ship/proc/can_trigger_eva_recall(mob/user)
+	return can_transfer_title(user)
 
 /// Shown everywhere a ship's own name appears (overmap marker, admin logs,
 /// chat messages, the Drydock program's own list, the schematic item's own
@@ -638,6 +682,193 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 			return TRUE
 	return FALSE
 
+/// Debug bypass for the drydock requirement, toggled by the "View Drydocks" verb.
+/// While TRUE, stash/retrieve/commission fall back to the pre-drydock rule --
+/// proximity to a secured faction beacon (_drydock_secured_beacon_nearby()) -- and
+/// drydock access policy is not consulted at all, since there is no drydock to
+/// have one.
+///
+/// Deliberately NOT persisted: this bypasses a core rule, so a reboot always
+/// returns to requiring drydocks rather than silently staying open.
+GLOBAL_VAR_INIT(drydock_legacy_stashing, FALSE)
+
+/// "[z]" -> list("policy" = DRYDOCK_POLICY_*, "faction_uid" = uid or null) for
+/// every drydock control console currently registered
+/// (code/modules/shuttles/drydock_console.dm). Only consulted where no faction or
+/// hub beacon reaches the z -- see drydock_policy_for_z() below.
+GLOBAL_LIST_EMPTY(drydock_console_by_z)
+
+/// TRUE if z belongs to a site founded as a drydock. Reads
+/// GLOB.persistence_site_kind_by_z (persistence.dm), which is deliberately not
+/// the same question as whether the site is pinned.
+/proc/drydock_z_is_drydock(z)
+	return GLOB.persistence_site_kind_by_z["[z]"] == AWAY_SITE_KIND_DRYDOCK
+
+/**
+ * Records (or clears, with a null berth_z) the Hub drydock an impounded vessel is
+ * held at. Persisted so the binding survives a reboot, since a seized ship may sit
+ * in the ledger for rounds before anyone comes for it.
+ */
+/proc/drydock_set_impound_berth(datum/drydock_ship/DS, berth_z)
+	if(!istype(DS))
+		return
+	DS.impound_berth_z = berth_z
+	if(!SSpersistence.databaseCheckConnection("drydock_set_impound_berth"))
+		return
+	var/datum/db_query/uq = SSdbcore.NewQuery(
+		"UPDATE ss13_drydock_ships SET impound_berth_z = :berth WHERE shuttle_id = :id",
+		list("berth" = berth_z, "id" = DS.shuttle_id)
+	)
+	uq.Execute()
+	SSpersistence.databaseCheckQueryResult(uq, "drydock_set_impound_berth")
+	qdel(uq)
+
+/**
+ * The drydock z an impounded vessel must be released from, or null if it is not
+ * bound to one.
+ *
+ * Self-healing: a berth that has stopped being a drydock -- retired, destroyed, or
+ * its z reused by a different site -- is cleared here rather than left to strand the
+ * ship somewhere it can never be recovered from. Callers then fall through to the
+ * ordinary local-drydock rule.
+ */
+/proc/drydock_impound_berth_for(datum/drydock_ship/DS)
+	if(!istype(DS) || !DS.impound_berth_z)
+		return null
+	if(drydock_z_is_drydock(DS.impound_berth_z))
+		return DS.impound_berth_z
+	log_drydock_warning("drydockRetrieve: shuttle_id=[DS.shuttle_id] was bound to impound berth z=[DS.impound_berth_z], which is no longer a drydock -- clearing the binding and falling back to the normal rule.")
+	drydock_set_impound_berth(DS, null)
+	return null
+
+/// Re-skins an away-site marker to read as a drydock rather than a bare
+/// construction platform. Needed at runtime because colonies and drydocks load the
+/// same "station" template, so the marker type baked into its .dmm can't tell them
+/// apart. Shared by the colony radio's approval path and build_pinned_away_sites()
+/// (maps/_common/mapsystem/map.dm) so a drydock founded this round and one restored
+/// at boot can never end up looking different.
+/proc/apply_drydock_marker_appearance(obj/effect/overmap/visitable/marker)
+	if(!istype(marker))
+		return
+	marker.icon = 'icons/obj/overmap/overmap_stationary.dmi'
+	marker.icon_state = "battlestation"
+	marker.update_icon()
+
+/// The z of a drydock site whose overmap sector is at or adjacent to
+/// (get_dist <= 1) sector, or null if none is in range. Returns the z rather than
+/// a bool because callers need it twice over: to look up the governing policy
+/// (drydock_policy_for_z()), and to resolve the sector again as the placement
+/// anchor for retrieve and commission (GLOB.map_sectors["[z]"]).
+///
+/// Same shape as _drydock_secured_beacon_nearby() above, but deliberately without
+/// its CentCom allowance: a ship needs a real founded drydock now, and the
+/// Frontier Beacon Depot only qualifies if one has actually been established
+/// there (the "View Drydocks" verb can do that).
+/// Picks the CLOSEST drydock in range rather than the first one found, so two yards
+/// sitting next to each other behave predictably: standing at one always uses that
+/// one. Ties (two yards the same distance away) still resolve by registry order,
+/// which only happens when the choice is genuinely equivalent for placement.
+/proc/_drydock_site_nearby(obj/effect/overmap/visitable/sector)
+	if(!istype(sector))
+		return null
+	var/best_z = null
+	var/best_dist = null
+	for(var/dz in GLOB.persistence_site_kind_by_z)
+		if(GLOB.persistence_site_kind_by_z[dz] != AWAY_SITE_KIND_DRYDOCK)
+			continue
+		var/obj/effect/overmap/visitable/site_sector = GLOB.map_sectors[dz]
+		if(!istype(site_sector))
+			continue
+		var/dist = get_dist(sector, site_sector)
+		if(dist > 1)
+			continue
+		if(isnull(best_dist) || dist < best_dist)
+			best_dist = dist
+			best_z = text2num(dz)
+			if(!best_dist)
+				break // standing on it -- nothing can beat distance 0
+	return best_z
+
+/// Which policy governs drydock use at z, and whose it is, as
+/// list("policy" = DRYDOCK_POLICY_*, "faction_uid" = uid or null).
+///
+/// A faction or hub beacon reaching z wins outright -- get_owning_faction_beacon()
+/// (faction_beacon.dm) already answers both a direct claim and security_radius
+/// reach. Only where no beacon reaches does a drydock control console on the site
+/// get a say. With neither, the drydock is a public yard.
+/proc/drydock_policy_for_z(z)
+	var/obj/structure/machinery/faction_beacon/B = get_owning_faction_beacon(z)
+	if(B)
+		return list("policy" = (B.drydock_stash_policy || DRYDOCK_POLICY_ALL), "faction_uid" = B.faction_uid)
+	var/list/console_entry = GLOB.drydock_console_by_z["[z]"]
+	if(islist(console_entry))
+		return list("policy" = (console_entry["policy"] || DRYDOCK_POLICY_ALL), "faction_uid" = console_entry["faction_uid"])
+	return list("policy" = DRYDOCK_POLICY_ALL, "faction_uid" = null)
+
+/// TRUE if work on behalf of claim_faction_uid is permitted at a drydock governed
+/// by `governing` (as returned by drydock_policy_for_z()).
+///
+/// A faction ship passes its own faction; anything without one -- a personal ship,
+/// or a commission being paid for personally -- passes null and is judged by
+/// whoever is operating it, resolved from their ID the same way
+/// _user_exempt_from_bombardment() does (persistence_zone_security.dm).
+/proc/drydock_policy_permits(list/governing, claim_faction_uid, mob/user)
+	if(!islist(governing))
+		return TRUE
+	var/policy = governing["policy"]
+	if(policy == DRYDOCK_POLICY_ALL)
+		return TRUE
+	if(check_rights(R_ADMIN, 0, user))
+		return TRUE
+	if(policy == DRYDOCK_POLICY_NONE)
+		return FALSE
+
+	var/gov_uid = governing["faction_uid"]
+	// A restrictive policy with no faction behind it has nobody it could admit,
+	// so it reads as open rather than bricking the site.
+	if(!gov_uid)
+		return TRUE
+	gov_uid = normalize_faction_uid(gov_uid)
+
+	var/claim_uid = claim_faction_uid
+	if(!claim_uid && ishuman(user))
+		var/mob/living/carbon/human/H = user
+		var/obj/item/card/id/ID = H.GetIdCard()
+		claim_uid = (ID && ID.employer_faction) ? ID.employer_faction : null
+	if(!claim_uid)
+		return FALSE
+	claim_uid = normalize_faction_uid(claim_uid)
+
+	if(claim_uid == gov_uid)
+		return TRUE
+#ifdef FACTION_ALLIANCES
+	if(policy == DRYDOCK_POLICY_ALLIED && factions_are_allied(claim_uid, gov_uid))
+		return TRUE
+#endif //FACTION_ALLIANCES
+	// A whitelisted (ckey, character_name) grant is treated exactly like an
+	// ally here too -- passes an ALLIED policy (not just the claim faction's
+	// own members) the same way an actual alliance would, independent of
+	// whatever ID user is holding.
+	if(policy == DRYDOCK_POLICY_ALLIED && user && is_faction_access_whitelisted(user, gov_uid))
+		return TRUE
+	return FALSE
+
+/// Human-readable reason a drydock refused, for the chat message and the matching
+/// ui_data field on the schematic. Null when it permits.
+/proc/drydock_policy_refusal(list/governing, claim_faction_uid, mob/user)
+	if(drydock_policy_permits(governing, claim_faction_uid, user))
+		return null
+	var/gov_uid = governing?["faction_uid"]
+	var/owner_name = gov_uid ? get_faction_name(gov_uid) : "its operator"
+	switch(governing?["policy"])
+		if(DRYDOCK_POLICY_NONE)
+			return "This drydock is closed to all traffic by [owner_name]."
+		if(DRYDOCK_POLICY_FACTION)
+			return "This drydock is restricted to [owner_name] vessels."
+		if(DRYDOCK_POLICY_ALLIED)
+			return "This drydock is restricted to [owner_name] and its allies."
+	return "You are not permitted to use this drydock."
+
 /// The overmap sector marker representing where DS's content is GENUINELY,
 /// physically located right now -- NOT necessarily DS's own marker object
 /// directly. A ship's own marker (GLOB.map_sectors["[DS.z]"]) gets
@@ -670,6 +901,47 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	if(!T)
 		return marker
 	return GLOB.map_sectors["[T.z]"]
+
+/// Pages every crew member of DS to return aboard -- bypasses
+/// ntnet_conversation/chat_client/can_receive_notification() (ntnrc_client.dm)
+/// entirely, so it reaches someone regardless of whether their PDA is
+/// powered on, same idea as zone_security_roll_call()
+/// (persistence_zone_security.dm). Only reaches crew currently at or
+/// adjacent to the ship's own sector (DRYDOCK_SHIP_PLACEMENT_RADIUS, the
+/// same radius _drydock_disembark_core() uses for walking off the ship to a
+/// neighboring sector). "Crew" is the same three-way union
+/// _drydock_full_access_check() uses for boarding access: current owner
+/// (holds the schematic), current faction member, or an explicit
+/// crew_ckeys entry -- inlined here against the already-resolved DS rather
+/// than re-deriving it from a z-level. Returns the number of people
+/// reached, for the caller's own confirmation message.
+/proc/_drydock_eva_recall(datum/drydock_ship/DS, mob/triggering_user)
+	if(!DS || DS.stashed)
+		return 0
+	var/obj/effect/overmap/visitable/ship_sector = _drydock_ship_sector(DS)
+	if(!istype(ship_sector))
+		return 0
+	var/ship_name = DS.display_name()
+	var/caller_name = triggering_user ? triggering_user.real_name : "Ship Command"
+	var/reached = 0
+	for(var/mob/living/M in GLOB.living_mob_list)
+		if(!M.client)
+			continue
+		var/obj/effect/overmap/visitable/mob_sector = GLOB.map_sectors["[GET_Z(M)]"]
+		if(!istype(mob_sector))
+			continue
+		if(get_dist(mob_sector, ship_sector) > DRYDOCK_SHIP_PLACEMENT_RADIUS)
+			continue
+		var/obj/item/card/id/ID = M.GetIdCard()
+		var/mob_faction = (ID && ID.employer_faction) ? normalize_faction_uid(ID.employer_faction) : null
+		var/is_crew = DS.owned_by(M) || (DS.faction_uid && DS.faction_uid == mob_faction) || ("[M.ckey]|[M.real_name]" in DS.crew_ckeys)
+		if(!is_crew)
+			continue
+		to_chat(M, SPAN_ALERT(FONT_LARGE("EVA RECALL -- [ship_name]: [caller_name] has concluded business here. [ship_name] is preparing for travel -- return to the ship immediately. EVA recall is in effect.")))
+		if(!M.ear_deaf)
+			playsound(get_turf(M), 'sound/machines/twobeep.ogg', 40, 1)
+		reached++
+	return reached
 
 /// Verbose debug logging for the drydock/shuttle system -- writes to the
 /// dedicated persistence subsystem log file (gated behind the
@@ -796,7 +1068,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		return
 
 	var/datum/db_query/q = SSdbcore.NewQuery(
-		"SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed, z, overmap_x, overmap_y, custom_name, custom_class, repossessed, prev_owner_ckey, prev_owner_char_name, prev_faction_uid, owner_account_number, purchased_at, schematic_banked, renamed_at, title_ckey, title_char_name, title_faction_uid, reported_stolen, global_ship_id FROM ss13_drydock_ships",
+		"SELECT shuttle_id, template_id, owner_ckey, owner_char_name, faction_uid, stashed, z, overmap_x, overmap_y, custom_name, custom_class, repossessed, prev_owner_ckey, prev_owner_char_name, prev_faction_uid, owner_account_number, purchased_at, schematic_banked, renamed_at, title_ckey, title_char_name, title_faction_uid, reported_stolen, global_ship_id, impound_berth_z FROM ss13_drydock_ships",
 		list()
 	)
 	q.Execute()
@@ -829,6 +1101,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		DS.title_faction_uid = q.item[22]
 		DS.reported_stolen = !!text2num(q.item[23])
 		DS.global_ship_id = q.item[24]
+		DS.impound_berth_z = text2num(q.item[25])
 
 		if(!DS.stashed)
 			log_drydock("drydockShipLedgerRestore: shuttle_id=[DS.shuttle_id] ('[DS.template_id]') was still stashed=0 at boot -- graceful shutdown's auto-stash sweep didn't run (crash/hard kill). Forcing back to stashed; interior recovers from the last autosave.")
@@ -2045,6 +2318,23 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	var/acting = user ? key_name(user) : "SYSTEM"
 	if(!istype(console) || !console.anchored)
 		return FALSE
+	// Hulls are built at drydocks, so the console has to physically be standing on
+	// one. Checked before anything else because it is the cheapest refusal and the
+	// one a player most needs told plainly.
+	var/commission_z = GET_Z(console)
+	if(!GLOB.drydock_legacy_stashing)
+		if(!drydock_z_is_drydock(commission_z))
+			if(user)
+				to_chat(user, SPAN_WARNING("Ships can only be commissioned at a drydock. This site isn't one."))
+			log_drydock_warning("drydockCommission: refused -- z=[commission_z] is not a drydock (acting=[acting]).")
+			return FALSE
+		var/list/commission_governing = drydock_policy_for_z(commission_z)
+		var/commission_refusal = drydock_policy_refusal(commission_governing, faction_uid, user)
+		if(commission_refusal)
+			if(user)
+				to_chat(user, SPAN_WARNING(commission_refusal))
+			log_drydock_warning("drydockCommission: refused -- barred by drydock policy '[commission_governing["policy"]]' at z=[commission_z] (acting=[acting]).")
+			return FALSE
 	if(!new_name)
 		if(user)
 			to_chat(user, SPAN_WARNING("Name this shuttle before commissioning it."))
@@ -2321,6 +2611,11 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// retrieve would. See GLOB.drydock_loading_suffix.
 	GLOB.drydock_loading_suffix = "#[new_id]"
 	GLOB.drydock_loading_areas = list()
+	// See GLOB.drydock_loading_wall_hash_seed's own doc comment -- keyed on
+	// new_id (stable for the ship's whole life) rather than the z this load
+	// is about to assign, so reinforced walls look the same on every future
+	// retrieve as they do right now at commission.
+	GLOB.drydock_loading_wall_hash_seed = "[new_id]"
 	if(pool_z)
 		bounds = template.load_into_z(pool_z, TRUE)
 		new_z = pool_z
@@ -2329,6 +2624,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		bounds = template.load_new_z(FALSE, TRUE)
 		new_z = z_before + 1
 	GLOB.drydock_loading_suffix = null
+	GLOB.drydock_loading_wall_hash_seed = null
 	// Cleared only AFTER the load returns -- init_shuttles() runs inside it,
 	// and /datum/shuttle/New() reads this list to bind its own areas.
 	GLOB.drydock_loading_areas = list()
@@ -2845,48 +3141,69 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 
 	var/obj/effect/overmap/visitable/target_sector
 	var/placement_radius
-	if(DS.faction_uid)
-		if(istype(anchor) && (anchor.faction_uid == DS.faction_uid || check_rights(R_ADMIN, 0, user)))
-			target_sector = GLOB.map_sectors["[GET_Z(anchor)]"]
-			// Capped, not passed through raw -- security_radius is a multi-purpose
-			// value (zone-security coverage, Personal Travel leap eligibility) that
-			// can legitimately exceed the boarding proximity threshold; only the
-			// PLACEMENT distance used here needs to stay within it.
-			placement_radius = min(anchor.security_radius, DRYDOCK_SHIP_PLACEMENT_RADIUS)
-		else if(istype(anchor) && anchor.faction_uid != DS.faction_uid)
-			if(user)
-				to_chat(user, SPAN_WARNING("This beacon belongs to [get_faction_name(anchor.faction_uid)], not [get_faction_name(DS.faction_uid)]."))
-			log_drydock_warning("drydockRetrieve: refused -- faction beacon belongs to [anchor.faction_uid], not [DS.faction_uid] (acting=[acting]).")
-			return FALSE
-		else if(_drydock_near_centcom_depot(GLOB.map_sectors["[from_turf.z]"]))
-			// CentCom/the Frontier Beacon Depot has no player-buildable
-			// faction beacon of its own -- proximity to its fixed marker
-			// position counts as valid drydock range regardless, same as
-			// _drydock_secured_beacon_nearby() already grants personal ships.
-			target_sector = GLOB.map_sectors["[from_turf.z]"]
-			placement_radius = DRYDOCK_SHIP_PLACEMENT_RADIUS
-		else
-			if(user)
-				to_chat(user, SPAN_WARNING("No faction beacon in range."))
-			log_drydock_warning("drydockRetrieve: refused -- no faction beacon anchor provided for faction-owned shuttle_id=[shuttle_id] (acting=[acting]).")
-			return FALSE
+	// Personal and faction ships resolve identically now: a ship comes back at a
+	// drydock, so the drydock in range of whoever is retrieving IS the anchor.
+	// An explicitly supplied beacon anchor still wins, which is what that
+	// argument was always for.
+	if(istype(anchor) && (anchor.faction_uid == DS.faction_uid || check_rights(R_ADMIN, 0, user)))
+		target_sector = GLOB.map_sectors["[GET_Z(anchor)]"]
+		// Capped, not passed through raw -- security_radius is a multi-purpose
+		// value (zone-security coverage, Personal Travel leap eligibility) that
+		// can legitimately exceed the boarding proximity threshold; only the
+		// PLACEMENT distance used here needs to stay within it.
+		placement_radius = min(anchor.security_radius, DRYDOCK_SHIP_PLACEMENT_RADIUS)
+	else if(istype(anchor) && anchor.faction_uid != DS.faction_uid)
+		if(user)
+			to_chat(user, SPAN_WARNING("This beacon belongs to [get_faction_name(anchor.faction_uid)], not [get_faction_name(DS.faction_uid)]."))
+		log_drydock_warning("drydockRetrieve: refused -- faction beacon belongs to [anchor.faction_uid], not [DS.faction_uid] (acting=[acting]).")
+		return FALSE
 	else
 		if(!from_turf)
 			if(user)
 				to_chat(user, SPAN_WARNING("No location to retrieve from."))
-			log_drydock_warning("drydockRetrieve: refused -- no from_turf provided for personal shuttle_id=[shuttle_id] (acting=[acting]).")
+			log_drydock_warning("drydockRetrieve: refused -- no from_turf provided for shuttle_id=[shuttle_id] (acting=[acting]).")
 			return FALSE
-		target_sector = GLOB.map_sectors["[from_turf.z]"]
-		if(!istype(target_sector))
+		var/obj/effect/overmap/visitable/from_sector = GLOB.map_sectors["[from_turf.z]"]
+		if(!istype(from_sector))
 			if(user)
 				to_chat(user, SPAN_WARNING("You must be within a mapped sector to retrieve a ship."))
-			log_drydock_warning("drydockRetrieve: refused -- from_turf z=[from_turf.z] has no overmap sector for personal shuttle_id=[shuttle_id] (acting=[acting]).")
+			log_drydock_warning("drydockRetrieve: refused -- from_turf z=[from_turf.z] has no overmap sector for shuttle_id=[shuttle_id] (acting=[acting]).")
 			return FALSE
-		if(!_drydock_secured_beacon_nearby(target_sector, null))
-			if(user)
-				to_chat(user, SPAN_WARNING("You must be near a secured (med-sec or better) faction beacon to retrieve a ship."))
-			log_drydock_warning("drydockRetrieve: refused -- shuttle_id=[shuttle_id] not near a secured beacon (acting=[acting]).")
-			return FALSE
+		if(GLOB.drydock_legacy_stashing)
+			// Debug bypass -- the pre-drydock rule: secured beacon proximity, and
+			// the ship arrives where the retriever is standing.
+			if(!_drydock_secured_beacon_nearby(from_sector, DS.faction_uid))
+				if(user)
+					to_chat(user, SPAN_WARNING("You must be near a secured (med-sec or better) faction beacon to retrieve a ship."))
+				log_drydock_warning("drydockRetrieve: refused -- shuttle_id=[shuttle_id] not near a secured beacon, legacy stashing (acting=[acting]).")
+				return FALSE
+			target_sector = from_sector
+		else
+			var/retrieve_drydock_z = _drydock_site_nearby(from_sector)
+			// An impounded vessel is released from the yard holding it, so a bound
+			// berth replaces the "any drydock in range" rule entirely.
+			var/berth_z = drydock_impound_berth_for(DS)
+			if(berth_z && retrieve_drydock_z != berth_z)
+				if(user)
+					var/obj/effect/overmap/visitable/berth = GLOB.map_sectors["[berth_z]"]
+					to_chat(user, SPAN_WARNING("This vessel is impounded at [berth ? berth.name : "z=[berth_z]"] -- it can only be released from there."))
+				log_drydock_warning("drydockRetrieve: refused -- shuttle_id=[shuttle_id] is impounded at z=[berth_z], retriever is at z=[retrieve_drydock_z || "no drydock"] (acting=[acting]).")
+				return FALSE
+			if(!retrieve_drydock_z)
+				if(user)
+					to_chat(user, SPAN_WARNING("You must be within 1 tile of a drydock to retrieve a ship."))
+				log_drydock_warning("drydockRetrieve: refused -- shuttle_id=[shuttle_id] not near a drydock (acting=[acting]).")
+				return FALSE
+			var/list/retrieve_governing = drydock_policy_for_z(retrieve_drydock_z)
+			var/retrieve_refusal = drydock_policy_refusal(retrieve_governing, DS.faction_uid, user)
+			if(retrieve_refusal)
+				if(user)
+					to_chat(user, SPAN_WARNING(retrieve_refusal))
+				log_drydock_warning("drydockRetrieve: refused -- shuttle_id=[shuttle_id] barred by drydock policy '[retrieve_governing["policy"]]' at z=[retrieve_drydock_z] (acting=[acting]).")
+				return FALSE
+			// The drydock is the anchor, so the ship arrives at the yard it was
+			// recovered from rather than wherever the retriever happens to stand.
+			target_sector = GLOB.map_sectors["[retrieve_drydock_z]"]
 		placement_radius = DRYDOCK_SHIP_PLACEMENT_RADIUS
 	if(!istype(target_sector))
 		if(user)
@@ -2953,6 +3270,13 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// immediately after the load, before any of the failure returns below.
 	GLOB.drydock_loading_suffix = "#[shuttle_id]"
 	GLOB.drydock_loading_areas = list()
+	// See GLOB.drydock_loading_wall_hash_seed's own doc comment -- keyed on
+	// shuttle_id (stable across every retrieve) rather than the z this load
+	// is about to assign. NOT cleared alongside drydock_loading_suffix below --
+	// stays set through shipInteriorApply() further down, since that's where
+	// persistence_turfs.dm re-picks a saved wall's icon and needs the same
+	// stable seed the template's own Initialize() pass just used.
+	GLOB.drydock_loading_wall_hash_seed = "[shuttle_id]"
 	if(pool_z)
 		bounds = template.load_into_z(pool_z, TRUE)
 		new_z = pool_z
@@ -2972,6 +3296,7 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 		if(user)
 			to_chat(user, SPAN_WARNING("Failed to materialize ship."))
 		log_drydock_error("drydockRetrieve: template load failed for '[DS.template_id]', shuttle_id=[shuttle_id][pool_z ? " (pooled z=[pool_z])" : ""].")
+		GLOB.drydock_loading_wall_hash_seed = null
 		return FALSE
 	log_drydock("drydockRetrieve: shuttle_id=[shuttle_id] materialized at z=[new_z] ([pool_z ? "pooled" : "fresh"]) for template '[DS.template_id]'.")
 
@@ -2979,8 +3304,13 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	if(!istype(marker))
 		DS.stashed = TRUE // revert -- retrieve never actually happened
 		log_drydock_error("drydockRetrieve: no overmap marker found at loaded z=[new_z] for shuttle_id=[shuttle_id].")
+		GLOB.drydock_loading_wall_hash_seed = null
 		return FALSE
 	shipPlaceOvermapMarker(marker, target_sector, placement_radius)
+	// Past the last failure return, so the vessel is genuinely out of the yard --
+	// an impound binding is one-shot and does not follow it into its next stash.
+	if(DS.impound_berth_z)
+		drydock_set_impound_berth(DS, null)
 
 	var/datum/shuttle/autodock/overmap/drydock_ship/shuttle_datum = _drydock_shuttle_of(marker)
 	if(istype(shuttle_datum))
@@ -3046,6 +3376,11 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	// which flips this back on and notifies the owner.
 	DS.ready = FALSE
 	SSpersistence.shipInteriorApply(new_z, scope)
+	// Turf/object restore inside shipInteriorApply() is synchronous (only its
+	// final atmos settle is deferred, via its own addtimer) -- every
+	// pick_wall_icon_variant() call this retrieve will make has already
+	// happened by the time this returns, so it's safe to clear the seed now.
+	GLOB.drydock_loading_wall_hash_seed = null
 	SSpersistence.drydockAutoFurnish(new_z, template, marker)
 
 	// Auto-claim any still-unassigned equipment on this ship's Z, same as a
@@ -3526,28 +3861,44 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 	var/obj/effect/overmap/visitable/ship/landable/check_marker = GLOB.map_sectors["[DS.z]"]
 	var/datum/shuttle/autodock/overmap/drydock_ship/stashing_shuttle_datum = istype(check_marker) ? _drydock_shuttle_of(check_marker) : null
 	if(!force)
-		// A personal ship may stash near ANY faction's beacon (not
-		// necessarily one it owns), provided that beacon's own sector is
-		// currently med-sec or better -- a faction ship still requires its
-		// OWN faction's beacon specifically, same as retrieve. _drydock_ship_sector(),
-		// not check_marker directly -- check_marker is DS's own marker, which
-		// may currently be nested (docked) and would give get_dist() a
-		// meaningless result; check_marker itself is still used correctly
-		// below for the guest-ship/nested-in-host checks, which specifically
-		// care about its own nesting state.
-		if(!_drydock_secured_beacon_nearby(_drydock_ship_sector(DS), DS.faction_uid))
+		// Ships only enter and leave the world at a drydock: a site founded as
+		// one, within a single overmap tile. _drydock_ship_sector(), not
+		// check_marker directly -- check_marker is DS's own marker, which may
+		// currently be nested (docked) and would give get_dist() a meaningless
+		// result; check_marker itself is still used correctly below for the
+		// guest-ship/nested-in-host checks, which specifically care about its own
+		// nesting state.
+		if(GLOB.drydock_legacy_stashing)
+			// Debug bypass -- the pre-drydock rule, secured beacon proximity.
+			if(!_drydock_secured_beacon_nearby(_drydock_ship_sector(DS), DS.faction_uid))
+				if(user)
+					to_chat(user, SPAN_WARNING(DS.faction_uid ? "This ship must be within 1 tile of your faction's own beacon to be stashed." : "You must be near a secured (med-sec or better) faction beacon to stash."))
+				log_drydock_warning("drydockStash: refused -- shuttle_id=[shuttle_id] not near a valid beacon, legacy stashing (acting=[acting]).")
+				return FALSE
+		else
+			var/stash_drydock_z = _drydock_site_nearby(_drydock_ship_sector(DS))
+			if(!stash_drydock_z)
+				if(user)
+					to_chat(user, SPAN_WARNING("This ship must be within 1 tile of a drydock to be stashed."))
+				log_drydock_warning("drydockStash: refused -- shuttle_id=[shuttle_id] not near a drydock (acting=[acting]).")
+				return FALSE
+			var/list/stash_governing = drydock_policy_for_z(stash_drydock_z)
+			var/stash_refusal = drydock_policy_refusal(stash_governing, DS.faction_uid, user)
+			if(stash_refusal)
+				if(user)
+					to_chat(user, SPAN_WARNING(stash_refusal))
+				log_drydock_warning("drydockStash: refused -- shuttle_id=[shuttle_id] barred by drydock policy '[stash_governing["policy"]]' at z=[stash_drydock_z] (acting=[acting]).")
+				return FALSE
+		// A ship under tow can't be put away out from under the beam holding it.
+		if(istype(check_marker) && check_marker.tractored_by)
 			if(user)
-				to_chat(user, SPAN_WARNING(DS.faction_uid ? "This ship must be within 1 tile of your faction's own beacon to be stashed." : "You must be near a secured (med-sec or better) faction beacon to stash."))
-			log_drydock_warning("drydockStash: refused -- shuttle_id=[shuttle_id] not near a valid beacon (acting=[acting]).")
+				to_chat(user, SPAN_WARNING("This ship is held in a tractor beam -- break the lock before stashing."))
+			log_drydock_warning("drydockStash: refused -- shuttle_id=[shuttle_id] is under tow (acting=[acting]).")
 			return FALSE
-		// _drydock_secured_beacon_nearby() above only checks that the SHIP is
-		// near SOME qualifying beacon -- for a personal ship that's any
-		// faction's beacon, not necessarily one anywhere near the player --
-		// so without this, a player could stash a ship sitting at a
-		// completely different away site just because it happened to be
-		// parked near a good-enough beacon there. Faction ships aren't
-		// affected -- they already require their own faction's specific
-		// beacon, a much tighter constraint than "any secured beacon."
+		// The drydock check above only establishes that the SHIP is near one, not
+		// that the player is anywhere near the ship -- so without this, a player
+		// could stash a ship parked at a completely different drydock. Faction
+		// ships aren't affected: their own crew are expected to operate remotely.
 		if(!DS.faction_uid && istype(user))
 			var/obj/effect/overmap/visitable/player_sector = _drydock_boarder_sector(user)
 			var/obj/effect/overmap/visitable/ship_sector_now = _drydock_ship_sector(DS)

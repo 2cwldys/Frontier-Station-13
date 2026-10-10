@@ -6,6 +6,12 @@
  * never spawns anything directly -- it submits a /datum/colony_radio_request
  * for admin approval. Approved requests found a permanent (reboot-surviving)
  * station; denied requests refund a fresh radio to the requester.
+ *
+ * The claim declares what the site is FOR: a colony, or a drydock. Both load the
+ * same "station" template, so the only difference is the site_kind recorded on
+ * the pinned row (AWAY_SITE_KIND_*, code/__DEFINES/persistence.dm) -- a drydock
+ * is where ships may be stashed, retrieved and commissioned, which
+ * _drydock_site_nearby() (persistence_shuttles.dm) enforces by overmap distance.
  */
 /obj/item/colony_radio
 	name = "colony radio"
@@ -18,6 +24,15 @@
 	if(!SSatlas.current_map.overmap_z)
 		to_chat(user, SPAN_WARNING("This map has no overmap."))
 		return
+
+	var/list/kind_choices = list(
+		"Colony" = AWAY_SITE_KIND_COLONY,
+		"Drydock" = AWAY_SITE_KIND_DRYDOCK
+	)
+	var/kind_pick = tgui_input_list(user, "What is this claim for?", "Colony Radio", kind_choices)
+	if(isnull(kind_pick))
+		return
+	var/claim_kind = kind_choices[kind_pick]
 
 	var/map_low = OVERMAP_EDGE
 	var/map_high = SSatlas.current_map.overmap_size - OVERMAP_EDGE
@@ -39,14 +54,14 @@
 		to_chat(user, SPAN_WARNING("([pick_x],[pick_y]) is already occupied by '[occupant.name]' -- pick another tile."))
 		return
 
-	var/datum/colony_radio_request/request = new(user, pick_x, pick_y)
+	var/datum/colony_radio_request/request = new(user, pick_x, pick_y, claim_kind)
 	GLOB.colony_radio_requests += request
 
-	to_chat(user, SPAN_NOTICE("You transmit a colonial claim request for overmap ([pick_x],[pick_y]) to Central Command. Awaiting review."))
-	log_game("[key_name(user)] submitted a Colony Radio request for overmap ([pick_x],[pick_y]).")
+	to_chat(user, SPAN_NOTICE("You transmit a [claim_kind] claim request for overmap ([pick_x],[pick_y]) to the Hub. Awaiting review."))
+	log_game("[key_name(user)] submitted a Colony Radio request for a [claim_kind] at overmap ([pick_x],[pick_y]).")
 
 	var/turf/user_turf = get_turf(user)
-	message_admins("[key_name_admin(user)] requested a colony station at overmap ([pick_x],[pick_y])[user_turf ? " [ADMIN_JMP(user_turf)]" : ""]. \
+	message_admins("[key_name_admin(user)] requested a [claim_kind] station at overmap ([pick_x],[pick_y])[user_turf ? " [ADMIN_JMP(user_turf)]" : ""]. \
 		<a href='byond://?src=[REF(request)];colony_radio_approve=1'>APPROVE</a> - \
 		<a href='byond://?src=[REF(request)];colony_radio_deny=1'>DENY</a>")
 
@@ -59,19 +74,22 @@ GLOBAL_LIST_EMPTY(colony_radio_requests)
 	var/requester_name
 	var/pick_x
 	var/pick_y
+	/// AWAY_SITE_KIND_COLONY or AWAY_SITE_KIND_DRYDOCK -- what the claim is for.
+	var/site_kind = AWAY_SITE_KIND_COLONY
 	var/requested_at
 	var/resolved = FALSE
 
-/datum/colony_radio_request/New(mob/requester, x, y)
+/datum/colony_radio_request/New(mob/requester, x, y, kind = AWAY_SITE_KIND_COLONY)
 	. = ..()
 	requester_ckey = requester?.ckey
 	requester_name = requester?.real_name
 	pick_x = x
 	pick_y = y
+	site_kind = kind
 	requested_at = world.time
 
 /datum/colony_radio_request/proc/describe()
-	return "#[REF(src)] -- [requester_name] ([requester_ckey]) requested overmap ([pick_x],[pick_y]) [round((world.time - requested_at) / (1 MINUTE))] minute\s ago"
+	return "#[REF(src)] -- [requester_name] ([requester_ckey]) requested a [site_kind] at overmap ([pick_x],[pick_y]) [round((world.time - requested_at) / (1 MINUTE))] minute\s ago"
 
 /datum/colony_radio_request/Topic(href, href_list)
 	. = ..()
@@ -115,37 +133,23 @@ GLOBAL_LIST_EMPTY(colony_radio_requests)
 		_refund_and_notify("Your station could not be constructed.")
 		return
 
-	// Pin it so it survives reboots, mirroring the admin "Pin Site I'm At"
-	// insert (persistence_factions.dm) but without that flow's single-
-	// instance-per-template guard -- the schema now allows many rows for
-	// "station" as long as their coordinates differ.
+	// Deliberately NOT pinned here. Founding a site and making it survive reboots
+	// are separate acts: a faction or hub beacon placed on the site is what pins
+	// it (persistence_pin_site_at_z(), via the beacon's own network apply), and
+	// that proc reads the kind recorded just below rather than being told it.
 	var/obj/effect/overmap/visitable/marker = GLOB.map_sectors["[site_z]"]
 	var/list/live_zs = (marker && length(marker.map_z)) ? marker.map_z.Copy() : list(site_z)
-	if(GLOB.config.sql_enabled && SSdbcore.Connect())
-		var/datum/db_query/iq = SSdbcore.NewQuery(
-			{"INSERT INTO ss13_persistent_away_sites (template_name, map_path, overmap_x, overmap_y, last_z, enabled, notes)
-			VALUES (:tn, :mp, :ox, :oy, :z, 1, :notes)"},
-			list(
-				"tn" = "station",
-				"mp" = "[SSatlas.current_map.path]",
-				"ox" = pick_x,
-				"oy" = pick_y,
-				"z"  = site_z,
-				"notes" = "Founded by [requester_name] ([requester_ckey])"
-			)
-		)
-		iq.Execute()
-		SSpersistence.databaseCheckQueryResult(iq, "colony_radio_request pin")
-		qdel(iq)
 	for(var/nz in live_zs)
-		GLOB.persistence_pinned_site_z |= nz
-		GLOB.persistence_zlevel_allow |= nz
+		GLOB.persistence_site_kind_by_z["[nz]"] = site_kind
+	if(site_kind == AWAY_SITE_KIND_DRYDOCK)
+		apply_drydock_marker_appearance(marker)
 
 	var/mob/requester_mob = _find_requester_mob()
 	if(requester_mob)
-		to_chat(requester_mob, SPAN_GOOD("Central Command has approved your colonial claim -- your station has been founded at overmap ([pick_x],[pick_y])."))
+		to_chat(requester_mob, SPAN_GOOD("The Hub has approved your claim -- your [site_kind] has been founded at overmap ([pick_x],[pick_y])."))
+		to_chat(requester_mob, SPAN_NOTICE("It will not survive a reboot until a faction or hub beacon is established on it."))
 
-	log_and_message_admins("approved colony station request from [requester_name] ([requester_ckey]) at overmap ([pick_x],[pick_y]), z=[site_z]", admin)
+	log_and_message_admins("approved [site_kind] station request from [requester_name] ([requester_ckey]) at overmap ([pick_x],[pick_y]), z=[site_z]", admin)
 
 /datum/colony_radio_request/proc/deny(mob/admin)
 	if(resolved)
@@ -153,7 +157,7 @@ GLOBAL_LIST_EMPTY(colony_radio_requests)
 		return
 	resolved = TRUE
 	GLOB.colony_radio_requests -= src
-	_refund_and_notify("Central Command has denied your colonial claim request.")
+	_refund_and_notify("The Hub has denied your colonial claim request.")
 	log_and_message_admins("denied colony station request from [requester_name] ([requester_ckey]) at overmap ([pick_x],[pick_y])", admin)
 
 /// Shared refund path for both an explicit deny and an approve that failed

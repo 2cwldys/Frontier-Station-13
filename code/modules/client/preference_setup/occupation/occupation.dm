@@ -159,7 +159,10 @@
 
 /datum/category_item/player_setup_item/occupation/content(mob/user, limit = 16, list/splitJobs = list("Chief Engineer", "Head of Security"))
 	// Persistent world — occupations are not used. Characters spawn without job equipment.
-	return "<center><br><b>Occupations are not used on this server.</b></center>"
+	// No leading <br> here -- the category group wrapper (occupation_preferences/content(),
+	// preference_setup.dm) already appends its own trailing <br> after this single item,
+	// so a leading one too was rendering as an extra blank row above the message.
+	return "<center><b>Occupations are not used on this server.</b><br>You earn employment by playing.</center>"
 
 	var/list/dat = list(
 		"<style>span.none{color: black} span.low{color: #DDD} span.med{color: yellow} span.high{color: lime} a:hover span{color: #40628a !important}</style>",

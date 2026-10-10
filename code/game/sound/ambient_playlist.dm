@@ -56,6 +56,14 @@ GLOBAL_LIST_INIT(ambient_playlist_tracks, list(
 	'sound/music/ambient_playlist/elite_27.ogg',
 	'sound/music/ambient_playlist/stasis_1.ogg',
 	'sound/music/ambient_playlist/stasis_2.ogg',
+	'sound/music/ambient_playlist/thief_tma_eavesdropping.ogg',
+	'sound/music/ambient_playlist/thief_ds_southquarter.ogg',
+	'sound/music/ambient_playlist/arx_fatalis_city.ogg',
+	'sound/music/ambient_playlist/arx_fatalis_outpost.ogg',
+	'sound/music/ambient_playlist/arx_fatalis_ice_cave.ogg',
+	'sound/music/ambient_playlist/arx_fatalis_goblin_base.ogg',
+	'sound/music/ambient_playlist/arx_fatalis_cutscene.ogg',
+	'sound/music/ambient_playlist/arx_fatalis_sacred_dagger.ogg',
 ))
 
 /// Duration of each track in deciseconds, buffered a few deciseconds short so
@@ -102,6 +110,14 @@ GLOBAL_LIST_INIT(ambient_playlist_durations, list(
 	'sound/music/ambient_playlist/elite_27.ogg' = 954,
 	'sound/music/ambient_playlist/stasis_1.ogg' = 1203,
 	'sound/music/ambient_playlist/stasis_2.ogg' = 1036,
+	'sound/music/ambient_playlist/thief_tma_eavesdropping.ogg' = 6036,
+	'sound/music/ambient_playlist/thief_ds_southquarter.ogg' = 2582,
+	'sound/music/ambient_playlist/arx_fatalis_city.ogg' = 3591,
+	'sound/music/ambient_playlist/arx_fatalis_outpost.ogg' = 3941,
+	'sound/music/ambient_playlist/arx_fatalis_ice_cave.ogg' = 3922,
+	'sound/music/ambient_playlist/arx_fatalis_goblin_base.ogg' = 2591,
+	'sound/music/ambient_playlist/arx_fatalis_cutscene.ogg' = 2157,
+	'sound/music/ambient_playlist/arx_fatalis_sacred_dagger.ogg' = 2755,
 ))
 
 /// Fallback duration (deciseconds, ~3 minutes) used only if a track is

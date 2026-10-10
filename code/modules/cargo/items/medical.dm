@@ -590,6 +590,20 @@
 	groupable = TRUE
 	spawn_amount = 1
 
+/singleton/cargo_item/stimpack
+	category = "medical"
+	name = "stimpack autoinjector"
+	supplier = "Hub"
+	description = "A sterile autoinjector loaded with a hyperzine/mortaphenyl cocktail for emergency combat stimulation."
+	price = 500
+	items = list(
+		/obj/item/reagent_containers/hypospray/autoinjector/stimpack
+	)
+	access = ACCESS_MEDICAL
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
 //Surgery stuff
 
 /singleton/cargo_item/surgerykit
@@ -670,6 +684,20 @@
 	price = 510
 	items = list(
 		/obj/item/surgery/circular_saw
+	)
+	access = ACCESS_SURGERY
+	container_type = "crate"
+	groupable = TRUE
+	spawn_amount = 1
+
+/singleton/cargo_item/dermalregenerator
+	category = "medical"
+	name = "dermal regenerator"
+	supplier = "Hub"
+	description = "A hand-held medical device that resurfaces skin, hair follicles, and iris pigment. Colors only -- it can't alter someone's underlying features."
+	price = 3500
+	items = list(
+		/obj/item/dermal_regenerator
 	)
 	access = ACCESS_SURGERY
 	container_type = "crate"

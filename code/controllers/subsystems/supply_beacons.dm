@@ -20,12 +20,24 @@ SUBSYSTEM_DEF(supply_beacons)
 	beacons = SSsupply_beacons.beacons
 
 /datum/controller/subsystem/supply_beacons/fire()
-	if(!length(beacons))
-		return
-	for(var/bid in beacons)
-		var/obj/effect/overmap/supply_beacon/B = beacons[bid]
-		if(QDELETED(B))
+	if(length(beacons))
+		for(var/bid in beacons)
+			var/obj/effect/overmap/supply_beacon/B = beacons[bid]
+			if(QDELETED(B))
+				continue
+			for(var/commodity_key in GLOB.supply_beacon_commodities)
+				B.tick_commodity_price(commodity_key)
+		SSpersistence.supplyBeaconsSaveAll()
+
+	// Piracy beacons keep an independent price (piracy_beacon.dm) driven by
+	// the exact same tick math and commodity list, but persist through the
+	// generic worldstate/persistent_objects hooks already on that type
+	// rather than the ss13_supply_beacon_commodities table -- so no
+	// SaveAll() call here; their next normal persistence cycle picks up the
+	// change on its own. Ticks regardless of powered/tethered state, same
+	// as a real supply beacon has no power concept and always ticks.
+	for(var/obj/structure/machinery/piracy_beacon/P in GLOB.piracy_beacons)
+		if(QDELETED(P))
 			continue
 		for(var/commodity_key in GLOB.supply_beacon_commodities)
-			B.tick_commodity_price(commodity_key)
-	SSpersistence.supplyBeaconsSaveAll()
+			P.tick_commodity_price(commodity_key)

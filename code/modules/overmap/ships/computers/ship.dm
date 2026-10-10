@@ -76,6 +76,7 @@ somewhere on that shuttle. Subtypes of these can be then used to perform ship ov
 		return FALSE
 	user.set_machine(src)
 	ui_interact(user)
+	user.GetComponent(PILOT_SPACECRAFT_SKILL_COMPONENT)?.register_use(user)
 
 /obj/structure/machinery/computer/ship/attack_ai(mob/user)
 	if(!ai_can_interact(user))

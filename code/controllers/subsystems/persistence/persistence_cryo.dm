@@ -260,6 +260,7 @@
 		mobsHealthSaveOne(H)
 		mobsInventorySaveOne(H)
 		charIdentitySaveOne(H)
+		charSkillsSaveOne(H)
 
 	H.persistence_stored_ckey = H.ckey
 	H.persistence_in_cryo     = TRUE
@@ -308,6 +309,7 @@
 	mobsHealthSaveOne(H)
 	mobsInventorySaveOne(H)
 	charIdentitySaveOne(H)
+	charSkillsSaveOne(H)
 
 	// Remember which pod they stored at so they wake from the same one --
 	// after mobPositionSave so the row exists, before the ckey is cleared.
@@ -342,12 +344,19 @@
 	if(clock_faction)
 		factionSetClockedIn(H.ckey, clock_faction, FALSE)
 
-	// If the mob is inside a cryopod, clear its occupant reference so the pod resets properly
+	// If the mob is inside a cryopod, clear its occupant reference so the pod resets properly.
+	// A prison cell never uses `occupant` (always null by design, cryopod_prison.dm's own
+	// header comment) -- it tracks who's inside via prison_occupants instead, so it needs its
+	// own branch here or a self-store from inside one leaves a stale entry in that list.
 	if(istype(H.loc, /obj/structure/machinery/cryopod))
 		var/obj/structure/machinery/cryopod/cryo_pod = H.loc
 		if(cryo_pod.occupant == H)
 			cryo_pod.occupant = null
 			cryo_pod.update_icon()
+		else if(istype(cryo_pod, /obj/structure/machinery/cryopod/prison))
+			var/obj/structure/machinery/cryopod/prison/prison_pod = cryo_pod
+			prison_pod.prison_occupants -= H
+			prison_pod.update_icon()
 
 	// The character save above already fully completed and covers both
 	// outcomes below (a telepad found or not) -- release now rather than
@@ -557,8 +566,6 @@
 	/// a disabled pod keeps whatever tag it already had, it just can't be
 	/// entered.
 	var/tagger_disabled = FALSE
-	/// Never expire spawned cryopods
-	persistant_objects_expiration_time_days = 36500
 
 /// Cryopod subtypes never offered as a human spawn/wake target (e.g. cyborg-only pods).
 /// Checked by persistence_find_saved_cryopod(), persistence_find_available_cryopod(),

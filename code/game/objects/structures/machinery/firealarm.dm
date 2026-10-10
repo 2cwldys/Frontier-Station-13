@@ -281,6 +281,9 @@
 /obj/structure/machinery/firealarm/persistence_reapply_wall_offset()
 	set_pixel_offsets()
 
+/obj/structure/machinery/firealarm/persistence_self_heal_wall_offset()
+	set_pixel_offsets()
+
 /obj/structure/machinery/firealarm/persistent_objects_get_content()
 	. = ..()
 	.["buildstage"] = buildstage

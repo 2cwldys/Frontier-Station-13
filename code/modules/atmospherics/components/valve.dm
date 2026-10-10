@@ -145,6 +145,7 @@
 		src.close()
 	else
 		src.open()
+	user.GetComponent(ATMOSPHERICS_SYSTEMS_SKILL_COMPONENT)?.register_use(user)
 
 /obj/structure/machinery/atmospherics/valve/process()
 	..()

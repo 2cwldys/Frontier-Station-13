@@ -59,6 +59,22 @@
 	QDEL_NULL(oven_loop)
 	. = ..()
 
+/// Layers the door state on top of the cooker/base appliance content
+/// persistence (_cooker.dm/_appliance.dm) -- open affects the heat-loss
+/// rate and gates insertion/removal, so it's real state, not cosmetic.
+/obj/structure/machinery/appliance/cooker/oven/persistent_objects_get_content()
+	. = ..()
+	.["open"] = open
+
+/obj/structure/machinery/appliance/cooker/oven/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content) || isnull(content["open"]))
+		return
+	open = content["open"] ? TRUE : FALSE
+	// Matches try_toggle_door()'s own formula -- door state changes the
+	// heat-loss rate, and that's only ever otherwise recalculated there.
+	loss = (heating_power / resistance) * (0.5 + open)
+
 /obj/structure/machinery/appliance/cooker/oven/update_icon()
 	ClearOverlays()
 	update_baking_audio()

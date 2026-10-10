@@ -356,9 +356,9 @@
 
 	var/trans = reagents.trans_to(target, amount_per_transfer_from_this)
 	to_chat(user, SPAN_NOTICE("You transfer [trans] units of the solution to [target]."))
-	on_pour(target)
+	on_pour(target, user)
 	degrade_durability(durability_per_use)
 	return 1
 
-/obj/item/reagent_containers/proc/on_pour(atom/target)
+/obj/item/reagent_containers/proc/on_pour(atom/target, mob/user)
 	playsound(src, SFX_POUR, 25, 1)

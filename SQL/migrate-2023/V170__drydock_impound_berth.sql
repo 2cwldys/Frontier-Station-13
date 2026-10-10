@@ -1,0 +1,12 @@
+-- The Hub drydock an impounded vessel was taken to, so it is released from the
+-- yard holding it rather than wherever the retriever happens to stand.
+--
+-- Written by the First Responder seizure path (_seize_deployed_vessel(),
+-- code/modules/modular_computers/file_system/programs/security/first_responder.dm)
+-- and honoured by _drydockRetrieveRun() (persistence_shuttles.dm), which clears it
+-- on a successful retrieve so the binding is one-shot.
+--
+-- Degrades safely: if the berth z is no longer a drydock (retired, destroyed, or
+-- the z was reused), retrieve ignores and clears it and falls back to the normal
+-- local-drydock rule rather than leaving the ship unrecoverable.
+ALTER TABLE `ss13_drydock_ships` ADD COLUMN `impound_berth_z` TINYINT NULL DEFAULT NULL;

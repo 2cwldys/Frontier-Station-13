@@ -1,6 +1,6 @@
 #!/bin/sh
 # Dump the Aurora database to a timestamped SQL file in the backups/ directory.
-# Keeps the 7 most recent backups and deletes older ones automatically.
+# Keeps the 14 most recent backups and deletes older ones automatically.
 # Native translation of db_backup.ps1 -- no PowerShell dependency.
 #
 # Run before stopping the server or before applying major changes.
@@ -85,18 +85,18 @@ fi
 SIZE_KB=$(( $(wc -c < "$OUT_FILE") / 1024 ))
 echo "Backup complete: $OUT_FILE (${SIZE_KB} KB)"
 
-# Rotate: keep only the 7 most recent backups.
+# Rotate: keep only the 14 most recent backups.
 COUNT=0
 for f in $(ls -t "$BACKUP_DIR"/backup_*.sql 2>/dev/null); do
 	COUNT=$((COUNT + 1))
-	if [ "$COUNT" -gt 7 ]; then
+	if [ "$COUNT" -gt 14 ]; then
 		rm -f "$f"
 		echo "Removed old backup: $(basename "$f")"
 	fi
 done
 
 RETAINED=$COUNT
-if [ "$RETAINED" -gt 7 ]; then
-	RETAINED=7
+if [ "$RETAINED" -gt 14 ]; then
+	RETAINED=14
 fi
-echo "Backups retained: $RETAINED/7"
+echo "Backups retained: $RETAINED/14"

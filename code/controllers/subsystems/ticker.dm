@@ -60,6 +60,12 @@ SUBSYSTEM_DEF(ticker)
 		'sound/music/lobby/duneorange_nang.ogg',
 		'sound/music/lobby/jrb_naked_reality.ogg',
 		'sound/music/lobby/interkosmos_persistence.ogg',
+		'sound/music/lobby/system_shock_executive_cover.ogg',
+		'sound/music/lobby/zone_of_the_enders_2_zakat_extended.ogg',
+		'sound/music/lobby/sysdoom_shock_medical.ogg',
+		'sound/music/lobby/emperor_battle_for_dune.ogg',
+		'sound/music/lobby/fable_ii_bowerlake.ogg',
+		'sound/music/lobby/firefly_reavers_drum_extended.ogg',
 	)
 
 	var/lobby_ready = FALSE

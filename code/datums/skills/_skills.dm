@@ -41,6 +41,14 @@
 
 	/// The component datum that this skill will add during character spawning
 	var/component_type = null
+	/// TRUE for a skill with no way to earn it back through play -- either a
+	/// passive stat with no discrete "you did it" moment to hook (tenacity,
+	/// carousing) or one with no gameplay consumer implemented at all yet
+	/// (pharmacology, forensics, xenobotany, archaeology). SSskills' decay
+	/// sweep (controllers/subsystems/skills.dm) skips these entirely -- a
+	/// skill only teaching/a manual can raise shouldn't also be able to rot
+	/// away with no way for a player to stop it themselves.
+	var/no_decay = FALSE
 	/// Map of skill levels to level costs. How many skill points it takes to purchase this rank in a skill.
 	var/alist/skill_cost_map = alist(
 		SKILL_LEVEL_UNFAMILIAR = 0,

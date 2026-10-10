@@ -64,6 +64,7 @@
 	var/atom/movable/screen/inv3
 	var/shown_robot_modules = FALSE //Used to determine whether they have the module menu shown or not
 	var/atom/movable/screen/robot_modules_background
+	var/atom/movable/screen/store_synthetic_button/synth_store_button
 
 	// Modules and active items
 	var/mod_type = "Default"

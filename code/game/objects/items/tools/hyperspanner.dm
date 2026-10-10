@@ -106,7 +106,11 @@
 		to_chat(user, SPAN_WARNING("\The [target] can't be repaired with \the [src]."))
 		return
 	if(!COOLDOWN_FINISHED(src, hyperspanner_cd))
-		to_chat(user, SPAN_WARNING("\The [src] is still recharging -- [COOLDOWN_TIMELEFT(src, hyperspanner_cd)] second[COOLDOWN_TIMELEFT(src, hyperspanner_cd) > 10 ? "s" : ""] left."))
+		// COOLDOWN_TIMELEFT() returns deciseconds (world.time's native unit),
+		// not seconds -- round(.../10) is required, or e.g. 9 real seconds
+		// left prints as "90 seconds left".
+		var/seconds_left = round(COOLDOWN_TIMELEFT(src, hyperspanner_cd) / 10)
+		to_chat(user, SPAN_WARNING("\The [src] is still recharging -- [seconds_left] second[seconds_left == 1 ? "" : "s"] left."))
 		return
 	if(!cell)
 		to_chat(user, SPAN_WARNING("\The [src] has no power source!"))
@@ -140,6 +144,7 @@
 	if(!_needs_health_repair(target))
 		to_chat(user, SPAN_WARNING("\The [target] does not need repairs."))
 		return
+	user.visible_message(SPAN_NOTICE("[user] begins to repair [target]."), SPAN_NOTICE("You begin to repair [target]."))
 	repairing_now = TRUE
 	_repair_loop_sound(target)
 	var/success = use_tool(target, user, 3 SECONDS, volume = 50)
@@ -161,6 +166,7 @@
 	if(isnull(target.broken) && isnull(target.burnt))
 		to_chat(user, SPAN_WARNING("\The [target] does not need repairs."))
 		return
+	user.visible_message(SPAN_NOTICE("[user] begins to repair [target]."), SPAN_NOTICE("You begin to repair [target]."))
 	repairing_now = TRUE
 	_repair_loop_sound(target)
 	var/success = use_tool(target, user, 3 SECONDS, volume = 50)

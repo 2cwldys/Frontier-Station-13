@@ -30,6 +30,9 @@ type FactionTaggerData = {
   is_public_comms: BooleanLike;
   is_autodoc: BooleanLike;
   is_public_autodoc: BooleanLike;
+  is_synthetic_storage: BooleanLike;
+  synthetic_storage_disabled: BooleanLike;
+  synthetic_storage_public_spawn: BooleanLike;
   is_lace_storage: BooleanLike;
   is_public_lace: BooleanLike;
   is_airlock: BooleanLike;
@@ -75,6 +78,9 @@ export const FactionTagger = (props) => {
     is_public_comms,
     is_autodoc,
     is_public_autodoc,
+    is_synthetic_storage,
+    synthetic_storage_disabled,
+    synthetic_storage_public_spawn,
     is_lace_storage,
     is_public_lace,
     is_airlock,
@@ -259,6 +265,32 @@ export const FactionTagger = (props) => {
               {cryopod_disabled
                 ? 'Re-enable Cryopod'
                 : 'Disable Cryopod (Refuse Occupants)'}
+            </Button>
+          </Section>
+        )}
+        {!!(is_admin && is_synthetic_storage) && (
+          <Section title="Admin: Public Spawn">
+            <Button
+              icon={synthetic_storage_public_spawn ? 'times' : 'door-open'}
+              color={synthetic_storage_public_spawn ? 'bad' : 'good'}
+              onClick={() => act('toggle_synthetic_storage_public_spawn')}
+            >
+              {synthetic_storage_public_spawn
+                ? 'Clear Public Spawn Point'
+                : 'Mark Public Spawn Point'}
+            </Button>
+          </Section>
+        )}
+        {!!(is_admin && is_synthetic_storage) && (
+          <Section title="Admin: Synthetic Storage Access">
+            <Button
+              icon={synthetic_storage_disabled ? 'check' : 'ban'}
+              color={synthetic_storage_disabled ? 'good' : 'bad'}
+              onClick={() => act('toggle_synthetic_storage_disabled')}
+            >
+              {synthetic_storage_disabled
+                ? 'Re-enable Storage Unit'
+                : 'Disable Storage Unit (Refuse Chassis)'}
             </Button>
           </Section>
         )}

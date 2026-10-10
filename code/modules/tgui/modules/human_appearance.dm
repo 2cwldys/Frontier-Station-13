@@ -305,6 +305,17 @@
 
 /datum/tgui_module/appearance_changer/ui_close(mob/user)
 	. = ..()
+
+	// Only a mirror's or dermal regenerator's own restyle should stick to
+	// the character sheet -- everything else that opens this same dialog
+	// (plastic surgery, the cosmetic surgery kit, disguise/impersonation
+	// items, a cyborg shell swap, the admin "Edit Appearance" verb) must
+	// stay round-only, and none of them pass either type as state_object.
+	if(istype(state_object, /obj/structure/mirror) || istype(state_object, /obj/item/mirror) || istype(state_object, /obj/item/dermal_regenerator))
+		var/mob/living/carbon/human/appearance_owner = target_human.resolve()
+		if(istype(appearance_owner))
+			appearance_owner.persistence_sync_appearance_to_db()
+
 	if(change_id)
 		var/mob/living/carbon/human/owner = target_human.resolve()
 		var/obj/item/card/id/I = target_id.resolve()

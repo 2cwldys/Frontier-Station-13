@@ -407,6 +407,9 @@ pixel_x = 10;
 /obj/structure/machinery/alarm/persistence_reapply_wall_offset()
 	set_pixel_offsets()
 
+/obj/structure/machinery/alarm/persistence_self_heal_wall_offset()
+	set_pixel_offsets()
+
 /obj/structure/machinery/alarm/persistent_objects_get_content()
 	. = ..()
 	.["buildstage"] = buildstage
@@ -961,6 +964,13 @@ pixel_x = 10;
 					"panic_siphon",
 					"scrubbing")
 					signal[command] = text2num(params["val"])
+					// Marks this as a deliberate PER-DEVICE override, not a
+					// room-wide mode change -- see vent_pump.dm/vent_scrubber.dm's
+					// power_individually_set, which atmosAlarmsReset()
+					// (persistence.dm) respects across a restart instead of
+					// silently reverting to the room's mode.
+					if(command == "power")
+						signal["individual_override"] = TRUE
 					send_signal(device_id, signal)
 				if("set_threshold")
 					var/env = params["env"]

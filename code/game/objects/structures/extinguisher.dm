@@ -43,6 +43,12 @@
 	pixel_x = dir & (NORTH|SOUTH) ? 0 : (dir == EAST ? 21 : 4)
 	pixel_y = dir & (NORTH|SOUTH) ? (dir == NORTH ? 24 : -26) : 4
 
+/obj/structure/extinguisher_cabinet/persistence_reapply_wall_offset()
+	set_pixel_offsets()
+
+/obj/structure/extinguisher_cabinet/persistence_self_heal_wall_offset()
+	set_pixel_offsets()
+
 /obj/structure/extinguisher_cabinet/attackby(obj/item/attacking_item, mob/user)
 	if(isrobot(user))
 		return

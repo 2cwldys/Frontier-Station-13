@@ -198,8 +198,14 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 		// After set_material(): update_material() forces construction_stage to
 		// 6 (or null) from reinf_material, which would otherwise wipe a
 		// part-deconstructed wall's saved progress.
+#ifdef WALL_RESTORE_DIAGNOSTICS
+		log_subsystem_persistence_info("Turfs: wall restore at ([W.x],[W.y],[W.z]) -- saved_construction_stage=[isnull(content["construction_stage"]) ? "NULL" : content["construction_stage"]] W.construction_stage(post-set_material)=[isnull(W.construction_stage) ? "NULL" : W.construction_stage] W.reinf_material(post-set_material)=[W.reinf_material ? W.reinf_material.name : "NULL"]")
+#endif
 		if(!isnull(content["construction_stage"]))
 			W.construction_stage = text2num(content["construction_stage"])
+#ifdef WALL_RESTORE_DIAGNOSTICS
+		log_subsystem_persistence_info("Turfs: wall restore at ([W.x],[W.y],[W.z]) -- W.construction_stage(final)=[isnull(W.construction_stage) ? "NULL" : W.construction_stage]")
+#endif
 		// After set_maxhealth(): that rewrites health when update_current_health
 		// is set (atom_health.dm), so the saved value has to land last.
 		if(!isnull(content["health"]))
@@ -253,6 +259,9 @@ GLOBAL_LIST_EMPTY(persistence_turfs_cache)
 			return
 		var/mat_name   = W.material ? replacetext(W.material.name, "'", "''") : null
 		var/reinf_name = W.reinf_material ? replacetext(W.reinf_material.name, "'", "''") : null
+#ifdef WALL_RESTORE_DIAGNOSTICS
+		log_subsystem_persistence_info("Turfs: wall SAVE at ([W.x],[W.y],[W.z]) type=[W.type] baseturf=[W.baseturf] -- material=[mat_name || "NULL"] reinf_material=[reinf_name || "NULL"] construction_stage=[isnull(W.construction_stage) ? "NULL" : W.construction_stage] health=[W.health]/[W.maxhealth]")
+#endif
 		var/wall_json = replacetext(json_encode(list("material"=mat_name,"reinf_material"=reinf_name,"health"=W.health,"construction_stage"=W.construction_stage,"under_turf"="[W.under_turf]")), "'", "''")
 		var/wtype_str = replacetext("[W.type]", "'", "''")
 		var/wbase_str = replacetext("[W.baseturf]", "'", "''")

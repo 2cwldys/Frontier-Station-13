@@ -1,7 +1,7 @@
 /*
  * Persistence - Database Backups
  * Lets an R_SERVER admin trigger scripts/db_backup (a parameter-free mysqldump +
- * 7-backup rotation, see scripts/db_backup.ps1) from in-game instead of needing
+ * 14-backup rotation, see scripts/db_backup.ps1) from in-game instead of needing
  * shell access to the host.
  *
  * Deliberately does NOT expose restore. scripts/db_restore.ps1 overwrites the live

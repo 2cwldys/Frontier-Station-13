@@ -497,6 +497,15 @@ GLOBAL_VAR_INIT(log_player_connections, TRUE)
 		. = ..()
 		src.InitClient()
 		src.InitPrefs()
+		// Hidden client verb (preferences_toggles.dm) -- only granted when the
+		// server has the feature on at all, same as masturbate() being added
+		// to a human mob's verb list only when its own preference is set
+		// (human/login.dm). Not conditioned on the preference itself: this
+		// verb IS what sets that preference, so it should stay visible
+		// whenever the server allows the feature, same as today -- just now
+		// also hidden entirely when the server doesn't.
+		if(GLOB.config.intimate_interactions_allowed)
+			verbs += /client/verb/toggle_intimate_interactions
 		src.InitUI()
 		mob.LateLogin()
 

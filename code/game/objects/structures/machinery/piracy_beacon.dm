@@ -56,12 +56,80 @@
 	var/max_fuel_credits = 50000
 	var/next_fuel_drain_time = 0
 
+	/// Independent per-beacon commodity price state, identical shape to
+	/// /obj/effect/overmap/supply_beacon (supply_beacon.dm) -- same seed
+	/// data (GLOB.supply_beacon_commodities), same drift/impact math, kept
+	/// as a genuinely separate depot in the same arbitrage network rather
+	/// than borrowing a real supply beacon's price. Sell-only: a pirate
+	/// base fences goods for cash, it doesn't stock legitimate commodities
+	/// to sell you (see supply_beacon_terminal.dm's own buy-side, which
+	/// deliberately never lists a piracy beacon as a target).
+	var/list/commodity_prices = list()
+	var/list/commodity_previous_prices = list()
+	var/list/commodity_price_high = list()
+	var/list/commodity_price_low = list()
+
 /// Every piracy beacon that currently exists -- unlike faction_beacon_by_z this
 /// isn't an exclusive per-Z claim, so it's just a flat registry.
 GLOBAL_LIST_EMPTY(piracy_beacons)
 
+/// Seeds every configured commodity's price state to its code-default base
+/// price -- identical to /obj/effect/overmap/supply_beacon's own version
+/// (supply_beacon.dm). Called unconditionally on Initialize(); a restored
+/// beacon's worldstate/persistent_objects apply_content overwrites these
+/// right after, same "seed then let a real save overwrite it" order
+/// supplyBeaconsInitialize() uses for real supply beacons.
+/obj/structure/machinery/piracy_beacon/proc/seed_default_prices()
+	for(var/key in GLOB.supply_beacon_commodities)
+		var/list/commodity = GLOB.supply_beacon_commodities[key]
+		commodity_prices[key] = commodity["base_price"]
+		commodity_previous_prices[key] = commodity["base_price"]
+		commodity_price_high[key] = commodity["base_price"]
+		commodity_price_low[key] = commodity["base_price"]
+
+/// Identical drift math to supply_beacon.dm's own tick_commodity_price() --
+/// see that proc's doc comment for the full rationale. Ticked from
+/// SSsupply_beacons.fire() alongside every real supply beacon.
+/obj/structure/machinery/piracy_beacon/proc/tick_commodity_price(commodity_key)
+	var/list/commodity = GLOB.supply_beacon_commodities[commodity_key]
+	if(!commodity)
+		return
+	var/current_price = commodity_prices[commodity_key]
+	var/base_price = commodity["base_price"]
+	var/sigma = commodity["volatility"] / 100
+	var/mean_reversion = (base_price - current_price) / max(base_price, 1) * 0.05
+	var/mu = mean_reversion + 0.5 * sigma ** 2
+	var/z = _stock_market_gaussian()
+	var/log_return = (mu - 0.5 * sigma ** 2) + sigma * z
+	if(prob(2))
+		log_return += rand(-8, 8) / 100
+	commodity_previous_prices[commodity_key] = current_price
+	current_price = max(SUPPLY_BEACON_PRICE_FLOOR, round(current_price * (2.718281828459045 ** log_return)))
+	commodity_prices[commodity_key] = current_price
+	commodity_price_high[commodity_key] = max(commodity_price_high[commodity_key], current_price)
+	commodity_price_low[commodity_key] = min(commodity_price_low[commodity_key], current_price)
+
+/// Identical to supply_beacon.dm's own apply_trade_impact() -- square-root-
+/// scaled market impact from an actual sale, clamped, selling pushes this
+/// beacon's own price down. Never called with is_buy = TRUE in practice
+/// (piracy beacons are sell-only), kept symmetric with the real beacon
+/// version anyway rather than trimming half the proc for one call site.
+/obj/structure/machinery/piracy_beacon/proc/apply_trade_impact(commodity_key, amount, is_buy)
+	var/current_price = commodity_prices[commodity_key]
+	if(isnull(current_price))
+		return
+	var/impact_pct = sqrt(amount / SUPPLY_BEACON_IMPACT_REFERENCE_QTY) * 100 * SUPPLY_BEACON_IMPACT_MULTIPLIER
+	impact_pct = min(impact_pct, SUPPLY_BEACON_IMPACT_MAX_PCT)
+	if(!is_buy)
+		impact_pct = -impact_pct
+	current_price = max(SUPPLY_BEACON_PRICE_FLOOR, round(current_price * (1 + impact_pct / 100)))
+	commodity_prices[commodity_key] = current_price
+	commodity_price_high[commodity_key] = max(commodity_price_high[commodity_key], current_price)
+	commodity_price_low[commodity_key] = min(commodity_price_low[commodity_key], current_price)
+
 /obj/structure/machinery/piracy_beacon/Initialize(mapload)
 	. = ..()
+	seed_default_prices()
 	spark_system = bind_spark(src, 5)
 	if(zone_security_get(GET_Z(src)) == ZONE_HIGHSEC)
 		log_game("Piracy beacon at ([x],[y],[z]) could not be assembled -- highsec space.")
@@ -339,15 +407,34 @@ GLOBAL_LIST_EMPTY(piracy_beacons)
 /// matching faction_beacon's own convention -- but an off beacon still
 /// holding fuel credits must still be saved, or the reserve would be lost.
 /obj/structure/machinery/piracy_beacon/worldstate_get_content()
+	// Commodity prices are always included, even when the rest of the row
+	// would otherwise be skipped -- an unpowered/untethered beacon's prices
+	// still drift (tick_commodity_price() doesn't check powered), and
+	// losing them on a save that happened to skip the row would silently
+	// reset an established price history back to base on next restore.
+	var/list/prices = list(
+		"commodity_prices" = commodity_prices,
+		"commodity_previous_prices" = commodity_previous_prices,
+		"commodity_price_high" = commodity_price_high,
+		"commodity_price_low" = commodity_price_low,
+	)
 	if(!powered && !fuel_credits && !tethered && !faction_uid)
-		return list()
-	return list("powered" = powered, "fuel_credits" = fuel_credits, "tethered" = tethered, "faction_uid" = faction_uid)
+		return prices
+	return prices + list("powered" = powered, "fuel_credits" = fuel_credits, "tethered" = tethered, "faction_uid" = faction_uid)
 
 /obj/structure/machinery/piracy_beacon/worldstate_apply_content(list/content)
 	powered = isnull(content["powered"]) ? FALSE : !!content["powered"]
 	fuel_credits = isnull(content["fuel_credits"]) ? 0 : between(0, text2num(content["fuel_credits"]), max_fuel_credits)
 	tethered = isnull(content["tethered"]) ? FALSE : !!content["tethered"]
 	faction_uid = isnull(content["faction_uid"]) ? "" : content["faction_uid"]
+	if(islist(content["commodity_prices"]))
+		commodity_prices = content["commodity_prices"]
+	if(islist(content["commodity_previous_prices"]))
+		commodity_previous_prices = content["commodity_previous_prices"]
+	if(islist(content["commodity_price_high"]))
+		commodity_price_high = content["commodity_price_high"]
+	if(islist(content["commodity_price_low"]))
+		commodity_price_low = content["commodity_price_low"]
 	if(powered && !fuel_credits)
 		powered = FALSE // no fuel -- don't silently restore as running
 	if(is_operational())
@@ -361,6 +448,13 @@ GLOBAL_LIST_EMPTY(piracy_beacons)
 /// need this second path too (tracked-objects persistence, not worldstate).
 /obj/structure/machinery/piracy_beacon/persistent_objects_get_content()
 	var/list/content = ..()
+	// Always included -- see the matching comment in worldstate_get_content()
+	// above for why prices can't be gated behind the same early-out the
+	// powered/fuel/tethered/faction fields use.
+	content["commodity_prices"] = commodity_prices
+	content["commodity_previous_prices"] = commodity_previous_prices
+	content["commodity_price_high"] = commodity_price_high
+	content["commodity_price_low"] = commodity_price_low
 	if(!powered && !fuel_credits && !tethered && !faction_uid)
 		return content
 	content["powered"] = powered
@@ -377,6 +471,10 @@ GLOBAL_LIST_EMPTY(piracy_beacons)
 	if(!isnull(content["fuel_credits"])) fuel_credits = between(0, text2num(content["fuel_credits"]), max_fuel_credits)
 	if(!isnull(content["tethered"]))     tethered     = !!content["tethered"]
 	if(!isnull(content["faction_uid"]))  faction_uid  = content["faction_uid"]
+	if(islist(content["commodity_prices"]))          commodity_prices          = content["commodity_prices"]
+	if(islist(content["commodity_previous_prices"])) commodity_previous_prices = content["commodity_previous_prices"]
+	if(islist(content["commodity_price_high"]))      commodity_price_high      = content["commodity_price_high"]
+	if(islist(content["commodity_price_low"]))       commodity_price_low       = content["commodity_price_low"]
 	if(powered && !fuel_credits)
 		powered = FALSE
 	if(is_operational())

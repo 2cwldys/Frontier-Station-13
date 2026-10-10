@@ -162,7 +162,8 @@
 				"title"        = j["title"],
 				"rank"         = isnull(j["rank"]) ? 0 : (j["rank"] + 0),
 				"pay_rate"     = isnull(j["pay_rate"]) ? 0 : (j["pay_rate"] + 0),
-				"access_descs" = acc_descs
+				"access_descs" = acc_descs,
+				"recruitable"  = !!j["recruitable"]
 			))
 		data["jobs"] = jobs_out
 
@@ -215,6 +216,7 @@
 		var/last_pay_tick = fp_cache ? (fp_cache["last_payroll_at"] || 0) : 0
 		data["last_payroll"] = last_pay_tick > 0 ? max(0, world.time - last_pay_tick) : 0
 		data["auto_payroll"] = get_faction_auto_payroll(net)
+		data["recruiting"] = get_faction_recruiting(net)
 
 		// Stock exchange listing status -- gates "List on Stock Exchange"
 		// (hidden/disabled once already listed) and "Pay Dividends" (only
@@ -314,6 +316,7 @@
 		data["known_factions"] = list()
 		data["last_payroll"]   = 0
 		data["auto_payroll"]   = TRUE
+		data["recruiting"]     = FALSE
 		data["members"]        = list()
 		data["cards_epoch"]    = 0
 		data["id_purges"]      = list()
@@ -554,7 +557,7 @@
 
 			if(!(net in GLOB.persistence_faction_jobs_cache))
 				GLOB.persistence_faction_jobs_cache[net] = list()
-			GLOB.persistence_faction_jobs_cache[net] += list(list("title"=fm_title,"access"=fm_access,"pay_rate"=fm_pay,"rank"=fm_rank))
+			GLOB.persistence_faction_jobs_cache[net] += list(list("title"=fm_title,"access"=fm_access,"pay_rate"=fm_pay,"rank"=fm_rank,"recruitable"=FALSE))
 			log_game("[key_name(user)] added faction job '[fm_title]' to [net] via faction_manage.")
 			. = TRUE
 
@@ -572,7 +575,7 @@
 					break
 			if(!ej_data) return
 
-			var/ej_sub = tgui_input_list(user, "Edit '[ej_title]':", "Edit Faction Job", list("Change Title", "Change Pay Rate", "Change Rank", "Edit Access Codes", "Cancel"))
+			var/ej_sub = tgui_input_list(user, "Edit '[ej_title]':", "Edit Faction Job", list("Change Title", "Change Pay Rate", "Change Rank", "Edit Access Codes", "Toggle Recruitable", "Cancel"))
 			if(!ej_sub || ej_sub == "Cancel") return
 
 			if(ej_sub == "Change Title")
@@ -695,6 +698,21 @@
 				ej_data["access"] = ea_access
 				to_chat(user, SPAN_GOOD("Access codes for '[ej_title]' updated ([length(ea_access)] codes)."))
 
+			else if(ej_sub == "Toggle Recruitable")
+				var/tr_new_state = !ej_data["recruitable"]
+				if(!SSpersistence.databaseCheckConnection("faction_manage edit_job recruitable"))
+					to_chat(user, SPAN_WARNING("Database connection failed."))
+					return
+				var/datum/db_query/tr_q = SSdbcore.NewQuery(
+					"UPDATE ss13_faction_jobs SET recruitable = :val WHERE faction_uid = :uid AND title = :title",
+					list("val" = tr_new_state ? 1 : 0, "uid" = net, "title" = ej_title)
+				)
+				tr_q.Execute()
+				SSpersistence.databaseCheckQueryResult(tr_q, "faction_manage edit recruitable")
+				qdel(tr_q)
+				ej_data["recruitable"] = tr_new_state
+				to_chat(user, SPAN_GOOD("'[ej_title]' is now [tr_new_state ? "recruitable" : "not recruitable"] at chargen."))
+
 			log_game("[key_name(user)] edited faction job '[ej_title]' in [net] via faction_manage.")
 			. = TRUE
 
@@ -789,6 +807,14 @@
 			var/new_state = !get_faction_auto_payroll(net)
 			set_faction_auto_payroll(net, new_state)
 			to_chat(user, SPAN_GOOD("Payroll mode set to [new_state ? "Automatic" : "Manual"] for [get_faction_name(net)]."))
+			. = TRUE
+
+		// ---- Recruiting (chargen "Faction" tab join eligibility) -------------
+		if("toggle_recruiting")
+			if(op_rank < 2) return
+			var/new_recruiting_state = !get_faction_recruiting(net)
+			set_faction_recruiting(net, new_recruiting_state)
+			to_chat(user, SPAN_GOOD("Recruiting [new_recruiting_state ? "enabled" : "disabled"] for [get_faction_name(net)]."))
 			. = TRUE
 
 #ifdef FACTION_CARGO_SPECIALIZATION

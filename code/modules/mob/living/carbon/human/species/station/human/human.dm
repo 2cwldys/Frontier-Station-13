@@ -1,6 +1,6 @@
 /datum/species/human
 	name = SPECIES_HUMAN
-	hide_name = TRUE
+	hide_name = FALSE
 	short_name = "hum"
 	name_plural = "Humans"
 	category_name = "Human"

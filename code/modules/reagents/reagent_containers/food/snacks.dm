@@ -39,6 +39,39 @@
 	else
 		. += SPAN_NOTICE("\The [src] was bitten multiple times!")
 
+// Food carries most of its interesting state in plain vars that nothing else
+// saves, so it restores pristine: a cooked steak comes back raw, a glazed donut
+// plain, a battered fillet unbattered. These two fields cover the broad cases
+// for every snack; subtypes with state of their own extend this with ..().
+/obj/item/reagent_containers/food/snacks/persistent_objects_get_content()
+	. = ..()
+	// One string covers every way a snack's sprite gets changed at runtime --
+	// meat's cook() swapping in cooked_icon, the fryer's glazed/jelly donut
+	// states, mexican.dm's halved "_half" suffix, and the shapes nugget and
+	// konaqu randomise in Initialize(). None of those are recomputed by
+	// update_icon(), so the string is the only way back to them.
+	//
+	// Only saved when it actually differs from the type's default, so an
+	// ordinary untouched snack carries no field at all.
+	if(icon_state != initial(icon_state))
+		.["food_icon_state"] = icon_state
+	// Batter/deep-fry state: drives the coated overlay and the "It's coated in
+	// [X]!" line in feedback_hints() above.
+	if(coating)
+		.["food_coating"] = "[coating]"
+
+/obj/item/reagent_containers/food/snacks/persistent_objects_apply_content(list/content, x, y, z)
+	..()
+	if(!islist(content))
+		return
+	if(content["food_icon_state"])
+		icon_state = content["food_icon_state"]
+	if(content["food_coating"])
+		coating = text2path(content["food_coating"])
+	// No update_icon() here, deliberately. deserializePersistentItem() runs one
+	// for every food item after this hook returns, so subtypes that derive
+	// their icon from restored state get it for free and nothing redraws twice.
+
 /obj/item/reagent_containers/food/snacks/proc/on_dry(var/newloc)
 	if(dried_type == type)
 		name = "dried [name]"

@@ -227,6 +227,7 @@
 			if (!do_after(M, 5 SECONDS * (1 / (anatomy ? anatomy : 1))))
 				to_chat(M, SPAN_WARNING("You must stand still to examine yourself for injuries."))
 				return
+			M.GetComponent(ANATOMY_SKILL_COMPONENT)?.register_use(M)
 
 			// Set to vanilla-equivalent for people without the skill.
 			if(!anatomy)

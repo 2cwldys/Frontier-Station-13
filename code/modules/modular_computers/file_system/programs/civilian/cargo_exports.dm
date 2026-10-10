@@ -41,6 +41,23 @@
 	/// time (never trusted blindly), same as Cargo Order's co.delivery_telepad.
 	var/obj/structure/machinery/telepad_cargo/selected_export_telepad
 
+/// The console's own-scope candidate export telepads (faction, personal, or
+/// crew -- whichever mode is active). Shared by ui_data() (to build the
+/// picker), select_telepad (to validate a pick), and export_now (to know
+/// whether a pick was actually required) so the three can't drift out of
+/// sync with each other.
+/datum/computer_file/program/civilian/cargoexports/proc/get_candidate_telepads()
+	var/net = computer ? normalize_faction_uid(computer.persistent_network) : null
+	if(net)
+		return persistence_find_cargo_telepads(net)
+	if(computer && computer.personal_ckey)
+		return persistence_find_personal_cargo_telepads(computer.personal_ckey, computer.personal_char_name)
+	if(computer && computer.crew_tagged)
+		var/datum/drydock_ship/crew_ship_for_pads = _drydock_ship_at(GET_Z(computer))
+		if(crew_ship_for_pads)
+			return persistence_find_crew_cargo_telepads(crew_ship_for_pads.shuttle_id)
+	return list()
+
 /datum/computer_file/program/civilian/cargoexports/ui_data(mob/user)
 	var/list/data = initial_data()
 	// Normalize defensively: consoles shackled before uid normalization carry
@@ -122,15 +139,7 @@
 	// cargo_telepad_choice_data(), persistence_cryo.dm).
 	data["telepad_choices"] = list()
 	data["selected_telepad_ref"] = null
-	var/list/export_candidate_pads = list()
-	if(net)
-		export_candidate_pads = persistence_find_cargo_telepads(net)
-	else if(is_personal)
-		export_candidate_pads = persistence_find_personal_cargo_telepads(computer.personal_ckey, computer.personal_char_name)
-	else if(is_crew)
-		var/datum/drydock_ship/crew_ship_for_pads = _drydock_ship_at(GET_Z(computer))
-		if(crew_ship_for_pads)
-			export_candidate_pads = persistence_find_crew_cargo_telepads(crew_ship_for_pads.shuttle_id)
+	var/list/export_candidate_pads = get_candidate_telepads()
 	data["telepad_choices"] = cargo_telepad_choice_data(export_candidate_pads, computer)
 	if(length(data["telepad_choices"]) && selected_export_telepad && !QDELETED(selected_export_telepad) && (selected_export_telepad in export_candidate_pads))
 		data["selected_telepad_ref"] = "\ref[selected_export_telepad]"
@@ -193,17 +202,7 @@
 			var/target_ref = params["select_telepad"]
 			selected_export_telepad = null
 			if(target_ref)
-				var/is_personal_pick = computer && computer.personal_ckey
-				var/is_crew_pick = computer && computer.crew_tagged
-				var/list/candidate_pads = list()
-				if(net)
-					candidate_pads = persistence_find_cargo_telepads(net)
-				else if(is_personal_pick)
-					candidate_pads = persistence_find_personal_cargo_telepads(computer.personal_ckey, computer.personal_char_name)
-				else if(is_crew_pick)
-					var/datum/drydock_ship/crew_ship_for_select = _drydock_ship_at(GET_Z(computer))
-					if(crew_ship_for_select)
-						candidate_pads = persistence_find_crew_cargo_telepads(crew_ship_for_select.shuttle_id)
+				var/list/candidate_pads = get_candidate_telepads()
 				for(var/obj/structure/machinery/telepad_cargo/pad in candidate_pads)
 					if("\ref[pad]" == target_ref)
 						selected_export_telepad = pad
@@ -221,6 +220,11 @@
 			var/is_crew = computer && computer.crew_tagged
 			if(!net && !is_personal && !is_crew)
 				status_message = "This terminal is not linked to a faction network."
+				return TRUE
+
+			var/list/candidate_pads = get_candidate_telepads()
+			if(length(candidate_pads) > 1 && !selected_export_telepad)
+				status_message = "Please select an export telepad first -- multiple eligible telepads are available."
 				return TRUE
 
 			var/datum/drydock_ship/crew_ship

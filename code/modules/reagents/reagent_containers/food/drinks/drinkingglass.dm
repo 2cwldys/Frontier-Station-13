@@ -42,6 +42,7 @@
 			if (!isnull(drink_moodlet_value))
 				src.visible_message(SPAN_NOTICE("[user] stirs \the [src] with \the [attacking_item]."))
 				src.LoadComponent(/datum/component/drink_moodlet_provider, drink_moodlet_value, FALSE, drink_quality)
+				bar_skill.register_use(user)
 	return ..()
 
 /obj/item/reagent_containers/food/drinks/drinkingglass/afterattack(var/atom/target, var/mob/user, var/proximity, var/params)

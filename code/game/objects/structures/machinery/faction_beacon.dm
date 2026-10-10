@@ -68,6 +68,13 @@
 	/// TGUI ("toggle_public_territory"), same can_configure_faction_shackle()
 	/// gate as every other faction-side control here.
 	var/public_territory = FALSE
+	/// Who may stash, retrieve or commission a ship at any drydock this beacon's
+	/// claim reaches -- one of DRYDOCK_POLICY_* (code/__DEFINES/persistence.dm).
+	/// Authoritative over any drydock control console within reach, see
+	/// drydock_policy_for_z() (persistence_shuttles.dm). Set from the TGUI
+	/// ("set_drydock_policy"), same can_configure_faction_shackle() gate as every
+	/// other faction-side control here.
+	var/drydock_stash_policy = DRYDOCK_POLICY_ALL
 	/// How many overmap sectors out (in addition to this beacon's own Z) get
 	/// their security bumped to at least medsec when the network applies.
 	/// Admin-adjustable via the TGUI. 0 = only this beacon's own Z, matching
@@ -237,16 +244,22 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 		next_security_sweep_time = world.time + FACTION_BEACON_SECURITY_SWEEP_INTERVAL
 		_apply_security_radius_grant()
 		zone_security_update_overmap()
+		_evict_raid_intruders()
 	if(world.time >= next_sweep_time)
 		next_sweep_time = world.time + FACTION_BEACON_SWEEP_INTERVAL
 		_sweep_unassigned_objects_for_faction(_station_zs(), faction_uid)
 		_evict_hazards_in_range()
 		_evict_ship_hazards_in_range()
-	if(requires_fuel && world.time >= next_fuel_drain_time)
-		next_fuel_drain_time = world.time + BEACON_FUEL_DRAIN_INTERVAL
-		fuel_credits = max(0, fuel_credits - BEACON_FUEL_DRAIN_AMOUNT)
-		if(fuel_credits <= 0)
-			_power_down(null, "ran out of fuel credits")
+	if(requires_fuel)
+		// Pausing pushes the schedule forward, so the first drain after players
+		// return is a full interval later rather than an immediate catch-up.
+		if(!GLOB.round_has_active_players)
+			next_fuel_drain_time = world.time + BEACON_FUEL_DRAIN_INTERVAL
+		else if(world.time >= next_fuel_drain_time)
+			next_fuel_drain_time = world.time + BEACON_FUEL_DRAIN_INTERVAL
+			fuel_credits = max(0, fuel_credits - BEACON_FUEL_DRAIN_AMOUNT)
+			if(fuel_credits <= 0)
+				_power_down(null, "ran out of fuel credits")
 
 /// Wrench to (un)anchor -- moving the beacon requires unwrenching it first.
 /// Must be powered off before it can be unwrenched (that already guarantees
@@ -283,7 +296,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 /obj/structure/machinery/faction_beacon/worldstate_get_content()
 	if(!faction_uid)
 		return list()
-	var/list/content = list("faction_uid" = faction_uid, "powered" = powered, "locked" = locked, "security_radius" = security_radius, "fuel_credits" = fuel_credits, "public_territory" = public_territory)
+	var/list/content = list("faction_uid" = faction_uid, "powered" = powered, "locked" = locked, "security_radius" = security_radius, "fuel_credits" = fuel_credits, "public_territory" = public_territory, "drydock_stash_policy" = drydock_stash_policy)
 	if(istype(src, /obj/structure/machinery/faction_beacon/hub))
 		var/obj/structure/machinery/faction_beacon/hub/H = src
 		content["restrict_to_hub_personnel"] = H.restrict_to_hub_personnel
@@ -296,6 +309,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	security_radius = isnull(content["security_radius"]) ? 1 : text2num(content["security_radius"])
 	fuel_credits = isnull(content["fuel_credits"]) ? 0 : between(0, text2num(content["fuel_credits"]), max_fuel_credits)
 	public_territory = isnull(content["public_territory"]) ? FALSE : !!content["public_territory"]
+	drydock_stash_policy = content["drydock_stash_policy"] || DRYDOCK_POLICY_ALL
 	if(istype(src, /obj/structure/machinery/faction_beacon/hub))
 		var/obj/structure/machinery/faction_beacon/hub/H = src
 		H.restrict_to_hub_personnel = isnull(content["restrict_to_hub_personnel"]) ? TRUE : !!content["restrict_to_hub_personnel"]
@@ -322,6 +336,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	content["security_radius"] = security_radius
 	content["fuel_credits"] = fuel_credits
 	content["public_territory"] = public_territory
+	content["drydock_stash_policy"] = drydock_stash_policy
 	if(istype(src, /obj/structure/machinery/faction_beacon/hub))
 		var/obj/structure/machinery/faction_beacon/hub/H = src
 		content["restrict_to_hub_personnel"] = H.restrict_to_hub_personnel
@@ -337,6 +352,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	if(!isnull(content["security_radius"])) security_radius = text2num(content["security_radius"])
 	if(!isnull(content["fuel_credits"]))    fuel_credits    = between(0, text2num(content["fuel_credits"]), max_fuel_credits)
 	if(!isnull(content["public_territory"])) public_territory = !!content["public_territory"]
+	if(!isnull(content["drydock_stash_policy"])) drydock_stash_policy = content["drydock_stash_policy"] || DRYDOCK_POLICY_ALL
 	if(istype(src, /obj/structure/machinery/faction_beacon/hub) && !isnull(content["restrict_to_hub_personnel"]))
 		var/obj/structure/machinery/faction_beacon/hub/H = src
 		H.restrict_to_hub_personnel = !!content["restrict_to_hub_personnel"]
@@ -702,6 +718,61 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 			log_game("Faction beacon at ([x],[y],[z]): evicted orphaned hazard event [E] from [ship] -- ship inside secured radius, hazard tile elsewhere.")
 			E.kill()
 			LAZYREMOVE(overmap_event_handler.ship_events[ship], E)
+
+/// Hardens the rule "Toggle Faction Raiding" already advertises --
+/// "disabling blocks non-members from entering any claimed faction's
+/// territory" -- from a one-time entry-point check into continuous
+/// enforcement: while raiding is disabled, anyone already standing on this
+/// beacon's claimed Zs who doesn't belong here gets moved to the Hub travel
+/// pad, the same destination Personal Travel's own "Return to Hub" action
+/// uses (personal_travel.dm). No-ops the moment raiding is re-enabled -- this
+/// never changes what raiding-enabled means, it only closes the gap where
+/// nothing enforced "disabled" against someone already inside.
+/// Membership is checked via get_effective_faction_rank() (true faction
+/// roster, persistence_factions.dm) rather than whatever ID the mob happens
+/// to be holding -- a real member with no ID (or someone else's) must never
+/// be swept, same roster the Faction Management program's member list reads.
+/// is_faction_access_whitelisted() additionally exempts specific (ckey,
+/// character_name) pairs granted individual access via this beacon's own
+/// TGUI, for a non-member/non-ally let in on purpose.
+/obj/structure/machinery/faction_beacon/proc/_evict_raid_intruders()
+	if(GLOB.faction_raiding_enabled || public_territory || istype(src, /obj/structure/machinery/faction_beacon/hub))
+		return
+	var/list/station_zs = _station_zs()
+	var/list/hub_turf_cache = list() // resolved lazily, at most once per sweep
+	for(var/mob/living/M in GLOB.mob_list)
+		CHECK_TICK
+		if(!M.ckey || !(GET_Z(M) in station_zs))
+			continue
+		// Any staff rank is immune, not just R_ADMIN -- same "any staff"
+		// bitmask jump_to_cryopod()/adminjump.dm already use elsewhere.
+		if(check_rights(R_ADMIN|R_MOD|R_DEBUG|R_DEV, 0, M))
+			continue
+		if(get_effective_faction_rank(M, faction_uid) >= 0)
+			continue
+		if(is_faction_access_whitelisted(M, faction_uid))
+			continue
+#ifdef FACTION_ALLIANCES
+		var/allied = FALSE
+		if(islist(GLOB.persistence_faction_alliances[faction_uid]))
+			for(var/allied_uid in GLOB.persistence_faction_alliances[faction_uid])
+				if(get_effective_faction_rank(M, allied_uid) >= 0)
+					allied = TRUE
+					break
+		if(allied)
+			continue
+#endif //FACTION_ALLIANCES
+		if(!length(hub_turf_cache))
+			for(var/obj/structure/machinery/telepad_cargo/travel/hub/H in world)
+				if(QDELETED(H))
+					continue
+				hub_turf_cache += get_turf(H)
+				break
+			if(!length(hub_turf_cache))
+				break // no Hub pad exists anywhere -- nothing to evict to, stop trying this sweep
+		to_chat(M, SPAN_WARNING("Faction raiding is currently disabled -- automated defenses detect you don't belong here and recall you to the Hub."))
+		log_game("Faction beacon at ([x],[y],[z]): evicted [key_name(M)] (not a member of [faction_uid]) to the Hub -- raiding disabled.")
+		M.forceMove(hub_turf_cache[1])
 
 /// Claims every UNASSIGNED (persistent_network/req_access_faction/etc.
 /// still empty) compatible object across the given Zs for the given
@@ -1144,6 +1215,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	data["max_fuel_credits"] = max_fuel_credits
 	data["requires_fuel"] = requires_fuel
 	data["public_territory"] = public_territory
+	data["drydock_stash_policy"] = drydock_stash_policy
 	data["is_hub"] = istype(src, /obj/structure/machinery/faction_beacon/hub)
 	if(data["is_hub"])
 		var/obj/structure/machinery/faction_beacon/hub/H = src
@@ -1155,6 +1227,10 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	// blocks non-members.
 	data["faction_raiding_enabled"] = GLOB.faction_raiding_enabled
 	data["hazard_eviction_active"] = _hazard_eviction_active()
+	// Specific (ckey, character_name) grants exempt from the raiding gate
+	// (entry block + eviction) regardless of membership/alliance -- see
+	// is_faction_access_whitelisted(), persistence_factions.dm.
+	data["access_whitelist"] = islist(GLOB.persistence_faction_access_whitelist_cache[faction_uid]) ? GLOB.persistence_faction_access_whitelist_cache[faction_uid] : list()
 	var/obj/effect/overmap/visitable/here = GLOB.map_sectors["[GET_Z(src)]"]
 	data["site_name"] = istype(here) ? here.name : null
 	return data
@@ -1232,6 +1308,17 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 			to_chat(user, SPAN_GOOD("Territory set to [public_territory ? "PUBLIC" : "PRIVATE"] -- [public_territory ? "non-members may enter regardless of the faction raiding toggle." : "subject to the faction raiding toggle like any other claimed territory."]"))
 			log_game("[key_name(user)] set faction beacon at ([x],[y],[z]) territory to [public_territory ? "PUBLIC" : "PRIVATE"].")
 			. = TRUE
+		if("set_drydock_policy")
+			if(!can_configure_faction_shackle(user, faction_uid, 1))
+				to_chat(user, SPAN_WARNING("You need command access in [faction_uid ? get_faction_name(faction_uid) : "this beacon's faction"] to change this."))
+				return
+			var/new_policy = params["policy"]
+			if(!(new_policy in list(DRYDOCK_POLICY_ALL, DRYDOCK_POLICY_FACTION, DRYDOCK_POLICY_ALLIED, DRYDOCK_POLICY_NONE)))
+				return
+			drydock_stash_policy = new_policy
+			to_chat(user, SPAN_GOOD("Drydock access within this claim set to [drydock_stash_policy]."))
+			log_game("[key_name(user)] set faction beacon at ([x],[y],[z]) drydock access to [drydock_stash_policy].")
+			. = TRUE
 		if("toggle_hub_personnel_restriction")
 			if(!istype(src, /obj/structure/machinery/faction_beacon/hub))
 				return
@@ -1257,6 +1344,46 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 				return
 			to_chat(user, SPAN_GOOD("[new_site_name != "" ? "Site renamed to '[new_site_name]'" : "Site name restored to its default"] -- persists across reboots."))
 			log_game("[key_name(user)] [new_site_name != "" ? "renamed pinned site to '[new_site_name]'" : "cleared pinned site custom name"] via faction beacon at ([x],[y],[z]).")
+			. = TRUE
+		if("add_access_whitelist")
+			if(!can_configure_faction_shackle(user, faction_uid, 1))
+				to_chat(user, SPAN_WARNING("You need command access in [faction_uid ? get_faction_name(faction_uid) : "this beacon's faction"] to manage its access whitelist."))
+				return
+			if(!faction_uid)
+				return
+			var/add_ckey = tgui_input_text(user, "Ckey to whitelist (not a display name -- their login/account name):", "Access Whitelist", max_length = 32)
+			if(isnull(add_ckey) || add_ckey == "")
+				return
+			add_ckey = ckey(add_ckey)
+			var/add_name = tgui_input_text(user, "Exact character name for '[add_ckey]' (locks the grant to this one character, not every alt they play):", "Access Whitelist", max_length = 64)
+			if(isnull(add_name) || add_name == "")
+				return
+			if(!SSpersistence.factionAddAccessWhitelist(faction_uid, add_ckey, add_name, user.ckey))
+				to_chat(user, SPAN_WARNING("Database connection failed -- whitelist entry not saved."))
+				return
+			to_chat(user, SPAN_GOOD("'[add_name]' ([add_ckey]) may now access [get_faction_name(faction_uid)]'s territory regardless of the faction raiding toggle."))
+			log_and_message_admins("whitelisted '[add_name]' ([add_ckey]) for [get_faction_name(faction_uid)]'s territory access via a faction beacon at ([x],[y],[z]).", user)
+			. = TRUE
+		if("remove_access_whitelist")
+			if(!can_configure_faction_shackle(user, faction_uid, 1))
+				to_chat(user, SPAN_WARNING("You need command access in [faction_uid ? get_faction_name(faction_uid) : "this beacon's faction"] to manage its access whitelist."))
+				return
+			var/list/entries = islist(GLOB.persistence_faction_access_whitelist_cache[faction_uid]) ? GLOB.persistence_faction_access_whitelist_cache[faction_uid] : list()
+			if(!length(entries))
+				to_chat(user, SPAN_WARNING("The access whitelist is empty."))
+				return
+			var/list/choices = list()
+			for(var/list/entry in entries)
+				choices["[entry["character_name"]] ([entry["ckey"]])"] = entry
+			var/pick = tgui_input_list(user, "Remove which access whitelist entry?", "Access Whitelist", choices)
+			if(!pick)
+				return
+			var/list/chosen = choices[pick]
+			if(!SSpersistence.factionRemoveAccessWhitelist(faction_uid, chosen["ckey"], chosen["character_name"]))
+				to_chat(user, SPAN_WARNING("Database connection failed -- whitelist entry not removed."))
+				return
+			to_chat(user, SPAN_GOOD("Removed '[chosen["character_name"]]' ([chosen["ckey"]]) from the access whitelist."))
+			log_and_message_admins("removed '[chosen["character_name"]]' ([chosen["ckey"]]) from [get_faction_name(faction_uid)]'s territory access whitelist via a faction beacon at ([x],[y],[z]).", user)
 			. = TRUE
 
 /// Shared power-toggle body -- used by the TGUI's "toggle_power" action.
@@ -1289,6 +1416,16 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	powered = FALSE
 	_release_security_grants()
 	_release_persistence_save()
+#ifdef FACTION_BEACON_AUTO_PRUNE_ON_POWER_DOWN
+	// Any power-down -- manual, fuel exhaustion, or bankruptcy -- purges
+	// immediately. Safe to do unconditionally: this only touches on-disk DB
+	// rows, never the live round, so powering back on (this beacon or a
+	// different one) just re-claims and saves fresh next cycle, same as any
+	// newly-claimed site's first save. See _compile_options.dm.
+	for(var/z in _station_zs())
+		SSpersistence.purgeZRows(z)
+	log_game("Faction beacon at ([x],[y],[z]): auto-pruned persistence rows for z-level(s) [english_list(_station_zs())] on power-down[reason ? " ([reason])" : ""].")
+#endif
 	_release_site_pin()
 	_release_swept_objects()
 	active = FALSE

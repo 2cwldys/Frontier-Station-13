@@ -36,9 +36,11 @@
 
 	// Don't modify the "Forward" throttle no matter the skill level. All other directions are slower than this for mechs.
 	if (direction == NORTH)
+		register_use(user)
 		return
 
 	*delay_modifier = *delay_modifier + (skill_diff_reference - skill_level) * move_delay_per_skill_diff
+	register_use(user)
 
 /datum/component/skill/pilot_mechs/proc/handle_user_strafe(mob/living/user, direction, delay_modifier)
 	SIGNAL_HANDLER
@@ -51,6 +53,7 @@
 		*direction = angle2dir(dir2angle(direction) + 180)
 
 	*delay_modifier = *delay_modifier + (skill_diff_reference - skill_level) * move_delay_per_skill_diff
+	register_use(user)
 
 /datum/component/skill/pilot_mechs/proc/handle_toggle_power(mob/user, cancelled, delay)
 	SIGNAL_HANDLER

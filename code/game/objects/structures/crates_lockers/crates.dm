@@ -813,6 +813,15 @@
 	/// rather than looked up so it still reads correctly if the beacon is
 	/// later renamed or removed entirely.
 	var/origin_beacon_label
+	/// get_supply_beacon_source_key()-style identity string ("faction:<uid>" /
+	/// "personal:<ckey>|<name>" / "crew:<shuttle_id>") of whoever bought this
+	/// crate. A piracy beacon refuses to buy a crate back from the same
+	/// identity that purchased it -- see the Supply Beacon Terminal's sell
+	/// handler -- so this is the "stolen goods only" check. Permanent
+	/// property like origin_beacon_id, not a timer. Null/unset crates
+	/// (spawned some other way, e.g. pre-existing saves) are treated as
+	/// sellable -- there's no record they were self-purchased.
+	var/purchaser_source_key
 
 /obj/structure/closet/crate/supply_beacon/can_open()
 	return FALSE
@@ -862,6 +871,8 @@
 		return FALSE
 	if(other.origin_beacon_id != origin_beacon_id)
 		return FALSE
+	if(other.purchaser_source_key != purchaser_source_key)
+		return FALSE
 	return TRUE
 
 /// Folds any stackable sibling already on this turf into src, deleting them.
@@ -910,6 +921,7 @@
 	new_stack.commodity_key = commodity_key
 	new_stack.origin_beacon_id = origin_beacon_id
 	new_stack.origin_beacon_label = origin_beacon_label
+	new_stack.purchaser_source_key = purchaser_source_key
 	new_stack.amount = split_amount
 	new_stack.refresh_label()
 
@@ -935,6 +947,121 @@
 	name = "sealed pyrolite crate"
 	desc = "A tamper-proof crate marked PYROLITE. The seal can't be broken by any means -- it's meant to be traded, not opened."
 	commodity_key = "pyrolite"
+
+/obj/structure/closet/crate/supply_beacon/umbrite
+	name = "sealed umbrite crate"
+	desc = "A tamper-proof crate marked UMBRITE. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "umbrite"
+
+/obj/structure/closet/crate/supply_beacon/ferrocite
+	name = "sealed ferrocite crate"
+	desc = "A tamper-proof crate marked FERROCITE. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "ferrocite"
+
+/obj/structure/closet/crate/supply_beacon/thermyl
+	name = "sealed thermyl crate"
+	desc = "A tamper-proof crate marked THERMYL. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "thermyl"
+
+/obj/structure/closet/crate/supply_beacon/chitenol
+	name = "sealed chitenol crate"
+	desc = "A tamper-proof crate marked CHITENOL. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "chitenol"
+
+/obj/structure/closet/crate/supply_beacon/nexolite
+	name = "sealed nexolite crate"
+	desc = "A tamper-proof crate marked NEXOLITE. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "nexolite"
+
+/obj/structure/closet/crate/supply_beacon/solvanium
+	name = "sealed solvanium crate"
+	desc = "A tamper-proof crate marked SOLVANIUM. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "solvanium"
+
+/obj/structure/closet/crate/supply_beacon/cryolen
+	name = "sealed cryolen crate"
+	desc = "A tamper-proof crate marked CRYOLEN. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "cryolen"
+
+/obj/structure/closet/crate/supply_beacon/sporyn
+	name = "sealed sporyn crate"
+	desc = "A tamper-proof crate marked SPORYN. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "sporyn"
+
+/obj/structure/closet/crate/supply_beacon/quantite
+	name = "sealed quantite crate"
+	desc = "A tamper-proof crate marked QUANTITE. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "quantite"
+
+/obj/structure/closet/crate/supply_beacon/lumenite
+	name = "sealed lumenite crate"
+	desc = "A tamper-proof crate marked LUMENITE. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "lumenite"
+
+/obj/structure/closet/crate/supply_beacon/vitralex
+	name = "sealed vitralex crate"
+	desc = "A tamper-proof crate marked VITRALEX. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "vitralex"
+
+/obj/structure/closet/crate/supply_beacon/rustanium
+	name = "sealed rustanium crate"
+	desc = "A tamper-proof crate marked RUSTANIUM. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "rustanium"
+
+/obj/structure/closet/crate/supply_beacon/structural_alloy
+	name = "sealed structural alloy crate"
+	desc = "A tamper-proof crate marked STRUCTURAL ALLOY. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "structural_alloy"
+
+/obj/structure/closet/crate/supply_beacon/machine_parts
+	name = "sealed machine parts crate"
+	desc = "A tamper-proof crate marked MACHINE PARTS. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "machine_parts"
+
+/obj/structure/closet/crate/supply_beacon/cryo_coolant
+	name = "sealed cryogenic coolant crate"
+	desc = "A tamper-proof crate marked CRYOGENIC COOLANT. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "cryo_coolant"
+
+/obj/structure/closet/crate/supply_beacon/weapon_components
+	name = "sealed weapon components crate"
+	desc = "A tamper-proof crate marked WEAPON COMPONENTS. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "weapon_components"
+
+/obj/structure/closet/crate/supply_beacon/salvaged_electronics
+	name = "sealed salvaged electronics crate"
+	desc = "A tamper-proof crate marked SALVAGED ELECTRONICS. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "salvaged_electronics"
+
+/obj/structure/closet/crate/supply_beacon/scrap_metal
+	name = "sealed scrap metal crate"
+	desc = "A tamper-proof crate marked SCRAP METAL. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "scrap_metal"
+
+/obj/structure/closet/crate/supply_beacon/preserved_food
+	name = "sealed preserved foodstuffs crate"
+	desc = "A tamper-proof crate marked PRESERVED FOODSTUFFS. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "preserved_food"
+
+/obj/structure/closet/crate/supply_beacon/exotic_spices
+	name = "sealed exotic spices crate"
+	desc = "A tamper-proof crate marked EXOTIC SPICES. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "exotic_spices"
+
+/obj/structure/closet/crate/supply_beacon/medical_supplies
+	name = "sealed medical supplies crate"
+	desc = "A tamper-proof crate marked MEDICAL SUPPLIES. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "medical_supplies"
+
+/obj/structure/closet/crate/supply_beacon/fine_jewelry
+	name = "sealed fine jewelry crate"
+	desc = "A tamper-proof crate marked FINE JEWELRY. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "fine_jewelry"
+
+/obj/structure/closet/crate/supply_beacon/fine_art
+	name = "sealed fine art crate"
+	desc = "A tamper-proof crate marked FINE ART. The seal can't be broken by any means -- it's meant to be traded, not opened."
+	commodity_key = "fine_art"
 
 /obj/structure/closet/crate/drinks
 	name = "exotic drinks crate"

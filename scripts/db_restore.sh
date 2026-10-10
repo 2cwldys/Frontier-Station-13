@@ -4,7 +4,7 @@
 # With no arguments, lists the backups/ rotation sorted by timestamp and lets
 # you pick one. With -p/--path FILE, restores from any .sql you point it at --
 # an archived dump, a copy pulled aside before a risky test, anything that is
-# not part of the 7-deep rotation.
+# not part of the 14-deep rotation.
 #
 # Native translation of db_restore.ps1 -- no PowerShell dependency.
 #

@@ -10,6 +10,16 @@
 // If defined, the sunlight system is enabled. Caution: this uses a LOT of memory.
 //#define ENABLE_SUNLIGHT
 
+// ============================================================
+// FRONTIER STATION -- fork-specific compile options below.
+// Everything from here down to "END FRONTIER STATION" is unique to this
+// fork and does not exist in the upstream Aurora.3 codebase (Aurorastation/
+// Aurora.3) -- kept together in one block, separate from the
+// upstream-matching entries above and the upstream build-tooling cascade
+// below, so future merges from upstream only ever touch those two
+// untouched regions.
+// ============================================================
+
 // If defined, the Missions Board's "kill" mission type is offered/active again.
 // Disabled by default -- missions currently only offer "fetch" and "visit".
 //#define ENABLE_KILL_MISSIONS
@@ -56,6 +66,14 @@
 // chased.
 #define WALL_RESTORE_DIAGNOSTICS
 
+// If defined, /datum/hud/instantiate() (hud.dm) logs whether
+// apply_gameui_border() actually landed the decorative window border in
+// mymob.screens/client.screen, and its resolved transform/view size, right
+// after calling it -- for chasing a report that the border never shows for
+// the new_player/lobby mob despite being designed to (allstate = 1,
+// fullscreen.dm). Comment out once resolved.
+#define GAMEUI_BORDER_DIAGNOSTICS
+
 // If defined, wall-mounted machine save/restore logs each machine's
 // type/position/dir/pixel offset at save time and at worldstate restore
 // time -- so a mismatch can be diagnosed by comparing what was saved
@@ -64,6 +82,16 @@
 // values matching exactly. Defined by default while wall-mount positioning
 // is still being actively chased.
 #define WALL_MACHINE_DIAGNOSTICS
+
+// If defined, logs the shoes slot specifically at mob inventory save and
+// restore time -- what's actually equipped there, whether it's identified as
+// a rig/voidsuit's own component (_persistence_item_is_suit_component(),
+// persistence_mobs.dm), and what the rig's own boots-deploy attempt
+// (toggle_piece(), rig.dm) does when it runs. For chasing a report of boots
+// worn under a sealed rig being lost across a cryo save/restore cycle --
+// comment out to strip it entirely. Defined by default while this is still
+// being actively chased.
+#define RIG_BOOT_RESTORE_DIAGNOSTICS
 
 // If defined, fastening a pipe fitting logs its pipe_type/dir/pipe_dir
 // before construction (construction.dm), and explicitly logs when no case
@@ -77,6 +105,14 @@
 // whether its extra state blob was built, and which restore branch ran on
 // the next boot. Purely diagnostic -- comment out to strip it entirely.
 //#define PERSISTENCE_FLOOR_ITEM_DEBUG
+
+// If defined, every lobby music track switch (_advance_lobby_track(),
+// sound.dm) logs the track name, the real elapsed time since the previous
+// switch, and that track's own known length from lobby_track_durations
+// (_lobby_track_durations.dm) -- so a report of a track cutting off early can
+// be checked against a real timestamped record instead of going on ear alone.
+// Defined by default while this is actively being chased.
+#define LOBBY_MUSIC_DIAGNOSTICS
 
 // If defined, real (non-Hub) factions are limited to ONE cargo order
 // category, chosen at founding and changeable later (command rank, 1-month
@@ -180,6 +216,42 @@
 // periodic timer.
 #define LOBBY_EMPTY_AUTOSAVE
 
+// If defined, objectsFinalize() (persistence_objects.dm) permanently deletes
+// duplicate ss13_persistent_objects rows at the start of every periodic
+// autosave, before writing this cycle's fresh data -- same (type, x, y, z,
+// map_path) with more than one row, keep only the highest id (the most
+// recently created), delete the rest, and ONLY if the row being deleted is
+// already expired (expires_at <= NOW()). Never touches an active row or the
+// one row being kept, so it can't remove anything a player would actually
+// see in the world -- see objectsCleanupDuplicateEntries()
+// (persistence_objects_sql.dm) for the exact query.
+//
+// This exists because reviving every expired row after the periodic save
+// stalls (scripts/db_fix_expired_objects.ps1) can put more than one active
+// row at the same spot if one of them had actually been superseded on
+// purpose -- multiple copies of the same structure then spawn stacked on
+// top of each other. Running this every cycle keeps that from accumulating
+// again between now and whenever the underlying stall is fixed.
+//
+// Off by default -- new and not yet battle-tested against live data; the
+// standalone scripts/db_fix_expired_objects.ps1 -Apply already does the
+// same cleanup by hand, on demand, without needing this compiled in.
+#define AUTO_DB_CLEANUP
+
+// If defined, a faction beacon powering off for ANY reason (_power_down(),
+// faction_beacon.dm -- manual TGUI toggle, ran out of fuel credits, or
+// faction bankruptcy) also immediately purges its station's saved
+// persistence rows (SSpersistence.purgeZRows(), persistence_zlevel_reset.dm)
+// -- the same cleanup an admin can already do by hand via "Unpin Site"/
+// "Remove Away Site" -> Purge. Without this, the Z just stops saving/loading
+// (setZLevelPersistence()'s own doc comment: "doesn't wipe anything") and
+// its old rows sit in the DB as dead duplicates forever. Purging only
+// touches on-disk DB rows, never the live round, so powering the same (or a
+// different) beacon back on afterward works normally -- the next save just
+// writes fresh rows, same as any newly-claimed site's first save. Off by
+// default.
+#define FACTION_BEACON_AUTO_PRUNE_ON_POWER_DOWN
+
 // If defined, growing a clone through the resleeving pipeline
 // (order_clone_from_lace(), resleever_cloning.dm) charges CLONE_ORDER_COST --
 // to the faction when the cloning pod and resleever are both tagged to the
@@ -192,6 +264,32 @@
 /// here rather than beside the pipeline so the machine, its UI data and the
 /// billing path all read one number.
 #define CLONE_ORDER_COST 10000
+/// How long a resleeving-pipeline clone takes to grow after being ordered
+/// (order_clone_from_lace()/_finish_clone_growth(), resleever_cloning.dm) --
+/// previously instant, which read as the fee buying an already-finished body.
+#define CLONE_GROWTH_TIME 90 SECONDS
+
+/// Credits charged to print a blank IPC chassis from the prosthetics
+/// fabricator (bioprinter.dm's "IPC Body" product) -- billed the same
+/// faction-if-tagged-and-member/personal-otherwise way CLONE_ORDER_COST is,
+/// but always charged regardless of CLONING_COSTS_CREDITS: this is a
+/// deliberately steep, separate cost for the one legitimate way to get a
+/// synthetic body to resleeve into, not the ordinary (optionally free)
+/// organic clone path.
+#define IPC_BODY_CREDIT_COST 5000
+/// Stored-matter cost of the same print -- a large fraction of the
+/// fabricator's default max_stored_matter (500), so affording one takes a
+/// heavily-fed printer on top of the credit charge.
+#define IPC_BODY_MATTER_COST 400
+
+/// Fraction of a full training bar (GLOB.config.skill_train_progress_needed)
+/// a teacher's OWN progress in a skill costs them per successful Teach
+/// Skills lesson (skill_verbs.dm) -- a FIXED amount subtracted each time,
+/// not a percentage of their current value (that would approach but never
+/// reach zero). Keeps teaching from being an infinite, free action -- a
+/// teacher has to keep practicing (or being taught themselves) to keep
+/// teaching indefinitely, the same as anyone else avoiding decay.
+#define SKILL_TEACH_COST_FRACTION 0.5
 
 // If defined, the server launches the Discord status bot
 // (scripts/discord_status_bot.py) on startup and kills it when the server
@@ -222,6 +320,33 @@
 // so opting in should be deliberate.
 #define AUTO_SUSPEND_RAIDING_WHEN_UNSTAFFED
 
+// If defined (default), frontier.dm spawns extra guaranteed "lone asteroid"
+// away sites (bonus_away_site_counts, map.dm) on top of the normal weighted
+// budget draw -- "lone asteroid" is actually two independent templates
+// sharing that display name (cursed, abandoned_bunker), each with its own
+// tunable count below. Doesn't come out of away_site_budget, so no other
+// away-site type is affected. Independent of FRONTIER_BONUS_PHORON_DEPOSITS
+// below -- either can be toggled without the other. Comment out to rely
+// purely on the normal budget lottery for these two templates, same as any
+// other map.
+#define FRONTIER_BONUS_LONE_ASTEROIDS
+/// Extra "cursed" template instances spawned while
+/// FRONTIER_BONUS_LONE_ASTEROIDS is defined.
+#define FRONTIER_BONUS_CURSED_COUNT 1
+/// Extra "abandoned_bunker" template instances (the OTHER template sharing
+/// the "lone asteroid" display name) spawned while
+/// FRONTIER_BONUS_LONE_ASTEROIDS is defined.
+#define FRONTIER_BONUS_ABANDONED_BUNKER_COUNT 1
+
+// If defined (default), frontier.dm spawns extra guaranteed "phoron
+// deposit" away sites the same way -- independent of
+// FRONTIER_BONUS_LONE_ASTEROIDS above. Comment out to rely purely on the
+// normal budget lottery for this site type.
+#define FRONTIER_BONUS_PHORON_DEPOSITS
+/// Extra "deposit" template instances spawned while
+/// FRONTIER_BONUS_PHORON_DEPOSITS is defined.
+#define FRONTIER_BONUS_DEPOSIT_COUNT 2
+
 // If defined, faction-tagged equipment can only be WORN by people employed by
 // that faction (can_use_faction_equipment(), persistence_factions.dm) -- gated
 // in mob_can_equip() (items.dm) so every equip route is covered at once.
@@ -250,6 +375,50 @@
 // nearby (playsound()), throttled to once per 4.5 seconds per device so
 // rapid clicking doesn't spam it. Off -- no click sound.
 #define PADD_BUTTON_PRESS_SOUNDS
+
+// Font choices selectable for GOONCHAT_CUSTOM_FONT below -- each one's font
+// file lives under browserassets/fonts/, and browserOutput.css already
+// declares an @font-face for every option here plus lists them all in the
+// chat body's font stack, so switching which one is picked below is the
+// only step needed: the others simply never get shipped and are skipped by
+// the browser's own font-fallback. Add a new option by dropping its file in
+// browserassets/fonts/, giving it a new constant here, and adding a
+// matching #if branch in asset_cache.dm/browserOutput.dm (ship the file)
+// and an @font-face + font-stack entry in browserOutput.css.
+#define GOONCHAT_FONT_NONE 0
+#define GOONCHAT_FONT_INDUSTRIA_SOLID 1
+#define GOONCHAT_FONT_DEX_GOTHIC 2
+#define GOONCHAT_FONT_HANDEL_GOTHIC 3
+
+// Which of the GOONCHAT_FONT_* choices above the goonchat browser output
+// window (browserOutput.dm, asset_cache.dm) actually ships to the client
+// and uses for its body font-family (browserOutput.css). Set to 0
+// (GOONCHAT_FONT_NONE) to ship no custom font at all -- falls back to Roboto
+// Condensed.
+//
+// Deliberately the literal number rather than the GOONCHAT_FONT_* constant it
+// corresponds to. The #if comparisons that read this (asset_cache.dm:8 and
+// :37, browserOutput.dm:53) cannot resolve a macro whose body is itself
+// another macro name -- DM's preprocessor stops after one expansion there and
+// fails with "unexpected token". Keep this a bare number matching one of the
+// constants above.
+#define GOONCHAT_CUSTOM_FONT 1 // GOONCHAT_FONT_INDUSTRIA_SOLID
+
+/// Base chat text size, in px, for the goonchat browser output window.
+/// browserOutput.css itself has no font-size on body -- assert_chat_html()
+/// (browserOutput.dm) injects a "body{font-size:...}" <style> tag into the
+/// chat HTML right before </head> at browse() time, using this value, so
+/// changing it needs no CSS edit. Bumped above the original 13px default
+/// since GOONCHAT_CUSTOM_FONT's display faces read smaller/tighter than
+/// Roboto Condensed at the same pixel size.
+#define GOONCHAT_FONT_SIZE 21
+
+// ============================================================
+// END FRONTIER STATION -- everything below this line is unmodified
+// upstream Aurora.3 build tooling (PRELOAD_RSC, TESTING/UNIT_TEST/
+// CIBUILDING/CBT setup). Add new fork-specific defines above this point,
+// inside the FRONTIER STATION block -- not below it.
+// ============================================================
 
 // We want to use external resources. Kthx.
 #define PRELOAD_RSC 0

@@ -109,6 +109,12 @@
 	pixel_x = dir & (NORTH|SOUTH) ? 0 : (dir == EAST ? -13 : 13)
 	pixel_y = dir & (NORTH|SOUTH) ? (dir == NORTH ? -3 : DEFAULT_WALL_OFFSET) : 0
 
+/obj/structure/machinery/camera/persistence_reapply_wall_offset()
+	set_pixel_offsets()
+
+/obj/structure/machinery/camera/persistence_self_heal_wall_offset()
+	set_pixel_offsets()
+
 /obj/structure/machinery/camera/process()
 	if((stat & EMPED) && world.time >= affected_by_emp_until)
 		stat &= ~EMPED

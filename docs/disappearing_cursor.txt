@@ -1,0 +1,32 @@
+DISAPPEARING / FADED MOUSE CURSOR
+=================================
+
+SYMPTOM
+-------
+The mouse pointer fades out or vanishes over the game map while typing in the tgui say
+box. It also happens on pressing Enter with nothing typed in it. The pointer stays gone
+until you move the mouse over the goonchat window or verb panel, then it comes back.
+
+CAUSE
+-----
+Windows' "Hide pointer while typing" setting. It is a stock Windows mouse feature, on
+by default on many systems, that hides the pointer whenever you type into a text input
+and brings it back as soon as you move the mouse.
+
+That is why it looks like it "comes back when I hover the chat panel" -- the pointer
+returns because you moved the mouse, not because of where you moved it.
+
+FIX
+---
+Per-machine, so each affected player fixes it on their own end:
+
+  1. Win+R -> main.cpl
+  2. "Pointer Options" tab
+  3. Untick "Hide pointer while typing"
+
+NOT A CODE BUG
+--------------
+This is not a plane, render-layer, or HUD problem, and nothing in the codebase needs
+changing. The mouse pointer is drawn by Windows on top of everything BYOND draws, so no
+plane master, render plate, or fullscreen overlay can dim it. Confirmed fixed purely by
+turning the Windows setting off.

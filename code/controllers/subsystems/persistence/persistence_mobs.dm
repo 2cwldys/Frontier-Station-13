@@ -335,6 +335,13 @@ GLOBAL_LIST_EMPTY(persistence_health_cache)
 									lace.registered_name = aug_data["registered_name"] || ""
 									lace.registered_ckey = aug_data["registered_ckey"] || ""
 									lace.owner_faction   = aug_data["owner_faction"] || ""
+									// Restore whatever dna/species this lace was last
+									// synced to via replaced() -- new() above just built
+									// it fresh with neither, same gap that used to make
+									// every restore drop the sync a resleeve/transplant
+									// had applied. See persistence_lace_dna.dm.
+									if(lace.registered_ckey && lace.registered_name)
+										lace.apply_lace_dna_snapshot(SSpersistence.charLaceDnaResolve(lace.registered_ckey, lace.registered_name))
 							catch(var/exception/aug_e)
 								log_subsystem_persistence_error("MobHealth: Failed to restore augment [aug_type_str] for [real_name]: [aug_e]")
 
@@ -613,7 +620,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		return
 
 	var/datum/db_query/query = SSdbcore.NewQuery(
-		"SELECT ckey, char_name, x, y, z, char_state, in_lace, lace_pod_x, lace_pod_y, lace_pod_z, last_pod_x, last_pod_y, last_pod_z, imprisoned, imprisoned_until, imprisoned_by_faction_uid FROM ss13_mob_position",
+		"SELECT ckey, char_name, x, y, z, char_state, in_lace, lace_pod_x, lace_pod_y, lace_pod_z, last_pod_x, last_pod_y, last_pod_z, imprisoned, imprisoned_until, imprisoned_by_faction_uid, last_synth_x, last_synth_y, last_synth_z FROM ss13_mob_position",
 		list()
 	)
 	query.Execute()
@@ -639,7 +646,10 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			"last_pod_z"                = text2num(query.item[13]),
 			"imprisoned"                = text2num(query.item[14]),
 			"imprisoned_until"          = query.item[15],
-			"imprisoned_by_faction_uid" = query.item[16]
+			"imprisoned_by_faction_uid" = query.item[16],
+			"last_synth_x"              = text2num(query.item[17]),
+			"last_synth_y"              = text2num(query.item[18]),
+			"last_synth_z"              = text2num(query.item[19])
 		)
 		loaded++
 
@@ -653,7 +663,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 /proc/persistence_delete_character_data(ckey, char_name)
 	if(!GLOB.config.sql_enabled || !SSdbcore.Connect())
 		return
-	var/tables = list("ss13_char_health", "ss13_char_inventory", "ss13_char_identity", "ss13_mob_position")
+	var/tables = list("ss13_char_health", "ss13_char_inventory", "ss13_char_identity", "ss13_mob_position", "ss13_char_skills", "ss13_char_lace_dna", "ss13_char_lace_position")
 	for(var/table in tables)
 		var/datum/db_query/q = SSdbcore.NewQuery(
 			"DELETE FROM [table] WHERE ckey = :ckey AND char_name = :char_name",
@@ -684,6 +694,32 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	GLOB.persistence_identity_cache  -= key
 	GLOB.persistence_position_cache  -= key
 	GLOB.persistence_economy_cache   -= key
+
+	// Faction membership -- ss13_faction_members is unique on (ckey,
+	// faction_uid), not (ckey, char_name, faction_uid), but it DOES store
+	// real_name per row -- one ckey can hold membership in several factions
+	// at once, each row stamped with whichever character actually joined
+	// that particular faction. Filtering this lookup by real_name = char_name
+	// is what scopes the removal to just the character being deleted --
+	// without it, a ckey with e.g. Character A in Faction 1 and Character B
+	// in Faction 2 would lose BOTH memberships when only Character A gets
+	// deleted. factionRemoveMember() already handles the local row, the
+	// central-db mirror, and the in-memory cache in one call
+	// (persistence_factions.dm), so this only needs to enumerate which
+	// factions to call it for.
+	var/datum/db_query/fq = SSdbcore.NewQuery(
+		"SELECT faction_uid FROM ss13_faction_members WHERE ckey = :ckey AND real_name = :char_name",
+		list("ckey" = ckey, "char_name" = char_name)
+	)
+	fq.Execute()
+	SSpersistence.databaseCheckQueryResult(fq, "persistence_delete_character_data (faction lookup)")
+	var/list/member_of = list()
+	while(fq.NextRow())
+		member_of += fq.item[1]
+	qdel(fq)
+	for(var/faction_uid in member_of)
+		SSpersistence.factionRemoveMember(ckey, faction_uid)
+
 	log_world("Persistence: Deleted all data for character '[char_name]' ([ckey]).")
 
 /**
@@ -858,6 +894,44 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 	SSpersistence._centralCharacterPartialUpdate("ss13_mob_position",
 		list("last_pod_x", "last_pod_y", "last_pod_z"),
 		list(pod.x, pod.y, pod.z),
+		ckey, char_name)
+
+/// IPC counterpart to persistence_set_last_pod() above -- deliberately
+/// separate columns (last_synth_x/y/z), not a reuse of last_pod_x/y/z,
+/// since those are specifically read back by persistence_find_saved_cryopod()
+/// searching for a /obj/structure/machinery/cryopod -- IPCs no longer use
+/// cryopods at all (cryopod.dm's check_occupant_allowed() refuses them), so
+/// sharing the column would risk corrupting its meaning for every other
+/// human character.
+/proc/persistence_set_last_synthetic_storage(ckey, char_name, obj/structure/machinery/recharge_station/synthetic_storage/unit)
+	if(!GLOB.config.sql_enabled || !ckey || !char_name)
+		return
+	if(!istype(unit) || !unit.z)
+		return
+	if(!SSpersistence.databaseCheckConnection("persistence_set_last_synthetic_storage"))
+		return
+
+	var/datum/db_query/upd = SSdbcore.NewQuery(
+		{"UPDATE ss13_mob_position SET last_synth_x = :x, last_synth_y = :y, last_synth_z = :z
+		WHERE ckey = :ckey AND char_name = :char_name"},
+		list("ckey" = ckey, "char_name" = char_name, "x" = unit.x, "y" = unit.y, "z" = unit.z)
+	)
+	upd.Execute()
+	SSpersistence.databaseCheckQueryResult(upd, "persistence_set_last_synthetic_storage")
+	qdel(upd)
+
+	var/key = "[ckey]|[char_name]"
+	var/list/entry = GLOB.persistence_position_cache[key]
+	if(!islist(entry))
+		entry = list()
+		GLOB.persistence_position_cache[key] = entry
+	entry["last_synth_x"] = unit.x
+	entry["last_synth_y"] = unit.y
+	entry["last_synth_z"] = unit.z
+
+	SSpersistence._centralCharacterPartialUpdate("ss13_mob_position",
+		list("last_synth_x", "last_synth_y", "last_synth_z"),
+		list(unit.x, unit.y, unit.z),
 		ckey, char_name)
 
 /**
@@ -1155,7 +1229,7 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		var/list/row = SSpersistence._centralCharacterReadThrough("ss13_mob_position",
 			list("x", "y", "z", "char_state", "in_lace", "lace_pod_x", "lace_pod_y", "lace_pod_z",
 				"last_pod_x", "last_pod_y", "last_pod_z", "imprisoned", "imprisoned_until", "imprisoned_by_faction_uid",
-				"faction_bound", "faction_bound_uid"),
+				"faction_bound", "faction_bound_uid", "last_synth_x", "last_synth_y", "last_synth_z"),
 			ckey, real_name)
 		if(!row)
 			_persistentSpawnDefault()
@@ -1176,18 +1250,22 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 			"imprisoned_until"          = row[13],
 			"imprisoned_by_faction_uid" = row[14],
 			"faction_bound"             = text2num(row[15]),
-			"faction_bound_uid"         = row[16]
+			"faction_bound_uid"         = row[16],
+			"last_synth_x"              = text2num(row[17]),
+			"last_synth_y"              = text2num(row[18]),
+			"last_synth_z"              = text2num(row[19])
 		)
 		GLOB.persistence_position_cache[key] = entry
 		SSpersistence._centralCharacterSelfHealLocal("ss13_mob_position",
 			list("ckey", "char_name", "x", "y", "z", "char_state", "in_lace", "lace_pod_x", "lace_pod_y", "lace_pod_z",
 				"last_pod_x", "last_pod_y", "last_pod_z", "imprisoned", "imprisoned_until", "imprisoned_by_faction_uid",
-				"faction_bound", "faction_bound_uid"),
+				"faction_bound", "faction_bound_uid", "last_synth_x", "last_synth_y", "last_synth_z"),
 			list(ckey, real_name, entry["x"], entry["y"], entry["z"], entry["char_state"], entry["in_lace"],
 				entry["lace_pod_x"], entry["lace_pod_y"], entry["lace_pod_z"],
 				entry["last_pod_x"], entry["last_pod_y"], entry["last_pod_z"],
 				entry["imprisoned"], entry["imprisoned_until"], entry["imprisoned_by_faction_uid"],
-				entry["faction_bound"], entry["faction_bound_uid"]))
+				entry["faction_bound"], entry["faction_bound_uid"],
+				entry["last_synth_x"], entry["last_synth_y"], entry["last_synth_z"]))
 
 	var/sx = text2num(entry["x"]) || entry["x"]
 	var/sy = text2num(entry["y"]) || entry["y"]
@@ -1242,6 +1320,14 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 					"registered_ckey" = lace.registered_ckey,
 					"owner_faction"   = lace.owner_faction
 				))
+				// Keyed on the LACE's own registered identity, not H -- the lace
+				// might be installed in a donor body that isn't its owner. See
+				// get_lace_dna_snapshot()'s own doc comment (neural_lace.dm) for
+				// why this needs its own table at all.
+				if(lace.registered_ckey && lace.registered_name)
+					var/list/dna_snapshot = lace.get_lace_dna_snapshot()
+					if(dna_snapshot)
+						charLaceDnaSaveOne(lace.registered_ckey, lace.registered_name, json_encode(dna_snapshot))
 			else
 				augments += "[A.type]"
 		if(!O.brute_dam && !O.burn_dam && !O.robotic && !length(augments))
@@ -1449,8 +1535,16 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		// it destroyed on restore, so save the slot as empty and let the suit hand
 		// the part back on load.
 		if(I && _persistence_item_is_suit_component(H, I))
+#ifdef RIG_BOOT_RESTORE_DIAGNOSTICS
+			if(slot_name == "shoes")
+				log_subsystem_persistence_info("RigBoots: SAVE shoes slot for [H.real_name] -- [I.type] identified as a suit component, saving slot empty.")
+#endif
 			inv[slot_name] = null
 			continue
+#ifdef RIG_BOOT_RESTORE_DIAGNOSTICS
+		if(slot_name == "shoes")
+			log_subsystem_persistence_info("RigBoots: SAVE shoes slot for [H.real_name] -- [I ? "[I.type], NOT a suit component" : "empty"], saving normally.")
+#endif
 		// serializePersistentItem() has no internal guard and this proc has no outer
 		// one, so an uncaught throw on a single item used to abandon the whole save.
 		// The row then kept its previous contents, which the player experiences as
@@ -1517,6 +1611,21 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		var/obj/item/storage/S = I
 		var/list/contents = list()
 		for(var/obj/item/child in S.contents)
+			var/list/child_data = serializePersistentItem(child)
+			if(child_data)
+				contents += list(child_data)
+		data["contents"] = contents
+
+	// Folders and custom sandwiches -- neither is /obj/item/storage, but both
+	// keep real items in plain contents that their appearance is built from, so
+	// they need the same recursive treatment spelled out separately or those
+	// items silently vanish on restore: a folder's papers (folders.dm), or a
+	// sandwich's entire filling (sandwich.dm, where contents also drive the
+	// generated name and w_class). Same empty-list reasoning as the storage
+	// branch above -- a saved-empty one must restore empty, not skip the key.
+	else if(istype(I, /obj/item/folder) || istype(I, /obj/item/reagent_containers/food/snacks/csandwich))
+		var/list/contents = list()
+		for(var/obj/item/child in I.contents)
 			var/list/child_data = serializePersistentItem(child)
 			if(child_data)
 				contents += list(child_data)
@@ -1674,12 +1783,28 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		var/obj/item/rfd/R = I
 		data["rfd_matter"] = R.stored_matter
 
+	// Light replacer charge count (starts full/empty per subtype; initial()
+	// is each subtype's own documented starting value, used as the clamp
+	// ceiling on restore)
+	if(istype(I, /obj/item/lightreplacer))
+		var/obj/item/lightreplacer/LR = I
+		data["lightreplacer_uses"] = LR.uses
+
 	// Reagent contents (beakers, bottles, syringes, spray bottles, extinguishers, etc.)
 	if(I.reagents && I.reagents.total_volume > 0 && length(I.reagents.reagent_volumes))
 		var/list/reagents = list()
 		for(var/rtype in I.reagents.reagent_volumes)
 			reagents["[rtype]"] = I.reagents.reagent_volumes[rtype]
 		data["reagents"] = json_encode(reagents)
+
+	// Food bite count -- doesn't track reagent volume 1:1 (see food.dm's
+	// bitecount var), so without this a half-eaten item's remaining reagents
+	// restore correctly but the "was bitten N times" examine text
+	// (snacks.dm) resets as if it were never touched.
+	if(istype(I, /obj/item/reagent_containers/food))
+		var/obj/item/reagent_containers/food/F = I
+		if(F.bitecount)
+			data["food_bitecount"] = F.bitecount
 
 	// Paper / note written content
 	if(istype(I, /obj/item/paper))
@@ -1781,7 +1906,15 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		// leave them be -- qdeling them here is precisely what used to strip a
 		// restored voidsuit of its helmet, boots, tank and cooler.
 		var/obj/item/existing = get_equipped_item(slot_id)
+#ifdef RIG_BOOT_RESTORE_DIAGNOSTICS
+		if(slot_name == "shoes")
+			log_subsystem_persistence_info("RigBoots: RESTORE shoes slot for [real_name] -- existing=[existing ? "[existing.type]" : "NULL"] saved_item_data=[item_data ? "[item_data["type"] || "present"]" : "NULL/empty"]")
+#endif
 		if(existing && _persistence_item_is_suit_component(src, existing))
+#ifdef RIG_BOOT_RESTORE_DIAGNOSTICS
+			if(slot_name == "shoes")
+				log_subsystem_persistence_info("RigBoots: RESTORE shoes slot for [real_name] -- SKIPPED, existing [existing.type] identified as a suit component. Saved shoes data (if any) is discarded here.")
+#endif
 			continue
 
 		// CONSTRUCT BEFORE DESTROYING. This proc used to qdel `existing` here, up
@@ -1911,6 +2044,37 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		// per-can overlays) would otherwise stay stale until something
 		// unrelated happened to trigger a redraw.
 		S.update_icon()
+
+	// Folder contents -- mirrors the storage branch above, see
+	// serializePersistentItem()'s matching folder branch for why this is
+	// separate from it.
+	else if(("contents" in data) && istype(I, /obj/item/folder))
+		while(length(I.contents))
+			qdel(I.contents[1])
+		for(var/list/child_data in data["contents"])
+			deserializePersistentItem(child_data, I)
+		I.update_icon() // toggles the "folder_paper" overlay, folders.dm
+
+	// Custom sandwich contents -- mirrors the folder branch, with one extra
+	// step. The ingredients live in plain contents AND in an `ingredients` list
+	// that the filling overlays, the generated name and w_class are all derived
+	// from (sandwich.dm). That list holds live object refs, so it cannot be
+	// serialized on its own -- rebuild it from the contents that just came back,
+	// preserving order, since the fillings are stacked by index.
+	else if(("contents" in data) && istype(I, /obj/item/reagent_containers/food/snacks/csandwich))
+		var/obj/item/reagent_containers/food/snacks/csandwich/CS = I
+		while(length(CS.contents))
+			qdel(CS.contents[1])
+		CS.ingredients = list()
+		for(var/list/child_data in data["contents"])
+			var/obj/item/child = deserializePersistentItem(child_data, CS)
+			if(istype(child, /obj/item/reagent_containers/food/snacks))
+				CS.ingredients += child
+		// update(), NOT update_icon(). A sandwich builds its whole appearance in
+		// its own update() proc and defines no update_icon() anywhere in its
+		// chain, so the generic food refresh further down this proc resolves to
+		// /atom/proc/update_icon()'s bare return and does nothing at all here.
+		CS.update()
 
 	// Internal storage (suit pockets, webbing holds, helmet holds)
 	if(data["internal_storage"])
@@ -2133,6 +2297,14 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		R.stored_matter = clamp(text2num("[data["rfd_matter"]]"), 0, initial(R.stored_matter))
 		R.update_icon()
 
+	// Light replacer charge count -- clamped to max_uses (the real ceiling),
+	// not initial(uses): the advanced variant starts EMPTY (initial 0) and
+	// gets refilled up to its own max_uses, so clamping to initial() would
+	// wipe every refill straight back to empty on restore.
+	if(!isnull(data["lightreplacer_uses"]) && istype(I, /obj/item/lightreplacer))
+		var/obj/item/lightreplacer/LR = I
+		LR.uses = clamp(text2num("[data["lightreplacer_uses"]]"), 0, LR.max_uses)
+
 	// Reagents
 	if(data["reagents"] && I.reagents)
 		I.reagents.clear_reagents()
@@ -2142,6 +2314,11 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 				var/rtype = text2path(rtype_str)
 				if(rtype)
 					I.reagents.add_reagent(rtype, text2num(reagents[rtype_str]))
+
+	// Food bite count
+	if(!isnull(data["food_bitecount"]) && istype(I, /obj/item/reagent_containers/food))
+		var/obj/item/reagent_containers/food/F = I
+		F.bitecount = text2num("[data["food_bitecount"]]") || 0
 
 	// Paper text
 	if(data["paper_info"] && istype(I, /obj/item/paper))
@@ -2154,6 +2331,21 @@ GLOBAL_LIST_EMPTY(persistence_position_cache)
 		ID.persistent_objects_apply_content(data["id_content"], null, null, null)
 	else if(data["obj_content"])
 		I.persistent_objects_apply_content(data["obj_content"], null, null, null)
+
+	// Refresh food appearance -- many food subtypes' update_icon() switches
+	// sprite based on bitecount, the reagent percent remaining, or their own
+	// restored state (missing slices, half-eaten steaks, a wrapped ration, a
+	// can's bomb casing; see meat.dm/pastries.dm/cans.dm). Initialize() already
+	// ran update_icon() once against the item's fresh defaults, so without this
+	// a restored item keeps its pristine look until something else in play
+	// happens to trigger a redraw.
+	//
+	// Deliberately AFTER the obj_content apply above, not before: food's
+	// per-type persistence overrides (snacks.dm and friends) restore the state
+	// this redraw reads, so running it any earlier would composite against the
+	// item's defaults and leave every one of them stale.
+	if(istype(I, /obj/item/reagent_containers/food))
+		I.update_icon()
 
 	// Stack amount
 	if(!isnull(data["stack_amount"]) && istype(I, /obj/item/stack))

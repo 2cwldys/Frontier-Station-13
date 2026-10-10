@@ -20,11 +20,42 @@ type FactionBeaconData = {
   requires_fuel: BooleanLike;
   site_name: string | null;
   public_territory: BooleanLike;
+  drydock_stash_policy: string;
   faction_raiding_enabled: BooleanLike;
   hazard_eviction_active: BooleanLike;
   is_hub: BooleanLike;
   restrict_to_hub_personnel?: BooleanLike;
 };
+
+// Who may stash, retrieve or commission a ship at any drydock this claim reaches.
+// Values must match DRYDOCK_POLICY_* in code/__DEFINES/persistence.dm.
+const DRYDOCK_POLICIES: {
+  value: string;
+  label: string;
+  tooltip: string;
+}[] = [
+  {
+    value: 'all',
+    label: 'Anyone',
+    tooltip: 'Any ship may use drydocks in range. This is the default.',
+  },
+  {
+    value: 'faction',
+    label: 'Faction Only',
+    tooltip: "Only this faction's own ships, and its members' personal ships.",
+  },
+  {
+    value: 'allied',
+    label: 'Faction + Allies',
+    tooltip:
+      "This faction and any allied faction, including their members' personal ships.",
+  },
+  {
+    value: 'none',
+    label: 'Closed',
+    tooltip: 'No ship may be stashed, retrieved or built at drydocks in range.',
+  },
+];
 
 export const FactionBeacon = (props) => {
   const { act, data } = useBackend<FactionBeaconData>();
@@ -44,6 +75,7 @@ export const FactionBeacon = (props) => {
     requires_fuel,
     site_name,
     public_territory,
+    drydock_stash_policy,
     faction_raiding_enabled,
     hazard_eviction_active,
     is_hub,
@@ -121,6 +153,17 @@ export const FactionBeacon = (props) => {
               </Box>
             )}
           </Box>
+          <Box mb={1}>
+            Drydock access:{' '}
+            <Box
+              inline
+              bold
+              color={drydock_stash_policy === 'all' ? 'average' : 'good'}
+            >
+              {DRYDOCK_POLICIES.find((p) => p.value === drydock_stash_policy)
+                ?.label ?? drydock_stash_policy}
+            </Box>
+          </Box>
           {!!is_hub && (
             <Box mb={1}>
               Access:{' '}
@@ -190,6 +233,28 @@ export const FactionBeacon = (props) => {
                 Make Access {restrict_to_hub_personnel ? 'Open' : 'Hub Personnel Only'}
               </Button>
             )}
+          </Box>
+          <Box mt={1}>
+            <Box inline mr={1} color="label">
+              Drydock access:
+            </Box>
+            {DRYDOCK_POLICIES.map((policy) => (
+              <Button
+                key={policy.value}
+                selected={drydock_stash_policy === policy.value}
+                disabled={!can_configure}
+                tooltip={
+                  can_configure
+                    ? policy.tooltip
+                    : 'You need command access in this faction.'
+                }
+                onClick={() =>
+                  act('set_drydock_policy', { policy: policy.value })
+                }
+              >
+                {policy.label}
+              </Button>
+            ))}
           </Box>
         </Section>
         {!!requires_fuel && (
