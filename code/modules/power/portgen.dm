@@ -51,6 +51,10 @@
 	return
 
 /obj/structure/machinery/power/portgen/process()
+	// Frozen while nobody is playing: stays in whatever on/off state it was in,
+	// burns no fuel and adds no power, and resumes on its own when players return.
+	if(!GLOB.round_has_active_players && active)
+		return
 	if(active && HasFuel() && !IsBroken() && anchored)
 		set_light(2, 1, l_color = portgen_lightcolour)
 		ADD_TO_POWERNET(src, power_gen * power_output)

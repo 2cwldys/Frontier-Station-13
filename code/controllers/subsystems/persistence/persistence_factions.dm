@@ -12,6 +12,12 @@ GLOBAL_LIST_EMPTY(persistence_faction_cache)
 /// In-memory faction jobs keyed by faction_uid: list of lists("id"=N,"title"=...,"access"=list(),"pay_rate"=N,"rank"=N)
 GLOBAL_LIST_EMPTY(persistence_faction_jobs_cache)
 
+/// In-memory access whitelist keyed by faction_uid: list of lists("ckey"=...,"character_name"=...)
+/// -- specific non-member/non-ally identities exempted from the raiding gate
+/// (entry block + eviction sweep) for that faction's territory. See
+/// V171__faction_access_whitelist.sql and is_faction_access_whitelisted().
+GLOBAL_LIST_EMPTY(persistence_faction_access_whitelist_cache)
+
 /// In-memory faction members keyed by "ckey|faction_uid": list("real_name"=...,"job_title"=...,"rank"=N)
 GLOBAL_LIST_EMPTY(persistence_faction_members_cache)
 
@@ -376,6 +382,30 @@ GLOBAL_LIST_EMPTY(persistence_faction_founding_petitions)
 	catch(var/exception/faction_jobs_e)
 		message_admins("Faction jobs load threw an exception: [faction_jobs_e] -- faction jobs may be running on stale/empty data.")
 		log_subsystem_persistence_error("Factions: failed to load faction jobs: [faction_jobs_e]")
+
+	// Load faction access whitelist -- a newer, migration-dependent table
+	// (V171), so a schema that hasn't caught up yet just leaves this cache
+	// empty (nobody whitelisted) instead of failing the whole faction load.
+	try
+		var/datum/db_query/wq = SSdbcore.NewQuery(
+			"SELECT faction_uid, ckey, character_name FROM ss13_faction_access_whitelist",
+			list()
+		)
+		wq.Execute()
+		if(databaseCheckQueryResult(wq, "factionInitialize access whitelist"))
+			var/list/loaded_whitelist = list()
+			while(wq.NextRow())
+				var/fuid = normalize_faction_uid(wq.item[1])
+				if(!(fuid in loaded_whitelist))
+					loaded_whitelist[fuid] = list()
+				loaded_whitelist[fuid] += list(list(
+					"ckey"           = wq.item[2],
+					"character_name" = wq.item[3]
+				))
+			GLOB.persistence_faction_access_whitelist_cache = loaded_whitelist // only replace on confirmed success
+		qdel(wq)
+	catch(var/exception/faction_whitelist_e)
+		log_subsystem_persistence_error("Factions: failed to load access whitelist (db_update? not fatal, cache stays empty): [faction_whitelist_e]")
 
 	// Load faction members -- CORE columns only (account_number is a newer,
 	// migration-dependent column, split out below via _factionLoadAccountNumbers()
@@ -4144,6 +4174,98 @@ GLOBAL_LIST_EMPTY(auto_despawn_asteroid_zs)
 			cq.Execute()
 			qdel(cq)
 	return ok
+
+/// Grants (ckey, character_name) access-whitelist entry to faction_uid --
+/// see V171__faction_access_whitelist.sql's own doc comment for why this is
+/// character-locked rather than ckey-wide. No central-DB mirror, unlike
+/// factionRegisterMember() -- territory access is single-shard.
+/datum/controller/subsystem/persistence/proc/factionAddAccessWhitelist(faction_uid, ckey, character_name, added_by_ckey)
+	faction_uid = normalize_faction_uid(faction_uid)
+	if(!databaseCheckConnection("factionAddAccessWhitelist"))
+		return FALSE
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		{"INSERT INTO ss13_faction_access_whitelist (faction_uid, ckey, character_name, added_by_ckey)
+		VALUES (:uid, :ckey, :name, :by)
+		ON DUPLICATE KEY UPDATE added_by_ckey = VALUES(added_by_ckey)"},
+		list("uid" = faction_uid, "ckey" = ckey, "name" = character_name, "by" = added_by_ckey)
+	)
+	q.Execute()
+	var/ok = databaseCheckQueryResult(q, "factionAddAccessWhitelist")
+	qdel(q)
+	if(ok)
+		if(!islist(GLOB.persistence_faction_access_whitelist_cache[faction_uid]))
+			GLOB.persistence_faction_access_whitelist_cache[faction_uid] = list()
+		var/list/entries = GLOB.persistence_faction_access_whitelist_cache[faction_uid]
+		var/already_cached = FALSE
+		for(var/list/existing in entries)
+			if(existing["ckey"] == ckey && existing["character_name"] == character_name)
+				already_cached = TRUE
+				break
+		if(!already_cached)
+			entries += list(list("ckey" = ckey, "character_name" = character_name))
+		// Mirrors factionRegisterMember()'s own central write-through exactly --
+		// a no-op whenever CENTRAL_SQL_ENABLED/CENTRAL_SYNC_FACTIONS are off (the
+		// ordinary standalone-server case), same gate, same shape.
+		if(_factionCentralSyncActive())
+			var/datum/db_query/cq = SScentraldb.NewQuery(
+				{"INSERT INTO ss13_faction_access_whitelist (faction_uid, ckey, character_name, added_by_ckey)
+				VALUES (:uid, :ckey, :name, :by)
+				ON DUPLICATE KEY UPDATE added_by_ckey = VALUES(added_by_ckey)"},
+				list("uid" = faction_uid, "ckey" = ckey, "name" = character_name, "by" = added_by_ckey)
+			)
+			cq.Execute()
+			qdel(cq)
+	return ok
+
+/// Inverse of factionAddAccessWhitelist() -- including the central mirror:
+/// removing a whitelist entry locally also removes it from the shared
+/// central table when sync is active, same as factionRemoveMember().
+/datum/controller/subsystem/persistence/proc/factionRemoveAccessWhitelist(faction_uid, ckey, character_name)
+	faction_uid = normalize_faction_uid(faction_uid)
+	if(!databaseCheckConnection("factionRemoveAccessWhitelist"))
+		return FALSE
+	var/datum/db_query/q = SSdbcore.NewQuery(
+		"DELETE FROM ss13_faction_access_whitelist WHERE faction_uid = :uid AND ckey = :ckey AND character_name = :name",
+		list("uid" = faction_uid, "ckey" = ckey, "name" = character_name)
+	)
+	q.Execute()
+	var/ok = databaseCheckQueryResult(q, "factionRemoveAccessWhitelist")
+	qdel(q)
+	if(ok)
+		if(islist(GLOB.persistence_faction_access_whitelist_cache[faction_uid]))
+			var/list/entries = GLOB.persistence_faction_access_whitelist_cache[faction_uid]
+			for(var/list/existing in entries)
+				if(existing["ckey"] == ckey && existing["character_name"] == character_name)
+					entries -= existing
+					break
+		if(_factionCentralSyncActive())
+			var/datum/db_query/cq = SScentraldb.NewQuery(
+				"DELETE FROM ss13_faction_access_whitelist WHERE faction_uid = :uid AND ckey = :ckey AND character_name = :name",
+				list("uid" = faction_uid, "ckey" = ckey, "name" = character_name)
+			)
+			cq.Execute()
+			qdel(cq)
+	return ok
+
+/// TRUE if M's ckey + CURRENT character name is specifically whitelisted for
+/// faction_uid's territory (the access whitelist, V171__faction_access_whitelist.sql)
+/// -- checked independently of membership/alliance/rank, and independently of
+/// whatever ID M currently holds or doesn't. Deliberately real_name-locked:
+/// whitelisting one named character never silently covers a ckey's other
+/// characters. Consumed by _evict_raid_intruders() (faction_beacon.dm) and
+/// _drydock_raid_blocked() (telepad_drydock_boarding.dm) so a whitelisted
+/// identity is exempt from both the eviction sweep and the entry gate.
+/proc/is_faction_access_whitelisted(mob/M, faction_uid)
+	if(!M || !M.ckey || !faction_uid)
+		return FALSE
+	faction_uid = normalize_faction_uid(faction_uid)
+	var/list/entries = GLOB.persistence_faction_access_whitelist_cache[faction_uid]
+	if(!islist(entries))
+		return FALSE
+	for(var/list/entry in entries)
+		if(entry["ckey"] == M.ckey && entry["character_name"] == M.real_name)
+			return TRUE
+	return FALSE
 
 /// Sets a member's on-shift state -- gates factionPayroll() on top of the
 /// existing online/actively-played-character requirement. Cleared
