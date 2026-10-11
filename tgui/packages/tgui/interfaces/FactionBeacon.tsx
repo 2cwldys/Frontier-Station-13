@@ -25,6 +25,7 @@ type FactionBeaconData = {
   hazard_eviction_active: BooleanLike;
   is_hub: BooleanLike;
   restrict_to_hub_personnel?: BooleanLike;
+  access_whitelist: { ckey: string; character_name: string }[];
 };
 
 // Who may stash, retrieve or commission a ship at any drydock this claim reaches.
@@ -80,6 +81,7 @@ export const FactionBeacon = (props) => {
     hazard_eviction_active,
     is_hub,
     restrict_to_hub_personnel,
+    access_whitelist,
   } = data;
   const [withdrawAmount, setWithdrawAmount] = useState(0);
 
@@ -100,7 +102,7 @@ export const FactionBeacon = (props) => {
   return (
     <Window
       width={420}
-      height={requires_fuel ? 500 : is_hub ? 380 : 340}
+      height={requires_fuel ? 620 : is_hub ? 500 : 460}
       title="Faction Beacon"
     >
       <Window.Content scrollable>
@@ -255,6 +257,49 @@ export const FactionBeacon = (props) => {
                 {policy.label}
               </Button>
             ))}
+          </Box>
+        </Section>
+        <Section title="Access Whitelist">
+          <Box color="label" mb={1}>
+            Specific people let onto this faction's territory regardless of
+            membership, alliance, or the raiding toggle.
+          </Box>
+          {access_whitelist.length === 0 ? (
+            <Box color="label" mb={1}>
+              No one whitelisted.
+            </Box>
+          ) : (
+            access_whitelist.map((entry) => (
+              <Box key={`${entry.ckey}|${entry.character_name}`} mb={1}>
+                <Box inline bold>
+                  {entry.character_name}
+                </Box>{' '}
+                <Box inline color="label">
+                  ({entry.ckey})
+                </Box>
+              </Box>
+            ))
+          )}
+          <Box mt={1}>
+            <Button
+              icon="user-plus"
+              color="good"
+              disabled={!can_configure}
+              tooltip={disabledReason || undefined}
+              onClick={() => act('add_access_whitelist')}
+            >
+              Add Entry
+            </Button>
+            <Button
+              icon="user-minus"
+              color="bad"
+              ml={1}
+              disabled={!can_configure || access_whitelist.length === 0}
+              tooltip={disabledReason || undefined}
+              onClick={() => act('remove_access_whitelist')}
+            >
+              Remove Entry
+            </Button>
           </Box>
         </Section>
         {!!requires_fuel && (
