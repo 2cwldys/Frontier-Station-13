@@ -60,7 +60,7 @@ jobs:
         if: steps.check.outputs.has_summary == 'true'
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ secrets.BOT_TOKEN_AURORA }}
+          token: ${{ secrets.BOT_TOKEN_AURORA || secrets.GITHUB_TOKEN }}
           branch: upstream-sync
           base: main
           title: "Upstream sync: Aurora.3 @ ${{ steps.check.outputs.upstream_sha }} (${{ steps.check.outputs.sync_date }})"
