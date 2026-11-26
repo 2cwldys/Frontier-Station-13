@@ -236,7 +236,7 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 	return ..()
 
 /obj/structure/machinery/faction_beacon/process()
-	if(!active || !powered)
+	if(!active)
 		return
 	if(prob(15))
 		spark_system.queue()
@@ -393,8 +393,6 @@ GLOBAL_LIST_EMPTY(faction_beacon_by_z)
 /obj/structure/machinery/faction_beacon/proc/_claim_refusal_reason()
 	if(!anchored)
 		return "not anchored -- wrench it to the floor first"
-	if(!powered)
-		return "not powered"
 	// Any Z a live mission is currently using (auto-generated for the
 	// mission, or a dynamic/admin-placed site it's reusing) is meant to
 	// stay uncontrolled -- no faction may ever claim it, even if a beacon
