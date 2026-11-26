@@ -48,24 +48,52 @@ if ! git fetch upstream "$UPSTREAM_BRANCH"; then
     exit 1
 fi
 
-if ! MERGE_BASE="$(git merge-base "$BASE_BRANCH" "upstream/$UPSTREAM_BRANCH" 2>/dev/null)"; then
-    MERGE_BASE=""
-    echo "No common ancestor with upstream (unrelated histories) -- treating every upstream commit as incoming."
-fi
+# This fork's history and upstream's share no common ancestor at all (git
+# itself reports "no common commits"). A real merge would therefore import
+# Aurora.3's ENTIRE multi-year commit history into this repo permanently --
+# every past commit and every since-superseded blob -- bloating this repo
+# forever and risking a hard push failure if any historical blob ever
+# exceeded GitHub's 100MB-per-file limit (plausible for years of sprites/
+# maps/audio). --squash takes only the resulting tree (upstream's current
+# content, -X ours conflict-resolved) as one ordinary single-parent commit,
+# never touching upstream's commit graph.
+#
+# A squash merge never creates ancestry with upstream, this run or any
+# future one, so there is no merge-base to diff against. Instead the last
+# sync's own commit message carries the upstream SHA it synced to, so the
+# next run can recover exactly where it left off.
+LAST_SYNC_MSG="$(git log "$BASE_BRANCH" --grep='^Merge upstream Aurora\.3 \(master\) @ ' -E --pretty='%s' -n 1)"
+LAST_SYNC_SHA="$(printf '%s\n' "$LAST_SYNC_MSG" | grep -oE '@ [0-9a-f]{7,40}' | head -1 | awk '{print $2}')"
 
 git checkout -B "$SYNC_BRANCH" "$BASE_BRANCH"
 
-echo "Merging upstream/$UPSTREAM_BRANCH into $SYNC_BRANCH (-X ours)..."
-git merge -X ours --no-commit --no-ff --allow-unrelated-histories "upstream/$UPSTREAM_BRANCH"
+echo "Merging upstream/$UPSTREAM_BRANCH into $SYNC_BRANCH (-X ours, squashed)..."
+git merge -X ours --squash --no-commit --allow-unrelated-histories "upstream/$UPSTREAM_BRANCH"
 MERGE_STATUS=$?
 
 UNRESOLVED="$(git diff --name-only --diff-filter=U 2>/dev/null || true)"
 
+UPSTREAM_SHA="$(git rev-parse upstream/"$UPSTREAM_BRANCH")"
+
 # Every upstream commit this sync is pulling in, oldest first, by subject --
-# not a count. This is the part most likely to matter later ("wait, when did
-# that change land") so it's captured in full regardless of outcome below.
-INCOMING_COMMITS="$(git log --reverse --pretty='- %h %s (%an)' "${MERGE_BASE}..upstream/${UPSTREAM_BRANCH}")"
-INCOMING_COUNT="$(git rev-list --count "${MERGE_BASE}..upstream/${UPSTREAM_BRANCH}")"
+# not a count -- except on the very first sync ever (no prior marker commit
+# to diff from), where it's genuinely all of upstream's history, so the list
+# is capped for a readable PR body instead of dumping years of commits.
+if [ -n "$LAST_SYNC_SHA" ]; then
+    INCOMING_RANGE="${LAST_SYNC_SHA}..upstream/${UPSTREAM_BRANCH}"
+else
+    echo "No previous sync marker found -- this is the first sync, every upstream commit is 'incoming'."
+    INCOMING_RANGE="upstream/${UPSTREAM_BRANCH}"
+fi
+INCOMING_COUNT="$(git rev-list --count "$INCOMING_RANGE")"
+INCOMING_COMMITS_FULL="$(git log --reverse --pretty='- %h %s (%an)' "$INCOMING_RANGE")"
+INCOMING_CAP=300
+if [ "$INCOMING_COUNT" -gt "$INCOMING_CAP" ]; then
+    INCOMING_COMMITS="(showing the most recent $INCOMING_CAP of $INCOMING_COUNT -- older commits are omitted so this stays readable)
+$(printf '%s\n' "$INCOMING_COMMITS_FULL" | tail -n "$INCOMING_CAP")"
+else
+    INCOMING_COMMITS="$INCOMING_COMMITS_FULL"
+fi
 
 {
     echo "# Upstream sync -- Aurorastation/Aurora.3 ($UPSTREAM_BRANCH)"
@@ -93,7 +121,7 @@ if [ -n "$UNRESOLVED" ]; then
         echo ""
     } >> "$SUMMARY"
     git add -A
-    git commit -m "Merge upstream Aurora.3 ($UPSTREAM_BRANCH) -- UNRESOLVED structural conflicts, see summary" >/dev/null
+    git commit -m "Merge upstream Aurora.3 (master) @ ${UPSTREAM_SHA} -- squashed, UNRESOLVED structural conflicts, see summary" >/dev/null
     echo ""
     cat "$SUMMARY"
     exit 2
@@ -108,7 +136,7 @@ if [ "$MERGE_STATUS" -ne 0 ]; then
     exit "$MERGE_STATUS"
 fi
 
-git commit -m "Merge upstream Aurora.3 ($UPSTREAM_BRANCH) -- conflicts resolved in favor of this fork" >/dev/null 2>&1
+git commit -m "Merge upstream Aurora.3 (master) @ ${UPSTREAM_SHA} -- squashed, conflicts resolved in favor of this fork" >/dev/null 2>&1
 
 # No-op check: did this merge actually change anything relative to the
 # branch we started from? Avoids leaving a dangling branch or (for the
@@ -123,8 +151,15 @@ if git diff --quiet "$BASE_BRANCH" "$SYNC_BRANCH"; then
     exit 0
 fi
 
-CHANGED_FILES="$(git diff --name-status "$BASE_BRANCH" "$SYNC_BRANCH")"
+CHANGED_FILES_FULL="$(git diff --name-status "$BASE_BRANCH" "$SYNC_BRANCH")"
 FILE_COUNT="$(git diff --name-only "$BASE_BRANCH" "$SYNC_BRANCH" | wc -l | tr -d ' ')"
+FILE_CAP=500
+if [ "$FILE_COUNT" -gt "$FILE_CAP" ]; then
+    CHANGED_FILES="(showing the first $FILE_CAP of $FILE_COUNT -- the rest are omitted so this stays readable)
+$(printf '%s\n' "$CHANGED_FILES_FULL" | head -n "$FILE_CAP")"
+else
+    CHANGED_FILES="$CHANGED_FILES_FULL"
+fi
 
 {
     echo "## Files changed vs \`$BASE_BRANCH\` ($FILE_COUNT)"
