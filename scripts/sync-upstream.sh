@@ -48,12 +48,15 @@ if ! git fetch upstream "$UPSTREAM_BRANCH"; then
     exit 1
 fi
 
-MERGE_BASE="$(git merge-base "$BASE_BRANCH" "upstream/$UPSTREAM_BRANCH")"
+if ! MERGE_BASE="$(git merge-base "$BASE_BRANCH" "upstream/$UPSTREAM_BRANCH" 2>/dev/null)"; then
+    MERGE_BASE=""
+    echo "No common ancestor with upstream (unrelated histories) -- treating every upstream commit as incoming."
+fi
 
 git checkout -B "$SYNC_BRANCH" "$BASE_BRANCH"
 
 echo "Merging upstream/$UPSTREAM_BRANCH into $SYNC_BRANCH (-X ours)..."
-git merge -X ours --no-commit --no-ff "upstream/$UPSTREAM_BRANCH"
+git merge -X ours --no-commit --no-ff --allow-unrelated-histories "upstream/$UPSTREAM_BRANCH"
 MERGE_STATUS=$?
 
 UNRESOLVED="$(git diff --name-only --diff-filter=U 2>/dev/null || true)"

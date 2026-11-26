@@ -29,7 +29,15 @@ jobs:
         run: |
           set +e
           bash scripts/sync-upstream.sh
-          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          # 0 = synced (or nothing to do), 2 = structural conflicts needing a
+          # human -- both are handled by later steps below, so don't fail
+          # here. Any other code is a real script failure (e.g. a hard git
+          # error) and must fail the run, not be silently swallowed.
+          if [ "$code" -ne 0 ] && [ "$code" -ne 2 ]; then
+            exit "$code"
+          fi
           exit 0
 
       - name: Check for a summary (no-op sync writes none)
