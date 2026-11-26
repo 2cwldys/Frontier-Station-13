@@ -1,0 +1,67 @@
+name: "Sync Upstream Aurora.3"
+on:
+  schedule:
+    - cron: "0 9 * * 1" # Every Monday 09:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  sync-upstream:
+    # Disable this workflow from the Actions tab ("..." -> Disable workflow)
+    # to pause scheduled/manual runs for a while without editing this file --
+    # it re-arms exactly where you left off when re-enabled.
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history -- merge-base needs real ancestry, not a shallow clone
+
+      - name: Configure git identity
+        run: |
+          git config --global user.email "action@github.com"
+          git config --global user.name "AuroraBuildBot"
+
+      - name: Run upstream sync (real git merge, -X ours)
+        id: sync
+        run: |
+          set +e
+          bash scripts/sync-upstream.sh
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Check for a summary (no-op sync writes none)
+        id: check
+        run: |
+          if [ -f scripts/.sync-summary.md ]; then
+            echo "has_summary=true" >> "$GITHUB_OUTPUT"
+            # Identifies exactly which upstream state this run pulled in, so
+            # the title differs run to run even though branch/base below stay
+            # fixed -- that fixed pair is what makes this update the SAME PR
+            # on a later run instead of opening a new one; only the title text
+            # changes to say which run it is.
+            echo "upstream_sha=$(git rev-parse --short upstream/master)" >> "$GITHUB_OUTPUT"
+            echo "sync_date=$(date -u '+%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_summary=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open or update the sync PR
+        if: steps.check.outputs.has_summary == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.BOT_TOKEN_AURORA }}
+          branch: upstream-sync
+          base: main
+          title: "Upstream sync: Aurora.3 @ ${{ steps.check.outputs.upstream_sha }} (${{ steps.check.outputs.sync_date }})"
+          body-path: scripts/.sync-summary.md
+          labels: upstream-sync
+          delete-branch: false
+
+      - name: Fail the run if conflicts need a human
+        if: steps.sync.outputs.exit_code == '2'
+        run: |
+          echo "Merge produced structural conflicts -X ours could not resolve -- see the PR body/summary for the exact file list."
+          exit 1
