@@ -948,9 +948,28 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 			var/pending_join_uid = normalize_faction_uid(client.prefs.faction_to_join)
 			if(get_faction_recruiting(pending_join_uid))
 				pending_faction = pending_join_uid
-		pre_chosen_spawn_pod = persistence_prompt_cryopod_choice(src, ckey_lower, pending_char_name, pending_faction)
-		if(QDELETED(src))
-			return
+
+		// If a dropped connection stranded an earlier attempt for this same
+		// ckey right after it picked a pod (the stale-client abort below),
+		// resume straight into that same pod instead of making them choose
+		// again -- as long as it's still there, still free, and the attempt
+		// isn't too stale to trust. Falls through to the normal picker
+		// otherwise.
+		var/obj/structure/machinery/cryopod/remembered_pod = GLOB.pending_cryopod_choice_by_ckey[ckey_lower]
+		if(remembered_pod && !QDELETED(remembered_pod) && !remembered_pod.occupant && !(remembered_pod.stat & (NOPOWER|BROKEN)) \
+			&& (world.time - GLOB.pending_cryopod_choice_time_by_ckey[ckey_lower] <= PENDING_CRYOPOD_CHOICE_TIMEOUT))
+			pre_chosen_spawn_pod = remembered_pod
+			log_subsystem_persistence_info("PersistentAutoSpawn: [ckey_lower] resumed into their previously-chosen cryopod after a dropped connection.")
+		else
+			GLOB.pending_cryopod_choice_by_ckey -= ckey_lower
+			GLOB.pending_cryopod_choice_time_by_ckey -= ckey_lower
+			pre_chosen_spawn_pod = persistence_prompt_cryopod_choice(src, ckey_lower, pending_char_name, pending_faction)
+			if(QDELETED(src))
+				return
+			if(pre_chosen_spawn_pod)
+				GLOB.pending_cryopod_choice_by_ckey[ckey_lower] = pre_chosen_spawn_pod
+				GLOB.pending_cryopod_choice_time_by_ckey[ckey_lower] = world.time
+
 		// The cryopod prompt has no timeout and can sit open for as long as
 		// the player takes to answer -- long enough for a flaky connection to
 		// drop and reconnect mid-wait. A reconnect tears down the old client
@@ -962,11 +981,18 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		// reconnect, is exactly how a character ends up half-created: no
 		// cryopod placement, no crew record, stuck wherever create_character()
 		// first puts them. Safer to abort and let the fresh Login() spawn
-		// properly than to limp forward on stale state.
+		// properly than to limp forward on stale state -- their chosen pod
+		// stays remembered above for one resume attempt on reconnect.
 		if(!client || ckey(client.ckey) != ckey_lower)
 			log_subsystem_persistence_warning("PersistentAutoSpawn: ckey=[ckey_lower] client changed or vanished during cryopod choice -- aborting this spawn attempt rather than continuing on stale state.")
 			reopen_menu_after_failed_spawn()
 			return
+
+		// This attempt is actually going through -- the remembered pod (if any)
+		// has done its job and shouldn't be reused by some unrelated later
+		// spawn for this ckey.
+		GLOB.pending_cryopod_choice_by_ckey -= ckey_lower
+		GLOB.pending_cryopod_choice_time_by_ckey -= ckey_lower
 
 	// ── Load this character's full SQL data into prefs before spawning ──────
 	// create_character() uses client.prefs to build appearance/species/DNA.

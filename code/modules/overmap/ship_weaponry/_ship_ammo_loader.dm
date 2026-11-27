@@ -23,11 +23,21 @@
 /obj/structure/machinery/ammunition_loader/LateInitialize()
 	. = ..()
 	for(var/obj/structure/machinery/ship_weapon/SW in SSmachinery.machinery)
-		if(SW.weapon_id == weapon_id)
-			if(get_area(SW) == get_area(src))
-				weapon = SW
-			else
-				crash_with("[src] is set to [weapon_id] of [SW] at [x] [y] [z], but areas mismatch!")
+		if(SW.weapon_id != weapon_id)
+			continue
+		if(get_area(SW) == get_area(src))
+			weapon = SW
+			break
+		// weapon_id only has to be unique within a single ship -- most guns
+		// get theirs auto-generated (_ship_gun.dm), but some ship templates
+		// hardcode one instead, and retrieving a second copy of that same
+		// ship template (e.g. a second of the same drydock-stashed ship)
+		// spawns another gun with the identical id. That's a completely
+		// normal, expected mismatch, not a misconfiguration -- crash_with()
+		// here used to throw on the very first same-id gun it found
+		// regardless of which ship it belonged to, aborting the whole
+		// retrieval (and everything after it in the caller) before this
+		// loop ever reached its own ship's actual gun. Just keep looking.
 	if(!weapon)
 		crash_with("[src] at [x] [y] [z] has no weapon attached!")
 

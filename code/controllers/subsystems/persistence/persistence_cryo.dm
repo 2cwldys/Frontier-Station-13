@@ -10,6 +10,13 @@
 
 #define PERSISTENCE_CRYO_TIMEOUT (60 SECONDS)
 
+/// How long a pod picked via persistence_prompt_cryopod_choice() stays
+/// eligible for the resume-on-reconnect path below after a dropped
+/// connection strands the spawn attempt that chose it. Past this window a
+/// reconnect is treated as too stale to trust and goes through the normal
+/// picker again.
+#define PENDING_CRYOPOD_CHOICE_TIMEOUT (3 MINUTES)
+
 // Cryo state vars on the human mob
 /mob/living/carbon/human
 	var/persistence_in_cryo      = FALSE
@@ -923,6 +930,16 @@ GLOBAL_LIST_INIT(persistence_cryopod_discovery_ignore, list(/obj/structure/machi
  * recollect comes back with nothing left to offer (returns null -- caller
  * falls back to the existing automatic cascade).
  */
+/// Ckey (lowercase) -> cryopod the player had already picked when a
+/// PersistentAutoSpawn() attempt got stranded by a dropped connection
+/// (new_player.dm, the stale-client abort around this proc's call site).
+/// Consulted once on their next spawn attempt so losing the connection
+/// mid-choice doesn't cost them the pod they already picked -- cleared as
+/// soon as it's consumed, expired (PENDING_CRYOPOD_CHOICE_TIMEOUT above),
+/// or no longer valid (taken, deleted, depowered).
+GLOBAL_LIST_EMPTY(pending_cryopod_choice_by_ckey)
+GLOBAL_LIST_EMPTY(pending_cryopod_choice_time_by_ckey)
+
 /proc/persistence_prompt_cryopod_choice(mob/user, ckey, char_name, faction_uid)
 	while(TRUE)
 		var/list/candidates = persistence_collect_available_cryopods(ckey, char_name, faction_uid)
