@@ -279,8 +279,13 @@ GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 			if(!computer)
 				return
 
-			// Verify user identity via crew record
+			// Verify user identity via crew record -- self-heal a missing one
+			// (e.g. from the late-join job-slot race, new_player.dm) the same
+			// way a missing bank account already self-heals just below via
+			// SSeconomy.create_and_assign_account(), rather than refusing.
 			var/datum/record/general/R = SSrecords.find_record("name", user.real_name)
+			if(!R)
+				R = SSrecords.generate_record(user, force = TRUE)
 			if(!R)
 				to_chat(usr, SPAN_WARNING("No crew record found for [user.real_name]. Cannot print replacement ID."))
 				return
@@ -724,7 +729,11 @@ GLOBAL_LIST_EMPTY(faction_clock_toggle_cooldown)
 	if(!computer)
 		return
 
+	// Self-heal a missing record the same way as print_replacement's
+	// identical guard above, rather than refusing.
 	var/datum/record/general/R = SSrecords.find_record("name", user.real_name)
+	if(!R)
+		R = SSrecords.generate_record(user, force = TRUE)
 	if(!R)
 		to_chat(user, SPAN_WARNING("No crew record found for [user.real_name]. Cannot print replacement."))
 		return

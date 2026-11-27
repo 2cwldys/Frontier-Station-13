@@ -93,8 +93,16 @@ SUBSYSTEM_DEF(records)
 		"spread_type" = "",
 	)
 
-/datum/controller/subsystem/records/proc/generate_record(var/mob/living/carbon/human/H)
-	if(H.mind && SSjobs.ShouldCreateRecords(H.mind))
+/// force = TRUE skips the ShouldCreateRecords() gate entirely and creates a
+/// record regardless of mind/assigned_role state -- a self-heal escape hatch
+/// for callers repairing a character that should unquestionably have a
+/// record already (e.g. card.dm's replacement-ID printing, which already
+/// self-heals a missing bank account the same way via
+/// SSeconomy.create_and_assign_account()). Normal round-start/late-join
+/// callers never pass this, so their behavior is unchanged. Returns the
+/// created record, or null if one wasn't made.
+/datum/controller/subsystem/records/proc/generate_record(var/mob/living/carbon/human/H, var/force = FALSE)
+	if(H.mind && (force || SSjobs.ShouldCreateRecords(H.mind)))
 		var/datum/record/general/r = new(H)
 		r.ckey = H.ckey
 		//Locked Data
@@ -104,6 +112,7 @@ SUBSYSTEM_DEF(records)
 		// Apply cross-round persistent data (criminal status, notes, etc.) on top of fresh record
 		if(H.ckey)
 			applyPersistentRecordData(r, H.ckey)
+		return r
 
 /datum/controller/subsystem/records/proc/add_record(var/datum/record/record)
 	switch(record.type)

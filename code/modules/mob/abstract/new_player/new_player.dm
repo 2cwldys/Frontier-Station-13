@@ -289,7 +289,21 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 	spawning = 1
 	close_spawn_windows()
 
-	SSjobs.AssignRole(src, rank, 1)
+	// IsJobAvailable(rank) above only reflects the slot's state at the time
+	// of that check -- under lag (or another late-joiner landing between
+	// the two) the position can fill before this actually reserves it.
+	// Falling back to the unlimited-slot "Assistant" role (ship_crew.dm)
+	// rather than proceeding with assigned_role left unset: every later
+	// step (crew record creation via ShouldCreateRecords(), equipment,
+	// announcements) already does the right thing for a validly assigned
+	// role, so this guarantees one instead of teaching each of them to
+	// separately tolerate a null assigned_role. rank is reassigned to match
+	// what was actually granted, since it's reused below (EquipRank, the
+	// arrival announcement).
+	if(!SSjobs.AssignRole(src, rank, 1))
+		log_subsystem_persistence_info("AttemptLateSpawn: [rank] slot filled before assignment for [usr] -- falling back to Assistant.")
+		rank = "Assistant"
+		SSjobs.AssignRole(src, rank, 1)
 
 	var/mob/living/character = create_character()	//creates the human and transfers vars and mind
 
