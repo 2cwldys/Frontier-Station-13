@@ -40,6 +40,35 @@
 			for(var/k in GLOB.config.logsettings)
 				GLOB.config.logsettings[k] = TRUE
 
+/// Manual escape hatch for "Sector View Bug D" (personal_travel.dm, ship.dm,
+/// telepad_drydock_boarding.dm, sector_view.dm, vehicles/pods/sector_view.dm --
+/// all four cache the normal view in client.saved_dynamic_view while a
+/// console's expanded Sector View is open, and restore it on close). If that
+/// exit path doesn't run for any reason, the player is stuck zoomed in/out
+/// with no way to fix it short of a relog -- login.dm already self-heals this
+/// exact state on reconnect; this is the same fix, callable without one.
+/client/proc/FixZoom(var/mob/M in GLOB.mob_list)
+	set category = "Debug"
+	set name = "Fix Zoom"
+	if(!check_rights(R_DEBUG|R_DEV))	return
+
+	if(!M)
+		M = mob
+	var/client/c = M?.client
+	if(!c)
+		to_chat(usr, SPAN_WARNING("No client to fix."))
+		return
+
+	c.saved_dynamic_view = null
+	c.refit_dynamic_view()
+	c.update_skybox(TRUE)
+
+	to_chat(usr, SPAN_NOTICE("Fixed [key_name(M)]'s viewport zoom."))
+	if(usr != M)
+		to_chat(M, SPAN_NOTICE("An administrator has reset your viewport zoom."))
+	message_admins("[key_name(usr)] fixed [key_name(M)]'s viewport zoom.")
+	log_admin("[key_name(usr)] fixed [key_name(M)]'s viewport zoom.")
+
 // callproc moved to code/modules/admin/callproc
 
 
