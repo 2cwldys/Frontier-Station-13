@@ -288,9 +288,20 @@
 	if(!H || QDELETED(H))
 		return FALSE
 	if(!H.ckey || !H.real_name)
+		// Silent otherwise -- which is exactly the problem: a cryopod's
+		// process() (cryopod.dm) calls this every tick for an SSD occupant
+		// and just returns either way, so a character stuck failing here
+		// looked identical to one that had simply never been attempted at
+		// all. ckey/real_name going missing on an otherwise-normal occupant
+		// is the same failure shape as the connection-drop-during-spawn bug
+		// (new_player.dm's PersistentAutoSpawn) -- log it so a character
+		// that's silently un-storable because of that is actually visible
+		// instead of just quietly never leaving the pod.
+		log_subsystem_persistence_warning("Cryo: store refused for [H] at [get_turf(H)] -- missing ckey or real_name ([H.ckey ? "has ckey" : "no ckey"], [H.real_name ? "has real_name" : "no real_name"]).")
 		return FALSE
 	var/turf/H_turf = get_turf(H)
 	if(!H_turf || !H_turf.z)
+		log_subsystem_persistence_warning("Cryo: store refused for [H.real_name] ([H.ckey]) -- not on a valid turf.")
 		return FALSE
 	if(!databaseCheckConnection("persistStoreCharacter"))
 		return FALSE
