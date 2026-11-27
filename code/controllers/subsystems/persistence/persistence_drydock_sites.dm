@@ -30,14 +30,22 @@
 			if(GLOB.persistence_site_kind_by_z[dz] == AWAY_SITE_KIND_DRYDOCK)
 				drydock_zs |= text2num(dz)
 
-		var/choice = tgui_input_list(usr, "Drydocks ([length(drydock_zs)] established)[GLOB.drydock_legacy_stashing ? " -- LEGACY STASHING ON" : ""]:", "View Drydocks", \
-			list("List Drydocks", "Make This Site A Drydock", "Found New Drydock", "Retire A Drydock", "Jump To A Drydock", "Toggle Legacy Stashing", "Done"))
+		var/choice = tgui_input_list(usr, "Drydocks ([length(drydock_zs)] established, retrieve range [GLOB.drydock_retrieve_range] tile\s)[GLOB.drydock_legacy_stashing ? " -- LEGACY STASHING ON" : ""]:", "View Drydocks", \
+			list("List Drydocks", "Make This Site A Drydock", "Found New Drydock", "Retire A Drydock", "Jump To A Drydock", "Set Drydock Range", "Toggle Legacy Stashing", "Done"))
 		if(!choice || choice == "Done")
 			return
 
 		switch(choice)
 			if("List Drydocks")
 				_drydock_roster_list(drydock_zs)
+
+			if("Set Drydock Range")
+				var/new_range = tgui_input_number(usr, "Overmap tiles away from a drydock a ship may still be stashed/retrieved/commissioned:", "View Drydocks", GLOB.drydock_retrieve_range, 10, 0)
+				if(isnull(new_range))
+					continue
+				GLOB.drydock_retrieve_range = new_range
+				to_chat(usr, SPAN_GOOD("Drydock retrieve range is now [GLOB.drydock_retrieve_range] tile\s. Resets to 1 on reboot."))
+				log_and_message_admins("set the drydock retrieve range to [GLOB.drydock_retrieve_range] tile(s)", usr)
 
 			if("Toggle Legacy Stashing")
 				var/turning_on = !GLOB.drydock_legacy_stashing

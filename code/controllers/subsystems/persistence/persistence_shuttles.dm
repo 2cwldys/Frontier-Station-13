@@ -692,6 +692,14 @@ GLOBAL_LIST_EMPTY(drydock_op_queue)
 /// returns to requiring drydocks rather than silently staying open.
 GLOBAL_VAR_INIT(drydock_legacy_stashing, FALSE)
 
+/// How many overmap tiles away from a founded drydock a ship may still be
+/// stashed, retrieved or commissioned (_drydock_site_nearby() below).
+/// Adjustable at runtime via the "View Drydocks" verb's "Set Drydock Range"
+/// option. Deliberately NOT persisted, same reasoning as
+/// drydock_legacy_stashing above -- resets to the default on reboot rather
+/// than silently staying wherever an admin last left it.
+GLOBAL_VAR_INIT(drydock_retrieve_range, 1)
+
 /// "[z]" -> list("policy" = DRYDOCK_POLICY_*, "faction_uid" = uid or null) for
 /// every drydock control console currently registered
 /// (code/modules/shuttles/drydock_console.dm). Only consulted where no faction or
@@ -754,9 +762,10 @@ GLOBAL_LIST_EMPTY(drydock_console_by_z)
 	marker.icon_state = "battlestation"
 	marker.update_icon()
 
-/// The z of a drydock site whose overmap sector is at or adjacent to
-/// (get_dist <= 1) sector, or null if none is in range. Returns the z rather than
-/// a bool because callers need it twice over: to look up the governing policy
+/// The z of a drydock site whose overmap sector is within
+/// GLOB.drydock_retrieve_range tiles of sector, or null if none is in range.
+/// Returns the z rather than a bool because callers need it twice over: to
+/// look up the governing policy
 /// (drydock_policy_for_z()), and to resolve the sector again as the placement
 /// anchor for retrieve and commission (GLOB.map_sectors["[z]"]).
 ///
@@ -780,7 +789,7 @@ GLOBAL_LIST_EMPTY(drydock_console_by_z)
 		if(!istype(site_sector))
 			continue
 		var/dist = get_dist(sector, site_sector)
-		if(dist > 1)
+		if(dist > GLOB.drydock_retrieve_range)
 			continue
 		if(isnull(best_dist) || dist < best_dist)
 			best_dist = dist
@@ -3191,7 +3200,7 @@ GLOBAL_LIST_EMPTY(drydock_console_by_z)
 				return FALSE
 			if(!retrieve_drydock_z)
 				if(user)
-					to_chat(user, SPAN_WARNING("You must be within 1 tile of a drydock to retrieve a ship."))
+					to_chat(user, SPAN_WARNING("You must be within [GLOB.drydock_retrieve_range] tile\s of a drydock to retrieve a ship."))
 				log_drydock_warning("drydockRetrieve: refused -- shuttle_id=[shuttle_id] not near a drydock (acting=[acting]).")
 				return FALSE
 			var/list/retrieve_governing = drydock_policy_for_z(retrieve_drydock_z)
@@ -3879,7 +3888,7 @@ GLOBAL_LIST_EMPTY(drydock_console_by_z)
 			var/stash_drydock_z = _drydock_site_nearby(_drydock_ship_sector(DS))
 			if(!stash_drydock_z)
 				if(user)
-					to_chat(user, SPAN_WARNING("This ship must be within 1 tile of a drydock to be stashed."))
+					to_chat(user, SPAN_WARNING("This ship must be within [GLOB.drydock_retrieve_range] tile\s of a drydock to be stashed."))
 				log_drydock_warning("drydockStash: refused -- shuttle_id=[shuttle_id] not near a drydock (acting=[acting]).")
 				return FALSE
 			var/list/stash_governing = drydock_policy_for_z(stash_drydock_z)

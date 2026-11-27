@@ -2277,6 +2277,13 @@ GLOBAL_LIST_EMPTY(persistence_faction_research_cache)
 	var/already_pinned = check.NextRow()
 	qdel(check)
 	if(already_pinned)
+		// Still apply the requested kind -- a site pinned earlier for some other
+		// reason (e.g. a plain colony) and later converted (e.g. "Make This Site
+		// A Drydock") must not silently keep its old kind just because the
+		// INSERT...ON DUPLICATE KEY UPDATE below never runs on this path. Null
+		// site_kind callers (faction/hub beacons) already resolved it from the
+		// existing value above, so this is a no-op for them.
+		persistence_set_site_kind(z, site_kind)
 		return TRUE
 
 	var/base_z = z

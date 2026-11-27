@@ -192,13 +192,13 @@
 				var/obj/effect/overmap/visitable/berth = GLOB.map_sectors["[berth_z]"]
 				data["retrieve_refusal"] = "Impounded at [berth ? berth.name : "z=[berth_z]"] -- it can only be released from there."
 			else if(!retrieve_z)
-				data["retrieve_refusal"] = "You must be within 1 tile of a drydock to retrieve a ship."
+				data["retrieve_refusal"] = "You must be within [GLOB.drydock_retrieve_range] tile\s of a drydock to retrieve a ship."
 			else
 				data["retrieve_refusal"] = drydock_policy_refusal(drydock_policy_for_z(retrieve_z), DS.faction_uid, user)
 		else
 			var/stash_z = _drydock_site_nearby(_drydock_ship_sector(DS))
 			if(!stash_z)
-				data["stash_refusal"] = "This ship must be within 1 tile of a drydock to be stashed."
+				data["stash_refusal"] = "This ship must be within [GLOB.drydock_retrieve_range] tile\s of a drydock to be stashed."
 			else
 				data["stash_refusal"] = drydock_policy_refusal(drydock_policy_for_z(stash_z), DS.faction_uid, user)
 			var/obj/effect/overmap/visitable/ship/landable/tow_marker = DS.z ? GLOB.map_sectors["[DS.z]"] : null
