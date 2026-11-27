@@ -311,6 +311,19 @@
  */
 /obj/structure/machinery/optable/proc/move_patient_to_table(mob/living/carbon/patient, mob/living/carbon/giver)
 	patient.resting = TRUE
+	// resting alone does nothing to .lying -- that only gets set inside
+	// update_canmove() (mob.dm). Without this, check_occupant()'s
+	// occupant_must_be_lying check never passes for a patient who wasn't
+	// already lying down for some other reason (knocked out, critical,
+	// etc.) before being placed here -- a conscious patient climbing on
+	// voluntarily, or being dragged on while still conscious, silently
+	// never becomes the occupant at all: no patient_acceptable() warning,
+	// no "already healthy" ping, no repair cycle, nothing. Matches the
+	// pattern every other resting = TRUE caller already follows (see
+	// intimate_interactions.dm).
+	patient.update_canmove()
+	patient.update_icon()
+	SEND_SIGNAL(patient, COMSIG_MOB_RESTED)
 	patient.forceMove(loc)
 
 /obj/structure/machinery/optable/mouse_drop_receive(atom/dropped, mob/user, params)

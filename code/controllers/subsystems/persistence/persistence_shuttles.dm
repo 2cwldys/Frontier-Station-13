@@ -3286,13 +3286,43 @@ GLOBAL_LIST_EMPTY(drydock_console_by_z)
 	// persistence_turfs.dm re-picks a saved wall's icon and needs the same
 	// stable seed the template's own Initialize() pass just used.
 	GLOB.drydock_loading_wall_hash_seed = "[shuttle_id]"
-	if(pool_z)
-		bounds = template.load_into_z(pool_z, TRUE)
-		new_z = pool_z
-	else
-		var/z_before = world.maxz
-		bounds = template.load_new_z(FALSE, TRUE)
-		new_z = z_before + 1
+	// An uncaught exception during atom Initialize()/LateInitialize() while
+	// the template's contents instantiate (e.g. the drydock-retrieve crash
+	// this was written for: a ship weapon/loader mismatch throwing mid-load,
+	// see _ship_ammo_loader.dm) propagates straight out of load_into_z()/
+	// load_new_z() -- skipping every line below unconditionally, including
+	// the drydock_loading_suffix/areas/wall_hash_seed resets and SSair.can_fire
+	// restore that the normal path relies on. Left alone, that leaked
+	// drydock_loading_suffix ("#[shuttle_id]" from THIS attempt) is still set
+	// the next time ANYTHING loads a template -- including an unrelated
+	// retrieve for a different shuttle_id -- handing that one this ship's own
+	// per-instance naming suffix instead of its own, and corrupting both
+	// ships' shuttle registry names/landmark tags in the process (exactly
+	// what looked like "two different ships are actually the same ship").
+	// Caught here and reverted the same way the !bounds failure below
+	// already does, so a mid-load crash degrades to "retrieve failed,
+	// try again" instead of silently corrupting whatever retrieve runs next.
+	try
+		if(pool_z)
+			bounds = template.load_into_z(pool_z, TRUE)
+			new_z = pool_z
+		else
+			var/z_before = world.maxz
+			bounds = template.load_new_z(FALSE, TRUE)
+			new_z = z_before + 1
+	catch(var/exception/load_e)
+		DS.stashed = TRUE // revert -- retrieve never actually happened
+		if(pool_z)
+			SSpersistence.poolReusableZ(pool_z) // hand it back, this attempt never claimed it
+		GLOB.drydock_loading_suffix = null
+		GLOB.drydock_loading_areas = list()
+		GLOB.drydock_loading_wall_hash_seed = null
+		SSair.can_fire = TRUE
+		if(user)
+			to_chat(user, SPAN_WARNING("Failed to materialize ship."))
+		log_drydock_error("drydockRetrieve: exception loading template for shuttle_id=[shuttle_id] ([load_e] at [load_e.file]:[load_e.line])[pool_z ? " (pooled z=[pool_z])" : ""].")
+		log_and_message_admins("drydockRetrieve: shuttle_id=[shuttle_id] failed mid-load ([load_e]) -- reverted to stashed, but check for an orphaned z-level.", user)
+		return FALSE
 	GLOB.drydock_loading_suffix = null
 	// Cleared only AFTER the load returns -- init_shuttles() runs inside it,
 	// and /datum/shuttle/New() reads this list to bind its own areas.
