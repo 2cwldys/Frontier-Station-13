@@ -271,6 +271,7 @@ GLOBAL_LIST_INIT(admin_verbs_server, list(
 GLOBAL_LIST_INIT(admin_verbs_debug, list(
 	/client/proc/cmd_admin_list_open_jobs,
 	/client/proc/Debug2,
+	/client/proc/FixZoom,
 	/client/proc/DebugToggle,
 	/client/proc/DebugToggleAll,
 	/client/proc/kill_air,
@@ -469,6 +470,7 @@ GLOBAL_LIST_INIT(admin_verbs_hideable, list(
 	/client/proc/reset_openturf,
 	/client/proc/view_removed_structures,
 	/client/proc/Debug2,
+	/client/proc/FixZoom,
 	/client/proc/DebugToggle,
 	/client/proc/DebugToggleAll,
 	/client/proc/ZASSettings,
@@ -581,6 +583,7 @@ GLOBAL_LIST_INIT(admin_verbs_dev, list( //will need to be altered - Ryan784
 	/client/proc/cmd_debug_make_powernets,
 	/client/proc/cmd_debug_mob_lists,
 	/client/proc/Debug2,
+	/client/proc/FixZoom,
 	/client/proc/DebugToggle,
 	/client/proc/DebugToggleAll,
 	/client/proc/debug_controller,
