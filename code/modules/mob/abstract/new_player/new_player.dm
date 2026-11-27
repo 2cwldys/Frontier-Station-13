@@ -951,6 +951,22 @@ INITIALIZE_IMMEDIATE(/mob/abstract/new_player)
 		pre_chosen_spawn_pod = persistence_prompt_cryopod_choice(src, ckey_lower, pending_char_name, pending_faction)
 		if(QDELETED(src))
 			return
+		// The cryopod prompt has no timeout and can sit open for as long as
+		// the player takes to answer -- long enough for a flaky connection to
+		// drop and reconnect mid-wait. A reconnect tears down the old client
+		// and hands the player a fresh Login() (and a fresh new_player mob of
+		// its own) while this suspended call is still sitting here holding a
+		// now-stale client reference. QDELETED(src) above doesn't catch that
+		// -- src (this mob) can still exist. Continuing past this point with
+		// a client that's gone, or that now belongs to someone else's
+		// reconnect, is exactly how a character ends up half-created: no
+		// cryopod placement, no crew record, stuck wherever create_character()
+		// first puts them. Safer to abort and let the fresh Login() spawn
+		// properly than to limp forward on stale state.
+		if(!client || ckey(client.ckey) != ckey_lower)
+			log_subsystem_persistence_warning("PersistentAutoSpawn: ckey=[ckey_lower] client changed or vanished during cryopod choice -- aborting this spawn attempt rather than continuing on stale state.")
+			reopen_menu_after_failed_spawn()
+			return
 
 	// ── Load this character's full SQL data into prefs before spawning ──────
 	// create_character() uses client.prefs to build appearance/species/DNA.
